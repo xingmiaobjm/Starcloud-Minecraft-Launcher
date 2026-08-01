@@ -42,7 +42,7 @@ pub struct LauncherConfig {
 impl Default for LauncherConfig {
     fn default() -> Self {
         Self {
-            config_version: 1,
+            config_version: 2,
             dot_minecraft: dirs::data_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join(".minecraft"),
@@ -100,13 +100,40 @@ impl LauncherConfig {
     }
 
     /// 迁移旧版本配置
+    ///
+    /// - v0 → v1：补齐下载并发/重试/缓存默认值
+    /// - v1 → v2：补齐内存/窗口/下载字段安全默认（零值回退）
     pub fn migrate(&mut self) -> Result<()> {
-        if self.config_version == 0 {
+        if self.config_version < 1 {
             // 从 v0 → v1 迁移
-            self.config_version = 1;
             self.download_concurrency = 8;
             self.download_max_retries = 3;
             self.max_cache_entries = 128;
+        }
+        if self.config_version < 2 {
+            // 从 v1 → v2 迁移：新增字段/旧配置缺失时补齐安全默认值
+            if self.download_concurrency == 0 {
+                self.download_concurrency = 8;
+            }
+            if self.download_max_retries == 0 {
+                self.download_max_retries = 3;
+            }
+            if self.max_cache_entries == 0 {
+                self.max_cache_entries = 128;
+            }
+            if self.default_min_memory_mb == 0 {
+                self.default_min_memory_mb = 1024;
+            }
+            if self.default_max_memory_mb == 0 {
+                self.default_max_memory_mb = 4096;
+            }
+            if self.default_window_width == 0 {
+                self.default_window_width = 854;
+            }
+            if self.default_window_height == 0 {
+                self.default_window_height = 480;
+            }
+            self.config_version = 2;
         }
         Ok(())
     }

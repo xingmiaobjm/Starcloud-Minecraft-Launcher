@@ -1,18 +1,15 @@
 use clap::{Parser, Subcommand};
 use colored::*;
+use furry_minecraft::core::{AccountService, InstallService, LaunchService};
 use furry_minecraft::{
-    account::OfflineAccount,
-    config::LauncherConfig,
-    download::{
-        fetch_version_details, fetch_version_manifest, DownloadEngine, ProgressStatus,
-        ProgressTracker,
-    },
-    launch::{LaunchConfig, LaunchEngine},
+    config::{LaunchProfile, LauncherConfig},
+    download::{progress::ProgressInfo, DownloadEngine, ProgressStatus},
     plugin::PluginInstaller,
-    version_manager::{VersionComparator, VersionInstaller, VersionValidator},
-    LauncherError,
+    version_manager::{VersionComparator, VersionInstaller},
+    Result,
 };
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 // ============================================================
 // CLI 定义
@@ -28,7 +25,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// 安装 Minecraft 版本（下载资源+库）
+    /// 安装 Minecraft 版本（jar+库+资源）
     Install {
         /// 目标版本 ID（如 "1.21"）
         version: String,
@@ -99,7 +96,7 @@ enum Commands {
         #[arg(short, long)]
         snapshots: bool,
     },
-    /// 创建离线账户
+    /// 创建离线账户并保存
     Account {
         /// 玩家用户名
         username: String,
@@ -171,7 +168,7 @@ async fn main() {
         Commands::List { dir } => cmd_list(&dir).await,
         Commands::Remove { version, dir } => cmd_remove(&version, &dir).await,
         Commands::Versions { count, snapshots } => cmd_versions(count, snapshots).await,
-        Commands::Account { username } => cmd_account(&username),
+        Commands::Account { username } => cmd_account(&username).await,
         Commands::Config { path, show, reset } => cmd_config(&path, show, reset).await,
         Commands::Plugins { dir } => cmd_plugins(&dir).await,
         Commands::Check => cmd_check().await,
@@ -184,76 +181,59 @@ async fn main() {
 }
 
 // ============================================================
+// 公共辅助
+// ============================================================
+
+/// 加载配置（默认 launcher.toml，缺失用默认值），迁移到最新版本后覆盖游戏目录
+async fn load_config(dir: &str) -> Result<LauncherConfig> {
+    let mut config = LauncherConfig::load("launcher.toml").await?;
+    config.migrate()?;
+    config.dot_minecraft = PathBuf::from(dir);
+    Ok(config)
+}
+
+// ============================================================
 // 命令实现
 // ============================================================
 
-/// install 命令
-async fn cmd_install(version: &str, dir: &str) -> furry_minecraft::Result<()> {
+/// install 命令 - 完整安装（清单→详情→jar→库→资源→索引→version.json）
+async fn cmd_install(version: &str, dir: &str) -> Result<()> {
     println!(
         "{} 开始安装 Minecraft {}",
         "▶".green().bold(),
         version.cyan()
     );
 
-    let engine = DownloadEngine::new(dir);
-    let tracker = ProgressTracker::new();
+    let config = load_config(dir).await?;
+    let svc = InstallService::new(config);
 
-    // 1. 获取版本清单
-    println!("  获取版本清单...");
-    let manifest = fetch_version_manifest().await?;
+    // 进度显示：阶段切换时打印一行，完成/失败打印状态
+    let last_stage = Arc::new(Mutex::new(String::new()));
+    let last_stage_cb = last_stage.clone();
+    let version_owned = version.to_string();
+    svc.install_version(version, move |info: &ProgressInfo| {
+        let mut last = last_stage_cb.lock().unwrap();
+        if *last != info.stage {
+            *last = info.stage.clone();
+            println!("  · {}", info.stage);
+        }
+        match &info.status {
+            ProgressStatus::Completed => println!("    ✓ 完成"),
+            ProgressStatus::Failed(e) => eprintln!("    ✗ {}", e),
+            _ => {}
+        }
+    })
+    .await?;
 
-    let entry = manifest
-        .versions
-        .iter()
-        .find(|v| v.id == version)
-        .ok_or_else(|| LauncherError::VersionNotFound(version.to_string()))?;
-
-    // 2. 获取版本详情
-    println!("  获取版本详情...");
-    let details = fetch_version_details(&entry.url).await?;
-
-    // 3. 下载库文件
-    println!("  下载 {} 个库文件...", details.libraries.len());
-    tracker.set_status(ProgressStatus::Downloading);
-    let libs = engine
-        .library_downloader()
-        .download_libraries(&details.libraries)
-        .await?;
-    println!("    ✓ 完成 {} 个 classpath 条目", libs.len());
-
-    // 4. 下载资源
-    if let Some(ref ai) = details.asset_index {
-        print!("  下载资源索引...");
-        let client = reqwest::Client::new();
-        let resp = client.get(&ai.url).send().await?;
-        let index: furry_minecraft::version::manifest::AssetIndex = resp.json().await?;
-        let total = index.objects.len();
-        println!(" {} 个文件", total);
-
-        engine.asset_downloader().download_assets(&index).await?;
-        println!("    ✓ 资源下载完成");
-
-        // 安装资源索引
-        let assets_id = details.assets.as_deref().unwrap_or(&details.id);
-        let installer = VersionInstaller::new(DownloadEngine::new(dir));
-        installer.install_asset_index(&index, assets_id).await?;
-    }
-
-    // 5. 安装版本 json
-    let installer = VersionInstaller::new(DownloadEngine::new(dir));
-    installer.install_version(&details).await?;
-
-    tracker.set_status(ProgressStatus::Completed);
     println!(
         "{} Minecraft {} 安装完成！",
         "✓".green().bold(),
-        version.cyan().bold()
+        version_owned.cyan().bold()
     );
     Ok(())
 }
 
-/// launch 命令
-#[allow(clippy::too_many_arguments)] // 阶段1 重构为服务层调用后移除
+/// launch 命令 - 走服务层（确保安装→配置→校验→启动→输出流转发→退出判定）
 async fn cmd_launch(
     version: &str,
     username: &str,
@@ -264,63 +244,23 @@ async fn cmd_launch(
     dir: &str,
     dry_run: bool,
     java_path: Option<&str>,
-) -> furry_minecraft::Result<()> {
-    let dot_minecraft = PathBuf::from(dir);
-
-    // 检查是否已安装
-    let installer = VersionInstaller::new(DownloadEngine::new(dir));
-    if !installer.is_installed(version) {
-        println!(
-            "{} 版本 {} 未安装，先运行 {}",
-            "⊙".yellow(),
-            version.cyan(),
-            format!("furry-minecraft install {}", version).cyan()
-        );
-        return Ok(());
-    }
-
-    // 读取版本详情
-    let details = installer.read_installed_version(version).await?;
-
-    // 下载引擎
-    let engine = DownloadEngine::new(dir);
-
-    // 确保库文件已下载
-    let libs = engine
-        .library_downloader()
-        .download_libraries(&details.libraries)
-        .await?;
-
-    // 构建启动配置
-    let mut config = LaunchConfig::basic(version, &dot_minecraft, username)
-        .with_memory(min_mem, max_mem)
-        .with_window(width, height);
-
-    // 离线账户
-    let account = OfflineAccount::new(username)?;
-    let cred = account.credentials();
-    config.uuid = cred.uuid;
-    config.access_token = Some(cred.access_token);
-
+) -> Result<()> {
+    let mut config = load_config(dir).await?;
     if let Some(java) = java_path {
         config.java_executable = Some(PathBuf::from(java));
     }
+    let svc = LaunchService::new(config);
 
-    // 校验
-    VersionValidator::validate_launch_config(&config)?;
-
-    // 启动
-    let launcher = LaunchEngine::new(engine)?;
-    let java_info = launcher.java_runtime();
-    println!(
-        "{} Java {} (64bit: {})",
-        "•".cyan(),
-        java_info.major_version,
-        java_info.is_64bit
-    );
+    let mut profile = LaunchProfile::new("cli", version, username);
+    profile.min_memory_mb = min_mem;
+    profile.max_memory_mb = max_mem;
+    profile.window_width = width;
+    profile.window_height = height;
 
     if dry_run {
-        let cmd = launcher.print_command(&config, &details, &libs)?;
+        let cmd = svc
+            .dry_run_command(version, username, Some(&profile), |_| {})
+            .await?;
         println!("\n{}", cmd);
         return Ok(());
     }
@@ -330,40 +270,33 @@ async fn cmd_launch(
         "▶".green().bold(),
         version.cyan().bold()
     );
-    let mut child = launcher.launch(&config, &details, &libs)?;
-    println!("  进程 PID: {}", child.id());
+    let outcome = svc
+        .launch(
+            version,
+            username,
+            Some(&profile),
+            false,
+            |_| {},
+            Some(|line: &str, is_err| {
+                if is_err {
+                    eprintln!("{}", line.dimmed());
+                } else {
+                    println!("{}", line);
+                }
+            }),
+        )
+        .await?;
 
-    // 输出游戏日志（后台异步）
-    use std::io::BufRead;
-    if let Some(stdout) = child.stdout.take() {
-        tokio::spawn(async move {
-            let reader = std::io::BufReader::new(stdout);
-            for line in reader.lines().map_while(Result::ok) {
-                println!("{}", line);
-            }
-        });
-    }
-    if let Some(stderr) = child.stderr.take() {
-        tokio::spawn(async move {
-            let reader = std::io::BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                eprintln!("{}", line.dimmed());
-            }
-        });
-    }
-
-    let status = child.wait()?;
-    match status.code() {
+    match outcome.exit_code {
         Some(0) => println!("\n{} Minecraft 已正常退出", "✓".green()),
         Some(code) => eprintln!("\n{} 游戏异常退出 (退出码: {})", "✗".red(), code),
         None => eprintln!("\n{} 进程被信号终止", "✗".red()),
     }
-
     Ok(())
 }
 
 /// list 命令
-async fn cmd_list(dir: &str) -> furry_minecraft::Result<()> {
+async fn cmd_list(dir: &str) -> Result<()> {
     let installer = VersionInstaller::new(DownloadEngine::new(dir));
 
     let versions = installer.list_installed().await?;
@@ -395,7 +328,7 @@ async fn cmd_list(dir: &str) -> furry_minecraft::Result<()> {
 }
 
 /// remove 命令
-async fn cmd_remove(version: &str, dir: &str) -> furry_minecraft::Result<()> {
+async fn cmd_remove(version: &str, dir: &str) -> Result<()> {
     let installer = VersionInstaller::new(DownloadEngine::new(dir));
 
     if !installer.is_installed(version) {
@@ -409,9 +342,9 @@ async fn cmd_remove(version: &str, dir: &str) -> furry_minecraft::Result<()> {
 }
 
 /// versions 命令
-async fn cmd_versions(count: usize, snapshots: bool) -> furry_minecraft::Result<()> {
+async fn cmd_versions(count: usize, snapshots: bool) -> Result<()> {
     println!("获取版本清单...");
-    let manifest = fetch_version_manifest().await?;
+    let manifest = furry_minecraft::download::fetch_version_manifest().await?;
 
     let filtered: Vec<_> = manifest
         .versions
@@ -439,19 +372,19 @@ async fn cmd_versions(count: usize, snapshots: bool) -> furry_minecraft::Result<
     Ok(())
 }
 
-/// account 命令
-fn cmd_account(username: &str) -> furry_minecraft::Result<()> {
-    let account = OfflineAccount::new(username)?;
-    let cred = account.credentials();
+/// account 命令 - 创建离线账户并持久化（首个账户自动设为默认）
+async fn cmd_account(username: &str) -> Result<()> {
+    let svc = AccountService::new();
+    let acc = svc.add_offline(username).await?;
     println!("{} 离线账户已创建:", "✓".green());
-    println!("  用户名: {}", cred.username.green().bold());
-    println!("  UUID:   {}", cred.uuid.dimmed());
+    println!("  用户名: {}", acc.username.green().bold());
+    println!("  UUID:   {}", acc.uuid.dimmed());
     println!("  类型:   {}", "mojang (离线)".dimmed());
     Ok(())
 }
 
 /// config 命令
-async fn cmd_config(path: &str, show: bool, reset: bool) -> furry_minecraft::Result<()> {
+async fn cmd_config(path: &str, show: bool, reset: bool) -> Result<()> {
     if reset {
         let config = LauncherConfig::default();
         config.save(path).await?;
@@ -463,7 +396,7 @@ async fn cmd_config(path: &str, show: bool, reset: bool) -> furry_minecraft::Res
     config.migrate()?;
 
     if show {
-        println!("当前配置 ({})\n", path.cyan());
+        println!("当前配置 (v{}) ({})\n", config.config_version, path.cyan());
         println!("  .minecraft:        {}", config.dot_minecraft.display());
         println!("  语言:             {}", config.language.cyan());
         println!(
@@ -479,6 +412,16 @@ async fn cmd_config(path: &str, show: bool, reset: bool) -> furry_minecraft::Res
         println!("  最大缓存:         {} 条目", config.max_cache_entries);
         println!("  登录方式:         {}", config.login_method.cyan());
         println!("  插件目录:         {}", config.plugins_dir.display());
+        if let Some(ref java) = config.java_executable {
+            println!("  Java 路径:        {}", java.display());
+        } else {
+            println!("  Java 路径:        {} (自动检测)", "自动".dimmed());
+        }
+        if config.extra_jvm_args.is_empty() {
+            println!("  额外 JVM 参数:    (无)");
+        } else {
+            println!("  额外 JVM 参数:    {}", config.extra_jvm_args.join(" "));
+        }
         println!(
             "  自动更新:         {}",
             if config.auto_update {
@@ -491,7 +434,7 @@ async fn cmd_config(path: &str, show: bool, reset: bool) -> furry_minecraft::Res
             println!("  上次用户:         {}", user.green());
         }
         println!(
-            "  模组隔离:         {}",
+            "  实验性功能:       {}",
             if config.experimental {
                 "是".green()
             } else {
@@ -501,48 +444,64 @@ async fn cmd_config(path: &str, show: bool, reset: bool) -> furry_minecraft::Res
         return Ok(());
     }
 
+    config.migrate()?;
     config.save(path).await?;
     println!("{} 配置已保存到 {}", "✓".green(), path.cyan());
     Ok(())
 }
 
-/// plugins 命令
-async fn cmd_plugins(dir: &str) -> furry_minecraft::Result<()> {
+/// plugins 命令 - 展示安装清单（插件 ID/版本），兼容无清单的旧插件
+async fn cmd_plugins(dir: &str) -> Result<()> {
     let installer = PluginInstaller::new(dir);
 
-    let files = installer.list_installed().await?;
-    if files.is_empty() {
-        println!("{} 插件目录没有插件。", "⊙".yellow());
-        println!(
-            "  目录: {}",
-            PathBuf::from(dir)
-                .canonicalize()
-                .unwrap_or_else(|_| PathBuf::from(dir))
-                .display()
-        );
-        println!("\n  将 .dll/.so/.dylib 文件放入此目录即可安装。");
-        println!(
-            "  示例: furry-minecraft.exe 所在目录下的 {} 文件夹",
-            "plugins".cyan()
-        );
+    let manifest = installer.manifest().await?;
+    if manifest.is_empty() {
+        let files = installer.list_installed().await?;
+        if files.is_empty() {
+            println!("{} 插件目录没有插件。", "⊙".yellow());
+            println!(
+                "  目录: {}",
+                PathBuf::from(dir)
+                    .canonicalize()
+                    .unwrap_or_else(|_| PathBuf::from(dir))
+                    .display()
+            );
+            println!("\n  安装方式:");
+            println!("    1. 将 .dll/.so/.dylib 插件文件放入上述目录");
+            println!("    2. 使用 install 命令从本地文件或远程 URL 安装（后续版本提供）");
+            return Ok(());
+        }
+        // 无清单的旧插件：按文件展示
+        println!("已安装插件 ({} 个，无清单):\n", files.len());
+        for path in &files {
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy())
+                .unwrap_or_default();
+            let meta = path.metadata().ok();
+            let size = meta.map(|m| m.len()).unwrap_or(0);
+            println!("  • {}  ({:.1} KB)", name.cyan(), size as f64 / 1024.0);
+        }
         return Ok(());
     }
 
-    println!("已安装插件 ({} 个):\n", files.len());
-    for path in &files {
-        let name = path
-            .file_stem()
-            .map(|s| s.to_string_lossy())
-            .unwrap_or_default();
-        let meta = path.metadata().ok();
-        let size = meta.map(|m| m.len()).unwrap_or(0);
-        println!("  • {}  ({:.1} KB)", name.cyan(), size as f64 / 1024.0);
+    println!("已安装插件 ({} 个):\n", manifest.len());
+    for entry in &manifest {
+        let id = entry.plugin_id.as_deref().unwrap_or("未知 ID");
+        let ver = entry.version.as_deref().unwrap_or("?");
+        println!(
+            "  • {}  v{}  {}",
+            id.cyan(),
+            ver,
+            format!("文件: {}", entry.file_name).dimmed()
+        );
+        println!("      安装时间: {}", entry.installed_at.dimmed());
     }
     Ok(())
 }
 
 /// check 命令
-async fn cmd_check() -> furry_minecraft::Result<()> {
+async fn cmd_check() -> Result<()> {
     use furry_minecraft::launch::JavaDetector;
 
     println!("检测 Java 环境...\n");

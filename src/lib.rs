@@ -15,6 +15,7 @@
 
 pub mod account;
 pub mod config;
+pub mod core;
 pub mod download;
 pub mod error;
 pub mod launch;

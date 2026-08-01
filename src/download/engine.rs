@@ -3,6 +3,7 @@ use crate::version::manifest::ExtractConfig;
 use std::path::Path;
 
 /// 下载引擎 - 调度版本、资源、库的下载
+#[derive(Clone)]
 pub struct DownloadEngine {
     /// Minecraft 根目录 (.minecraft)
     dot_minecraft: std::path::PathBuf,

@@ -168,7 +168,7 @@ fn test_offline_account_credentials() {
 #[test]
 fn test_launcher_config_default() {
     let config = LauncherConfig::default();
-    assert_eq!(config.config_version, 1);
+    assert_eq!(config.config_version, 2);
     assert_eq!(config.default_min_memory_mb, 1024);
     assert_eq!(config.default_max_memory_mb, 4096);
     assert_eq!(config.download_concurrency, 8);
@@ -190,12 +190,22 @@ fn test_launcher_config_reset() {
 #[test]
 #[allow(clippy::field_reassign_with_default)] // 测试语义：构造低版本配置验证迁移
 fn test_launcher_config_migrate() {
+    // v0 → v2：补齐下载字段并升版本
     let mut config = LauncherConfig::default();
     config.config_version = 0;
     config.download_concurrency = 1;
     config.migrate().unwrap();
-    assert_eq!(config.config_version, 1);
+    assert_eq!(config.config_version, 2);
     assert_eq!(config.download_concurrency, 8);
+    assert_eq!(config.download_max_retries, 3);
+
+    // v1 → v2：零值字段回退安全默认
+    let mut config = LauncherConfig::default();
+    config.config_version = 1;
+    config.default_max_memory_mb = 0;
+    config.migrate().unwrap();
+    assert_eq!(config.config_version, 2);
+    assert_eq!(config.default_max_memory_mb, 4096);
 }
 
 #[test]
