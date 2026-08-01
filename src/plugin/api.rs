@@ -2,6 +2,9 @@ use crate::error::Result;
 use std::any::Any;
 use std::path::PathBuf;
 
+/// 当前插件 API 版本（插件声明 `api_version` 大于此值将被拒绝加载）
+pub const PLUGIN_API_VERSION: u32 = 1;
+
 /// 插件生命周期阶段枚举
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginStage {
@@ -195,8 +198,34 @@ pub struct PluginMeta {
     pub description: String,
     /// 依赖的插件 ID 列表
     pub dependencies: Vec<String>,
-    /// 最低启动器版本
+    /// 最低启动器版本（低于此版本拒绝加载）
     pub min_launcher_version: String,
+    /// 插件 API 版本（必须 ≤ `PLUGIN_API_VERSION`）
+    pub api_version: u32,
+}
+
+impl PluginMeta {
+    /// 快速构造（api_version 默认取当前支持版本）
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        version: impl Into<String>,
+        author: impl Into<String>,
+        description: impl Into<String>,
+        dependencies: Vec<String>,
+        min_launcher_version: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            version: version.into(),
+            author: author.into(),
+            description: description.into(),
+            dependencies,
+            min_launcher_version: min_launcher_version.into(),
+            api_version: PLUGIN_API_VERSION,
+        }
+    }
 }
 
 /// 插件 trait - 所有插件必须实现的接口
@@ -210,15 +239,15 @@ pub struct PluginMeta {
 ///
 /// impl Plugin for MyPlugin {
 ///     fn meta(&self) -> PluginMeta {
-///         PluginMeta {
-///             id: "com.example.myplugin".into(),
-///             name: "My Plugin".into(),
-///             version: "1.0.0".into(),
-///             author: "Example".into(),
-///             description: "An example plugin".into(),
-///             dependencies: vec![],
-///             min_launcher_version: "0.1.0".into(),
-///         }
+///         PluginMeta::new(
+///             "com.example.myplugin",
+///             "My Plugin",
+///             "1.0.0",
+///             "Example",
+///             "An example plugin",
+///             vec![],           // dependencies
+///             "0.1.0",          // min_launcher_version
+///         )
 ///     }
 ///
 ///     fn on_enable(&self, ctx: &PluginRegisterContext) -> Result<()> {

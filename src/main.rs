@@ -214,7 +214,7 @@ async fn cmd_install(version: &str, dir: &str) -> furry_minecraft::Result<()> {
 
     // 3. 下载库文件
     println!("  下载 {} 个库文件...", details.libraries.len());
-    tracker.set_status(ProgressStatus::Downloading).await;
+    tracker.set_status(ProgressStatus::Downloading);
     let libs = engine
         .library_downloader()
         .download_libraries(&details.libraries)
@@ -243,7 +243,7 @@ async fn cmd_install(version: &str, dir: &str) -> furry_minecraft::Result<()> {
     let installer = VersionInstaller::new(DownloadEngine::new(dir));
     installer.install_version(&details).await?;
 
-    tracker.set_status(ProgressStatus::Completed).await;
+    tracker.set_status(ProgressStatus::Completed);
     println!(
         "{} Minecraft {} 安装完成！",
         "✓".green().bold(),

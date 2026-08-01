@@ -4,9 +4,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// 已加载的动态库句柄封装
+///
+/// 仅持有 `libloading::Library` 即可：只要库句柄存活，
+/// 由其构造出的 `Box<dyn Plugin>` 实例就不会悬垂。
 struct DynamicLib {
     _lib: libloading::Library,
-    _plugin: Box<dyn Plugin>,
 }
 
 /// 插件加载器 - 负责动态加载 .dll/.so/.dylib 插件
@@ -76,13 +78,8 @@ impl PluginLoader {
         let meta = plugin.meta();
 
         // 保存库句柄
-        self.loaded_libs.insert(
-            meta.id.clone(),
-            DynamicLib {
-                _lib: lib,
-                _plugin: Box::new(NopPlugin), // 占位，实际插件数据已返回
-            },
-        );
+        self.loaded_libs
+            .insert(meta.id.clone(), DynamicLib { _lib: lib });
 
         Ok(plugin)
     }
@@ -97,22 +94,5 @@ impl PluginLoader {
     /// 已加载的插件数量
     pub fn loaded_count(&self) -> usize {
         self.loaded_libs.len()
-    }
-}
-
-/// 空操作占位插件
-struct NopPlugin;
-
-impl Plugin for NopPlugin {
-    fn meta(&self) -> crate::plugin::api::PluginMeta {
-        crate::plugin::api::PluginMeta {
-            id: "nop".into(),
-            name: "NOP".into(),
-            version: "0.0.0".into(),
-            author: "".into(),
-            description: "".into(),
-            dependencies: vec![],
-            min_launcher_version: "0.0.0".into(),
-        }
     }
 }

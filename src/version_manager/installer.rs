@@ -1,8 +1,11 @@
 use crate::download::engine::DownloadEngine;
+use crate::download::http_client::HttpClient;
 use crate::error::{LauncherError, Result};
 use crate::version::manifest::{AssetIndex, VersionDetails};
+use sha1::Digest;
 use std::path::{Path, PathBuf};
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 
 /// 版本安装器 - 管理版本目录的安装、验证、删除
 pub struct VersionInstaller {
@@ -57,6 +60,76 @@ impl VersionInstaller {
 
         log::info!("版本 '{}' 已安装到 {}", details.id, version_dir.display());
         Ok(())
+    }
+
+    /// 下载客户端 jar 到 `versions/{id}/{id}.jar`（SHA1 校验 + 原子写入）
+    ///
+    /// 若 `details.downloads.client` 缺失则返回明确错误（该版本无客户端包）。
+    pub async fn install_client_jar(&self, details: &VersionDetails) -> Result<PathBuf> {
+        let client_info = details.downloads.client.as_ref().ok_or_else(|| {
+            LauncherError::DownloadError(format!(
+                "版本 '{}' 缺少客户端下载信息 (downloads.client)",
+                details.id
+            ))
+        })?;
+
+        let dest = self.download_engine.client_jar_path(&details.id);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        // 已存在且 SHA1 匹配则跳过
+        if dest.exists() {
+            if let Ok(hash) = sha1_of_file(&dest) {
+                if hash == client_info.sha1 {
+                    log::debug!("客户端 jar 已存在且校验通过: {}", dest.display());
+                    return Ok(dest);
+                }
+            }
+            log::info!("客户端 jar 校验失败，重新下载: {}", dest.display());
+            fs::remove_file(&dest).await?;
+        }
+
+        log::info!(
+            "下载客户端 jar: {} ({} bytes)",
+            dest.display(),
+            client_info.size
+        );
+        let http = HttpClient::new()?;
+        let bytes = http.get_bytes_with_retry(&client_info.url).await?;
+
+        // SHA1 校验
+        let actual = format!("{:x}", sha1::Sha1::digest(&bytes));
+        if actual != client_info.sha1 {
+            return Err(LauncherError::ValidationError {
+                expected: client_info.sha1.clone(),
+                actual,
+            });
+        }
+
+        // 原子写入
+        let temp = dest.with_extension("tmp");
+        let mut file = fs::File::create(&temp).await?;
+        file.write_all(&bytes).await?;
+        file.flush().await?;
+        if dest.exists() {
+            fs::remove_file(&dest).await?;
+        }
+        fs::rename(&temp, &dest).await?;
+
+        Ok(dest)
+    }
+
+    /// 客户端 jar 是否已安装且校验通过
+    pub fn is_client_jar_installed(&self, version_id: &str, sha1: &str) -> bool {
+        let path = self.download_engine.client_jar_path(version_id);
+        if !path.exists() {
+            return false;
+        }
+        if sha1.is_empty() {
+            return true;
+        }
+        sha1_of_file(&path).map(|h| h == sha1).unwrap_or(false)
     }
 
     /// 安装资源索引
@@ -128,4 +201,10 @@ async fn dir_size(path: &Path) -> Result<u64> {
         }
     }
     Ok(total)
+}
+
+/// 计算文件 SHA1（十六进制小写）
+fn sha1_of_file(path: &Path) -> Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(format!("{:x}", sha1::Sha1::digest(&bytes)))
 }

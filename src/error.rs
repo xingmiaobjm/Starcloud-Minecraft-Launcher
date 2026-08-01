@@ -30,6 +30,9 @@ pub enum LauncherError {
     #[error("启动失败: {0}")]
     LaunchError(String),
 
+    #[error("账户错误: {0}")]
+    AccountError(String),
+
     #[error("插件错误: {0}")]
     PluginError(String),
 

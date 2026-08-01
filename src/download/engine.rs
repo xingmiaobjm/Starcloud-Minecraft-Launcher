@@ -1,4 +1,5 @@
-use crate::error::Result;
+use crate::error::{LauncherError, Result};
+use crate::version::manifest::ExtractConfig;
 use std::path::Path;
 
 /// 下载引擎 - 调度版本、资源、库的下载
@@ -43,6 +44,13 @@ impl DownloadEngine {
             .join("natives")
     }
 
+    /// 获取客户端 jar 路径（versions/{id}/{id}.jar）
+    pub fn client_jar_path(&self, version_id: &str) -> std::path::PathBuf {
+        self.versions_dir()
+            .join(version_id)
+            .join(format!("{}.jar", version_id))
+    }
+
     /// 创建资源下载器
     pub fn asset_downloader(&self) -> super::assets::AssetDownloader {
         super::assets::AssetDownloader::new(self.assets_dir())
@@ -54,8 +62,66 @@ impl DownloadEngine {
     }
 }
 
-/// 解压 native 库文件
+/// 校验 zip 条目路径是否安全（拒绝绝对路径与 `..` 穿越）
+///
+/// 返回 `Ok(relative_path)` 表示安全；`Err` 表示存在路径穿越，应跳过该条目。
+pub fn sanitize_zip_entry(entry_name: &str) -> Result<&str> {
+    if entry_name.is_empty() {
+        return Err(LauncherError::Other(format!(
+            "压缩包包含空路径条目: {:?}",
+            entry_name
+        )));
+    }
+    // 拒绝绝对路径与盘符
+    if Path::new(entry_name).is_absolute()
+        || entry_name.contains(':')
+        || entry_name.starts_with('/')
+        || entry_name.starts_with('\\')
+    {
+        return Err(LauncherError::Other(format!(
+            "压缩包条目包含绝对路径: {:?}",
+            entry_name
+        )));
+    }
+    // 逐个组件校验，拒绝 .. 与空组件（连续斜杠）
+    for component in Path::new(entry_name).components() {
+        use std::path::Component;
+        match component {
+            Component::ParentDir => {
+                return Err(LauncherError::Other(format!(
+                    "压缩包条目包含路径穿越: {:?}",
+                    entry_name
+                )));
+            }
+            Component::CurDir => {
+                return Err(LauncherError::Other(format!(
+                    "压缩包条目包含相对路径: {:?}",
+                    entry_name
+                )));
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(LauncherError::Other(format!(
+                    "压缩包条目包含根路径: {:?}",
+                    entry_name
+                )));
+            }
+            Component::Normal(_) => {}
+        }
+    }
+    Ok(entry_name)
+}
+
+/// 解压 native 库文件（带路径穿越防护与 exclude 过滤）
 pub fn extract_native(native_path: &Path, extract_dir: &Path) -> Result<()> {
+    extract_native_with_exclude(native_path, extract_dir, None)
+}
+
+/// 解压 native 库文件，支持排除列表
+pub fn extract_native_with_exclude(
+    native_path: &Path,
+    extract_dir: &Path,
+    exclude: Option<&ExtractConfig>,
+) -> Result<()> {
     if !native_path.exists() {
         return Ok(());
     }
@@ -72,7 +138,24 @@ pub fn extract_native(native_path: &Path, extract_dir: &Path) -> Result<()> {
             continue;
         }
 
-        let out_path = extract_dir.join(&name);
+        // 路径穿越防护
+        let safe_name = match sanitize_zip_entry(&name) {
+            Ok(n) => n.to_string(),
+            Err(e) => {
+                log::warn!("跳过不安全的压缩包条目: {} ({})", name, e);
+                continue;
+            }
+        };
+
+        // exclude 过滤（匹配前缀）
+        if let Some(config) = exclude {
+            if config.exclude.iter().any(|ex| safe_name.starts_with(ex)) {
+                log::debug!("排除解压条目: {}", safe_name);
+                continue;
+            }
+        }
+
+        let out_path = extract_dir.join(&safe_name);
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;
         } else {

@@ -139,28 +139,38 @@ impl LaunchEngine {
     ) -> Result<Command> {
         let os = crate::launch::arguments::OsKind::detect();
 
+        // 客户端 jar 绝对路径（classpath 末尾），并校验存在
+        let client_jar = self.download_engine.client_jar_path(&config.version_id);
+        if !client_jar.exists() {
+            return Err(LauncherError::LaunchError(format!(
+                "客户端 jar 不存在: {}，请先安装该版本",
+                client_jar.display()
+            )));
+        }
+
         // 构建替换变量表
         let assets_id = version
             .assets
             .clone()
             .unwrap_or_else(|| config.version_id.clone());
 
-        // 先计算 classpath
-        let classpath = library_paths
-            .iter()
-            .map(|s| s.as_str())
-            .chain(std::iter::once(version.id.as_str()))
-            .collect::<Vec<_>>()
-            .join(if cfg!(target_os = "windows") {
-                ";"
-            } else {
-                ":"
-            });
+        // 计算 classpath：库文件 + 客户端 jar 绝对路径
+        let separator = if cfg!(target_os = "windows") {
+            ";"
+        } else {
+            ":"
+        };
+        let mut classpath_parts: Vec<String> = library_paths.to_vec();
+        classpath_parts.push(client_jar.to_string_lossy().to_string());
+        let classpath = classpath_parts.join(separator);
+
+        // 游戏目录（.minecraft，支持自定义游戏目录）
+        let game_dir = config.dot_minecraft.to_string_lossy().to_string();
 
         let builder = ArgumentsBuilder::new(version.clone(), os)
             .with_replacement("auth_player_name", &config.username)
             .with_replacement("version_name", &config.version_id)
-            .with_replacement("game_directory", config.dot_minecraft.to_string_lossy())
+            .with_replacement("game_directory", &game_dir)
             .with_replacement(
                 "assets_root",
                 self.download_engine.assets_dir().to_string_lossy(),
@@ -237,8 +247,8 @@ impl LaunchEngine {
             cmd.arg(arg);
         }
 
-        // 版本目录作为工作目录
-        cmd.current_dir(self.download_engine.versions_dir().join(&config.version_id));
+        // 工作目录：游戏目录（.minecraft），与 game_directory 参数一致
+        cmd.current_dir(&config.dot_minecraft);
 
         // 输出到标准输出（方便日志捕获）
         cmd.stdout(Stdio::piped());

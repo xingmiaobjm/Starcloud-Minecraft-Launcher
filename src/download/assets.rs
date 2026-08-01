@@ -1,15 +1,21 @@
+use crate::download::http_client::HttpClient;
+use crate::download::progress::ProgressTracker;
 use crate::error::{LauncherError, Result};
 use crate::version::manifest::AssetIndex;
+use sha1::Digest;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 /// 资源文件下载器
 pub struct AssetDownloader {
-    /// 资源根目录
+    /// 资源根目录 (.minecraft/assets)
     base_dir: PathBuf,
     /// 并发下载数
     concurrency: usize,
+    /// 进度追踪器（可选）
+    tracker: Option<Arc<ProgressTracker>>,
 }
 
 impl AssetDownloader {
@@ -19,12 +25,19 @@ impl AssetDownloader {
         Self {
             base_dir: base_dir.into(),
             concurrency: 8,
+            tracker: None,
         }
     }
 
     /// 设置并发下载数
     pub fn concurrency(mut self, n: usize) -> Self {
-        self.concurrency = n;
+        self.concurrency = n.max(1);
+        self
+    }
+
+    /// 接入进度追踪器
+    pub fn with_tracker(mut self, tracker: Arc<ProgressTracker>) -> Self {
+        self.tracker = Some(tracker);
         self
     }
 
@@ -34,30 +47,49 @@ impl AssetDownloader {
         fs::create_dir_all(&objects_dir).await?;
 
         let total = asset_index.objects.len();
-        log::info!("开始下载 {} 个资源文件...", total);
+        let total_size: u64 = asset_index.objects.values().map(|o| o.size).sum();
+        log::info!(
+            "开始下载 {} 个资源文件（约 {} bytes）...",
+            total,
+            total_size
+        );
 
-        let client = reqwest::Client::new();
+        let http = HttpClient::new()?;
         let mut tasks = Vec::new();
+
+        if let Some(tracker) = &self.tracker {
+            tracker.begin_stage("下载资源", total_size);
+        }
 
         for obj in asset_index.objects.values() {
             if tasks.len() >= self.concurrency {
                 // 等待一批完成
                 for task in tasks.drain(..) {
-                    task.await??;
+                    let size = task.await??;
+                    if let Some(tracker) = &self.tracker {
+                        tracker.add_progress(size);
+                    }
                 }
             }
             let dir = objects_dir.clone();
-            let client = client.clone();
+            let http = http.clone();
             let obj_hash = obj.hash.clone();
             let obj_size = obj.size;
             tasks.push(tokio::spawn(async move {
-                download_single_asset(&client, &dir, &obj_hash, obj_size).await
+                download_single_asset(&http, &dir, &obj_hash, obj_size).await
             }));
         }
 
         // 等待剩余任务
         for task in tasks {
-            task.await??;
+            let size = task.await??;
+            if let Some(tracker) = &self.tracker {
+                tracker.add_progress(size);
+            }
+        }
+
+        if let Some(tracker) = &self.tracker {
+            tracker.set_status(crate::download::progress::ProgressStatus::Completed);
         }
 
         log::info!("资源文件下载完成");
@@ -66,27 +98,40 @@ impl AssetDownloader {
 
     /// 获取资源索引 JSON 并下载
     pub async fn download_from_url(&self, index_url: &str) -> Result<()> {
-        let client = reqwest::Client::new();
-        let response = client.get(index_url).send().await?;
-        let index: AssetIndex = response.json().await?;
+        let http = HttpClient::new()?;
+        let index: AssetIndex = http.get_json_with_retry(index_url).await?;
         self.download_assets(&index).await
     }
 }
 
-/// 下载单个资源文件
+/// 下载单个资源文件，返回写入字节数
+///
+/// 下载后校验 SHA1 与大小；`hash` 长度不足 2 时视为无效并报错。
 async fn download_single_asset(
-    client: &reqwest::Client,
+    http: &HttpClient,
     objects_dir: &Path,
     hash: &str,
-    _size: u64,
-) -> Result<()> {
+    size: u64,
+) -> Result<u64> {
+    if hash.len() < 2 {
+        return Err(LauncherError::Other(format!(
+            "资源哈希长度无效: {:?}",
+            hash
+        )));
+    }
+
     let sub_dir = &hash[..2];
     let asset_dir = objects_dir.join(sub_dir);
     fs::create_dir_all(&asset_dir).await?;
 
     let file_path = asset_dir.join(hash);
+
+    // 已存在且大小一致则跳过（快速路径；完整校验见下载分支）
     if file_path.exists() {
-        return Ok(());
+        let existing_size = file_path.metadata().map(|m| m.len()).unwrap_or(0);
+        if existing_size == size {
+            return Ok(0);
+        }
     }
 
     let url = format!(
@@ -94,16 +139,22 @@ async fn download_single_asset(
         sub_dir, hash
     );
 
-    let response = client.get(&url).send().await?;
-    if !response.status().is_success() {
-        return Err(LauncherError::DownloadError(format!(
-            "下载资源失败: {} (HTTP {})",
-            hash,
-            response.status()
-        )));
-    }
+    let bytes = http.get_bytes_with_retry(&url).await?;
 
-    let bytes = response.bytes().await?;
+    // SHA1 + size 校验
+    let actual_hash = format!("{:x}", sha1::Sha1::digest(&bytes));
+    if actual_hash != hash {
+        return Err(LauncherError::ValidationError {
+            expected: hash.to_string(),
+            actual: actual_hash,
+        });
+    }
+    if size > 0 && bytes.len() as u64 != size {
+        return Err(LauncherError::ValidationError {
+            expected: format!("size {}", size),
+            actual: format!("size {}", bytes.len()),
+        });
+    }
 
     // 写入临时文件后重命名，保证原子性
     let mut temp_path = file_path.clone();
@@ -112,6 +163,10 @@ async fn download_single_asset(
     file.write_all(&bytes).await?;
     file.flush().await?;
 
+    if file_path.exists() {
+        fs::remove_file(&file_path).await?;
+    }
     fs::rename(&temp_path, &file_path).await?;
-    Ok(())
+
+    Ok(bytes.len() as u64)
 }

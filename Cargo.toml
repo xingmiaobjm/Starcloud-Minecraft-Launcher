@@ -34,6 +34,8 @@ tracing-appender = "0.2"
 tracing-log = "0.2"
 # SHA1 校验
 sha1 = { version = "0.10", package = "sha1" }
+# MD5（离线账户 UUID 生成）
+md-5 = { version = "0.10", package = "md-5" }
 # 文件操作
 tempfile = "3"
 # ZIP 解压

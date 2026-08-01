@@ -165,20 +165,6 @@ impl ArgumentsBuilder {
         args
     }
 
-    /// 获取所需库的 classpath（以平台的路径分隔符连接）
-    pub fn build_classpath(&self, library_paths: &[String]) -> String {
-        // 添加版本 jar
-        let version_jar = format!("{}.jar", self.version.id);
-        let mut all_paths = library_paths.to_vec();
-        all_paths.insert(0, version_jar);
-
-        all_paths.join(if cfg!(target_os = "windows") {
-            ";"
-        } else {
-            ":"
-        })
-    }
-
     /// 获取主类名
     pub fn main_class(&self) -> &str {
         &self.version.main_class
