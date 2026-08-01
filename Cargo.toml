@@ -1,0 +1,87 @@
+[package]
+name = "furry-minecraft"
+version = "0.1.0"
+edition = "2021"
+description = "Minecraft 启动器核心模块 - 下载引擎、启动引擎、插件系统"
+license = "MIT"
+authors = ["Furry Minecraft Team"]
+
+[lib]
+name = "furry_minecraft"
+path = "src/lib.rs"
+
+[[bin]]
+name = "furry-minecraft"
+path = "src/main.rs"
+
+[[example]]
+name = "basic_launcher"
+path = "examples/basic_launcher.rs"
+
+[dependencies]
+# 异步运行时
+tokio = { version = "1", features = ["full"] }
+# HTTP 客户端
+reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+# JSON 序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 日志
+log = "0.4"
+# SHA1 校验
+sha1 = { version = "0.10", package = "sha1" }
+# 文件操作
+tempfile = "3"
+# ZIP 解压
+zip = "2"
+# 动态库加载（插件系统）
+libloading = "0.8"
+# 错误处理
+thiserror = "2"
+anyhow = "1"
+# UUID 生成
+uuid = { version = "1", features = ["v4"] }
+# 路径工具
+dirs = "6"
+# 缓存
+lru = "0.12"
+# 重试
+backon = "1"
+# 正则（版本号解析）
+regex = "1"
+# 配置文件
+toml = "0.8"
+# 信号量（并发控制）
+tokio-util = { version = "0.7", features = ["full"] }
+# 时间
+chrono = { version = "0.4", features = ["serde"] }
+# 百分比编码
+percent-encoding = "2"
+# 命令行解析
+clap = { version = "4", features = ["derive"] }
+# 终端输出美化
+colored = "2"
+
+[dev-dependencies]
+# 测试用
+env_logger = "0.11"
+# 性能基准
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+# 模拟 HTTP
+wiremock = "0.6"
+# 快速测试
+tempfile = "3"
+
+[[bench]]
+name = "download_bench"
+harness = false
+
+[[bench]]
+name = "launch_bench"
+harness = false
+
+[features]
+default = ["download", "launch", "plugin"]
+download = []
+launch = []
+plugin = []
