@@ -76,7 +76,10 @@ async fn test_library_download_success_and_skip() {
 
     let dir = tempfile::tempdir().unwrap();
     let downloader = LibraryDownloader::new(dir.path());
-    let entries = downloader.download_libraries(&[lib.clone()]).await.unwrap();
+    let entries = downloader
+        .download_libraries(std::slice::from_ref(&lib))
+        .await
+        .unwrap();
     assert_eq!(entries.len(), 1);
 
     let dest = dir.path().join(rel);

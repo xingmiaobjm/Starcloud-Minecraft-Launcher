@@ -82,21 +82,33 @@ impl LibraryDownloader {
                 continue;
             }
 
+            // 新式 native 库：名称含 `:natives-` classifier（1.13+ 独立条目，无 natives 字段）
+            let is_native = lib.name.contains(":natives-");
+
             // 解析下载条目（新版 downloads.artifact / 旧版 url 回退）
             let artifact = resolve_artifact(lib);
 
             // 主 artifact
             if let Some(artifact) = &artifact {
                 let lib_path = self.base_dir.join(&artifact.path);
-                classpath_entries.push(lib_path.to_string_lossy().to_string());
 
-                if self.needs_download(&lib_path, artifact) {
-                    total_bytes += artifact.size;
-                    download_queue.push((artifact.clone(), lib_path));
+                if is_native {
+                    // native 库：下载并解压到 natives 目录，不加入 classpath
+                    if self.needs_download(&lib_path, artifact) {
+                        total_bytes += artifact.size;
+                        download_queue.push((artifact.clone(), lib_path.clone()));
+                    }
+                    native_extract.push((lib_path, lib.extract.clone()));
+                } else {
+                    classpath_entries.push(lib_path.to_string_lossy().to_string());
+                    if self.needs_download(&lib_path, artifact) {
+                        total_bytes += artifact.size;
+                        download_queue.push((artifact.clone(), lib_path));
+                    }
                 }
             }
 
-            // Native 库：筛选 → 下载 → 解压到 natives_dir
+            // 旧式 native 库（1.12-）：`natives` + `downloads.classifiers` 字段
             if let (Some(natives), Some(downloads)) = (&lib.natives, &lib.downloads) {
                 if let Some(native_suffix) = natives.get(&self.os_name) {
                     let classifier_key = native_suffix.replace("${arch}", &self.replace_arch());
@@ -261,7 +273,8 @@ fn check_rules(rules: Option<&Vec<Rule>>, os_name: &str, os_arch: &str) -> bool 
     for rule in rules {
         let matches = match &rule.os {
             Some(os_rule) => {
-                os_rule.name == os_name && os_rule.arch.as_ref().is_none_or(|a| a == os_arch)
+                os_rule.name.as_deref().is_none_or(|n| n == os_name)
+                    && os_rule.arch.as_ref().is_none_or(|a| a == os_arch)
             }
             None => true,
         };

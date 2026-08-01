@@ -1,10 +1,11 @@
 //! 安装服务 - 版本安装的高层封装
 
 use crate::config::LauncherConfig;
-use crate::download::engine::DownloadEngine;
 use crate::download::http_client::{HttpClient, RetryConfig};
 use crate::download::progress::{ProgressInfo, ProgressStatus, ProgressTracker};
-use crate::download::{fetch_version_details, fetch_version_manifest};
+use crate::download::{
+    ensure_logging_config, fetch_version_details, fetch_version_manifest, DownloadEngine,
+};
 use crate::error::{LauncherError, Result};
 use crate::plugin::{PluginContext, PluginManager, PluginStage};
 use crate::version::manifest::{AssetIndex, VersionDetails};
@@ -39,9 +40,10 @@ impl InstallService {
 
     /// 根据配置构建重试策略
     fn retry_config(&self) -> RetryConfig {
-        let mut cfg = RetryConfig::default();
-        cfg.max_retries = self.config.download_max_retries.max(1);
-        cfg
+        RetryConfig {
+            max_retries: self.config.download_max_retries.max(1),
+            ..RetryConfig::default()
+        }
     }
 
     /// 广播插件事件（失败仅记录警告，不影响主流程）
@@ -95,6 +97,7 @@ impl InstallService {
         let libs = engine
             .library_downloader()
             .concurrency(self.config.download_concurrency.max(1))
+            .natives_dir(engine.natives_dir(&details.id))
             .with_tracker(tracker.clone())
             .download_libraries(&details.libraries)
             .await?;
@@ -122,6 +125,9 @@ impl InstallService {
         // 7. version.json
         installer.install_version(&details).await?;
 
+        // 8. 日志配置文件（log4j2，供 ${path} 替换）
+        ensure_logging_config(&self.config.dot_minecraft, &details).await?;
+
         tracker.set_status(ProgressStatus::Completed);
         tracker.force_fire();
         self.fire(PluginStage::VersionInstalled);
@@ -134,5 +140,10 @@ impl InstallService {
         let installer = VersionInstaller::new(DownloadEngine::new(&self.config.dot_minecraft));
         installer.install_client_jar(details).await?;
         Ok(())
+    }
+
+    /// 确保日志配置文件就绪（供启动前解析使用）
+    pub async fn ensure_logging_config(&self, details: &VersionDetails) -> Result<()> {
+        ensure_logging_config(&self.config.dot_minecraft, details).await
     }
 }

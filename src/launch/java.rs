@@ -162,8 +162,16 @@ impl JavaDetector {
     }
 
     /// 检测指定路径的 Java
+    ///
+    /// 支持两种形式：
+    /// - 直接指向可执行文件（如 `.../bin/java.exe`）
+    /// - 指向 Java 安装目录（自动补全 `bin/java(.exe)`）
     pub fn detect_at(path: &Path) -> Result<JavaRuntime> {
-        let exe = get_java_exe(path);
+        let exe = if path.is_file() {
+            path.to_path_buf()
+        } else {
+            get_java_exe(path)
+        };
         if !exe.exists() {
             return Err(LauncherError::JavaNotFound(0));
         }

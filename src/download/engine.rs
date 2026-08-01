@@ -52,6 +52,13 @@ impl DownloadEngine {
             .join(format!("{}.jar", version_id))
     }
 
+    /// 获取日志配置文件路径（versions/{id}/{id}-log4j2.xml）
+    pub fn logging_config_path(&self, version_id: &str) -> std::path::PathBuf {
+        self.versions_dir()
+            .join(version_id)
+            .join(super::logging_config_file_name(version_id))
+    }
+
     /// 创建资源下载器
     pub fn asset_downloader(&self) -> super::assets::AssetDownloader {
         super::assets::AssetDownloader::new(self.assets_dir())

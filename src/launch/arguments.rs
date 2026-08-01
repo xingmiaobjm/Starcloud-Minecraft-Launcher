@@ -190,7 +190,7 @@ fn check_rules(rules: &[Rule], os: OsKind, features: &HashMap<String, bool>) -> 
         let os_match = rule
             .os
             .as_ref()
-            .is_none_or(|os_rule| os_rule.name == os.as_mojang());
+            .is_none_or(|os_rule| os_rule.name.as_deref().is_none_or(|n| n == os.as_mojang()));
 
         let feature_match = rule.features.as_ref().is_none_or(|feats| {
             feats

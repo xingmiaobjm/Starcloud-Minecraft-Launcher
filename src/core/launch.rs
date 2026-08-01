@@ -188,6 +188,7 @@ impl LaunchService {
         let libs = engine
             .library_downloader()
             .concurrency(self.config.download_concurrency.max(1))
+            .natives_dir(engine.natives_dir(version_id))
             .with_tracker(tracker.clone())
             .download_libraries(&details.libraries)
             .await?;
@@ -199,6 +200,10 @@ impl LaunchService {
             let install = InstallService::new(self.config.clone());
             install.ensure_client_jar(&details).await?;
         }
+
+        // 日志配置文件缺失时补下载（供 ${path} 替换）
+        let install = InstallService::new(self.config.clone());
+        install.ensure_logging_config(&details).await?;
 
         // 构建启动配置与账户
         let mut cfg = self.build_launch_config(version_id, username, profile);

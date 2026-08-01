@@ -234,6 +234,7 @@ async fn cmd_install(version: &str, dir: &str) -> Result<()> {
 }
 
 /// launch 命令 - 走服务层（确保安装→配置→校验→启动→输出流转发→退出判定）
+#[allow(clippy::too_many_arguments)] // CLI 入口参数直接来自命令行解析
 async fn cmd_launch(
     version: &str,
     username: &str,

@@ -156,8 +156,12 @@ pub enum RuleAction {
 /// 操作系统规则
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OsRule {
-    pub name: String,
+    /// 系统名（如 windows/osx/linux）；可缺省（如仅按 arch 匹配）
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
     pub version: Option<String>,
+    #[serde(default)]
     pub arch: Option<String>,
 }
 

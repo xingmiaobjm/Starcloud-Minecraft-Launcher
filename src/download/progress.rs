@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 
 /// 进度回调类型别名
 type ProgressCallback = Box<dyn Fn(&ProgressInfo) + Send + Sync>;
@@ -23,8 +22,8 @@ pub struct ProgressTracker {
     /// 额外的阶段进度（用于细分不同下载阶段）
     #[allow(dead_code)]
     stages: Mutex<HashMap<String, StageProgress>>,
-    /// 回调函数列表
-    callbacks: RwLock<Vec<ProgressCallback>>,
+    /// 回调函数列表（同步锁：允许在 async 上下文安全注册/触发）
+    callbacks: Mutex<Vec<ProgressCallback>>,
     /// 速度/ETA 状态
     speed_state: Mutex<SpeedState>,
     /// 回调触发节流最小间隔
@@ -117,7 +116,7 @@ impl ProgressTracker {
             status: Mutex::new(ProgressStatus::Pending),
             stage: Mutex::new(String::new()),
             stages: Mutex::new(HashMap::new()),
-            callbacks: RwLock::new(Vec::new()),
+            callbacks: Mutex::new(Vec::new()),
             speed_state: Mutex::new(SpeedState::default()),
             min_callback_interval: Duration::from_millis(100),
             last_emit: Mutex::new(None),
@@ -260,7 +259,7 @@ impl ProgressTracker {
     where
         F: Fn(&ProgressInfo) + Send + Sync + 'static,
     {
-        let mut callbacks = self.callbacks.blocking_write();
+        let mut callbacks = self.callbacks.lock().unwrap();
         callbacks.push(Box::new(callback));
     }
 
@@ -290,19 +289,15 @@ impl ProgressTracker {
 
     fn fire_callbacks_sync(&self) {
         let info = self.snapshot();
-        let callbacks = self.callbacks.blocking_read();
+        let callbacks = self.callbacks.lock().unwrap();
         for cb in callbacks.iter() {
             cb(&info);
         }
     }
 
-    /// 异步触发所有回调（兼容旧 API）
+    /// 触发所有回调（兼容旧异步 API；内部为同步语义）
     pub async fn fire_callbacks(&self) {
-        let info = self.snapshot();
-        let callbacks = self.callbacks.read().await;
-        for cb in callbacks.iter() {
-            cb(&info);
-        }
+        self.fire_callbacks_sync();
     }
 
     /// 重置

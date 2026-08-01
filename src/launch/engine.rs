@@ -212,7 +212,14 @@ impl LaunchEngine {
                     .to_string_lossy()
                     .to_string(),
             )
-            .with_replacement("classpath", &classpath);
+            .with_replacement("classpath", &classpath)
+            .with_replacement(
+                "path",
+                self.download_engine
+                    .logging_config_path(&config.version_id)
+                    .to_string_lossy()
+                    .to_string(),
+            );
 
         let java_exe = config
             .java_executable
