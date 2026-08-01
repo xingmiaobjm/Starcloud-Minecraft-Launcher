@@ -6,8 +6,13 @@ const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manif
 
 /// 从 Mojang 官方获取版本清单（带重试）
 pub async fn fetch_version_manifest() -> Result<VersionManifest> {
+    fetch_version_manifest_from(MANIFEST_URL).await
+}
+
+/// 从指定地址获取版本清单（测试可注入 mock server 地址）
+pub async fn fetch_version_manifest_from(url: &str) -> Result<VersionManifest> {
     let client = HttpClient::new()?;
-    let manifest: VersionManifest = client.get_json_with_retry(MANIFEST_URL).await?;
+    let manifest: VersionManifest = client.get_json_with_retry(url).await?;
     log::info!("获取版本清单成功，共 {} 个版本", manifest.versions.len());
     Ok(manifest)
 }

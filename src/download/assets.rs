@@ -16,6 +16,8 @@ pub struct AssetDownloader {
     concurrency: usize,
     /// 进度追踪器（可选）
     tracker: Option<Arc<ProgressTracker>>,
+    /// 资源下载根地址（默认 Mojang CDN；测试可注入 mock server）
+    base_url: String,
 }
 
 impl AssetDownloader {
@@ -26,12 +28,19 @@ impl AssetDownloader {
             base_dir: base_dir.into(),
             concurrency: 8,
             tracker: None,
+            base_url: "https://resources.download.minecraft.net".to_string(),
         }
     }
 
     /// 设置并发下载数
     pub fn concurrency(mut self, n: usize) -> Self {
         self.concurrency = n.max(1);
+        self
+    }
+
+    /// 设置资源下载根地址（默认 Mojang CDN；测试注入 mock server 用）
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = url.into().trim_end_matches('/').to_string();
         self
     }
 
@@ -75,8 +84,9 @@ impl AssetDownloader {
             let http = http.clone();
             let obj_hash = obj.hash.clone();
             let obj_size = obj.size;
+            let base_url = self.base_url.clone();
             tasks.push(tokio::spawn(async move {
-                download_single_asset(&http, &dir, &obj_hash, obj_size).await
+                download_single_asset(&http, &dir, &obj_hash, obj_size, &base_url).await
             }));
         }
 
@@ -112,6 +122,7 @@ async fn download_single_asset(
     objects_dir: &Path,
     hash: &str,
     size: u64,
+    base_url: &str,
 ) -> Result<u64> {
     if hash.len() < 2 {
         return Err(LauncherError::Other(format!(
@@ -134,10 +145,7 @@ async fn download_single_asset(
         }
     }
 
-    let url = format!(
-        "https://resources.download.minecraft.net/{}/{}",
-        sub_dir, hash
-    );
+    let url = format!("{}/{}/{}", base_url, sub_dir, hash);
 
     let bytes = http.get_bytes_with_retry(&url).await?;
 
