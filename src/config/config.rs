@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use tokio::fs;
 use crate::error::{LauncherError, Result};
+use std::path::{Path, PathBuf};
+use tokio::fs;
 
 /// 启动器全局配置 - 可序列化到 TOML 文件
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -101,15 +101,12 @@ impl LauncherConfig {
 
     /// 迁移旧版本配置
     pub fn migrate(&mut self) -> Result<()> {
-        match self.config_version {
-            0 => {
-                // 从 v0 → v1 迁移
-                self.config_version = 1;
-                self.download_concurrency = 8;
-                self.download_max_retries = 3;
-                self.max_cache_entries = 128;
-            }
-            _ => {}
+        if self.config_version == 0 {
+            // 从 v0 → v1 迁移
+            self.config_version = 1;
+            self.download_concurrency = 8;
+            self.download_max_retries = 3;
+            self.max_cache_entries = 128;
         }
         Ok(())
     }
@@ -142,7 +139,11 @@ pub struct LaunchProfile {
 
 impl LaunchProfile {
     /// 创建默认配置
-    pub fn new(name: impl Into<String>, version_id: impl Into<String>, username: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        version_id: impl Into<String>,
+        username: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             version_id: version_id.into(),
@@ -159,10 +160,12 @@ impl LaunchProfile {
     }
 
     /// 转换为 LaunchConfig
-    pub fn to_launch_config(&self, dot_minecraft: &PathBuf) -> crate::launch::LaunchConfig {
+    pub fn to_launch_config(&self, dot_minecraft: &Path) -> crate::launch::LaunchConfig {
         crate::launch::LaunchConfig::basic(
             &self.version_id,
-            self.custom_game_dir.clone().unwrap_or_else(|| dot_minecraft.clone()),
+            self.custom_game_dir
+                .clone()
+                .unwrap_or_else(|| dot_minecraft.to_path_buf()),
             &self.username,
         )
         .with_memory(self.min_memory_mb, self.max_memory_mb)

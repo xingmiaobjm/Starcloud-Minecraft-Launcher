@@ -1,0 +1,2 @@
+# 允许某些宽松 lint（按需调整）
+# 详见 https://doc.rust-lang.org/clippy/

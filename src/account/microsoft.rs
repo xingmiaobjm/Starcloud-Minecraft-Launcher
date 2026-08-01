@@ -258,7 +258,9 @@ impl MicrosoftAuth {
         }
 
         let xbl_identity = format!("XBL3.0 x={};{}", uhs, xsts_token);
-        let req = McRequest { identity_token: xbl_identity };
+        let req = McRequest {
+            identity_token: xbl_identity,
+        };
 
         let response = self
             .client
@@ -315,10 +317,17 @@ impl MicrosoftAuth {
                     let xbl = self.auth_xbox_live(&token.access_token).await?;
                     // XSTS 认证
                     let xsts = self.auth_xsts(&xbl.token).await?;
-                    let uhs = xsts.display_claims.xui.first()
+                    let uhs = xsts
+                        .display_claims
+                        .xui
+                        .first()
                         .ok_or_else(|| LauncherError::Other("XSTS 返回空的 UHS".to_string()))?
-                        .uhs.clone();
-                    let xuid = xsts.display_claims.xui.first()
+                        .uhs
+                        .clone();
+                    let xuid = xsts
+                        .display_claims
+                        .xui
+                        .first()
                         .map(|x| x.uhs.clone())
                         .unwrap_or_default();
                     // Minecraft 认证

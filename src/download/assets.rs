@@ -1,8 +1,8 @@
+use crate::error::{LauncherError, Result};
+use crate::version::manifest::AssetIndex;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use crate::error::{LauncherError, Result};
-use crate::version::manifest::AssetIndex;
 
 /// 资源文件下载器
 pub struct AssetDownloader {
@@ -39,7 +39,7 @@ impl AssetDownloader {
         let client = reqwest::Client::new();
         let mut tasks = Vec::new();
 
-        for (_, obj) in &asset_index.objects {
+        for obj in asset_index.objects.values() {
             if tasks.len() >= self.concurrency {
                 // 等待一批完成
                 for task in tasks.drain(..) {

@@ -1,6 +1,6 @@
+use crate::error::Result;
 use std::any::Any;
 use std::path::PathBuf;
-use crate::error::Result;
 
 /// 插件生命周期阶段枚举
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,19 +232,29 @@ pub trait Plugin: Send + Sync {
     fn meta(&self) -> PluginMeta;
 
     /// 插件启用时调用（注册时）
-    fn on_enable(&self, _ctx: &PluginRegisterContext) -> Result<()> { Ok(()) }
+    fn on_enable(&self, _ctx: &PluginRegisterContext) -> Result<()> {
+        Ok(())
+    }
 
     /// 插件禁用时调用
-    fn on_disable(&self) -> Result<()> { Ok(()) }
+    fn on_disable(&self) -> Result<()> {
+        Ok(())
+    }
 
     /// 生命周期事件钩子
-    fn on_event(&self, _stage: PluginStage, _ctx: &mut PluginContext) -> Result<()> { Ok(()) }
+    fn on_event(&self, _stage: PluginStage, _ctx: &mut PluginContext) -> Result<()> {
+        Ok(())
+    }
 
     /// 获取任意类型数据（用于插件间交互）
-    fn as_any(&self) -> Option<&dyn Any> { None }
+    fn as_any(&self) -> Option<&dyn Any> {
+        None
+    }
 
     /// 获取可变的任意类型数据
-    fn as_any_mut(&mut self) -> Option<&mut dyn Any> { None }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        None
+    }
 }
 
 /// 动态库插件的导出函数类型

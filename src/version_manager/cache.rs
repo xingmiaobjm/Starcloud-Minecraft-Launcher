@@ -1,11 +1,11 @@
+use crate::error::{LauncherError, Result};
+use crate::version::manifest::{VersionDetails, VersionManifest};
+use lru::LruCache;
+use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::fs;
-use lru::LruCache;
-use std::num::NonZero;
-use crate::error::{LauncherError, Result};
-use crate::version::manifest::{VersionManifest, VersionDetails};
 
 /// 版本缓存（内存 LRU + 文件持久化）
 pub struct VersionCache {
@@ -19,6 +19,7 @@ pub struct VersionCache {
 
 #[derive(Clone)]
 #[allow(dead_code)]
+#[allow(clippy::large_enum_variant)] // Details 天然较大，缓存场景可接受
 enum CachedEntry {
     Manifest(VersionManifest),
     Details(VersionDetails),
@@ -31,7 +32,7 @@ impl VersionCache {
         Self {
             dot_minecraft: dot_minecraft.into(),
             memory_cache: Arc::new(Mutex::new(LruCache::new(
-                NonZero::new(max_memory_entries.max(1)).unwrap()
+                NonZero::new(max_memory_entries.max(1)).unwrap(),
             ))),
             max_memory_entries,
         }
@@ -57,8 +58,10 @@ impl VersionCache {
 
         // 1. 内存缓存
         {
-            let mut cache = self.memory_cache.lock().map_err(|e|
-                LauncherError::Other(e.to_string()))?;
+            let mut cache = self
+                .memory_cache
+                .lock()
+                .map_err(|e| LauncherError::Other(e.to_string()))?;
             if let Some(CachedEntry::Manifest(m)) = cache.get(&key) {
                 log::debug!("版本清单命中内存缓存");
                 return Ok(m.clone());
@@ -67,8 +70,10 @@ impl VersionCache {
 
         // 2. 文件缓存
         if let Ok(manifest) = self.load_manifest_from_disk().await {
-            let mut cache = self.memory_cache.lock().map_err(|e|
-                LauncherError::Other(e.to_string()))?;
+            let mut cache = self
+                .memory_cache
+                .lock()
+                .map_err(|e| LauncherError::Other(e.to_string()))?;
             cache.put(key.clone(), CachedEntry::Manifest(manifest.clone()));
             log::debug!("版本清单命中文件缓存");
             return Ok(manifest);
@@ -78,8 +83,10 @@ impl VersionCache {
         let manifest = fetch().await?;
         self.save_manifest_to_disk(&manifest).await?;
 
-        let mut cache = self.memory_cache.lock().map_err(|e|
-            LauncherError::Other(e.to_string()))?;
+        let mut cache = self
+            .memory_cache
+            .lock()
+            .map_err(|e| LauncherError::Other(e.to_string()))?;
         cache.put(key, CachedEntry::Manifest(manifest.clone()));
 
         Ok(manifest)
@@ -99,8 +106,10 @@ impl VersionCache {
 
         // 1. 内存
         {
-            let mut cache = self.memory_cache.lock().map_err(|e|
-                LauncherError::Other(e.to_string()))?;
+            let mut cache = self
+                .memory_cache
+                .lock()
+                .map_err(|e| LauncherError::Other(e.to_string()))?;
             if let Some(CachedEntry::Details(d)) = cache.get(&key) {
                 log::debug!("版本详情 '{}' 命中内存缓存", version_id);
                 return Ok(d.clone());
@@ -109,8 +118,10 @@ impl VersionCache {
 
         // 2. 文件
         if let Ok(details) = self.load_version_details_from_disk(version_id).await {
-            let mut cache = self.memory_cache.lock().map_err(|e|
-                LauncherError::Other(e.to_string()))?;
+            let mut cache = self
+                .memory_cache
+                .lock()
+                .map_err(|e| LauncherError::Other(e.to_string()))?;
             cache.put(key.clone(), CachedEntry::Details(details.clone()));
             log::debug!("版本详情 '{}' 命中文件缓存", version_id);
             return Ok(details);
@@ -118,38 +129,52 @@ impl VersionCache {
 
         // 3. 网络
         let details = fetch().await?;
-        self.save_version_details_to_disk(version_id, &details).await?;
+        self.save_version_details_to_disk(version_id, &details)
+            .await?;
 
-        let mut cache = self.memory_cache.lock().map_err(|e|
-            LauncherError::Other(e.to_string()))?;
+        let mut cache = self
+            .memory_cache
+            .lock()
+            .map_err(|e| LauncherError::Other(e.to_string()))?;
         cache.put(key, CachedEntry::Details(details.clone()));
 
         Ok(details)
     }
 
     /// 缓存版本详情
-    pub async fn cache_version_details(&self, version_id: &str, details: &VersionDetails) -> Result<()> {
+    pub async fn cache_version_details(
+        &self,
+        version_id: &str,
+        details: &VersionDetails,
+    ) -> Result<()> {
         let key = format!("version_{}", version_id);
-        self.save_version_details_to_disk(version_id, details).await?;
+        self.save_version_details_to_disk(version_id, details)
+            .await?;
 
-        let mut cache = self.memory_cache.lock().map_err(|e|
-            LauncherError::Other(e.to_string()))?;
+        let mut cache = self
+            .memory_cache
+            .lock()
+            .map_err(|e| LauncherError::Other(e.to_string()))?;
         cache.put(key, CachedEntry::Details(details.clone()));
         Ok(())
     }
 
     /// 失效某个缓存
     pub fn invalidate(&self, key: &str) -> Result<()> {
-        let mut cache = self.memory_cache.lock().map_err(|e|
-            LauncherError::Other(e.to_string()))?;
+        let mut cache = self
+            .memory_cache
+            .lock()
+            .map_err(|e| LauncherError::Other(e.to_string()))?;
         cache.pop(key);
         Ok(())
     }
 
     /// 清空所有内存缓存
     pub fn clear_memory(&self) -> Result<()> {
-        let mut cache = self.memory_cache.lock().map_err(|e|
-            LauncherError::Other(e.to_string()))?;
+        let mut cache = self
+            .memory_cache
+            .lock()
+            .map_err(|e| LauncherError::Other(e.to_string()))?;
         cache.clear();
         Ok(())
     }
@@ -191,7 +216,8 @@ impl VersionCache {
     }
 
     async fn load_version_details_from_disk(&self, version_id: &str) -> Result<VersionDetails> {
-        let path = self.cache_dir()
+        let path = self
+            .cache_dir()
             .join("versions")
             .join(format!("{}.json", version_id));
         if !path.exists() {
@@ -217,8 +243,10 @@ impl VersionCache {
 
     /// 缓存统计
     pub fn stats(&self) -> Result<CacheStats> {
-        let cache = self.memory_cache.lock().map_err(|e|
-            LauncherError::Other(e.to_string()))?;
+        let cache = self
+            .memory_cache
+            .lock()
+            .map_err(|e| LauncherError::Other(e.to_string()))?;
         Ok(CacheStats {
             memory_entries: cache.len(),
             max_memory_entries: self.max_memory_entries,

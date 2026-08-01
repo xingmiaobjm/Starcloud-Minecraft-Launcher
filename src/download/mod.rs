@@ -1,13 +1,13 @@
-pub mod engine;
-pub mod manifest;
 pub mod assets;
-pub mod library;
-pub mod progress;
+pub mod engine;
 pub mod http_client;
+pub mod library;
+pub mod manifest;
+pub mod progress;
 
-pub use engine::DownloadEngine;
-pub use manifest::{fetch_version_manifest, fetch_version_details};
 pub use assets::AssetDownloader;
-pub use library::LibraryDownloader;
-pub use progress::{ProgressTracker, ProgressStatus};
+pub use engine::DownloadEngine;
 pub use http_client::{HttpClient, RetryConfig};
+pub use library::LibraryDownloader;
+pub use manifest::{fetch_version_details, fetch_version_manifest};
+pub use progress::{ProgressStatus, ProgressTracker};

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use crate::error::{LauncherError, Result};
 use crate::plugin::api::*;
 use crate::plugin::loader::PluginLoader;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 /// 插件的运行时包装
 struct PluginInstance {
@@ -71,22 +71,27 @@ impl PluginManager {
 
         plugin.on_enable(&self.register_ctx)?;
 
-        let mut plugins = self.plugins.write().map_err(|e|
-            LauncherError::PluginError(format!("锁获取失败: {}", e))
-        )?;
+        let mut plugins = self
+            .plugins
+            .write()
+            .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
 
         if plugins.contains_key(&id) {
             return Err(LauncherError::PluginError(format!(
-                "插件 ID '{}' 已存在", id
+                "插件 ID '{}' 已存在",
+                id
             )));
         }
 
-        plugins.insert(id, PluginInstance {
-            plugin: Arc::new(plugin),
-            meta,
-            enabled: true,
-            source_path: None,
-        });
+        plugins.insert(
+            id,
+            PluginInstance {
+                plugin: Arc::new(plugin),
+                meta,
+                enabled: true,
+                source_path: None,
+            },
+        );
 
         Ok(())
     }
@@ -94,43 +99,55 @@ impl PluginManager {
     /// 加载单个动态库插件
     pub fn load_plugin(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let path = path.as_ref();
-        let mut loader = self.loader.write().map_err(|e|
-            LauncherError::PluginError(format!("锁获取失败: {}", e))
-        )?;
+        let mut loader = self
+            .loader
+            .write()
+            .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
 
         let plugin = unsafe { loader.load(path)? };
         let meta = plugin.meta();
         let id = meta.id.clone();
 
-        log::info!("加载动态插件: {} v{} (来自 {})", meta.name, meta.version, path.display());
+        log::info!(
+            "加载动态插件: {} v{} (来自 {})",
+            meta.name,
+            meta.version,
+            path.display()
+        );
 
         plugin.on_enable(&self.register_ctx)?;
 
-        let mut plugins = self.plugins.write().map_err(|e|
-            LauncherError::PluginError(format!("锁获取失败: {}", e))
-        )?;
+        let mut plugins = self
+            .plugins
+            .write()
+            .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
 
         if plugins.contains_key(&id) {
             return Err(LauncherError::PluginError(format!(
-                "插件 ID '{}' 已存在", id
+                "插件 ID '{}' 已存在",
+                id
             )));
         }
 
-        plugins.insert(id, PluginInstance {
-            plugin: Arc::new(plugin),
-            meta,
-            enabled: true,
-            source_path: Some(path.to_path_buf()),
-        });
+        plugins.insert(
+            id,
+            PluginInstance {
+                plugin: Arc::new(plugin),
+                meta,
+                enabled: true,
+                source_path: Some(path.to_path_buf()),
+            },
+        );
 
         Ok(())
     }
 
     /// 卸载插件
     pub fn unload_plugin(&self, plugin_id: &str) -> Result<()> {
-        let mut plugins = self.plugins.write().map_err(|e|
-            LauncherError::PluginError(format!("锁获取失败: {}", e))
-        )?;
+        let mut plugins = self
+            .plugins
+            .write()
+            .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
 
         if let Some(instance) = plugins.remove(plugin_id) {
             instance.plugin.on_disable()?;
@@ -138,9 +155,10 @@ impl PluginManager {
             log::info!("已卸载插件: {}", plugin_id);
 
             // 从 loader 中释放动态库
-            let mut loader = self.loader.write().map_err(|e|
-                LauncherError::PluginError(format!("锁获取失败: {}", e))
-            )?;
+            let mut loader = self
+                .loader
+                .write()
+                .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
             loader.unload(plugin_id);
         }
 
@@ -149,17 +167,19 @@ impl PluginManager {
 
     /// 获取所有已加载的插件元信息
     pub fn list_plugins(&self) -> Result<Vec<PluginMeta>> {
-        let plugins = self.plugins.read().map_err(|e|
-            LauncherError::PluginError(format!("锁获取失败: {}", e))
-        )?;
+        let plugins = self
+            .plugins
+            .read()
+            .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
         Ok(plugins.values().map(|p| p.meta.clone()).collect())
     }
 
     /// 触发事件给所有插件
     pub fn fire_event(&self, stage: PluginStage, ctx: &mut PluginContext) -> Result<()> {
-        let plugins = self.plugins.read().map_err(|e|
-            LauncherError::PluginError(format!("锁获取失败: {}", e))
-        )?;
+        let plugins = self
+            .plugins
+            .read()
+            .map_err(|e| LauncherError::PluginError(format!("锁获取失败: {}", e)))?;
 
         for (id, instance) in plugins.iter() {
             if !instance.enabled {

@@ -1,10 +1,10 @@
+use crate::download::engine::DownloadEngine;
+use crate::error::{LauncherError, Result};
+use crate::launch::arguments::ArgumentsBuilder;
+use crate::launch::java::JavaRuntime;
+use crate::version::manifest::VersionDetails;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use crate::error::{LauncherError, Result};
-use crate::launch::java::JavaRuntime;
-use crate::launch::arguments::ArgumentsBuilder;
-use crate::version::manifest::VersionDetails;
-use crate::download::engine::DownloadEngine;
 
 /// Minecraft 启动配置
 #[derive(Debug, Clone)]
@@ -140,7 +140,10 @@ impl LaunchEngine {
         let os = crate::launch::arguments::OsKind::detect();
 
         // 构建替换变量表
-        let assets_id = version.assets.clone().unwrap_or_else(|| config.version_id.clone());
+        let assets_id = version
+            .assets
+            .clone()
+            .unwrap_or_else(|| config.version_id.clone());
 
         // 先计算 classpath
         let classpath = library_paths
@@ -148,16 +151,26 @@ impl LaunchEngine {
             .map(|s| s.as_str())
             .chain(std::iter::once(version.id.as_str()))
             .collect::<Vec<_>>()
-            .join(if cfg!(target_os = "windows") { ";" } else { ":" });
+            .join(if cfg!(target_os = "windows") {
+                ";"
+            } else {
+                ":"
+            });
 
         let builder = ArgumentsBuilder::new(version.clone(), os)
             .with_replacement("auth_player_name", &config.username)
             .with_replacement("version_name", &config.version_id)
             .with_replacement("game_directory", config.dot_minecraft.to_string_lossy())
-            .with_replacement("assets_root", self.download_engine.assets_dir().to_string_lossy())
+            .with_replacement(
+                "assets_root",
+                self.download_engine.assets_dir().to_string_lossy(),
+            )
             .with_replacement("assets_index_name", &assets_id)
             .with_replacement("auth_uuid", &config.uuid)
-            .with_replacement("auth_access_token", config.access_token.as_deref().unwrap_or("0"))
+            .with_replacement(
+                "auth_access_token",
+                config.access_token.as_deref().unwrap_or("0"),
+            )
             .with_replacement("clientid", config.client_token.as_deref().unwrap_or("0"))
             .with_replacement("auth_xuid", config.xuid.as_deref().unwrap_or("0"))
             .with_replacement("user_type", &config.user_type)
@@ -170,13 +183,24 @@ impl LaunchEngine {
             )
             .with_replacement("launcher_name", "furry-minecraft")
             .with_replacement("launcher_version", env!("CARGO_PKG_VERSION"))
-            .with_replacement("classpath_separator", if cfg!(target_os = "windows") { ";" } else { ":" })
+            .with_replacement(
+                "classpath_separator",
+                if cfg!(target_os = "windows") {
+                    ";"
+                } else {
+                    ":"
+                },
+            )
             .with_replacement(
                 "library_directory",
                 self.download_engine.libraries_dir().to_string_lossy(),
             )
-            .with_replacement("natives_directory",
-                &self.download_engine.natives_dir(&config.version_id).to_string_lossy().to_string(),
+            .with_replacement(
+                "natives_directory",
+                self.download_engine
+                    .natives_dir(&config.version_id)
+                    .to_string_lossy()
+                    .to_string(),
             )
             .with_replacement("classpath", &classpath);
 
@@ -214,11 +238,7 @@ impl LaunchEngine {
         }
 
         // 版本目录作为工作目录
-        cmd.current_dir(
-            self.download_engine
-                .versions_dir()
-                .join(&config.version_id),
-        );
+        cmd.current_dir(self.download_engine.versions_dir().join(&config.version_id));
 
         // 输出到标准输出（方便日志捕获）
         cmd.stdout(Stdio::piped());
@@ -253,9 +273,7 @@ impl LaunchEngine {
         library_paths: &[String],
     ) -> Result<String> {
         let cmd = self.build_process(config, version, library_paths)?;
-        let mut parts: Vec<String> = vec![
-            cmd.get_program().to_string_lossy().to_string(),
-        ];
+        let mut parts: Vec<String> = vec![cmd.get_program().to_string_lossy().to_string()];
         parts.extend(cmd.get_args().map(|a| a.to_string_lossy().to_string()));
         Ok(parts.join(" "))
     }

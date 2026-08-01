@@ -1,9 +1,9 @@
+use crate::error::{LauncherError, Result};
+use crate::version::manifest::{Library, LibraryArtifact, Rule, RuleAction};
+use sha1::Digest;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use sha1::Digest;
-use crate::error::{LauncherError, Result};
-use crate::version::manifest::{Library, LibraryArtifact, Rule, RuleAction};
 
 /// 库文件下载器
 pub struct LibraryDownloader {
@@ -71,9 +71,7 @@ impl LibraryDownloader {
                 }
 
                 // 获取 native 库
-                if let (Some(natives), Some(classifiers)) =
-                    (&lib.natives, &downloads.classifiers)
-                {
+                if let (Some(natives), Some(classifiers)) = (&lib.natives, &downloads.classifiers) {
                     if let Some(native_suffix) = natives.get(&self.os_name) {
                         // native_suffix 格式如 "natives-linux"
                         let classifier_key = native_suffix.replace("${arch}", &self.replace_arch());
@@ -88,7 +86,8 @@ impl LibraryDownloader {
 
                             // 解压 native 库
                             if lib.extract.is_some() {
-                                let extract_dir = native_path.parent()
+                                let extract_dir = native_path
+                                    .parent()
                                     .map(|p| p.to_path_buf())
                                     .unwrap_or_else(|| self.base_dir.clone());
                                 crate::download::engine::extract_native(
@@ -143,11 +142,7 @@ fn check_rules(rules: Option<&Vec<Rule>>, os_name: &str, os_arch: &str) -> bool 
     for rule in rules {
         let matches = match &rule.os {
             Some(os_rule) => {
-                os_rule.name == os_name
-                    && os_rule
-                        .arch
-                        .as_ref()
-                        .map_or(true, |a| a == os_arch)
+                os_rule.name == os_name && os_rule.arch.as_ref().is_none_or(|a| a == os_arch)
             }
             None => true,
         };

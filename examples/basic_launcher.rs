@@ -3,7 +3,7 @@
 //! 演示如何使用 furry-minecraft 核心库下载并启动 Minecraft。
 
 use furry_minecraft::{
-    download::{DownloadEngine, fetch_version_manifest, fetch_version_details},
+    download::{fetch_version_details, fetch_version_manifest, DownloadEngine},
     launch::LaunchEngine,
     LaunchConfig,
 };
@@ -31,7 +31,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("可用版本总数: {}", manifest.versions.len());
 
     // 3. 选择一个版本（这里用最新发布版）
-    let target_version = &manifest.latest.release;
     let version_entry = manifest
         .versions
         .iter()
@@ -66,13 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let launch_engine = LaunchEngine::new(download_engine)?;
 
     // 8. 创建启动配置
-    let config = LaunchConfig::basic(
-        &version_entry.id,
-        &dot_minecraft,
-        "Player",
-    )
-    .with_memory(2048, 4096)
-    .with_window(1280, 720);
+    let config = LaunchConfig::basic(&version_entry.id, &dot_minecraft, "Player")
+        .with_memory(2048, 4096)
+        .with_window(1280, 720);
 
     // 9. 输出启动命令（调试用）
     let command_line = launch_engine.print_command(&config, &version_details, &library_paths)?;

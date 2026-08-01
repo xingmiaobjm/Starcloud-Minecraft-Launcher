@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::RwLock;
 
 /// 下载进度追踪器 - 线程安全
@@ -16,6 +16,7 @@ pub struct ProgressTracker {
     #[allow(dead_code)]
     stages: RwLock<HashMap<String, StageProgress>>,
     /// 回调函数列表
+    #[allow(clippy::type_complexity)] // 阶段1 重写进度追踪时引入类型别名
     callbacks: RwLock<Vec<Box<dyn Fn(&ProgressInfo) + Send + Sync>>>,
 }
 

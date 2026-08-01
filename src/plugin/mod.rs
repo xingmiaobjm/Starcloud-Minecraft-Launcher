@@ -1,12 +1,12 @@
 pub mod api;
-pub mod manager;
-pub mod loader;
 pub mod installer;
+pub mod loader;
+pub mod manager;
 
 pub use api::{
-    Plugin, PluginMeta, PluginStage, PluginContext, PluginRegisterContext,
-    LauncherStatus, DownloadProgressInfo, CrashInfo,
+    CrashInfo, DownloadProgressInfo, LauncherStatus, Plugin, PluginContext, PluginMeta,
+    PluginRegisterContext, PluginStage,
 };
-pub use manager::PluginManager;
-pub use loader::PluginLoader;
 pub use installer::{PluginInstaller, PluginSource};
+pub use loader::PluginLoader;
+pub use manager::PluginManager;

@@ -1,5 +1,5 @@
-use crate::version::manifest::{VersionDetails, VersionManifest};
 use crate::error::{LauncherError, Result};
+use crate::version::manifest::{VersionDetails, VersionManifest};
 
 const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 

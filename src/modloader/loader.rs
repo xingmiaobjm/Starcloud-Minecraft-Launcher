@@ -1,6 +1,6 @@
 use crate::version::manifest::Library;
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// ModLoader 安装信息
 #[derive(Debug, Clone)]
@@ -62,16 +62,18 @@ pub mod forge {
         let key = format!("{}-recommended", mc_version);
         let key2 = format!("{}-latest", mc_version);
 
-        promos.promos.get(&key)
+        promos
+            .promos
+            .get(&key)
             .or_else(|| promos.promos.get(&key2))
             .cloned()
-            .ok_or_else(|| LauncherError::VersionNotFound(
-                format!("MC {} 没有可用的 Forge 版本", mc_version)
-            ))
+            .ok_or_else(|| {
+                LauncherError::VersionNotFound(format!("MC {} 没有可用的 Forge 版本", mc_version))
+            })
     }
 
     /// 构建 Forge 安装目录路径
-    pub fn install_dir(dot_minecraft: &PathBuf, mc_version: &str, forge_version: &str) -> PathBuf {
+    pub fn install_dir(dot_minecraft: &Path, mc_version: &str, forge_version: &str) -> PathBuf {
         dot_minecraft
             .join("versions")
             .join(format!("{}-forge-{}", mc_version, forge_version))
@@ -98,13 +100,15 @@ pub mod fabric {
         let response = reqwest::get(&url).await?;
 
         if !response.status().is_success() {
-            return Err(LauncherError::VersionNotFound(
-                format!("MC {} 没有可用的 Fabric 版本", mc_version)
-            ));
+            return Err(LauncherError::VersionNotFound(format!(
+                "MC {} 没有可用的 Fabric 版本",
+                mc_version
+            )));
         }
 
         let loaders: Vec<FabricLoaderVersion> = response.json().await?;
-        loaders.iter()
+        loaders
+            .iter()
             .find(|l| l.stable)
             .or_else(|| loaders.first())
             .map(|l| l.version.clone())
@@ -112,7 +116,10 @@ pub mod fabric {
     }
 
     /// 获取 Fabric 安装所需的 JSON
-    pub async fn get_profile_json(mc_version: &str, loader_version: &str) -> Result<serde_json::Value> {
+    pub async fn get_profile_json(
+        mc_version: &str,
+        loader_version: &str,
+    ) -> Result<serde_json::Value> {
         let url = format!(
             "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
             mc_version, loader_version
@@ -123,7 +130,7 @@ pub mod fabric {
     }
 
     /// 构建 Fabric 安装目录路径
-    pub fn install_dir(dot_minecraft: &PathBuf, mc_version: &str, loader_version: &str) -> PathBuf {
+    pub fn install_dir(dot_minecraft: &Path, mc_version: &str, loader_version: &str) -> PathBuf {
         dot_minecraft
             .join("versions")
             .join(format!("fabric-loader-{}-{}", loader_version, mc_version))
@@ -137,16 +144,14 @@ pub mod quilt {
 
     /// 获取最新 Quilt Loader
     pub async fn get_latest_loader(mc_version: &str) -> Result<String> {
-        let url = format!(
-            "https://meta.quiltmc.org/v3/versions/loader/{}",
-            mc_version
-        );
+        let url = format!("https://meta.quiltmc.org/v3/versions/loader/{}", mc_version);
         let response = reqwest::get(&url).await?;
 
         if !response.status().is_success() {
-            return Err(LauncherError::VersionNotFound(
-                format!("MC {} 没有可用的 Quilt 版本", mc_version)
-            ));
+            return Err(LauncherError::VersionNotFound(format!(
+                "MC {} 没有可用的 Quilt 版本",
+                mc_version
+            )));
         }
 
         #[derive(Debug, Deserialize)]
@@ -155,13 +160,14 @@ pub mod quilt {
         }
 
         let loaders: Vec<LoaderEntry> = response.json().await?;
-        loaders.first()
+        loaders
+            .first()
             .map(|l| l.version.clone())
             .ok_or_else(|| LauncherError::VersionNotFound("没有可用的 Quilt Loader".into()))
     }
 
     /// 构建 Quilt 安装目录路径
-    pub fn install_dir(dot_minecraft: &PathBuf, mc_version: &str, loader_version: &str) -> PathBuf {
+    pub fn install_dir(dot_minecraft: &Path, mc_version: &str, loader_version: &str) -> PathBuf {
         dot_minecraft
             .join("versions")
             .join(format!("quilt-loader-{}-{}", loader_version, mc_version))

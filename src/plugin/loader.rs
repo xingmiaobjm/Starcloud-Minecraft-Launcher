@@ -1,7 +1,7 @@
+use crate::error::{LauncherError, Result};
+use crate::plugin::api::{CreatePluginFn, Plugin, PLUGIN_ENTRY};
 use std::collections::HashMap;
 use std::path::Path;
-use crate::error::{LauncherError, Result};
-use crate::plugin::api::{Plugin, CreatePluginFn, PLUGIN_ENTRY};
 
 /// 已加载的动态库句柄封装
 struct DynamicLib {
@@ -13,6 +13,12 @@ struct DynamicLib {
 pub struct PluginLoader {
     /// 当前已加载的动态库（按插件 ID 索引）
     loaded_libs: HashMap<String, DynamicLib>,
+}
+
+impl Default for PluginLoader {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginLoader {
@@ -33,21 +39,19 @@ impl PluginLoader {
         // 验证文件存在
         if !path.exists() {
             return Err(LauncherError::PluginLoadError(format!(
-                "插件文件不存在: {}", path.display()
+                "插件文件不存在: {}",
+                path.display()
             )));
         }
 
         // 加载动态库
         let lib = libloading::Library::new(path).map_err(|e| {
-            LauncherError::PluginLoadError(format!(
-                "无法加载插件库 '{}': {}", path.display(), e
-            ))
+            LauncherError::PluginLoadError(format!("无法加载插件库 '{}': {}", path.display(), e))
         })?;
 
         // 获取构造函数
-        let constructor: libloading::Symbol<CreatePluginFn> = lib
-            .get(PLUGIN_ENTRY.as_bytes())
-            .map_err(|e| {
+        let constructor: libloading::Symbol<CreatePluginFn> =
+            lib.get(PLUGIN_ENTRY.as_bytes()).map_err(|e| {
                 LauncherError::PluginLoadError(format!(
                     "插件 '{}' 缺少导出函数 '{}': {}",
                     path.display(),
@@ -61,7 +65,8 @@ impl PluginLoader {
 
         if plugin.is_null() {
             return Err(LauncherError::PluginLoadError(format!(
-                "插件 '{}' 构造函数返回空指针", path.display()
+                "插件 '{}' 构造函数返回空指针",
+                path.display()
             )));
         }
 
@@ -71,10 +76,13 @@ impl PluginLoader {
         let meta = plugin.meta();
 
         // 保存库句柄
-        self.loaded_libs.insert(meta.id.clone(), DynamicLib {
-            _lib: lib,
-            _plugin: Box::new(NopPlugin), // 占位，实际插件数据已返回
-        });
+        self.loaded_libs.insert(
+            meta.id.clone(),
+            DynamicLib {
+                _lib: lib,
+                _plugin: Box::new(NopPlugin), // 占位，实际插件数据已返回
+            },
+        );
 
         Ok(plugin)
     }

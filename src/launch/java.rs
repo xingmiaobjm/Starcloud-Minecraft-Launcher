@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::error::{LauncherError, Result};
+use std::path::{Path, PathBuf};
 
 /// Java 运行时信息
 #[derive(Debug, Clone)]
@@ -102,7 +102,10 @@ impl JavaDetector {
                         for entry in entries.flatten() {
                             let name = entry.file_name();
                             let name_str = name.to_string_lossy();
-                            if name_str.to_lowercase().contains("java") || name_str.to_lowercase().contains("jdk") || name_str.to_lowercase().contains("jre") {
+                            if name_str.to_lowercase().contains("java")
+                                || name_str.to_lowercase().contains("jdk")
+                                || name_str.to_lowercase().contains("jre")
+                            {
                                 let exe = get_java_exe(&entry.path());
                                 if exe.exists() {
                                     if let Ok(runtime) = parse_java_version(&exe) {
@@ -150,12 +153,16 @@ impl JavaDetector {
             .find(|r| r.major_version >= self.min_version)
             .ok_or_else(|| LauncherError::JavaNotFound(self.min_version))?;
 
-        log::info!("检测到 Java: {} (版本 {})", best.version_string, best.major_version);
+        log::info!(
+            "检测到 Java: {} (版本 {})",
+            best.version_string,
+            best.major_version
+        );
         Ok(best)
     }
 
     /// 检测指定路径的 Java
-    pub fn detect_at(path: &PathBuf) -> Result<JavaRuntime> {
+    pub fn detect_at(path: &Path) -> Result<JavaRuntime> {
         let exe = get_java_exe(path);
         if !exe.exists() {
             return Err(LauncherError::JavaNotFound(0));
@@ -171,7 +178,7 @@ impl Default for JavaDetector {
 }
 
 /// 获取操作系统对应的 java 可执行文件名
-fn get_java_exe(dir: &PathBuf) -> PathBuf {
+fn get_java_exe(dir: &Path) -> PathBuf {
     let name = if cfg!(target_os = "windows") {
         "javaw.exe"
     } else {
@@ -191,7 +198,7 @@ fn get_java_exe_from_path() -> PathBuf {
 }
 
 /// 解析 Java 版本信息
-fn parse_java_version(java_exe: &PathBuf) -> Result<JavaRuntime> {
+fn parse_java_version(java_exe: &Path) -> Result<JavaRuntime> {
     let output = std::process::Command::new(java_exe)
         .arg("-XshowSettings:properties")
         .arg("-version")
@@ -226,7 +233,7 @@ fn parse_java_version(java_exe: &PathBuf) -> Result<JavaRuntime> {
         .unwrap_or_default();
 
     Ok(JavaRuntime {
-        executable: java_exe.clone(),
+        executable: java_exe.to_path_buf(),
         major_version,
         version_string: stderr.lines().next().unwrap_or("unknown").to_string(),
         java_home,

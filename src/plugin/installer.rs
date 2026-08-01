@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
+use crate::error::{LauncherError, Result};
 use reqwest::header::{HeaderValue, CONTENT_TYPE};
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use crate::error::{LauncherError, Result};
 
 /// 插件安装源类型
 #[derive(Debug, Clone)]
@@ -12,7 +12,10 @@ pub enum PluginSource {
     /// 远程 URL
     Remote(String),
     /// 插件注册表（通过 ID 查找）
-    Registry { plugin_id: String, registry_url: String },
+    Registry {
+        plugin_id: String,
+        registry_url: String,
+    },
 }
 
 /// 插件安装器 - 支持从多种来源安装插件
@@ -34,9 +37,10 @@ impl PluginInstaller {
         match source {
             PluginSource::Local(path) => self.install_from_local(path).await,
             PluginSource::Remote(url) => self.install_from_remote(url).await,
-            PluginSource::Registry { plugin_id, registry_url } => {
-                self.install_from_registry(plugin_id, registry_url).await
-            }
+            PluginSource::Registry {
+                plugin_id,
+                registry_url,
+            } => self.install_from_registry(plugin_id, registry_url).await,
         }
     }
 
@@ -44,7 +48,8 @@ impl PluginInstaller {
     async fn install_from_local(&self, path: &Path) -> Result<PathBuf> {
         if !path.exists() {
             return Err(LauncherError::PluginNotFound(format!(
-                "插件文件不存在: {}", path.display()
+                "插件文件不存在: {}",
+                path.display()
             )));
         }
 
@@ -78,9 +83,8 @@ impl PluginInstaller {
         }
 
         // 从 URL 或 Content-Disposition 头提取文件名
-        let file_name = extract_filename_from_url(url).unwrap_or_else(|| {
-            uuid::Uuid::new_v4().to_string() + ".dll"
-        });
+        let file_name = extract_filename_from_url(url)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string() + ".dll");
 
         let bytes = response.bytes().await?;
         let dest = self.plugins_dir.join(&file_name);
@@ -109,7 +113,8 @@ impl PluginInstaller {
 
         if !response.status().is_success() {
             return Err(LauncherError::PluginNotFound(format!(
-                "在注册表中未找到插件: {}", plugin_id
+                "在注册表中未找到插件: {}",
+                plugin_id
             )));
         }
 
@@ -140,10 +145,7 @@ impl PluginInstaller {
             let path = entry.path();
             if path.is_file() {
                 let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
-                let valid_ext = matches!(
-                    ext.as_deref(),
-                    Some("dll") | Some("so") | Some("dylib")
-                );
+                let valid_ext = matches!(ext.as_deref(), Some("dll") | Some("so") | Some("dylib"));
                 if valid_ext {
                     files.push(path);
                 }
@@ -157,7 +159,8 @@ impl PluginInstaller {
     pub async fn uninstall(&self, path: &Path) -> Result<()> {
         if !path.exists() {
             return Err(LauncherError::PluginNotFound(format!(
-                "插件文件不存在: {}", path.display()
+                "插件文件不存在: {}",
+                path.display()
             )));
         }
         fs::remove_file(path).await?;
@@ -169,16 +172,14 @@ impl PluginInstaller {
     pub async fn uninstall_by_id(&self, plugin_id: &str) -> Result<()> {
         let installed = self.list_installed().await?;
         for path in installed {
-            let stem = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy();
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
             if stem.contains(plugin_id) {
                 return self.uninstall(&path).await;
             }
         }
         Err(LauncherError::PluginNotFound(format!(
-            "未找到已安装的插件: {}", plugin_id
+            "未找到已安装的插件: {}",
+            plugin_id
         )))
     }
 }

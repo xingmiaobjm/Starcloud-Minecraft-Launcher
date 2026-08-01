@@ -1,8 +1,8 @@
+use crate::download::engine::DownloadEngine;
+use crate::error::{LauncherError, Result};
+use crate::version::manifest::{AssetIndex, VersionDetails};
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use crate::error::{LauncherError, Result};
-use crate::version::manifest::{VersionDetails, AssetIndex};
-use crate::download::engine::DownloadEngine;
 
 /// 版本安装器 - 管理版本目录的安装、验证、删除
 pub struct VersionInstaller {
@@ -60,7 +60,11 @@ impl VersionInstaller {
     }
 
     /// 安装资源索引
-    pub async fn install_asset_index(&self, asset_index: &AssetIndex, assets_id: &str) -> Result<()> {
+    pub async fn install_asset_index(
+        &self,
+        asset_index: &AssetIndex,
+        assets_id: &str,
+    ) -> Result<()> {
         let indexes_dir = self.download_engine.assets_dir().join("indexes");
         fs::create_dir_all(&indexes_dir).await?;
 

@@ -59,7 +59,10 @@ impl MojangAuth {
         }
 
         let req = Request {
-            agent: AgentInfo { name: "Minecraft", version: 1 },
+            agent: AgentInfo {
+                name: "Minecraft",
+                version: 1,
+            },
             username: email,
             password,
             client_token: client_token.map(|s| s.to_string()),
@@ -124,11 +127,7 @@ impl MojangAuth {
     }
 
     /// 验证令牌是否有效
-    pub async fn validate(
-        &self,
-        access_token: &str,
-        client_token: &str,
-    ) -> Result<bool> {
+    pub async fn validate(&self, access_token: &str, client_token: &str) -> Result<bool> {
         #[derive(serde::Serialize)]
         struct ValidateRequest<'a> {
             #[serde(rename = "accessToken")]
@@ -137,7 +136,10 @@ impl MojangAuth {
             client_token: &'a str,
         }
 
-        let req = ValidateRequest { access_token, client_token };
+        let req = ValidateRequest {
+            access_token,
+            client_token,
+        };
 
         let response = self
             .client
@@ -151,11 +153,7 @@ impl MojangAuth {
     }
 
     /// 注销令牌
-    pub async fn signout(
-        &self,
-        access_token: &str,
-        client_token: &str,
-    ) -> Result<()> {
+    pub async fn signout(&self, access_token: &str, client_token: &str) -> Result<()> {
         #[derive(serde::Serialize)]
         struct SignoutRequest<'a> {
             #[serde(rename = "accessToken")]
@@ -164,7 +162,10 @@ impl MojangAuth {
             client_token: &'a str,
         }
 
-        let req = SignoutRequest { access_token, client_token };
+        let req = SignoutRequest {
+            access_token,
+            client_token,
+        };
 
         self.client
             .post("https://authserver.mojang.com/signout")

@@ -25,19 +25,23 @@ impl VersionComparator {
     }
 
     /// 获取最新版本
-    pub fn latest<'a>(versions: &'a [VersionEntry]) -> Option<&'a VersionEntry> {
+    pub fn latest(versions: &[VersionEntry]) -> Option<&VersionEntry> {
         versions
             .iter()
             .filter(|v| v.version_type == VersionType::Release)
-            .max_by(|a, b| Self::compare(&a.id, &b.id).then_with(|| a.release_time.cmp(&b.release_time)))
+            .max_by(|a, b| {
+                Self::compare(&a.id, &b.id).then_with(|| a.release_time.cmp(&b.release_time))
+            })
     }
 
     /// 获取最旧版本
-    pub fn oldest<'a>(versions: &'a [VersionEntry]) -> Option<&'a VersionEntry> {
+    pub fn oldest(versions: &[VersionEntry]) -> Option<&VersionEntry> {
         versions
             .iter()
             .filter(|v| v.version_type == VersionType::Release)
-            .min_by(|a, b| Self::compare(&a.id, &b.id).then_with(|| a.release_time.cmp(&b.release_time)))
+            .min_by(|a, b| {
+                Self::compare(&a.id, &b.id).then_with(|| a.release_time.cmp(&b.release_time))
+            })
     }
 
     /// 检测版本是否为快照版
@@ -54,7 +58,9 @@ impl VersionComparator {
     pub fn diff(current: &str, target: &str) -> VersionDiff {
         let cmp = Self::compare(current, target);
         match cmp {
-            std::cmp::Ordering::Less => VersionDiff::Newer { id: target.to_string() },
+            std::cmp::Ordering::Less => VersionDiff::Newer {
+                id: target.to_string(),
+            },
             std::cmp::Ordering::Equal => VersionDiff::Same,
             std::cmp::Ordering::Greater => VersionDiff::Older,
         }
@@ -94,7 +100,8 @@ impl VersionComparator {
             return false;
         }
         // 版本 ID 通常为 "数字.数字.数字" 格式，快照包含字母
-        id.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        id.chars()
+            .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
     }
 }
 
@@ -102,9 +109,18 @@ impl VersionComparator {
 fn parse_version(version: &str) -> (u32, u32, u32) {
     let re = regex::Regex::new(r"^(\d+)\.(\d+)(?:\.(\d+))?").unwrap();
     if let Some(caps) = re.captures(version) {
-        let major = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        let minor = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        let patch = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let major = caps
+            .get(1)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        let minor = caps
+            .get(2)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        let patch = caps
+            .get(3)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
         (major, minor, patch)
     } else {
         (0, 0, 0)
@@ -117,10 +133,22 @@ mod tests {
 
     #[test]
     fn test_version_comparison() {
-        assert_eq!(VersionComparator::compare("1.20.1", "1.21"), std::cmp::Ordering::Less);
-        assert_eq!(VersionComparator::compare("1.21", "1.21"), std::cmp::Ordering::Equal);
-        assert_eq!(VersionComparator::compare("1.21.1", "1.21"), std::cmp::Ordering::Greater);
-        assert_eq!(VersionComparator::compare("1.8", "1.20"), std::cmp::Ordering::Less);
+        assert_eq!(
+            VersionComparator::compare("1.20.1", "1.21"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            VersionComparator::compare("1.21", "1.21"),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            VersionComparator::compare("1.21.1", "1.21"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            VersionComparator::compare("1.8", "1.20"),
+            std::cmp::Ordering::Less
+        );
     }
 
     #[test]
@@ -142,7 +170,9 @@ mod tests {
     fn test_diff() {
         assert_eq!(
             VersionComparator::diff("1.20", "1.21"),
-            VersionDiff::Newer { id: "1.21".to_string() }
+            VersionDiff::Newer {
+                id: "1.21".to_string()
+            }
         );
         assert_eq!(VersionComparator::diff("1.21", "1.21"), VersionDiff::Same);
         assert_eq!(VersionComparator::diff("1.21", "1.20"), VersionDiff::Older);

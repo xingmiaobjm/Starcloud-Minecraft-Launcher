@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::error::Result;
+use std::path::Path;
 
 /// 下载引擎 - 调度版本、资源、库的下载
 pub struct DownloadEngine {

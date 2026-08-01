@@ -13,24 +13,23 @@
 //! - **[account]** - 账户管理：离线、Mojang、微软 OAuth2 认证
 //! - **[modloader]** - ModLoader 支持：Forge、Fabric、Quilt
 
-pub mod error;
+pub mod account;
+pub mod config;
 pub mod download;
+pub mod error;
 pub mod launch;
+pub mod logging;
+pub mod modloader;
 pub mod plugin;
 pub mod version;
 pub mod version_manager;
-pub mod config;
-pub mod account;
-pub mod modloader;
 
 // 重新导出常用类型
-pub use error::{LauncherError, Result};
+pub use account::{MicrosoftAuth, MojangAuth, OfflineAccount};
+pub use config::{LaunchProfile, LauncherConfig, ProfileManager};
 pub use download::DownloadEngine;
-pub use launch::{LaunchEngine, LaunchConfig};
-pub use plugin::{PluginManager, PluginInstaller};
-pub use version_manager::{
-    VersionCache, VersionComparator, VersionInstaller, VersionValidator,
-};
-pub use config::{LauncherConfig, LaunchProfile, ProfileManager};
-pub use account::{OfflineAccount, MicrosoftAuth, MojangAuth};
+pub use error::{LauncherError, Result};
+pub use launch::{LaunchConfig, LaunchEngine};
 pub use modloader::ModLoaderInfo;
+pub use plugin::{PluginInstaller, PluginManager};
+pub use version_manager::{VersionCache, VersionComparator, VersionInstaller, VersionValidator};

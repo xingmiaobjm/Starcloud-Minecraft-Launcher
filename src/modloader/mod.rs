@@ -1,6 +1,6 @@
-pub mod forge;
 pub mod fabric;
-pub mod quilt;
+pub mod forge;
 pub mod loader;
+pub mod quilt;
 
 pub use loader::{ModLoaderInfo, ModLoaderType};

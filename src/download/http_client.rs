@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::error::{LauncherError, Result};
+use std::time::Duration;
 
 /// 下载重试配置
 #[derive(Debug, Clone)]
@@ -50,13 +50,18 @@ impl RetryConfig {
                         )));
                     }
 
-                    log::warn!("下载失败 (第 {} 次), 将在 {:?} 后重试: {}", attempt, delay, e);
+                    log::warn!(
+                        "下载失败 (第 {} 次), 将在 {:?} 后重试: {}",
+                        attempt,
+                        delay,
+                        e
+                    );
                     tokio::time::sleep(delay).await;
 
                     // 指数退避
                     delay = Duration::from_secs_f64(
                         (delay.as_secs_f64() * self.backoff_factor)
-                            .min(self.max_delay.as_secs_f64())
+                            .min(self.max_delay.as_secs_f64()),
                     );
                 }
             }
@@ -107,27 +112,30 @@ impl HttpClient {
         let url = url.to_string();
         let retryable = self.retry_config.retryable_statuses.clone();
         let client = self.inner.clone();
-        self.retry_config.retry(move || {
-            let url = url.clone();
-            let client = client.clone();
-            let retryable = retryable.clone();
-            async move {
-                let response = client.get(&url).send().await?;
-                let status = response.status().as_u16();
-                if retryable.contains(&status) {
-                    return Err(LauncherError::DownloadError(format!(
-                        "HTTP {}: {}", status, url
-                    )));
+        self.retry_config
+            .retry(move || {
+                let url = url.clone();
+                let client = client.clone();
+                let retryable = retryable.clone();
+                async move {
+                    let response = client.get(&url).send().await?;
+                    let status = response.status().as_u16();
+                    if retryable.contains(&status) {
+                        return Err(LauncherError::DownloadError(format!(
+                            "HTTP {}: {}",
+                            status, url
+                        )));
+                    }
+                    if !response.status().is_success() {
+                        return Err(LauncherError::DownloadError(format!(
+                            "HTTP {}: {}",
+                            status, url
+                        )));
+                    }
+                    Ok(response)
                 }
-                if !response.status().is_success() {
-                    return Err(LauncherError::DownloadError(format!(
-                        "HTTP {}: {}", status, url
-                    )));
-                }
-                Ok(response)
-            }
-        })
-        .await
+            })
+            .await
     }
 
     /// 带重试的 GET 请求并返回 bytes
@@ -135,27 +143,30 @@ impl HttpClient {
         let url = url.to_string();
         let retryable = self.retry_config.retryable_statuses.clone();
         let client = self.inner.clone();
-        self.retry_config.retry(move || {
-            let url = url.clone();
-            let client = client.clone();
-            let retryable = retryable.clone();
-            async move {
-                let response = client.get(&url).send().await?;
-                let status = response.status().as_u16();
-                if retryable.contains(&status) {
-                    return Err(LauncherError::DownloadError(format!(
-                        "HTTP {}: {}", status, url
-                    )));
+        self.retry_config
+            .retry(move || {
+                let url = url.clone();
+                let client = client.clone();
+                let retryable = retryable.clone();
+                async move {
+                    let response = client.get(&url).send().await?;
+                    let status = response.status().as_u16();
+                    if retryable.contains(&status) {
+                        return Err(LauncherError::DownloadError(format!(
+                            "HTTP {}: {}",
+                            status, url
+                        )));
+                    }
+                    if !response.status().is_success() {
+                        return Err(LauncherError::DownloadError(format!(
+                            "HTTP {}: {}",
+                            status, url
+                        )));
+                    }
+                    Ok(response.bytes().await?.to_vec())
                 }
-                if !response.status().is_success() {
-                    return Err(LauncherError::DownloadError(format!(
-                        "HTTP {}: {}", status, url
-                    )));
-                }
-                Ok(response.bytes().await?.to_vec())
-            }
-        })
-        .await
+            })
+            .await
     }
 
     /// 带重试的 GET 请求并返回 JSON 反序列化结果

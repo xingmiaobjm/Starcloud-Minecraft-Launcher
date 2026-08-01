@@ -1,0 +1,24 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# 前端 (Tauri GUI)
+ui/node_modules
+ui/dist
+src-tauri/target
+src-tauri/gen
+
+# 日志与运行时数据
+*.log
+logs/
+launcher_data/
+plugins/
+
+# 本地环境
+.env
+.env.local
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

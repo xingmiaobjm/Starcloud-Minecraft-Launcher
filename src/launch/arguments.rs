@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::version::manifest::{
-    VersionDetails, Rule, RuleAction, ArgumentValue, ArgumentValueInner,
+    ArgumentValue, ArgumentValueInner, Rule, RuleAction, VersionDetails,
 };
+use std::collections::HashMap;
 
 /// 操作系统类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,7 +67,8 @@ impl ArgumentsBuilder {
 
     /// 设置自定义分辨率特性
     pub fn with_custom_resolution(mut self) -> Self {
-        self.features.insert("has_custom_resolution".to_string(), true);
+        self.features
+            .insert("has_custom_resolution".to_string(), true);
         self
     }
 
@@ -118,8 +119,14 @@ impl ArgumentsBuilder {
         }
 
         // 添加日志参数
-        if let Some(result) = self.version.logging.client.argument.strip_prefix("-D")
-            .map(|s| s.to_string()) {
+        if let Some(result) = self
+            .version
+            .logging
+            .client
+            .argument
+            .strip_prefix("-D")
+            .map(|s| s.to_string())
+        {
             let log_arg = format!("-D{}", apply_replacements(&result, &self.replacements));
             args.push(log_arg);
         }
@@ -165,7 +172,11 @@ impl ArgumentsBuilder {
         let mut all_paths = library_paths.to_vec();
         all_paths.insert(0, version_jar);
 
-        all_paths.join(if cfg!(target_os = "windows") { ";" } else { ":" })
+        all_paths.join(if cfg!(target_os = "windows") {
+            ";"
+        } else {
+            ":"
+        })
     }
 
     /// 获取主类名
@@ -175,30 +186,30 @@ impl ArgumentsBuilder {
 
     /// 获取资源目录名
     pub fn assets_id(&self) -> String {
-        self.version.assets.clone().unwrap_or_else(|| self.version.id.clone())
+        self.version
+            .assets
+            .clone()
+            .unwrap_or_else(|| self.version.id.clone())
     }
 }
 
 /// 检查规则是否通过
-fn check_rules(
-    rules: &[Rule],
-    os: OsKind,
-    features: &HashMap<String, bool>,
-) -> bool {
+fn check_rules(rules: &[Rule], os: OsKind, features: &HashMap<String, bool>) -> bool {
     if rules.is_empty() {
         return true;
     }
 
     let mut allowed = false;
     for rule in rules {
-        let os_match = rule.os.as_ref().map_or(true, |os_rule| {
-            os_rule.name == os.as_mojang()
-        });
+        let os_match = rule
+            .os
+            .as_ref()
+            .is_none_or(|os_rule| os_rule.name == os.as_mojang());
 
-        let feature_match = rule.features.as_ref().map_or(true, |feats| {
-            feats.iter().all(|(key, expected)| {
-                features.get(key).copied().unwrap_or(false) == *expected
-            })
+        let feature_match = rule.features.as_ref().is_none_or(|feats| {
+            feats
+                .iter()
+                .all(|(key, expected)| features.get(key).copied().unwrap_or(false) == *expected)
         });
 
         if os_match && feature_match {
