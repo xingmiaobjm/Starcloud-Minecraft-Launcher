@@ -1,8 +1,9 @@
 # 性能优化测试报告
 
 > 项目：Starcloud Minecraft Launcher Core  
-> 报告日期：2026-06-22  
+> 报告日期：2026-06-22（基线，阶段0） | 版本 0.2.0 核对日期 2026-08-09  
 > 测试工具：criterion.rs / cargo bench
+> 说明：阶段 1-3 无新增性能优化项，本报告为基线基准；回归保证见 CI（fmt/clippy/test）。
 
 ---
 

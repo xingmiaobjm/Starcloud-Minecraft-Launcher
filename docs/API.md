@@ -1,6 +1,6 @@
 # Starcloud Minecraft Launcher Core — API 参考文档
 
-> 版本 0.1.0 | 2026-06-22  
+> 版本 0.2.0 | 2026-08-09  
 > 完整的 Minecraft 启动器核心库 API 文档，包含调用方法、参数说明、返回结构、错误处理与开发规范。
 
 ---
@@ -17,7 +17,8 @@
 8. [配置管理 (config)](#8-配置管理-config)
 9. [账户管理 (account)](#9-账户管理-account)
 10. [ModLoader 支持 (modloader)](#10-modloader-支持-modloader)
-11. [开发规范与最佳实践](#11-开发规范与最佳实践)
+11. [服务层 (core)](#11-服务层-core)
+12. [开发规范与最佳实践](#12-开发规范与最佳实践)
 
 ---
 
@@ -2158,9 +2159,109 @@ pub fn install_dir(dot_minecraft: &PathBuf, mc_version: &str, loader_version: &s
 
 ---
 
-## 11. 开发规范与最佳实践
+## 11. 服务层 (core)
 
-### 11.1 错误处理规范
+服务层将底层模块组织为高层异步服务，供 CLI 与 GUI 共用（`starcloud_minecraft::core`）。
+
+### 11.1 InstallService — 版本安装服务
+
+```rust
+use starcloud_minecraft::core::InstallService;
+
+let svc = InstallService::new(config); // config: LauncherConfig
+
+/// 关联插件管理器（版本安装事件广播），可选
+pub fn with_plugin_manager(self, plugin_manager: Arc<PluginManager>) -> Self
+
+/// 完整安装版本：清单 → 详情 → 客户端 jar → 库 → 资源 → 索引 → version.json
+pub async fn install_version(
+    &self,
+    version_id: &str,
+    progress_cb: impl Fn(&ProgressInfo) + Send + Sync + 'static,
+) -> Result<()>
+
+/// 安装 Fabric 加载器（内联合并 inheritsFrom 父版本），返回 fabric 版本 ID
+/// 产物 ID 形如 "fabric-loader-{loader}-{mc}"
+pub async fn install_fabric(
+    &self,
+    mc_version: &str,
+    progress_cb: impl Fn(&ProgressInfo) + Send + Sync + 'static,
+) -> Result<String>
+
+/// 仅下载客户端 jar（启动前 EnsureInstalled 使用）
+pub async fn ensure_client_jar(&self, details: &VersionDetails) -> Result<()>
+
+/// 确保 log4j2 日志配置就绪
+pub async fn ensure_logging_config(&self, details: &VersionDetails) -> Result<()>
+```
+
+`progress_cb` 接收节流后的 `ProgressInfo` 快照（终态强制触发），可转交给 `ProgressTracker` 显示。
+
+### 11.2 LaunchService — 启动服务
+
+```rust
+use starcloud_minecraft::core::LaunchService;
+
+pub async fn launch(
+    &self,
+    version_id: &str,
+    username: &str,
+    launch_options: Option<...>,
+    dry_run: bool,
+    progress_cb: impl Fn(&ProgressInfo) + Send + Sync + 'static,
+    log_cb: Option<impl Fn(&str, bool)>,   // 输出行回调 (line, is_stderr)
+    pid_cb: Option<impl Fn(u32)>,          // 子进程 PID 回调
+) -> Result<LaunchOutcome>
+
+pub struct LaunchOutcome {
+    pub exit_code: Option<i32>,
+    pub crashed: bool,     // 退出码非 0 或异常退出视为崩溃
+}
+```
+
+流程：读取版本详情 → 确保已安装 → 账户凭据解析（微软 refresh 续期，否则离线）→ Java 检测 → 参数构建 → 启动 → 输出流转发 → 退出判定。
+
+### 11.3 AccountService — 账户服务
+
+```rust
+use starcloud_minecraft::core::{AccountService, MicrosoftLoginPoll};
+
+pub async fn list() -> Result<Vec<StoredAccount>>
+pub async fn add_offline(&self, username: &str) -> Result<StoredAccount>
+pub async fn remove(&self, uuid: &str) -> Result<bool>
+pub async fn set_default(&self, uuid: &str) -> Result<()>
+
+/// 发起微软设备码登录，返回 DeviceCodeResponse（user_code / verification_uri / interval …）
+pub async fn start_microsoft_login(&self) -> Result<DeviceCodeResponse>
+
+/// 单次轮询设备码登录状态（前端按 interval 循环调用直至终态）
+pub async fn poll_microsoft_login(&self, device_code: &str) -> Result<MicrosoftLoginPoll>
+
+pub enum MicrosoftLoginPoll {
+    Pending(String), // 用户未完成授权，应稍后继续轮询
+    Success(StoredAccount),
+}
+```
+
+登录成功后凭证持久化到 `accounts.json`，`access_token` 过期时由 `resolve_credentials` 自动续期。
+
+### 11.4 使用示例
+
+```rust
+use starcloud_minecraft::core::InstallService;
+
+let svc = InstallService::new(config);
+let fabric_id = svc
+    .install_fabric("1.21.4", |p| println!("{} {:.1}%", p.stage, p.percentage))
+    .await?;
+println!("安装完成: {}", fabric_id);
+```
+
+---
+
+## 12. 开发规范与最佳实践
+
+### 12.1 错误处理规范
 
 ```rust
 // ✅ 正确：使用 ? 传播错误，在顶层处理
@@ -2182,7 +2283,7 @@ fn handle_error(e: &LauncherError) -> String {
 let manifest = fetch_version_manifest().await.unwrap();
 ```
 
-### 11.2 异步运行时
+### 12.2 异步运行时
 
 所有网络和文件 I/O 操作基于 `tokio`，必须在 `#[tokio::main]` 或 `tokio::runtime::Runtime` 上下文中调用。
 
@@ -2191,7 +2292,7 @@ let manifest = fetch_version_manifest().await.unwrap();
 async fn main() { /* ... */ }
 ```
 
-### 11.3 启动前必须校验
+### 12.3 启动前必须校验
 
 ```rust
 // ✅ 启动前执行配置校验
@@ -2200,7 +2301,7 @@ VersionValidator::validate_version_details(&details)?;
 let child = launcher.launch(&config, &details, &libs)?;
 ```
 
-### 11.4 缓存策略
+### 12.4 缓存策略
 
 | 场景 | 策略 |
 |------|------|
@@ -2209,7 +2310,7 @@ let child = launcher.launch(&config, &details, &libs)?;
 | 资源文件 | 存在跳过，不重复下载 |
 | 库文件 | SHA1 校验 + 存在跳过 |
 
-### 11.5 下载优化参数推荐
+### 12.5 下载优化参数推荐
 
 ```rust
 let engine = DownloadEngine::new(".minecraft");
@@ -2224,14 +2325,14 @@ let libs = engine.library_downloader().concurrency(6);
 let client = HttpClient::new()?;
 ```
 
-### 11.6 并发安全
+### 12.6 并发安全
 
 - `PluginManager` 内部使用 `RwLock<HashMap>`，可安全在多线程间共享
 - `ProgressTracker` 基于 `AtomicU64`，完全无锁
 - `VersionCache` 内部 `Arc<Mutex<LruCache>>`
 - `LaunchEngine`、`DownloadEngine` 无内部状态锁，可 `Clone` 安全共享
 
-### 11.7 文件路径
+### 12.7 文件路径
 
 所有路径接受 `impl Into<PathBuf>`，支持跨平台：
 
@@ -2241,7 +2342,7 @@ DownloadEngine::new(r"C:\Users\user\.minecraft") // Windows
 DownloadEngine::new(PathBuf::from("."))           // 相对路径
 ```
 
-### 11.8 日志
+### 12.8 日志
 
 库内部使用 `log` crate（`info!`/`debug!`/`warn!`），上层需配置日志后端：
 
@@ -2249,7 +2350,7 @@ DownloadEngine::new(PathBuf::from("."))           // 相对路径
 env_logger::init(); // 或 tracing-subscriber / simple_logger
 ```
 
-### 11.9 版本号命名
+### 12.9 版本号命名
 
 - 正式版：`"1.20.1"` `"1.21"`
 - 快照版：`"24w21b"` `"1.21-pre2"`
@@ -2258,7 +2359,7 @@ env_logger::init(); // 或 tracing-subscriber / simple_logger
 
 `VersionComparator` 对以上格式均可比较。
 
-### 11.10 线程模型建议
+### 12.10 线程模型建议
 
 ```
 main thread:
