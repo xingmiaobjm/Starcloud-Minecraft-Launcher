@@ -1,7 +1,8 @@
 // 首页：右侧 3:4 启动卡片（版本按钮菜单 / 正版·离线滑块 / 账户选择 / 进度内嵌）
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import LiquidGlass from "liquid-glass-react";
+import { launchBtnGlow } from "../motion";
 import {
   launchGame,
   listAccounts,
@@ -30,6 +31,7 @@ export function Home({ status, statusDetail, progress, lastError, onClearError }
   const [selectedAccount, setSelectedAccount] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [localErr, setLocalErr] = useState<string | null>(null);
+  const launchBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -85,6 +87,14 @@ export function Home({ status, statusDetail, progress, lastError, onClearError }
   const busy = status === "installing" || status === "launching" || status === "running";
   const installed = versions.find((v) => v.id === selected)?.installed ?? false;
   const selectedMeta = versions.find((v) => v.id === selected);
+
+  // 启动按钮呼吸微光（持续微交互，遵循 DESIGN.md §6）
+  useEffect(() => {
+    const btn = launchBtnRef.current;
+    if (!btn) return;
+    const mm = launchBtnGlow(btn);
+    return () => mm.revert();
+  }, [status, selected, mode, currentAccount, username, installed, microsoftAccounts.length]);
 
   const pickAccount = async (uuid: string) => {
     setSelectedAccount(uuid);
@@ -208,6 +218,7 @@ export function Home({ status, statusDetail, progress, lastError, onClearError }
           </button>
         ) : (
           <button
+            ref={launchBtnRef}
             class="btn-primary launch-btn"
             onClick={handleLaunch}
             disabled={busy || !selected || (mode === "offline" && !(currentAccount ?? username.trim()))}

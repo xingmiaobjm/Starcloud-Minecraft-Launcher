@@ -7,11 +7,13 @@ interface Props {
 export function PluginView({ pluginId }: Props) {
   const src = `furry://views/${encodeURIComponent(pluginId)}/index.html`;
   return (
-    <iframe
-      class="plugin-frame"
-      src={src}
-      title={pluginId}
-      sandbox="allow-scripts allow-same-origin"
-    />
+    <div class="page">
+      <iframe
+        class="plugin-frame"
+        src={src}
+        title={pluginId}
+        sandbox="allow-scripts allow-same-origin"
+      />
+    </div>
   );
 }

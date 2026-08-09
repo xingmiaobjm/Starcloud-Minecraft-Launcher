@@ -62,7 +62,7 @@ export function Plugins() {
   const replacement = gui.find((p) => p.gui_type === "replacement" && p.compatible);
 
   return (
-    <div>
+    <div class="page">
       <div class="page-title">插件</div>
       <div class="page-desc">GUI 插件可挂载视图或替换整个界面；核心插件在加载器初始化时自动加载</div>
 
@@ -95,7 +95,7 @@ export function Plugins() {
       </div>
 
       <div class="page-subtitle">GUI 插件</div>
-      <div class="list" style="margin-bottom:24px">
+      <div class="list page-scroll" style="margin-bottom:24px">
         {gui.length === 0 && (
           <div class="empty">暂无 GUI 插件，可安装或放入 plugins 目录</div>
         )}

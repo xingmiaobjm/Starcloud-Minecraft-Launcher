@@ -68,7 +68,7 @@ export function Settings() {
   }
 
   return (
-    <div>
+    <div class="page">
       <div class="page-title">设置</div>
       <div class="page-desc">配置游戏目录、内存、窗口与下载参数</div>
 

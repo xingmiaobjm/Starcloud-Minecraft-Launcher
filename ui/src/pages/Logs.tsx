@@ -34,13 +34,13 @@ export function Logs({ liveLines }: Props) {
   }, [all.length]);
 
   return (
-    <div>
+    <div class="page">
       <div class="page-title">游戏日志</div>
       <div class="page-desc">显示 .minecraft/logs/latest.log 尾部内容，游戏运行时实时追加</div>
 
       {err && <div class="error-box" style="margin-bottom:14px">{err}</div>}
 
-      <div class="game-log" ref={boxRef} style="height:calc(100vh - 220px)">
+      <div class="game-log" ref={boxRef}>
         {!loaded ? (
           "加载中…"
         ) : all.length === 0 ? (

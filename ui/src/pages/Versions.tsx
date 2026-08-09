@@ -76,7 +76,7 @@ export function Versions() {
   });
 
   return (
-    <div>
+    <div class="page">
       <div class="page-title">版本管理</div>
       <div class="page-desc">管理已安装版本，安装 Mojang 官方版本</div>
 
@@ -125,7 +125,7 @@ export function Versions() {
           />
         </div>
       </div>
-      <div class="list">
+      <div class="list page-scroll">
         {shownRemote.slice(0, 100).map((v) => (
           <div class="list-item" key={v.id}>
             <div>

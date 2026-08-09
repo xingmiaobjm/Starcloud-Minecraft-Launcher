@@ -139,7 +139,7 @@ export function Accounts() {
   };
 
   return (
-    <div>
+    <div class="page">
       <div class="page-title">账户管理</div>
       <div class="page-desc">添加离线账户或通过微软账号登录，可切换默认账户用于启动游戏</div>
 
@@ -202,7 +202,7 @@ export function Accounts() {
         )}
       </div>
 
-      <div class="list">
+      <div class="list page-scroll">
         {accounts.length === 0 && (
           <div class="empty">暂无账户，先添加一个离线账户或完成微软登录</div>
         )}

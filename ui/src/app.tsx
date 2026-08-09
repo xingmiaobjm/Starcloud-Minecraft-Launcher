@@ -1,9 +1,10 @@
 // 应用外壳：侧边导航 + 状态栏 + 页面容器 + 全局事件订阅
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getGuiPlugins } from "./api";
+import { pageEnter } from "./motion";
 import type {
   AppStatus,
   ErrorPayload,
@@ -121,6 +122,15 @@ export function App() {
   const [gameLogs, setGameLogs] = useState<string[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [guiPlugins, setGuiPlugins] = useState<GuiPluginInfo[]>([]);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // 页面切换：GSAP 入场动画（级联揭示，遵循 DESIGN.md §6）
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const mm = pageEnter(el);
+    return () => mm.revert();
+  }, [page]);
 
   useEffect(() => {
     const unsubs: (() => void)[] = [];
@@ -248,7 +258,7 @@ export function App() {
           <span class={`status-dot ${status}`} />
           <span class="status-text">{statusText(status, statusDetail)}</span>
         </div>
-        <div class="content">{renderPage()}</div>
+        <div class="content" ref={contentRef}>{renderPage()}</div>
       </main>
       </div>
     </div>
