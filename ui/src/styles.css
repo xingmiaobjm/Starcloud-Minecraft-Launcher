@@ -912,6 +912,12 @@ textarea:focus {
   font-size: 12.5px;
   margin-top: 3px;
 }
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .tag {
   display: inline-block;
   padding: 2px 9px;
@@ -941,4 +947,45 @@ textarea:focus {
   border: none;
   border-radius: var(--radius);
   background: var(--bg);
+}
+
+/* ---------- 微软设备码登录 ---------- */
+.ms-login {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0;
+}
+.ms-code {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-align: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 14px 10px;
+  cursor: pointer;
+  user-select: all;
+  transition: transform 0.15s ease;
+}
+.ms-code:hover {
+  transform: scale(1.02);
+}
+.ms-uri {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--text-dim);
+}
+.ms-uri a {
+  color: var(--accent);
+  word-break: break-all;
+  flex: 1;
+}
+.ms-status {
+  color: var(--warn);
+  font-size: 13px;
+  min-height: 18px;
 }

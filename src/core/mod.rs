@@ -9,6 +9,6 @@ pub mod account;
 pub mod install;
 pub mod launch;
 
-pub use account::AccountService;
+pub use account::{AccountService, MicrosoftLoginPoll};
 pub use install::InstallService;
 pub use launch::{LaunchOutcome, LaunchService};

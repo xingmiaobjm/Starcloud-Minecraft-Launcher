@@ -11,9 +11,12 @@ use crate::events::{
 use crate::plugin_host::{self, GuiPluginInfo};
 use crate::state::AppState;
 use serde::Serialize;
+use starcloud_minecraft::account::microsoft::DeviceCodeResponse;
 use starcloud_minecraft::account::store::StoredAccount;
 use starcloud_minecraft::config::LauncherConfig;
-use starcloud_minecraft::core::{AccountService, InstallService, LaunchService};
+use starcloud_minecraft::core::{
+    AccountService, InstallService, LaunchService, MicrosoftLoginPoll,
+};
 use starcloud_minecraft::download::{fetch_version_manifest, DownloadEngine};
 use starcloud_minecraft::error::Result as CoreResult;
 use starcloud_minecraft::launch::java::{JavaDetector, JavaRuntime};
@@ -107,6 +110,39 @@ impl JavaInfo {
             is_64bit: r.is_64bit,
         }
     }
+}
+
+/// 微软设备码（前端展示 user_code + verification_uri）
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceCodeDto {
+    pub user_code: String,
+    pub device_code: String,
+    pub verification_uri: String,
+    pub message: String,
+    pub interval: u64,
+    pub expires_in: u64,
+}
+
+impl DeviceCodeDto {
+    fn from_response(r: DeviceCodeResponse) -> Self {
+        Self {
+            user_code: r.user_code,
+            device_code: r.device_code,
+            verification_uri: r.verification_uri,
+            message: r.message,
+            interval: r.interval,
+            expires_in: r.expires_in,
+        }
+    }
+}
+
+/// 微软登录轮询结果
+#[derive(Debug, Clone, Serialize)]
+pub struct LoginPollDto {
+    /// "pending"（继续轮询）| "success" | "error"（终止）
+    pub state: String,
+    pub message: String,
+    pub account: Option<StoredAccount>,
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +278,66 @@ pub async fn remove_version(state: State<'_, AppState>, version_id: String) -> R
         .delete_version(&version_id)
         .await
         .map_err(|e| format!("删除版本失败: {}", e))
+}
+
+/// 安装 Fabric 加载器（后台任务 + 事件推送，成功后通过 install-done 返回 fabric 版本 id）
+#[tauri::command]
+pub async fn install_fabric(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mc_version: String,
+) -> Result<(), String> {
+    let config = config_snapshot(&state);
+    let _ = app.emit(
+        EVENT_STATUS,
+        StatusPayload {
+            status: "installing".into(),
+            detail: Some(format!("为 {} 安装 Fabric", mc_version)),
+        },
+    );
+
+    let emit_version_id = mc_version.clone();
+    tauri::async_runtime::spawn(async move {
+        let svc = InstallService::new(config);
+        let progress_app = app.clone();
+        let result = svc
+            .install_fabric(&mc_version, move |info| {
+                let _ = progress_app.emit(
+                    EVENT_DOWNLOAD_PROGRESS,
+                    ProgressPayload::from_progress(&emit_version_id, info),
+                );
+            })
+            .await;
+        match result {
+            Ok(fabric_id) => {
+                let _ = app.emit(
+                    EVENT_INSTALL_DONE,
+                    InstallDonePayload {
+                        version_id: fabric_id,
+                        success: true,
+                        message: "Fabric 安装完成".into(),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    EVENT_ERROR,
+                    ErrorPayload {
+                        context: "Fabric 安装失败".into(),
+                        message: e.to_string(),
+                    },
+                );
+                let _ = app.emit(
+                    EVENT_STATUS,
+                    StatusPayload {
+                        status: "error".into(),
+                        detail: Some(e.to_string()),
+                    },
+                );
+            }
+        }
+    });
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +499,39 @@ pub async fn set_default_account(uuid: String) -> Result<(), String> {
         .map_err(|e| format!("切换默认账户失败: {}", e))
 }
 
+/// 发起微软设备码登录（返回 user_code + verification_uri 供用户授权）
+#[tauri::command]
+pub async fn login_microsoft_device() -> Result<DeviceCodeDto, String> {
+    let dc = AccountService::new()
+        .start_microsoft_login()
+        .await
+        .map_err(|e| format!("获取设备码失败: {}", e))?;
+    Ok(DeviceCodeDto::from_response(dc))
+}
+
+/// 单次轮询微软登录状态（前端按 interval 间隔调用，直至 success / error）
+#[tauri::command]
+pub async fn poll_microsoft_login(device_code: String) -> Result<LoginPollDto, String> {
+    let svc = AccountService::new();
+    match svc.poll_microsoft_login(&device_code).await {
+        Ok(MicrosoftLoginPoll::Pending(msg)) => Ok(LoginPollDto {
+            state: "pending".into(),
+            message: msg,
+            account: None,
+        }),
+        Ok(MicrosoftLoginPoll::Success(acc)) => Ok(LoginPollDto {
+            state: "success".into(),
+            message: "登录成功".into(),
+            account: Some(acc),
+        }),
+        Err(e) => Ok(LoginPollDto {
+            state: "error".into(),
+            message: e.to_string(),
+            account: None,
+        }),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 设置命令
 // ---------------------------------------------------------------------------
@@ -437,6 +566,34 @@ pub async fn set_settings(state: State<'_, AppState>, settings: SettingsDto) -> 
 pub fn get_gui_plugins(state: State<'_, AppState>) -> Result<Vec<GuiPluginInfo>, String> {
     let config = config_snapshot(&state);
     Ok(plugin_host::scan_gui_plugins(&config.plugins_dir))
+}
+
+/// 安装 GUI 插件（source 为 URL 或本地 zip 路径）
+#[tauri::command]
+pub async fn install_plugin(
+    state: State<'_, AppState>,
+    source: String,
+) -> Result<GuiPluginInfo, String> {
+    let config = config_snapshot(&state);
+    plugin_host::install_gui_plugin(&config.plugins_dir, &source).await
+}
+
+/// 删除 GUI 插件
+#[tauri::command]
+pub fn remove_plugin(state: State<'_, AppState>, plugin_id: String) -> Result<(), String> {
+    let config = config_snapshot(&state);
+    plugin_host::remove_gui_plugin(&config.plugins_dir, &plugin_id)
+}
+
+/// 启用/禁用 GUI 插件
+#[tauri::command]
+pub fn set_plugin_enabled(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let config = config_snapshot(&state);
+    plugin_host::set_gui_plugin_enabled(&config.plugins_dir, &plugin_id, enabled)
 }
 
 /// 核心插件列表

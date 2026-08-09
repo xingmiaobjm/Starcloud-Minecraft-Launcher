@@ -69,11 +69,13 @@ pub struct GuiPluginInfo {
     pub has_native: bool,
     pub compatible: bool,
     pub reason: Option<String>,
+    /// 是否启用（plugins/{id}/.disabled 标记文件不存在时为启用）
+    pub enabled: bool,
 }
 
 impl GuiPluginInfo {
     /// 校验并构建摘要
-    fn from_meta(meta: &GuiPluginMeta) -> Self {
+    fn from_meta(meta: &GuiPluginMeta, enabled: bool) -> Self {
         // api_version 校验
         if meta.api_version != GUI_PLUGIN_API_VERSION {
             return Self {
@@ -89,6 +91,7 @@ impl GuiPluginInfo {
                     "api_version {} 不受支持（当前 {}）",
                     meta.api_version, GUI_PLUGIN_API_VERSION
                 )),
+                enabled,
             };
         }
         // min_launcher_version 校验
@@ -111,6 +114,7 @@ impl GuiPluginInfo {
                         "需要启动器 >= {}（当前 {}）",
                         min, LAUNCHER_VERSION
                     )),
+                    enabled,
                 };
             }
         }
@@ -124,11 +128,12 @@ impl GuiPluginInfo {
             has_native: meta.gui.native_module.is_some(),
             compatible: true,
             reason: None,
+            enabled,
         }
     }
 }
 
-/// 扫描插件目录，返回全部 GUI 插件摘要
+/// 扫描插件目录，返回全部 GUI 插件摘要（跳过禁用与临时安装目录）
 pub fn scan_gui_plugins(plugins_dir: &Path) -> Vec<GuiPluginInfo> {
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(plugins_dir) else {
@@ -139,11 +144,20 @@ pub fn scan_gui_plugins(plugins_dir: &Path) -> Vec<GuiPluginInfo> {
         if !dir.is_dir() {
             continue;
         }
+        // 禁用标记或临时安装目录 → 跳过
+        if dir.join(".disabled").exists() {
+            continue;
+        }
+        if let Some(name) = dir.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with(".tmp-install-") {
+                continue;
+            }
+        }
         let Ok(data) = std::fs::read_to_string(dir.join("plugin.json")) else {
             continue;
         };
         match serde_json::from_str::<GuiPluginMeta>(&data) {
-            Ok(meta) => out.push(GuiPluginInfo::from_meta(&meta)),
+            Ok(meta) => out.push(GuiPluginInfo::from_meta(&meta, true)),
             Err(e) => log::warn!("跳过无效 GUI 插件清单 {}: {}", dir.display(), e),
         }
     }
@@ -156,6 +170,142 @@ pub fn parse_plugin_meta(plugins_dir: &Path, plugin_id: &str) -> Option<GuiPlugi
     let path = plugins_dir.join(plugin_id).join("plugin.json");
     let data = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
+}
+
+// ---------------------------------------------------------------------------
+// 插件包管理（安装/删除/启用禁用）
+// ---------------------------------------------------------------------------
+
+/// 插件 ID 合法字符（防路径穿越）
+fn valid_plugin_id(id: &str) -> bool {
+    !id.is_empty()
+        && id != "."
+        && id != ".."
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+}
+
+/// 安装 GUI 插件（zip 包，来源为 URL 或本地路径）
+///
+/// 包内必须包含根级 `plugin.json`；安装到 `plugins/{id}/`（先删除旧目录）。
+pub async fn install_gui_plugin(plugins_dir: &Path, source: &str) -> Result<GuiPluginInfo, String> {
+    // 1. 获取 zip 字节
+    let bytes = if source.starts_with("http://") || source.starts_with("https://") {
+        let http = starcloud_minecraft::download::http_client::HttpClient::new()
+            .map_err(|e| format!("初始化下载器失败: {}", e))?;
+        http.get_bytes_with_retry(source)
+            .await
+            .map_err(|e| format!("下载插件包失败: {}", e))?
+    } else {
+        std::fs::read(source).map_err(|e| format!("读取本地插件包失败: {}", e))?
+    };
+
+    std::fs::create_dir_all(plugins_dir).map_err(|e| format!("创建插件目录失败: {}", e))?;
+
+    // 2. 解压到临时目录
+    let tmp = plugins_dir.join(format!(".tmp-install-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("创建临时目录失败: {}", e))?;
+    if let Err(e) = extract_zip(&bytes, &tmp) {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(format!("解压插件包失败: {}", e));
+    }
+
+    // 3. 校验 plugin.json
+    let meta: GuiPluginMeta = match std::fs::read(tmp.join("plugin.json")) {
+        Ok(data) => {
+            serde_json::from_slice(&data).map_err(|e| format!("plugin.json 无效: {}", e))?
+        }
+        Err(_) => {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err("插件包缺少 plugin.json".into());
+        }
+    };
+    if !valid_plugin_id(&meta.id) {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(format!("插件 ID 非法: {}", meta.id));
+    }
+    if meta.gui.gui_type != "view" && meta.gui.gui_type != "replacement" {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(format!("未知的 GUI 插件类型: {}", meta.gui.gui_type));
+    }
+
+    // 4. 移入目标目录（覆盖旧版本）
+    let target = plugins_dir.join(&meta.id);
+    if target.exists() {
+        std::fs::remove_dir_all(&target).map_err(|e| format!("清理旧插件失败: {}", e))?;
+    }
+    std::fs::rename(&tmp, &target).map_err(|e| format!("移动插件目录失败: {}", e))?;
+
+    log::info!(
+        "已安装 GUI 插件 {} v{}（{}）",
+        meta.id,
+        meta.version,
+        meta.gui.gui_type
+    );
+    Ok(GuiPluginInfo::from_meta(&meta, true))
+}
+
+/// 删除 GUI 插件
+pub fn remove_gui_plugin(plugins_dir: &Path, plugin_id: &str) -> Result<(), String> {
+    if !valid_plugin_id(plugin_id) {
+        return Err(format!("插件 ID 非法: {}", plugin_id));
+    }
+    let dir = plugins_dir.join(plugin_id);
+    if !dir.exists() {
+        return Err(format!("插件不存在: {}", plugin_id));
+    }
+    std::fs::remove_dir_all(&dir).map_err(|e| format!("删除插件失败: {}", e))?;
+    log::info!("已删除 GUI 插件 {}", plugin_id);
+    Ok(())
+}
+
+/// 启用/禁用 GUI 插件（.disabled 标记文件）
+pub fn set_gui_plugin_enabled(
+    plugins_dir: &Path,
+    plugin_id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    if !valid_plugin_id(plugin_id) {
+        return Err(format!("插件 ID 非法: {}", plugin_id));
+    }
+    let marker = plugins_dir.join(plugin_id).join(".disabled");
+    if enabled {
+        if marker.exists() {
+            std::fs::remove_file(&marker).map_err(|e| format!("启用插件失败: {}", e))?;
+        }
+        log::info!("已启用 GUI 插件 {}", plugin_id);
+    } else {
+        std::fs::write(&marker, "disabled").map_err(|e| format!("禁用插件失败: {}", e))?;
+        log::info!("已禁用 GUI 插件 {}", plugin_id);
+    }
+    Ok(())
+}
+
+/// 解压 zip 到目标目录（enclosed_name 防路径穿越）
+fn extract_zip(bytes: &[u8], dest: &Path) -> std::result::Result<(), String> {
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        let Some(rel) = file.enclosed_name() else {
+            continue; // 拒绝绝对路径与 .. 穿越条目
+        };
+        let out = dest.join(rel);
+        if file.is_dir() {
+            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut writer =
+            std::fs::File::create(&out).map_err(|e| format!("创建 {}: {}", out.display(), e))?;
+        std::io::copy(&mut file, &mut writer).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// 解析 furry:// 请求并返回响应
@@ -376,6 +526,128 @@ mod tests {
         let infos = scan_gui_plugins(&dir);
         assert!(!infos[0].compatible);
         assert!(infos[0].reason.is_some());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn valid_plugin_id_校验() {
+        assert!(valid_plugin_id("com.example.view"));
+        assert!(valid_plugin_id("demo_1"));
+        assert!(valid_plugin_id("a-b.c_d"));
+        assert!(!valid_plugin_id(""));
+        assert!(!valid_plugin_id(".."));
+        assert!(!valid_plugin_id("../evil"));
+        assert!(!valid_plugin_id("a/b"));
+        assert!(!valid_plugin_id("a\\b"));
+        assert!(!valid_plugin_id(&"x".repeat(129)));
+    }
+
+    /// 构造一个最小 GUI 插件 zip（plugin.json + frontend/index.html）
+    fn build_plugin_zip(id: &str) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let opts: zip::write::FileOptions<'_, ()> = Default::default();
+            zip.start_file("plugin.json", opts).unwrap();
+            zip.write_all(
+                format!(
+                    r#"{{"id":"{id}","name":"测试插件","version":"1.0.0","api_version":1,"gui":{{"type":"view","title":"测试"}}}}"#
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+            zip.start_file("frontend/index.html", opts).unwrap();
+            zip.write_all(b"<h1>hello</h1>").unwrap();
+            zip.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[tokio::test]
+    async fn 插件安装_删除_禁用流程() {
+        let dir = std::env::temp_dir().join("furry-gui-plugin-mgmt");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 写入 zip 文件
+        let zip_path = dir.join("demo.zip");
+        fs::write(&zip_path, build_plugin_zip("demo")).unwrap();
+
+        // 安装
+        let info = install_gui_plugin(&dir, zip_path.to_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(info.id, "demo");
+        assert_eq!(info.gui_type, "view");
+        assert!(info.enabled);
+        assert!(dir.join("demo").join("plugin.json").exists());
+        assert!(dir.join("demo").join("frontend/index.html").exists());
+
+        // 扫描可见
+        let infos = scan_gui_plugins(&dir);
+        assert_eq!(infos.len(), 1);
+        assert!(infos[0].enabled);
+
+        // 禁用 → 扫描跳过
+        set_gui_plugin_enabled(&dir, "demo", false).unwrap();
+        assert!(scan_gui_plugins(&dir).is_empty());
+
+        // 启用 → 重新可见
+        set_gui_plugin_enabled(&dir, "demo", true).unwrap();
+        assert_eq!(scan_gui_plugins(&dir).len(), 1);
+
+        // 删除
+        remove_gui_plugin(&dir, "demo").unwrap();
+        assert!(!dir.join("demo").exists());
+        assert!(scan_gui_plugins(&dir).is_empty());
+
+        // 删除不存在的插件 → 报错
+        assert!(remove_gui_plugin(&dir, "demo").is_err());
+
+        // 重新安装同 ID 插件（覆盖安装）→ 成功
+        let info = install_gui_plugin(&dir, zip_path.to_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(info.id, "demo");
+
+        // 路径穿越 ID 被拒绝
+        assert!(remove_gui_plugin(&dir, "../evil").is_err());
+        assert!(set_gui_plugin_enabled(&dir, "../evil", true).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn 插件包缺少plugin_json报错() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join("furry-gui-plugin-bad");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 无 plugin.json 的 zip
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let opts: zip::write::FileOptions<'_, ()> = Default::default();
+            zip.start_file("readme.txt", opts).unwrap();
+            zip.write_all(b"hi").unwrap();
+            zip.finish().unwrap();
+        }
+        let zip_path = dir.join("bad.zip");
+        fs::write(&zip_path, buf.into_inner()).unwrap();
+
+        let err = install_gui_plugin(&dir, zip_path.to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(err.contains("plugin.json"), "实际错误: {}", err);
+        // 临时目录应被清理
+        assert!(fs::read_dir(&dir).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".tmp-")));
 
         let _ = fs::remove_dir_all(&dir);
     }

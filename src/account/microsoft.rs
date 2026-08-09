@@ -436,7 +436,7 @@ impl MicrosoftAuth {
     }
 
     /// 完成 access_token → Xbox → XSTS → Minecraft → Profile 全链路
-    async fn complete_auth_chain(
+    pub async fn complete_auth_chain(
         &self,
         access_token: String,
         refresh_token: Option<String>,

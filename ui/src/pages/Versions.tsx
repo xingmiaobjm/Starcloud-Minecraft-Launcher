@@ -1,8 +1,18 @@
 // 版本管理：已安装列表 + 远程安装
 
 import { useEffect, useState } from "preact/hooks";
-import { installVersion, listInstalled, listVersions, removeVersion } from "../api";
+import {
+  installFabric,
+  installVersion,
+  listInstalled,
+  listVersions,
+  removeVersion,
+} from "../api";
 import type { InstalledVersion, VersionInfo } from "../types";
+
+/** 是否为原版版本（非任何加载器版本），可安装 Fabric */
+const isVanilla = (id: string) =>
+  !/fabric-loader|forge|quilt|neoforge|optifine/i.test(id);
 
 export function Versions() {
   const [installed, setInstalled] = useState<InstalledVersion[]>([]);
@@ -46,6 +56,19 @@ export function Versions() {
     }
   };
 
+  const handleInstallFabric = async (id: string) => {
+    setBusyId(`fabric:${id}`);
+    setMsg({ text: `正在为 ${id} 安装 Fabric …（进度见首页）` });
+    try {
+      await installFabric(id);
+      await refresh();
+      setMsg({ text: `${id} 的 Fabric 已安装` });
+    } catch (e) {
+      setMsg({ text: String(e), err: true });
+    }
+    setBusyId(null);
+  };
+
   const shownRemote = remote.filter((v) => {
     if (filter !== "all" && v.version_type.toLowerCase() !== filter) return false;
     if (search && !v.id.toLowerCase().includes(search.toLowerCase())) return false;
@@ -68,7 +91,18 @@ export function Versions() {
               <div class="primary">{v.id}</div>
               <div class="secondary">{(v.size_bytes / 1024 / 1024).toFixed(1)} MB</div>
             </div>
-            <button class="btn-danger" onClick={() => handleRemove(v.id)}>删除</button>
+            <div class="row-actions">
+              {isVanilla(v.id) && (
+                <button
+                  class="btn"
+                  disabled={busyId !== null}
+                  onClick={() => handleInstallFabric(v.id)}
+                >
+                  {busyId === `fabric:${v.id}` ? "安装中…" : "安装 Fabric"}
+                </button>
+              )}
+              <button class="btn-danger" onClick={() => handleRemove(v.id)}>删除</button>
+            </div>
           </div>
         ))}
       </div>

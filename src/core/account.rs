@@ -1,11 +1,21 @@
 //! 账户服务 - 账户持久化与登录/续期的高层封装
 
+use crate::account::microsoft::TokenPollError;
 use crate::account::store::{AccountStore, StoredAccount};
 use crate::account::{MicrosoftAuth, MicrosoftLoginResult, OfflineAccount};
 use crate::error::{LauncherError, Result};
 use crate::plugin::{PluginContext, PluginManager, PluginStage};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// 微软设备码登录的轮询状态（供 GUI 展示与继续轮询判断）
+#[derive(Debug, Clone)]
+pub enum MicrosoftLoginPoll {
+    /// 等待用户授权，message 为给用户的提示，应稍后继续轮询
+    Pending(String),
+    /// 登录成功，账户已保存
+    Success(StoredAccount),
+}
 
 /// 账户服务 - 登录/注销/切换 + accounts.json 持久化 + 插件事件广播
 pub struct AccountService {
@@ -134,6 +144,31 @@ impl AccountService {
         let auth = MicrosoftAuth::new();
         let result = auth.full_login(device_code, 5, 240).await?;
         self.add_microsoft(result).await
+    }
+
+    /// 单次轮询微软设备码登录（供 GUI 按 interval 间隔循环调用）
+    ///
+    /// - `Pending`：用户尚未完成授权，按返回提示稍后继续轮询
+    /// - `Success`：授权完成，账户已持久化
+    /// - `Err`：授权失败/过期/拒绝等终止性错误
+    pub async fn poll_microsoft_login(&self, device_code: &str) -> Result<MicrosoftLoginPoll> {
+        let auth = MicrosoftAuth::new();
+        match auth.poll_token(device_code).await {
+            Ok(token) => {
+                let result = auth
+                    .complete_auth_chain(token.access_token, token.refresh_token)
+                    .await?;
+                let stored = self.add_microsoft(result).await?;
+                Ok(MicrosoftLoginPoll::Success(stored))
+            }
+            Err(TokenPollError::Pending) => {
+                Ok(MicrosoftLoginPoll::Pending("等待用户完成授权…".into()))
+            }
+            Err(TokenPollError::SlowDown) => Ok(MicrosoftLoginPoll::Pending(
+                "轮询过于频繁，请稍后再试".into(),
+            )),
+            Err(e) => Err(LauncherError::AccountError(e.to_string())),
+        }
     }
 }
 

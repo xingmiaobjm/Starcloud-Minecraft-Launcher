@@ -59,6 +59,25 @@ export interface GuiPluginInfo {
   has_native: boolean;
   compatible: boolean;
   reason: string | null;
+  enabled: boolean;
+}
+
+/** 微软设备码（登录页展示 user_code + verification_uri） */
+export interface DeviceCode {
+  user_code: string;
+  device_code: string;
+  verification_uri: string;
+  message: string;
+  interval: number;
+  expires_in: number;
+}
+
+/** 微软登录轮询结果 */
+export interface LoginPoll {
+  /** "pending"（继续轮询）| "success" | "error"（终止） */
+  state: "pending" | "success" | "error";
+  message: string;
+  account: StoredAccount | null;
 }
 
 // ---------------------------------------------------------------------------

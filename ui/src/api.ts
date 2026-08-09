@@ -2,9 +2,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  DeviceCode,
   GuiPluginInfo,
   InstalledVersion,
   JavaInfo,
+  LoginPoll,
   Settings,
   StoredAccount,
   VersionInfo,
@@ -23,6 +25,10 @@ export const installVersion = (versionId: string) =>
 /** 删除版本 */
 export const removeVersion = (versionId: string) =>
   invoke<void>("remove_version", { versionId });
+
+/** 为指定 MC 版本安装 Fabric 加载器（后台任务，进度走事件） */
+export const installFabric = (mcVersion: string) =>
+  invoke<void>("install_fabric", { mcVersion });
 
 /** 启动游戏（后台任务，日志/退出走事件） */
 export const launchGame = (versionId: string, username: string, dryRun = false) =>
@@ -45,6 +51,13 @@ export const removeAccount = (uuid: string) => invoke<boolean>("remove_account",
 export const setDefaultAccount = (uuid: string) =>
   invoke<void>("set_default_account", { uuid });
 
+/** 发起微软设备码登录 */
+export const loginMicrosoftDevice = () => invoke<DeviceCode>("login_microsoft_device");
+
+/** 单次轮询微软登录状态 */
+export const pollMicrosoftLogin = (deviceCode: string) =>
+  invoke<LoginPoll>("poll_microsoft_login", { deviceCode });
+
 /** 读取设置 */
 export const getSettings = () => invoke<Settings>("get_settings");
 
@@ -54,6 +67,18 @@ export const setSettings = (settings: Settings) =>
 
 /** GUI 插件列表 */
 export const getGuiPlugins = () => invoke<GuiPluginInfo[]>("get_gui_plugins");
+
+/** 安装 GUI 插件（URL 或本地 zip 路径） */
+export const installPlugin = (source: string) =>
+  invoke<GuiPluginInfo>("install_plugin", { source });
+
+/** 删除 GUI 插件 */
+export const removePlugin = (pluginId: string) =>
+  invoke<void>("remove_plugin", { pluginId });
+
+/** 启用/禁用 GUI 插件 */
+export const setPluginEnabled = (pluginId: string, enabled: boolean) =>
+  invoke<void>("set_plugin_enabled", { pluginId, enabled });
 
 /** 核心插件列表 */
 export const listPlugins = () => invoke<string[]>("list_plugins");

@@ -185,7 +185,7 @@ export function App() {
       case "settings":
         return <Settings />;
       case "plugins":
-        return <Plugins plugins={guiPlugins} />;
+        return <Plugins />;
       case "logs":
         return <Logs liveLines={gameLogs} />;
       default:
