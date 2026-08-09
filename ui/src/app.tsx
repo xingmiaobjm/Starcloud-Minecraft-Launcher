@@ -258,7 +258,7 @@ export function App() {
           <span class={`status-dot ${status}`} />
           <span class="status-text">{statusText(status, statusDetail)}</span>
         </div>
-        <div class="content" ref={contentRef}>{renderPage()}</div>
+        <section class="content" ref={contentRef}>{renderPage()}</section>
       </main>
       </div>
     </div>

@@ -24,8 +24,15 @@
   --radius-sm: 8px;
   --font: "Outfit", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.26);
-  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.32), 0 20px 56px rgba(0, 0, 0, 0.4);
+  /* 统一缓动（easeOutQuint 近似）：所有交互过渡使用 */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* z-index 规范层级 */
+  --z-shell: 1;
+  --z-overlay: 90;
+  --z-drawer: 95;
+  /* 着色阴影：带背景色调（微蓝黑），非纯黑低透明 */
+  --shadow: 0 1px 2px rgba(4, 8, 14, 0.4), 0 10px 28px rgba(4, 8, 14, 0.42);
+  --shadow-lg: 0 2px 6px rgba(4, 8, 14, 0.46), 0 20px 56px rgba(4, 8, 14, 0.56);
 
   /* ---- 液态玻璃设计令牌（统一视觉语言） ---- */
   --glass-fill: rgba(255, 255, 255, 0.03);        /* 深嵌控件表面（输入框/轨道） */
@@ -37,8 +44,8 @@
   --glass-blur: 20px;                              /* 标准面板 */
   --glass-blur-deep: 30px;                         /* 窗口本体/浮层 */
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-  --glass-shadow-raised: 0 18px 48px rgba(0, 0, 0, 0.42);
+  --glass-shadow: 0 10px 30px rgba(4, 8, 14, 0.5);
+  --glass-shadow-raised: 0 18px 48px rgba(4, 8, 14, 0.6);
 }
 
 * {
@@ -67,6 +74,18 @@ body,
     radial-gradient(700px 400px at 80% 8%, rgba(27, 217, 106, 0.05), transparent 60%),
     #0b0e13;
   overflow: hidden;
+}
+
+/* 细粒度噪点覆盖层：打破数字平面的无菌感（不拦截交互） */
+#app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-shell);
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ---------- 滚动条 ---------- */
@@ -103,11 +122,11 @@ button {
   -webkit-backdrop-filter: blur(var(--glass-blur-soft));
   backdrop-filter: blur(var(--glass-blur-soft));
   transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    transform 0.1s ease,
-    box-shadow 0.18s ease;
+    background 0.2s var(--ease),
+    border-color 0.2s var(--ease),
+    color 0.2s var(--ease),
+    transform 0.1s var(--ease),
+    box-shadow 0.2s var(--ease);
 }
 button:active:not(:disabled) {
   transform: translateY(1px) scale(0.98);
@@ -128,11 +147,11 @@ textarea:focus-visible {
   background: var(--accent);
   color: #07170e;
   font-weight: 700;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(27, 217, 106, 0.22);
+  box-shadow: 0 1px 2px rgba(4, 8, 14, 0.4), 0 6px 18px rgba(27, 217, 106, 0.22);
 }
 .btn-primary:hover:not(:disabled) {
   background: #2ee47a;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(27, 217, 106, 0.3);
+  box-shadow: 0 2px 4px rgba(4, 8, 14, 0.42), 0 8px 24px rgba(27, 217, 106, 0.3);
 }
 .btn-danger {
   background: transparent;
@@ -184,9 +203,9 @@ textarea {
   font-size: 14px;
   outline: none;
   transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    background 0.2s var(--ease);
 }
 input::placeholder,
 textarea::placeholder {
@@ -329,8 +348,8 @@ textarea:focus {
   font-weight: 500;
   position: relative;
   transition:
-    background 0.18s ease,
-    color 0.18s ease;
+    background 0.2s var(--ease),
+    color 0.2s var(--ease);
 }
 .nav-item::before {
   content: "";
@@ -342,7 +361,7 @@ textarea:focus {
   border-radius: 0 3px 3px 0;
   background: var(--accent);
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s var(--ease);
 }
 .nav-item:hover {
   background: var(--glass-surface);
@@ -476,6 +495,7 @@ textarea:focus {
   font-weight: 800;
   letter-spacing: -0.02em;
   margin-bottom: 4px;
+  text-wrap: balance;
 }
 .page-desc {
   color: var(--text-dim);
@@ -554,21 +574,29 @@ textarea:focus {
 
 /* ---------- 空状态 ---------- */
 .empty {
-  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
   border-radius: var(--radius);
-  padding: 36px 20px;
+  padding: 34px 20px;
   text-align: center;
   color: var(--text-faint);
   font-size: 13px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  background:
+    radial-gradient(200px 120px at 50% 0%, rgba(27, 217, 106, 0.05), transparent 70%),
+    transparent;
 }
 .empty svg {
-  width: 26px;
-  height: 26px;
-  opacity: 0.5;
+  width: 30px;
+  height: 30px;
+  opacity: 0.55;
+  padding: 7px;
+  border-radius: 10px;
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  box-sizing: content-box;
 }
 
 /* ---------- 首页：右侧启动卡片（3:4 比例，LiquidGlass 液态玻璃） ---------- */
@@ -639,17 +667,17 @@ textarea:focus {
   font-weight: 700;
   font-size: 15px;
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 1px 2px rgba(4, 8, 14, 0.4),
     0 6px 18px rgba(27, 217, 106, 0.22);
   transition:
-    background 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.1s ease;
+    background 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    transform 0.1s var(--ease);
 }
 .version-trigger:hover {
   background: #2ee47a;
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 2px 4px rgba(4, 8, 14, 0.42),
     0 8px 24px rgba(27, 217, 106, 0.3);
 }
 .version-trigger:active:not(:disabled) {
@@ -677,11 +705,11 @@ textarea:focus {
 .drawer-backdrop {
   position: absolute;
   inset: 44px 0 0 0;
-  background: rgba(0, 0, 0, 0.42);
+  background: rgba(4, 8, 14, 0.5);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
-  z-index: 90;
-  animation: fade-in 0.2s ease;
+  z-index: var(--z-overlay);
+  animation: fade-in 0.2s var(--ease);
 }
 @keyframes fade-in {
   from {
@@ -704,9 +732,9 @@ textarea:focus {
   -webkit-backdrop-filter: blur(26px);
   backdrop-filter: blur(26px);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.45);
-  z-index: 95;
-  animation: drawer-in 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: -18px 0 48px rgba(4, 8, 14, 0.6);
+  z-index: var(--z-drawer);
+  animation: drawer-in 0.26s var(--ease);
 }
 @keyframes drawer-in {
   from {
@@ -772,7 +800,7 @@ textarea:focus {
   color: var(--text);
   font-size: 13.5px;
   text-align: left;
-  transition: background 0.12s ease, color 0.12s ease, transform 0.08s ease;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease), transform 0.08s var(--ease);
 }
 .menu-item:hover {
   background: var(--glass-surface-strong);
@@ -811,7 +839,7 @@ textarea:focus {
   border-radius: 999px;
   background: var(--accent-soft);
   border: 1px solid rgba(27, 217, 106, 0.3);
-  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.24s var(--ease);
 }
 .mode-thumb.offline {
   transform: translateX(100%);
@@ -894,7 +922,7 @@ textarea:focus {
   color: #9aa4b5;
   white-space: pre-wrap;
   word-break: break-all;
-  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 2px 12px rgba(4, 8, 14, 0.5);
 }
 .game-log .err {
   color: #ff8b90;
@@ -917,16 +945,18 @@ textarea:focus {
   border-radius: var(--radius);
   padding: 15px 18px;
   transition:
-    border-color 0.18s ease,
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
+    border-color 0.2s var(--ease),
+    transform 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    background 0.2s var(--ease);
 }
 .list-item:hover {
-  border-color: var(--glass-border-strong);
+  border-color: rgba(27, 217, 106, 0.22);
   transform: translateY(-1px);
   background: var(--glass-surface-strong);
-  box-shadow: var(--glass-shadow);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 0 0 1px rgba(27, 217, 106, 0.06);
 }
 .list-item .primary {
   font-weight: 600;
@@ -997,7 +1027,7 @@ textarea:focus {
   padding: 14px 10px;
   cursor: pointer;
   user-select: all;
-  transition: transform 0.15s ease;
+  transition: transform 0.15s var(--ease);
 }
 .ms-code:hover {
   transform: scale(1.02);
