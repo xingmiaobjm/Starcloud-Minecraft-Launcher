@@ -191,7 +191,7 @@ impl LaunchEngine {
                     _ => "snapshot",
                 },
             )
-            .with_replacement("launcher_name", "furry-minecraft")
+            .with_replacement("launcher_name", "starcloud-minecraft")
             .with_replacement("launcher_version", env!("CARGO_PKG_VERSION"))
             .with_replacement(
                 "classpath_separator",

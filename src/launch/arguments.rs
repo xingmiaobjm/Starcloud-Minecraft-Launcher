@@ -209,7 +209,7 @@ fn check_rules(rules: &[Rule], os: OsKind, features: &HashMap<String, bool>) -> 
     allowed
 }
 
-/// 应用替换变量 (如 ${launcher_name} -> "FurryLauncher")
+/// 应用替换变量 (如 ${launcher_name} -> "StarcloudLauncher")
 fn apply_replacements(input: &str, replacements: &HashMap<String, String>) -> String {
     let mut result = input.to_string();
     for (key, value) in replacements {

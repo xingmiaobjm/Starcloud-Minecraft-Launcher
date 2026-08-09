@@ -4,16 +4,16 @@
 //! 旧版 URL 回退、资源下载（注入 base_url + SHA1 失败）、版本清单/详情获取、
 //! 客户端 jar 下载。
 
-use furry_minecraft::download::{
+use sha1::Digest;
+use starcloud_minecraft::download::{
     fetch_version_details, fetch_version_manifest_from, AssetDownloader, DownloadEngine,
     LibraryDownloader,
 };
-use furry_minecraft::version::manifest::{
+use starcloud_minecraft::version::manifest::{
     AssetIndex, AssetObject, DownloadInfo, Downloads, ExtractConfig, Library, LibraryArtifact,
     LibraryDownloads, VersionDetails,
 };
-use furry_minecraft::version_manager::VersionInstaller;
-use sha1::Digest;
+use starcloud_minecraft::version_manager::VersionInstaller;
 use std::collections::HashMap;
 use std::io::Write;
 use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
@@ -131,7 +131,7 @@ async fn test_library_sha1_mismatch_error() {
     assert!(
         matches!(
             result.err(),
-            Some(furry_minecraft::LauncherError::ValidationError { .. })
+            Some(starcloud_minecraft::LauncherError::ValidationError { .. })
         ),
         "应为 ValidationError"
     );
@@ -490,7 +490,7 @@ async fn test_client_jar_download() {
         minimum_launcher_version: 21,
         release_time: "2024-06-12T14:21:00+00:00".into(),
         time: "2024-06-12T14:21:00+00:00".into(),
-        version_type: furry_minecraft::version::manifest::VersionType::Release,
+        version_type: starcloud_minecraft::version::manifest::VersionType::Release,
         arguments: None,
         java_version: None,
     };
@@ -527,7 +527,7 @@ async fn test_client_jar_missing_download_info() {
         minimum_launcher_version: 21,
         release_time: "2024-06-12T14:21:00+00:00".into(),
         time: "2024-06-12T14:21:00+00:00".into(),
-        version_type: furry_minecraft::version::manifest::VersionType::Release,
+        version_type: starcloud_minecraft::version::manifest::VersionType::Release,
         arguments: None,
         java_version: None,
     };

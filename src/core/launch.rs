@@ -242,7 +242,9 @@ impl LaunchService {
     /// - `dry_run`：仅输出启动命令，不实际启动
     /// - `progress_cb`：下载/校验进度回调
     /// - `line_cb`：游戏进程输出行回调 `(行内容, 是否 stderr)`
-    pub async fn launch<F, L>(
+    /// - `on_launched`：进程启动成功回调 `(PID)`，供 GUI 记录句柄以便停止
+    #[allow(clippy::too_many_arguments)] // 服务层聚合入口，参数直接来自调用方语义
+    pub async fn launch<F, L, O>(
         &self,
         version_id: &str,
         username: &str,
@@ -250,10 +252,12 @@ impl LaunchService {
         dry_run: bool,
         progress_cb: F,
         line_cb: Option<L>,
+        on_launched: Option<O>,
     ) -> Result<LaunchOutcome>
     where
         F: Fn(&ProgressInfo) + Send + Sync + 'static,
         L: Fn(&str, bool) + Send + Sync + 'static,
+        O: Fn(u32) + Send + Sync + 'static,
     {
         let tracker = Arc::new(ProgressTracker::new());
         tracker.on_progress(progress_cb);
@@ -280,6 +284,9 @@ impl LaunchService {
 
         let mut child = launcher.launch(&cfg, &details, &libs)?;
         ctx.game_pid = Some(child.id());
+        if let Some(cb) = &on_launched {
+            cb(child.id());
+        }
         log::info!("游戏进程已启动, PID: {}", child.id());
         self.fire(PluginStage::PostLaunch, &mut ctx);
 

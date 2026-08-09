@@ -1,0 +1,72 @@
+:root {
+  --bg: #181a20;
+  --card: #21242d;
+  --border: #2f3440;
+  --text: #e8eaf0;
+  --dim: #8b91a0;
+  --accent: #5ecf87;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.sub {
+  margin: 0 0 20px;
+  color: var(--dim);
+  font-size: 13px;
+}
+
+section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+li:last-child {
+  border-bottom: none;
+}
+li.muted,
+.muted {
+  color: var(--dim);
+}
+
+pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  color: var(--accent);
+}

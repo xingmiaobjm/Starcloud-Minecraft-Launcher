@@ -5,7 +5,7 @@
 //!
 //! 可通过环境变量 `RUST_LOG` 覆盖日志级别（默认 info）。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use tracing_appender::non_blocking::WorkerGuard;
@@ -62,10 +62,10 @@ pub fn init_logging(log_dir: impl AsRef<Path>, level: &str) -> Result<()> {
     Ok(())
 }
 
-/// 获取默认日志目录（数据目录下的 furry-launcher/logs）
-pub fn default_log_dir() -> std::path::PathBuf {
+/// 获取默认日志目录（数据目录下的 starcloud-launcher/logs）
+pub fn default_log_dir() -> PathBuf {
     dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("furry-launcher")
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("starcloud-launcher")
         .join("logs")
 }

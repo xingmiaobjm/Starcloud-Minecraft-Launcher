@@ -1,4 +1,4 @@
-//! # Furry Minecraft Launcher Core
+//! # Starcloud Minecraft Launcher Core
 //!
 //! Minecraft 启动器核心模块，提供下载引擎、启动引擎和插件系统。
 //!

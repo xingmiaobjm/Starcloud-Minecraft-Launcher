@@ -1,8 +1,8 @@
 //! 基础启动器示例
 //!
-//! 演示如何使用 furry-minecraft 核心库下载并启动 Minecraft。
+//! 演示如何使用 starcloud-minecraft 核心库下载并启动 Minecraft。
 
-use furry_minecraft::{
+use starcloud_minecraft::{
     download::{fetch_version_details, fetch_version_manifest, DownloadEngine},
     launch::LaunchEngine,
     LaunchConfig,
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 确定 .minecraft 目录
     let dot_minecraft = get_minecraft_dir();
 
-    println!("== Furry Minecraft Launcher ==");
+    println!("== Starcloud Minecraft Launcher ==");
     println!(".minecraft 目录: {}", dot_minecraft.display());
 
     // 1. 创建下载引擎

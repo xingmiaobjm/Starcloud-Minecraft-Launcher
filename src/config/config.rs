@@ -61,7 +61,7 @@ impl Default for LauncherConfig {
             last_username: None,
             plugins_dir: dirs::data_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("furry-launcher")
+                .join("starcloud-launcher")
                 .join("plugins"),
             experimental: false,
         }

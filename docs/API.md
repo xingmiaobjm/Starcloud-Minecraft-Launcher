@@ -1,4 +1,4 @@
-# Furry Minecraft Launcher Core — API 参考文档
+# Starcloud Minecraft Launcher Core — API 参考文档
 
 > 版本 0.1.0 | 2026-06-22  
 > 完整的 Minecraft 启动器核心库 API 文档，包含调用方法、参数说明、返回结构、错误处理与开发规范。
@@ -27,7 +27,7 @@
 
 ```toml
 [dependencies]
-furry-minecraft = { version = "0.1", features = ["download", "launch", "plugin"] }
+starcloud-minecraft = { version = "0.1", features = ["download", "launch", "plugin"] }
 ```
 
 ### 1.2 Feature Flags
@@ -41,14 +41,14 @@ furry-minecraft = { version = "0.1", features = ["download", "launch", "plugin"]
 ### 1.3 最低完整示例
 
 ```rust
-use furry_minecraft::{
+use starcloud_minecraft::{
     download::{DownloadEngine, fetch_version_manifest, fetch_version_details},
     launch::LaunchEngine,
     LaunchConfig,
 };
 
 #[tokio::main]
-async fn main() -> furry_minecraft::Result<()> {
+async fn main() -> starcloud_minecraft::Result<()> {
     // 1. 创建下载引擎
     let engine = DownloadEngine::new("/path/to/.minecraft");
 
@@ -91,7 +91,7 @@ pub type Result<T> = std::result::Result<T, LauncherError>;
 **使用方式：**
 
 ```rust
-use furry_minecraft::Result;
+use starcloud_minecraft::Result;
 
 fn do_something() -> Result<()> {
     // 直接使用 ? 传播错误
@@ -171,9 +171,9 @@ match result {
 **导入：**
 
 ```rust
-use furry_minecraft::download::DownloadEngine;
+use starcloud_minecraft::download::DownloadEngine;
 // 或
-use furry_minecraft::DownloadEngine;
+use starcloud_minecraft::DownloadEngine;
 ```
 
 **构造函数：**
@@ -222,7 +222,7 @@ pub fn extract_native(native_path: &Path, extract_dir: &Path) -> Result<()>
 ### 3.2 版本清单获取
 
 ```rust
-use furry_minecraft::download::{fetch_version_manifest, fetch_version_details};
+use starcloud_minecraft::download::{fetch_version_manifest, fetch_version_details};
 ```
 
 #### fetch_version_manifest
@@ -298,7 +298,7 @@ println!("库文件数: {}", details.libraries.len());
 **导入：**
 
 ```rust
-use furry_minecraft::download::AssetDownloader;
+use starcloud_minecraft::download::AssetDownloader;
 ```
 
 **构造函数（通常通过 DownloadEngine 获取）：**
@@ -386,7 +386,7 @@ if let Some(ai) = &details.asset_index {
 **导入：**
 
 ```rust
-use furry_minecraft::download::LibraryDownloader;
+use starcloud_minecraft::download::LibraryDownloader;
 ```
 
 **构造函数：**
@@ -466,7 +466,7 @@ for path in &classpath_entries {
 **导入：**
 
 ```rust
-use furry_minecraft::download::HttpClient;
+use starcloud_minecraft::download::HttpClient;
 ```
 
 **构造函数：**
@@ -531,7 +531,7 @@ where
 **示例：**
 
 ```rust
-use furry_minecraft::download::{HttpClient, RetryConfig};
+use starcloud_minecraft::download::{HttpClient, RetryConfig};
 use std::time::Duration;
 
 let client = HttpClient::new()?
@@ -553,7 +553,7 @@ let json: MyStruct = client.get_json_with_retry("https://api.example.com/info").
 **导入：**
 
 ```rust
-use furry_minecraft::download::ProgressTracker;
+use starcloud_minecraft::download::ProgressTracker;
 ```
 
 线程安全的下载进度追踪器，基于原子操作。
@@ -662,7 +662,7 @@ if tracker.is_complete() {
 **导入：**
 
 ```rust
-use furry_minecraft::LaunchConfig;
+use starcloud_minecraft::LaunchConfig;
 ```
 
 **完整字段：**
@@ -739,7 +739,7 @@ config.java_executable = Some(PathBuf::from("/usr/lib/jvm/java-21/bin/java"));
 **导入：**
 
 ```rust
-use furry_minecraft::launch::LaunchEngine;
+use starcloud_minecraft::launch::LaunchEngine;
 ```
 
 **构造函数：**
@@ -847,7 +847,7 @@ println!("退出码: {:?}", status.code());
 **导入：**
 
 ```rust
-use furry_minecraft::launch::JavaDetector;
+use starcloud_minecraft::launch::JavaDetector;
 ```
 
 **构造函数：**
@@ -1085,7 +1085,7 @@ pub struct AssetObject {
 **导入：**
 
 ```rust
-use furry_minecraft::version_manager::VersionComparator;
+use starcloud_minecraft::version_manager::VersionComparator;
 ```
 
 **静态方法（全部为纯函数，无状态）：**
@@ -1161,7 +1161,7 @@ let filtered = VersionComparator::filter_range(
 **导入：**
 
 ```rust
-use furry_minecraft::version_manager::VersionCache;
+use starcloud_minecraft::version_manager::VersionCache;
 ```
 
 两层级缓存：L1 内存 LRU → L2 磁盘文件 → L3 网络。
@@ -1257,7 +1257,7 @@ println!("命中条目: {}/{}", stats.memory_entries, stats.max_memory_entries);
 **导入：**
 
 ```rust
-use furry_minecraft::version_manager::VersionInstaller;
+use starcloud_minecraft::version_manager::VersionInstaller;
 ```
 
 **构造函数：**
@@ -1321,7 +1321,7 @@ installer.delete_version("1.19.2").await?;
 **导入：**
 
 ```rust
-use furry_minecraft::version_manager::VersionValidator;
+use starcloud_minecraft::version_manager::VersionValidator;
 ```
 
 **所有方法均为纯函数，无状态。**
@@ -1362,7 +1362,7 @@ pub fn validate_plugin_meta(meta: &PluginMeta) -> Result<()>
 **导入：**
 
 ```rust
-use furry_minecraft::plugin::{
+use starcloud_minecraft::plugin::{
     Plugin, PluginMeta, PluginRegisterContext,
     PluginContext, PluginStage,
 };
@@ -1594,7 +1594,7 @@ pub struct PluginRegisterContext {
 **导入：**
 
 ```rust
-use furry_minecraft::plugin::PluginManager;
+use starcloud_minecraft::plugin::PluginManager;
 ```
 
 **构造函数：**
@@ -1666,7 +1666,7 @@ pm.unload_plugin("com.example.myplugin")?;
 **导入：**
 
 ```rust
-use furry_minecraft::plugin::{PluginInstaller, PluginSource};
+use starcloud_minecraft::plugin::{PluginInstaller, PluginSource};
 ```
 
 **构造函数：**
@@ -1738,13 +1738,13 @@ installer.uninstall_by_id("com.example.hello").await?;
 crate-type = ["cdylib"]
 
 [dependencies]
-furry-minecraft = "0.1"
+starcloud-minecraft = "0.1"
 ```
 
 **插件代码：**
 
 ```rust
-use furry_minecraft::plugin::{
+use starcloud_minecraft::plugin::{
     Plugin, PluginMeta, PluginRegisterContext,
     PluginContext, PluginStage,
 };
@@ -1764,12 +1764,12 @@ impl Plugin for HelloPlugin {
         }
     }
 
-    fn on_enable(&self, ctx: &PluginRegisterContext) -> furry_minecraft::Result<()> {
+    fn on_enable(&self, ctx: &PluginRegisterContext) -> starcloud_minecraft::Result<()> {
         log::info!("Hello Plugin v1.0.0 已启用");
         Ok(())
     }
 
-    fn on_event(&self, stage: PluginStage, ctx: &mut PluginContext) -> furry_minecraft::Result<()> {
+    fn on_event(&self, stage: PluginStage, ctx: &mut PluginContext) -> starcloud_minecraft::Result<()> {
         match stage {
             PluginStage::PreLaunch => {
                 ctx.extra.insert("plugin_hello".into(), "invoked".into());
@@ -1797,7 +1797,7 @@ pub unsafe extern "C" fn _plugin_create() -> *mut dyn Plugin {
 **导入：**
 
 ```rust
-use furry_minecraft::config::LauncherConfig;
+use starcloud_minecraft::config::LauncherConfig;
 ```
 
 **完整字段：**
@@ -1912,7 +1912,7 @@ mgr.save().await?;
 **导入：**
 
 ```rust
-use furry_minecraft::account::OfflineAccount;
+use starcloud_minecraft::account::OfflineAccount;
 ```
 
 **构造函数：**
@@ -1961,7 +1961,7 @@ let config = LaunchConfig::basic("1.21", ".minecraft", &cred.username)
 **导入：**
 
 ```rust
-use furry_minecraft::account::MicrosoftAuth;
+use starcloud_minecraft::account::MicrosoftAuth;
 ```
 
 微软 OAuth 2.0 设备码流程，完整 5 步认证。
@@ -2054,7 +2054,7 @@ match auth.full_login(&device.device_code, device.interval, 120).await {
 **导入：**
 
 ```rust
-use furry_minecraft::account::MojangAuth;
+use starcloud_minecraft::account::MojangAuth;
 ```
 
 旧版 Mojang 账户认证 API（已逐步被微软账户取代，但仍可用）。
@@ -2120,7 +2120,7 @@ impl Display for ModLoaderType {
 ### 10.2 Forge
 
 ```rust
-use furry_minecraft::modloader::forge;
+use starcloud_minecraft::modloader::forge;
 
 /// 获取某 MC 版本的推荐 Forge 版本
 pub async fn get_recommended_version(mc_version: &str) -> Result<String>
@@ -2132,7 +2132,7 @@ pub fn install_dir(dot_minecraft: &PathBuf, mc_version: &str, forge_version: &st
 ### 10.3 Fabric
 
 ```rust
-use furry_minecraft::modloader::fabric;
+use starcloud_minecraft::modloader::fabric;
 
 /// 获取最新稳定版 Fabric Loader（无稳定版则取最新）
 pub async fn get_latest_loader(mc_version: &str) -> Result<String>
@@ -2147,7 +2147,7 @@ pub fn install_dir(dot_minecraft: &PathBuf, mc_version: &str, loader_version: &s
 ### 10.4 Quilt
 
 ```rust
-use furry_minecraft::modloader::quilt;
+use starcloud_minecraft::modloader::quilt;
 
 /// 获取最新 Quilt Loader
 pub async fn get_latest_loader(mc_version: &str) -> Result<String>

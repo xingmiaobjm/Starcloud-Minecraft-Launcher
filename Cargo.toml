@@ -1,17 +1,23 @@
+# workspace 成员：核心库 + Tauri GUI（阶段 2 引入）
+[workspace]
+members = [".", "src-tauri"]
+default-members = ["."]
+resolver = "2"
+
 [package]
-name = "furry-minecraft"
-version = "0.1.0"
+name = "starcloud-minecraft"
+version = "0.2.0"
 edition = "2021"
 description = "Minecraft 启动器核心模块 - 下载引擎、启动引擎、插件系统"
 license = "MIT"
-authors = ["Furry Minecraft Team"]
+authors = ["Starcloud Minecraft Team"]
 
 [lib]
-name = "furry_minecraft"
+name = "starcloud_minecraft"
 path = "src/lib.rs"
 
 [[bin]]
-name = "furry-minecraft"
+name = "starcloud-minecraft"
 path = "src/main.rs"
 
 [[example]]

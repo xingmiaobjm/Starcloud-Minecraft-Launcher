@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use colored::*;
-use furry_minecraft::core::{AccountService, InstallService, LaunchService};
-use furry_minecraft::{
+use starcloud_minecraft::core::{AccountService, InstallService, LaunchService};
+use starcloud_minecraft::{
     config::{LaunchProfile, LauncherConfig},
     download::{progress::ProgressInfo, DownloadEngine, ProgressStatus},
     plugin::PluginInstaller,
@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 /// Minecraft 启动器核心
 #[derive(Parser)]
-#[command(name = "furry-minecraft", version, about = "Minecraft 启动器核心", long_about = None)]
+#[command(name = "starcloud-minecraft", version, about = "Minecraft 启动器核心", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -133,9 +133,10 @@ async fn main() {
     let cli = Cli::parse();
 
     // 初始化日志（失败不阻断 CLI，仅打印警告）
-    if let Err(e) =
-        furry_minecraft::logging::init_logging(furry_minecraft::logging::default_log_dir(), "info")
-    {
+    if let Err(e) = starcloud_minecraft::logging::init_logging(
+        starcloud_minecraft::logging::default_log_dir(),
+        "info",
+    ) {
         eprintln!("警告: 日志初始化失败: {}", e);
     }
 
@@ -285,6 +286,7 @@ async fn cmd_launch(
                     println!("{}", line);
                 }
             }),
+            None::<fn(u32)>,
         )
         .await?;
 
@@ -305,7 +307,7 @@ async fn cmd_list(dir: &str) -> Result<()> {
         println!(
             "{} 没有已安装的版本。使用 {} 安装。",
             "⊙".yellow(),
-            "furry-minecraft install <版本号>".cyan()
+            "starcloud-minecraft install <版本号>".cyan()
         );
         return Ok(());
     }
@@ -345,7 +347,7 @@ async fn cmd_remove(version: &str, dir: &str) -> Result<()> {
 /// versions 命令
 async fn cmd_versions(count: usize, snapshots: bool) -> Result<()> {
     println!("获取版本清单...");
-    let manifest = furry_minecraft::download::fetch_version_manifest().await?;
+    let manifest = starcloud_minecraft::download::fetch_version_manifest().await?;
 
     let filtered: Vec<_> = manifest
         .versions
@@ -357,7 +359,7 @@ async fn cmd_versions(count: usize, snapshots: bool) -> Result<()> {
     println!("\n最近 {} 个版本:\n", filtered.len());
     for v in &filtered {
         let icon = match v.version_type {
-            furry_minecraft::version::manifest::VersionType::Release => "R",
+            starcloud_minecraft::version::manifest::VersionType::Release => "R",
             _ => "S",
         };
         let time = &v.release_time[..10.min(v.release_time.len())];
@@ -367,7 +369,7 @@ async fn cmd_versions(count: usize, snapshots: bool) -> Result<()> {
     if !snapshots && !manifest.versions.is_empty() {
         println!(
             "\n提示: 使用 {} 查看包含快照版的完整列表",
-            "furry-minecraft versions -s".dimmed()
+            "starcloud-minecraft versions -s".dimmed()
         );
     }
     Ok(())
@@ -503,7 +505,7 @@ async fn cmd_plugins(dir: &str) -> Result<()> {
 
 /// check 命令
 async fn cmd_check() -> Result<()> {
-    use furry_minecraft::launch::JavaDetector;
+    use starcloud_minecraft::launch::JavaDetector;
 
     println!("检测 Java 环境...\n");
 

@@ -1,0 +1,105 @@
+// 与后端命令/事件对应的类型定义
+
+/** 版本条目（远程清单 + 本地安装状态） */
+export interface VersionInfo {
+  id: string;
+  version_type: string;
+  release_time: string;
+  installed: boolean;
+  size_bytes: number;
+}
+
+/** 已安装版本 */
+export interface InstalledVersion {
+  id: string;
+  size_bytes: number;
+}
+
+/** 设置快照 */
+export interface Settings {
+  dot_minecraft: string;
+  language: string;
+  default_min_memory_mb: number;
+  default_max_memory_mb: number;
+  default_window_width: number;
+  default_window_height: number;
+  java_executable: string | null;
+  extra_jvm_args: string[];
+  download_concurrency: number;
+  download_max_retries: number;
+}
+
+/** Java 检测结果 */
+export interface JavaInfo {
+  executable: string;
+  major_version: number;
+  version_string: string;
+  is_64bit: boolean;
+}
+
+/** 已存账户 */
+export interface StoredAccount {
+  uuid: string;
+  username: string;
+  type: "offline" | "microsoft" | "mojang";
+  access_token?: string | null;
+  refresh_token?: string | null;
+  is_default: boolean;
+  last_used?: string | null;
+}
+
+/** GUI 插件摘要 */
+export interface GuiPluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  gui_type: "view" | "replacement";
+  title: string;
+  entry: string;
+  has_native: boolean;
+  compatible: boolean;
+  reason: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// 事件负载
+// ---------------------------------------------------------------------------
+
+export interface StatusPayload {
+  status: string;
+  detail: string | null;
+}
+
+export interface ProgressPayload {
+  version_id: string;
+  downloaded_bytes: number;
+  total_bytes: number;
+  percentage: number;
+  stage: string;
+  status: string;
+}
+
+export interface InstallDonePayload {
+  version_id: string;
+  success: boolean;
+  message: string;
+}
+
+export interface GameLogPayload {
+  line: string;
+  is_stderr: boolean;
+}
+
+export interface GameExitedPayload {
+  exit_code: number | null;
+  crashed: boolean;
+  message: string;
+}
+
+export interface ErrorPayload {
+  context: string;
+  message: string;
+}
+
+/** 应用状态机 */
+export type AppStatus = "idle" | "installing" | "launching" | "running" | "error";

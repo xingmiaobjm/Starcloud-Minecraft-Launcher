@@ -233,7 +233,7 @@ impl PluginMeta {
 /// # 示例
 ///
 /// ```ignore
-/// use furry_minecraft::plugin::{Plugin, PluginMeta, PluginRegisterContext, PluginContext, Result};
+/// use starcloud_minecraft::plugin::{Plugin, PluginMeta, PluginRegisterContext, PluginContext, Result};
 ///
 /// pub struct MyPlugin;
 ///

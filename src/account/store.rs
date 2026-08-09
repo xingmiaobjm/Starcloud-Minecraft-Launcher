@@ -99,11 +99,11 @@ impl AccountStore {
         Self { path: path.into() }
     }
 
-    /// 默认账户存储路径（数据目录下 furry-launcher/accounts.json）
+    /// 默认账户存储路径（数据目录下 starcloud-launcher/accounts.json）
     pub fn default_path() -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("furry-launcher")
+            .join("starcloud-launcher")
             .join("accounts.json")
     }
 

@@ -10,7 +10,7 @@ pub use engine::DownloadEngine;
 pub use http_client::{HttpClient, RetryConfig};
 pub use library::LibraryDownloader;
 pub use manifest::{fetch_version_details, fetch_version_manifest, fetch_version_manifest_from};
-pub use progress::{ProgressStatus, ProgressTracker};
+pub use progress::{ProgressInfo, ProgressStatus, ProgressTracker};
 
 use crate::error::Result;
 use crate::version::manifest::VersionDetails;

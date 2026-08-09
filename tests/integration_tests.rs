@@ -1,4 +1,4 @@
-use furry_minecraft::{
+use starcloud_minecraft::{
     account::OfflineAccount,
     config::{LaunchProfile, LauncherConfig, ProfileManager},
     download::RetryConfig,
@@ -248,7 +248,7 @@ async fn test_retry_success_first_try() {
     let config = RetryConfig::default();
     let attempts = AtomicU32::new(0);
 
-    let result: furry_minecraft::Result<u32> = config
+    let result: starcloud_minecraft::Result<u32> = config
         .retry(|| {
             attempts.fetch_add(1, Ordering::SeqCst);
             async { Ok(42) }
@@ -270,11 +270,11 @@ async fn test_retry_eventually_fails() {
 
     let attempts = AtomicU32::new(0);
 
-    let result: furry_minecraft::Result<u32> = config
+    let result: starcloud_minecraft::Result<u32> = config
         .retry(|| {
             attempts.fetch_add(1, Ordering::SeqCst);
             async {
-                Err(furry_minecraft::LauncherError::DownloadError(
+                Err(starcloud_minecraft::LauncherError::DownloadError(
                     "总是失败".to_string(),
                 ))
             }
@@ -290,7 +290,7 @@ async fn test_retry_eventually_fails() {
 // ============================================================
 #[test]
 fn test_progress_tracker() {
-    let tracker = furry_minecraft::download::ProgressTracker::new();
+    let tracker = starcloud_minecraft::download::ProgressTracker::new();
     tracker.set_total(200);
 
     assert_eq!(tracker.snapshot().percentage, 0.0);
@@ -306,7 +306,7 @@ fn test_progress_tracker() {
 
 #[test]
 fn test_progress_tracker_reset() {
-    let tracker = furry_minecraft::download::ProgressTracker::new();
+    let tracker = starcloud_minecraft::download::ProgressTracker::new();
     tracker.set_total(100);
     tracker.set_progress(100);
     assert!(tracker.is_complete());

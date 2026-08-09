@@ -1,6 +1,6 @@
 # 性能优化测试报告
 
-> 项目：Furry Minecraft Launcher Core  
+> 项目：Starcloud Minecraft Launcher Core  
 > 报告日期：2026-06-22  
 > 测试工具：criterion.rs / cargo bench
 

@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use furry_minecraft::version_manager::VersionValidator;
+use starcloud_minecraft::version_manager::VersionValidator;
 
 fn bench_launch_config_validation(c: &mut Criterion) {
-    let config = furry_minecraft::LaunchConfig::basic("1.21", "/tmp/.minecraft", "Player");
+    let config = starcloud_minecraft::LaunchConfig::basic("1.21", "/tmp/.minecraft", "Player");
 
     c.bench_function("validate_launch_config", |b| {
         b.iter(|| VersionValidator::validate_launch_config(black_box(&config)))

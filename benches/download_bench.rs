@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use furry_minecraft::version_manager::VersionComparator;
+use starcloud_minecraft::version_manager::VersionComparator;
 
 fn bench_version_compare(c: &mut Criterion) {
     c.bench_function("version_compare", |b| {
