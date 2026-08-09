@@ -1,4 +1,5 @@
-// 应用外壳：侧边导航 + 状态栏 + 页面容器 + 全局事件订阅
+// 应用外壳：窗口双层壳 + 侧边导航 + 状态栏 + 页面容器 + 全局事件订阅
+// 视觉世界：Ethereal Glass 深空极简（docs/DESIGN.md）
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
@@ -35,7 +36,7 @@ const NAV: { id: PageId; icon: string; label: string }[] = [
   { id: "logs", icon: "terminal", label: "日志" },
 ];
 
-// 线性图标（stroke=1.8，Heroicons outline 风格）
+// 线性图标（stroke=1.6 细线，Phosphor 风格而非粗描边）
 const ICON_PATHS: Record<string, string[]> = {
   home: ["M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"],
   cube: [
@@ -75,6 +76,7 @@ function NavIcon({ name }: { name: string }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
+      stroke-width="1.6"
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -122,7 +124,7 @@ export function App() {
   const [gameLogs, setGameLogs] = useState<string[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [guiPlugins, setGuiPlugins] = useState<GuiPluginInfo[]>([]);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
 
   // 页面切换：GSAP 入场动画（级联揭示，遵循 DESIGN.md §6）
   useEffect(() => {
@@ -174,7 +176,10 @@ export function App() {
     return () => unsubs.forEach((u) => u());
   }, []);
 
-  const viewPlugins = guiPlugins.filter((p) => p.gui_type === "view" && p.compatible);
+  // v2 协议：视图类插件（gui.views 非空）进入导航
+  const viewPlugins = guiPlugins.filter(
+    (p) => p.gui_type === "view" && p.compatible && p.enabled,
+  );
 
   const renderPage = () => {
     switch (page) {
@@ -204,62 +209,65 @@ export function App() {
   };
 
   return (
-    <div class="shell">
-      <TitleBar />
-      <div class="shell-body">
-        <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-logo">
-            <svg viewBox="0 0 32 32">
-              <path d="M16 7l2.2 4.9 5.3.6-3.9 3.6 1 5.2L16 18.4l-4.6 2.9 1-5.2-3.9-3.6 5.3-.6z" />
-            </svg>
-          </div>
-          <div>
-            <div class="brand-name">Starcloud</div>
-            <div class="brand-sub">Minecraft Launcher</div>
-          </div>
+    <div class="window">
+      <div class="window-shell">
+        <TitleBar />
+        <div class="shell-body">
+          <aside class="sidebar">
+            <div class="brand">
+              <div class="brand-logo">
+                <svg viewBox="0 0 32 32">
+                  <path d="M16 7l2.2 4.9 5.3.6-3.9 3.6 1 5.2L16 18.4l-4.6 2.9 1-5.2-3.9-3.6 5.3-.6z" />
+                </svg>
+              </div>
+              <div>
+                <div class="brand-name">Starcloud</div>
+                <div class="brand-sub">Launcher</div>
+              </div>
+            </div>
+
+            <div class="nav-section">导航</div>
+            {NAV.map((n) => (
+              <button
+                key={n.id}
+                class={`nav-item ${page === n.id ? "active" : ""}`}
+                onClick={() => setPage(n.id)}
+              >
+                <span class="nav-icon">
+                  <NavIcon name={n.icon} />
+                </span>
+                {n.label}
+              </button>
+            ))}
+
+            {viewPlugins.length > 0 && <div class="nav-section">插件视图</div>}
+            {viewPlugins.map((p) => (
+              <button
+                key={p.id}
+                class={`nav-item ${page === `view:${p.id}` ? "active" : ""}`}
+                onClick={() => setPage(`view:${p.id}` as PageId)}
+              >
+                <span class="nav-icon">
+                  <NavIcon name="window" />
+                </span>
+                {p.title || p.name}
+              </button>
+            ))}
+
+            <div class="sidebar-footer">
+              <span>Starcloud</span>
+              <span class="ver">v0.2.0</span>
+            </div>
+          </aside>
+
+          <main class="main">
+            <div class="statusbar">
+              <span class={`status-dot ${status}`} />
+              <span class="status-text">{statusText(status, statusDetail)}</span>
+            </div>
+            <section class="content" ref={contentRef}>{renderPage()}</section>
+          </main>
         </div>
-
-        {NAV.map((n) => (
-          <button
-            key={n.id}
-            class={`nav-item ${page === n.id ? "active" : ""}`}
-            onClick={() => setPage(n.id)}
-          >
-            <span class="nav-icon">
-              <NavIcon name={n.icon} />
-            </span>
-            {n.label}
-          </button>
-        ))}
-
-        {viewPlugins.length > 0 && <div class="nav-section">插件视图</div>}
-        {viewPlugins.map((p) => (
-          <button
-            key={p.id}
-            class={`nav-item ${page === `view:${p.id}` ? "active" : ""}`}
-            onClick={() => setPage(`view:${p.id}` as PageId)}
-          >
-            <span class="nav-icon">
-              <NavIcon name="window" />
-            </span>
-            {p.title || p.name}
-          </button>
-        ))}
-
-        <div class="sidebar-footer">
-          <span>Starcloud</span>
-          <span class="ver">v0.2.0</span>
-        </div>
-      </aside>
-
-      <main class="main">
-        <div class="statusbar">
-          <span class={`status-dot ${status}`} />
-          <span class="status-text">{statusText(status, statusDetail)}</span>
-        </div>
-        <section class="content" ref={contentRef}>{renderPage()}</section>
-      </main>
       </div>
     </div>
   );

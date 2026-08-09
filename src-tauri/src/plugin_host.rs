@@ -1,11 +1,16 @@
-//! GUI 插件宿主 - plugin.json 扫描 + furry:// 静态资源协议
+//! GUI 插件宿主 - plugin.json 扫描 + furry:// 通用资源协议 v2
 //!
-//! 双通道机制：
-//! - **view**：`furry://views/{plugin_id}/{path}` 挂载为 iframe
-//! - **replacement**：`furry://replacement/{plugin_id}/{path}` 作为主 shell（默认 GUI 兜底）
+//! 协议适用场景：启动器内部任意嵌入位置（非公网网页）。
+//! - `furry://view/{plugin_id}/{view_id}/{path}?query` → 具名视图，可挂载到任意 UI 插槽
+//! - `furry://shell/{plugin_id}/{path}`                → 整体接管主窗口（replacement）
+//! - `furry://assets/{plugin_id}/{path}`               → 插件静态资源（跨场景共享）
+//! 兼容旧版 v1：
+//! - `furry://views/{plugin_id}/{path}`                → view（view_id = main）
+//! - `furry://replacement/{plugin_id}/{path}`          → shell
 //!
 //! 目录规范：`plugins/{id}/plugin.json`、`plugins/{id}/frontend/**`、
 //! `plugins/{id}/native/**`（可选原生模块，本阶段预留接口）。
+//! view 的资源路径相对 `frontend/` 根；view_id 仅作声明校验（plugin.json 的 gui.views）。
 
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -16,7 +21,23 @@ use tauri::Manager;
 /// 启动器版本（GUI 插件 min_launcher_version 校验基准）
 pub const LAUNCHER_VERSION: &str = "0.2.0";
 /// 当前支持的 GUI 插件 API 版本
-pub const GUI_PLUGIN_API_VERSION: u32 = 1;
+pub const GUI_PLUGIN_API_VERSION: u32 = 2;
+
+/// 内置可嵌入插槽（view 允许挂载的位置）
+/// 协议契约常量：插件开发与前端嵌入点均引用这些名字（无需直接在本 crate 调用）。
+#[allow(dead_code)]
+pub const SLOT_PAGE: &str = "page";       // 页面级视图
+#[allow(dead_code)]
+pub const SLOT_DRAWER: &str = "drawer";   // 抽屉
+#[allow(dead_code)]
+pub const SLOT_HOME: &str = "home";       // 首页微件
+#[allow(dead_code)]
+pub const SLOT_SETTINGS: &str = "settings"; // 设置页
+#[allow(dead_code)]
+pub const SLOT_SIDEBAR: &str = "sidebar"; // 侧栏微件
+/// 全窗接管（shell 专用，非插槽）
+#[allow(dead_code)]
+pub const SLOT_SHELL: &str = "shell";
 
 /// GUI 插件清单（plugin.json）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,12 +56,11 @@ fn default_api_version() -> u32 {
     GUI_PLUGIN_API_VERSION
 }
 
-/// GUI 插件配置段
+/// 具名视图声明（v2）
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GuiPluginConfig {
-    /// "view" | "replacement"
-    #[serde(rename = "type")]
-    pub gui_type: String,
+pub struct PluginViewDecl {
+    /// 视图 ID（furry://view/{pid}/{vid}/... 路由用）
+    pub id: String,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -48,9 +68,91 @@ pub struct GuiPluginConfig {
     /// 相对 frontend/ 的入口（默认 index.html）
     #[serde(default = "default_entry")]
     pub entry: String,
+    /// 可嵌入插槽：page / drawer / home / settings / sidebar
+    #[serde(default)]
+    pub slots: Vec<String>,
+}
+
+/// 主壳接管声明（v2，原 replacement）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginShellDecl {
+    #[serde(default)]
+    pub title: String,
+    /// 相对 frontend/ 的入口（默认 index.html）
+    #[serde(default = "default_entry")]
+    pub entry: String,
+}
+
+/// GUI 插件配置段（v2：views + shell；向后兼容 v1 的 type/title/entry）
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GuiPluginConfig {
+    #[serde(default)]
+    pub views: Vec<PluginViewDecl>,
+    #[serde(default)]
+    pub shell: Option<PluginShellDecl>,
     /// 可选原生模块路径（native/xxx.dll，本阶段不加载）
     #[serde(default)]
     pub native_module: Option<String>,
+    // ---- 兼容 v1（gui.type = view | replacement）----
+    #[serde(rename = "type", default, skip_serializing)]
+    pub legacy_type: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub title: String,
+    #[serde(default, skip_serializing)]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub entry: String,
+}
+
+impl GuiPluginConfig {
+    /// 归一化：v1 格式（type=view/replacement）→ v2 的 views/shell
+    pub fn normalize(&mut self) {
+        let entry = || {
+            if self.entry.is_empty() {
+                "index.html".to_string()
+            } else {
+                self.entry.clone()
+            }
+        };
+        match self.legacy_type.as_deref() {
+            Some("replacement") => {
+                if self.shell.is_none() {
+                    self.shell = Some(PluginShellDecl {
+                        title: self.title.clone(),
+                        entry: entry(),
+                    });
+                }
+            }
+            Some("view") => {
+                if self.views.is_empty() {
+                    self.views.push(PluginViewDecl {
+                        id: "main".into(),
+                        title: self.title.clone(),
+                        icon: self.icon.clone(),
+                        entry: entry(),
+                        slots: vec![SLOT_PAGE.into()],
+                    });
+                }
+            }
+            _ => {}
+        }
+        self.legacy_type = None;
+    }
+
+    /// 是否声明了任何 GUI（视图或主壳）
+    pub fn has_gui(&self) -> bool {
+        !self.views.is_empty() || self.shell.is_some()
+    }
+
+    /// 插件类别：view / shell / mixed / none
+    pub fn category(&self) -> &'static str {
+        match (self.views.is_empty(), self.shell.is_some()) {
+            (false, true) => "mixed",
+            (false, false) => "view",
+            (true, true) => "shell",
+            (true, false) => "none",
+        }
+    }
 }
 
 fn default_entry() -> String {
@@ -63,6 +165,7 @@ pub struct GuiPluginInfo {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// 插件类别：view / shell / mixed
     pub gui_type: String,
     pub title: String,
     pub entry: String,
@@ -71,28 +174,77 @@ pub struct GuiPluginInfo {
     pub reason: Option<String>,
     /// 是否启用（plugins/{id}/.disabled 标记文件不存在时为启用）
     pub enabled: bool,
+    /// 具名视图列表（可嵌入插槽）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub views: Vec<PluginViewInfo>,
+    /// 主壳接管入口（相对 frontend/）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    /// 全部可嵌入插槽（去重）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<String>,
+}
+
+/// 前端可用的视图摘要
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginViewInfo {
+    pub id: String,
+    pub title: String,
+    pub entry: String,
+    pub slots: Vec<String>,
 }
 
 impl GuiPluginInfo {
-    /// 校验并构建摘要
+    /// 校验并构建摘要（gui 需已 normalize）
     fn from_meta(meta: &GuiPluginMeta, enabled: bool) -> Self {
+        let views = meta
+            .gui
+            .views
+            .iter()
+            .map(|v| PluginViewInfo {
+                id: v.id.clone(),
+                title: v.title.clone(),
+                entry: v.entry.clone(),
+                slots: v.slots.clone(),
+            })
+            .collect::<Vec<_>>();
+        let slots = meta
+            .gui
+            .views
+            .iter()
+            .flat_map(|v| v.slots.iter().cloned())
+            .collect::<std::collections::HashSet<_>>();
+        let shell = meta.gui.shell.as_ref().map(|s| s.entry.clone());
+
+        let incompatible = |reason: String| Self {
+            id: meta.id.clone(),
+            name: meta.name.clone(),
+            version: meta.version.clone(),
+            gui_type: meta.gui.category().to_string(),
+            title: meta.gui.views.first().map(|v| v.title.clone()).unwrap_or_default(),
+            entry: meta
+                .gui
+                .views
+                .first()
+                .map(|v| v.entry.clone())
+                .unwrap_or_else(|| {
+                    meta.gui.shell.as_ref().map(|s| s.entry.clone()).unwrap_or_default()
+                }),
+            has_native: meta.gui.native_module.is_some(),
+            compatible: false,
+            reason: Some(reason),
+            enabled,
+            views: views.clone(),
+            shell: shell.clone(),
+            slots: slots.clone().into_iter().collect(),
+        };
+
         // api_version 校验
         if meta.api_version != GUI_PLUGIN_API_VERSION {
-            return Self {
-                id: meta.id.clone(),
-                name: meta.name.clone(),
-                version: meta.version.clone(),
-                gui_type: meta.gui.gui_type.clone(),
-                title: meta.gui.title.clone(),
-                entry: meta.gui.entry.clone(),
-                has_native: meta.gui.native_module.is_some(),
-                compatible: false,
-                reason: Some(format!(
-                    "api_version {} 不受支持（当前 {}）",
-                    meta.api_version, GUI_PLUGIN_API_VERSION
-                )),
-                enabled,
-            };
+            return incompatible(format!(
+                "api_version {} 不受支持（当前 {}）",
+                meta.api_version, GUI_PLUGIN_API_VERSION
+            ));
         }
         // min_launcher_version 校验
         if let Some(min) = &meta.min_launcher_version {
@@ -101,34 +253,33 @@ impl GuiPluginInfo {
                 min,
             ) == std::cmp::Ordering::Less
             {
-                return Self {
-                    id: meta.id.clone(),
-                    name: meta.name.clone(),
-                    version: meta.version.clone(),
-                    gui_type: meta.gui.gui_type.clone(),
-                    title: meta.gui.title.clone(),
-                    entry: meta.gui.entry.clone(),
-                    has_native: meta.gui.native_module.is_some(),
-                    compatible: false,
-                    reason: Some(format!(
-                        "需要启动器 >= {}（当前 {}）",
-                        min, LAUNCHER_VERSION
-                    )),
-                    enabled,
-                };
+                return incompatible(format!(
+                    "需要启动器 >= {}（当前 {}）",
+                    min, LAUNCHER_VERSION
+                ));
             }
         }
         Self {
             id: meta.id.clone(),
             name: meta.name.clone(),
             version: meta.version.clone(),
-            gui_type: meta.gui.gui_type.clone(),
-            title: meta.gui.title.clone(),
-            entry: meta.gui.entry.clone(),
+            gui_type: meta.gui.category().to_string(),
+            title: meta.gui.views.first().map(|v| v.title.clone()).unwrap_or_default(),
+            entry: meta
+                .gui
+                .views
+                .first()
+                .map(|v| v.entry.clone())
+                .unwrap_or_else(|| {
+                    meta.gui.shell.as_ref().map(|s| s.entry.clone()).unwrap_or_default()
+                }),
             has_native: meta.gui.native_module.is_some(),
             compatible: true,
             reason: None,
             enabled,
+            views,
+            shell,
+            slots: slots.into_iter().collect(),
         }
     }
 }
@@ -157,7 +308,10 @@ pub fn scan_gui_plugins(plugins_dir: &Path) -> Vec<GuiPluginInfo> {
             continue;
         };
         match serde_json::from_str::<GuiPluginMeta>(&data) {
-            Ok(meta) => out.push(GuiPluginInfo::from_meta(&meta, true)),
+            Ok(mut meta) => {
+                meta.gui.normalize();
+                out.push(GuiPluginInfo::from_meta(&meta, true));
+            }
             Err(e) => log::warn!("跳过无效 GUI 插件清单 {}: {}", dir.display(), e),
         }
     }
@@ -169,7 +323,9 @@ pub fn scan_gui_plugins(plugins_dir: &Path) -> Vec<GuiPluginInfo> {
 pub fn parse_plugin_meta(plugins_dir: &Path, plugin_id: &str) -> Option<GuiPluginMeta> {
     let path = plugins_dir.join(plugin_id).join("plugin.json");
     let data = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&data).ok()
+    let mut meta: GuiPluginMeta = serde_json::from_str(&data).ok()?;
+    meta.gui.normalize();
+    Some(meta)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +370,7 @@ pub async fn install_gui_plugin(plugins_dir: &Path, source: &str) -> Result<GuiP
     }
 
     // 3. 校验 plugin.json
-    let meta: GuiPluginMeta = match std::fs::read(tmp.join("plugin.json")) {
+    let mut meta: GuiPluginMeta = match std::fs::read(tmp.join("plugin.json")) {
         Ok(data) => {
             serde_json::from_slice(&data).map_err(|e| format!("plugin.json 无效: {}", e))?
         }
@@ -223,13 +379,14 @@ pub async fn install_gui_plugin(plugins_dir: &Path, source: &str) -> Result<GuiP
             return Err("插件包缺少 plugin.json".into());
         }
     };
+    meta.gui.normalize(); // 兼容 v1 清单（type=view/replacement）
     if !valid_plugin_id(&meta.id) {
         let _ = std::fs::remove_dir_all(&tmp);
         return Err(format!("插件 ID 非法: {}", meta.id));
     }
-    if meta.gui.gui_type != "view" && meta.gui.gui_type != "replacement" {
+    if !meta.gui.has_gui() {
         let _ = std::fs::remove_dir_all(&tmp);
-        return Err(format!("未知的 GUI 插件类型: {}", meta.gui.gui_type));
+        return Err("插件清单未声明任何 GUI（gui.views 或 gui.shell）".into());
     }
 
     // 4. 移入目标目录（覆盖旧版本）
@@ -243,7 +400,7 @@ pub async fn install_gui_plugin(plugins_dir: &Path, source: &str) -> Result<GuiP
         "已安装 GUI 插件 {} v{}（{}）",
         meta.id,
         meta.version,
-        meta.gui.gui_type
+        meta.gui.category()
     );
     Ok(GuiPluginInfo::from_meta(&meta, true))
 }
@@ -308,11 +465,40 @@ fn extract_zip(bytes: &[u8], dest: &Path) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// 协议 host 语义
+enum ProtocolKind {
+    /// 具名视图（可嵌入任意 UI 插槽）
+    View,
+    /// 主壳整体接管
+    Shell,
+    /// 静态资源（跨场景共享）
+    Assets,
+}
+
+impl ProtocolKind {
+    fn from_host(host: &str) -> Option<Self> {
+        match host {
+            "view" => Some(Self::View),
+            "shell" => Some(Self::Shell),
+            "assets" => Some(Self::Assets),
+            // v1 兼容
+            "views" => Some(Self::View),
+            "replacement" => Some(Self::Shell),
+            _ => None,
+        }
+    }
+}
+
 /// 解析 furry:// 请求并返回响应
 ///
-/// URL 格式：
-/// - `furry://views/{plugin_id}/{path}` → `plugins/{plugin_id}/frontend/{path}`
-/// - `furry://replacement/{plugin_id}/{path}` → 同上（整体接管模式）
+/// v2 语法（启动器内部任意嵌入场景，非公网网页）：
+/// - `furry://view/{plugin_id}/{view_id}/{path}?query` → 具名视图
+/// - `furry://shell/{plugin_id}/{path}`                → 主壳接管
+/// - `furry://assets/{plugin_id}/{path}`               → 静态资源
+/// v1 兼容：`furry://views/{pid}/{path}`（view_id=main）、
+/// `furry://replacement/{pid}/{path}`（shell）
+///
+/// 所有 path 均防目录穿越；view 模式校验 view_id 已在 plugin.json 声明。
 pub fn handle_furry_request(
     ctx: tauri::UriSchemeContext<tauri::Wry>,
     request: http::Request<Vec<u8>>,
@@ -332,52 +518,137 @@ pub fn handle_furry_request(
     let host = uri.host().unwrap_or("").to_string();
     let path = uri.path().to_string();
 
-    // host 必须是 views / replacement
-    match host.as_str() {
-        "views" | "replacement" => {}
-        _ => return error_response(400, "furry:// 仅支持 views / replacement 模式"),
-    }
-    let rest = path;
-
-    // 解析 plugin_id 与相对路径
-    let rest_trimmed = rest.trim_start_matches('/');
-    let mut parts = rest_trimmed.splitn(2, '/');
-    let (Some(plugin_id), rel) = (parts.next(), parts.next()) else {
-        return error_response(400, "furry:// 路径格式错误");
-    };
-    if plugin_id.is_empty() {
-        return error_response(400, "缺少插件 ID");
-    }
-    let rel = rel.unwrap_or("");
-
-    // 插件目录 + frontend 基础目录（目录穿越防护）
-    let frontend_base = plugins_dir.join(plugin_id).join("frontend");
-    let Some(clean_rel) = clean_relative(rel) else {
-        return error_response(403, "路径穿越已被拒绝");
-    };
-    // 空路径或目录 → 默认入口 index.html
-    let file_name = if clean_rel.is_empty() {
-        "index.html".to_string()
-    } else {
-        clean_rel
-    };
-
-    let Some(file_path) = safe_join(&frontend_base, &file_name) else {
-        return error_response(403, "路径穿越已被拒绝");
-    };
-
-    match std::fs::read(&file_path) {
-        Ok(bytes) => {
-            let mime = mime_for(&file_name);
-            http::Response::builder()
-                .status(200)
-                .header("Content-Type", mime)
-                .header("Cache-Control", "no-cache")
-                .body(Cow::Owned(bytes))
-                .unwrap_or_else(|_| error_response(500, "构造响应失败"))
+    let kind = match ProtocolKind::from_host(&host) {
+        Some(k) => k,
+        None => {
+            return error_response(
+                400,
+                "furry:// 不支持的 host（支持 view / shell / assets）",
+            )
         }
-        Err(_) => error_response(404, "文件不存在"),
+    };
+
+    match resolve_plugin_resource(&plugins_dir, &kind, &path) {
+        Ok(file_path) => match std::fs::read(&file_path) {
+            Ok(bytes) => {
+                let file_name = file_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("index.html");
+                let mime = mime_for(file_name);
+                http::Response::builder()
+                    .status(200)
+                    .header("Content-Type", mime)
+                    .header("Cache-Control", "no-cache")
+                    .body(Cow::Owned(bytes))
+                    .unwrap_or_else(|_| error_response(500, "构造响应失败"))
+            }
+            Err(_) => error_response(404, "文件不存在"),
+        },
+        Err(status) => {
+            let msg = match status {
+                400 => "furry:// 路径格式错误",
+                403 => "访问被拒绝（非法 ID 或路径穿越）",
+                404 => "视图不存在",
+                _ => "请求失败",
+            };
+            error_response(status, msg)
+        }
     }
+}
+
+/// 将协议请求解析为磁盘文件路径（纯函数，便于单元测试）
+///
+/// 返回 `Err(status)` 表示应返回的错误码：
+/// - 400 路径格式错误；403 非法 ID/穿越；404 视图未声明或插件不存在
+fn resolve_plugin_resource(
+    plugins_dir: &Path,
+    kind: &ProtocolKind,
+    path: &str,
+) -> std::result::Result<PathBuf, u16> {
+    // 分层解析：先取 plugin_id，剩余部分按模式再分
+    let mut segs = path.trim_start_matches('/').splitn(2, '/');
+    let plugin_id = segs.next().unwrap_or("");
+    let rest = segs.next().unwrap_or("");
+    if !valid_plugin_id(plugin_id) {
+        return Err(403u16);
+    }
+
+    // view 模式：rest 中第一段是 view_id（v1 兼容默认 main），其余是资源路径
+    let (view_id, rel) = match kind {
+        ProtocolKind::View => {
+            let mut segs = rest.splitn(2, '/');
+            let vid = segs.next().unwrap_or("");
+            if !valid_plugin_id(vid) {
+                return Err(403u16);
+            }
+            let rel = segs.next().unwrap_or("");
+            if !view_declared(plugins_dir, plugin_id, vid) {
+                return Err(404u16);
+            }
+            (Some(vid), rel)
+        }
+        ProtocolKind::Shell | ProtocolKind::Assets => (None, rest),
+    };
+
+    // 资源路径：相对 frontend/ 根
+    let clean = clean_relative(rel).ok_or(403u16)?;
+    // 根请求 → 使用声明入口（view 用视图入口，shell 用主壳入口）
+    let file_name = if clean.is_empty() {
+        match (kind, view_id) {
+            (ProtocolKind::View, Some(vid)) => view_entry(plugins_dir, plugin_id, vid),
+            (ProtocolKind::Shell, _) => shell_entry(plugins_dir, plugin_id),
+            _ => "index.html".to_string(),
+        }
+    } else {
+        clean
+    };
+    let frontend_base = plugins_dir.join(plugin_id).join("frontend");
+    let file_path = safe_join(&frontend_base, &file_name).ok_or(403u16)?;
+
+    // 目录请求 → 追加声明入口（view 模式），其他用 index.html
+    if file_path.is_dir() {
+        let default = match (kind, view_id) {
+            (ProtocolKind::View, Some(vid)) => view_entry(plugins_dir, plugin_id, vid),
+            (ProtocolKind::Shell, _) => shell_entry(plugins_dir, plugin_id),
+            _ => "index.html".to_string(),
+        };
+        let file_path = safe_join(&file_path, &default).ok_or(403u16)?;
+        if file_path.exists() {
+            return Ok(file_path);
+        }
+    }
+    Ok(file_path)
+}
+
+/// 校验视图 ID 已在插件清单中声明
+fn view_declared(plugins_dir: &Path, plugin_id: &str, view_id: &str) -> bool {
+    parse_plugin_meta(plugins_dir, plugin_id)
+        .map(|meta| {
+            meta.gui.views.iter().any(|v| v.id == view_id)
+                || (view_id == "main" && meta.gui.shell.is_some())
+        })
+        .unwrap_or(false)
+}
+
+/// 获取视图声明入口（相对 frontend/）
+fn view_entry(plugins_dir: &Path, plugin_id: &str, view_id: &str) -> String {
+    parse_plugin_meta(plugins_dir, plugin_id)
+        .and_then(|meta| {
+            meta.gui
+                .views
+                .iter()
+                .find(|v| v.id == view_id)
+                .map(|v| v.entry.clone())
+        })
+        .unwrap_or_else(|| "index.html".into())
+}
+
+/// 获取主壳声明入口（相对 frontend/）
+fn shell_entry(plugins_dir: &Path, plugin_id: &str) -> String {
+    parse_plugin_meta(plugins_dir, plugin_id)
+        .and_then(|meta| meta.gui.shell.map(|s| s.entry.clone()))
+        .unwrap_or_else(|| "index.html".into())
 }
 
 /// 规范化相对路径：拒绝空组件穿越，返回可安全拼接的相对路径
@@ -497,8 +768,8 @@ mod tests {
                 "id": "demo",
                 "name": "示例",
                 "version": "0.1.0",
-                "api_version": 1,
-                "gui": { "type": "view", "title": "示例视图", "entry": "index.html" }
+                "api_version": 2,
+                "gui": { "views": [{ "id": "main", "title": "示例视图", "entry": "index.html", "slots": ["page"] }] }
             }"#,
         )
         .unwrap();
@@ -510,6 +781,7 @@ mod tests {
         assert_eq!(info.gui_type, "view");
         assert!(info.compatible);
         assert!(info.reason.is_none());
+        assert_eq!(info.slots, vec!["page"]);
 
         // 不兼容版本
         fs::write(
@@ -519,13 +791,164 @@ mod tests {
                 "name": "示例",
                 "version": "0.1.0",
                 "api_version": 99,
-                "gui": { "type": "view", "title": "示例视图", "entry": "index.html" }
+                "gui": { "views": [{ "id": "main", "title": "示例视图", "entry": "index.html", "slots": ["page"] }] }
             }"#,
         )
         .unwrap();
         let infos = scan_gui_plugins(&dir);
         assert!(!infos[0].compatible);
         assert!(infos[0].reason.is_some());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v1清单_归一化为views与shell() {
+        // v1 type=view → views[main] + slot page
+        let mut meta: GuiPluginMeta = serde_json::from_str(
+            r#"{
+                "id": "a", "name": "A", "version": "1.0.0", "api_version": 2,
+                "gui": { "type": "view", "title": "视图A", "entry": "index.html" }
+            }"#,
+        )
+        .unwrap();
+        meta.gui.normalize();
+        assert_eq!(meta.gui.views.len(), 1);
+        assert_eq!(meta.gui.views[0].id, "main");
+        assert_eq!(meta.gui.views[0].slots, vec!["page"]);
+        assert_eq!(meta.gui.category(), "view");
+        assert!(meta.gui.has_gui());
+
+        // v1 type=replacement → shell
+        let mut meta: GuiPluginMeta = serde_json::from_str(
+            r#"{
+                "id": "b", "name": "B", "version": "1.0.0", "api_version": 2,
+                "gui": { "type": "replacement", "entry": "shell.html" }
+            }"#,
+        )
+        .unwrap();
+        meta.gui.normalize();
+        assert!(meta.gui.shell.is_some());
+        assert_eq!(meta.gui.shell.as_ref().unwrap().entry, "shell.html");
+        assert_eq!(meta.gui.category(), "shell");
+        assert!(meta.gui.has_gui());
+
+        // 无 GUI → 拒绝安装
+        let mut meta: GuiPluginMeta = serde_json::from_str(
+            r#"{"id": "c", "name": "C", "version": "1.0.0", "gui": {}}"#,
+        )
+        .unwrap();
+        meta.gui.normalize();
+        assert!(!meta.gui.has_gui());
+    }
+
+    #[test]
+    fn v2清单_多视图与主壳() {
+        let mut meta: GuiPluginMeta = serde_json::from_str(
+            r#"{
+                "id": "c", "name": "C", "version": "1.0.0", "api_version": 2,
+                "gui": {
+                    "views": [
+                        { "id": "main", "title": "主页", "entry": "index.html", "slots": ["page", "drawer"] },
+                        { "id": "widget", "title": "微件", "entry": "widget.html", "slots": ["home"] }
+                    ],
+                    "shell": { "title": "壳", "entry": "shell.html" }
+                }
+            }"#,
+        )
+        .unwrap();
+        meta.gui.normalize();
+        assert_eq!(meta.gui.views.len(), 2);
+        assert_eq!(meta.gui.category(), "mixed");
+
+        let info = GuiPluginInfo::from_meta(&meta, true);
+        assert_eq!(info.views.len(), 2);
+        assert!(info.slots.contains(&"home".to_string()));
+        assert!(info.shell.is_some());
+        assert!(info.compatible);
+        assert_eq!(info.gui_type, "mixed");
+    }
+
+    #[test]
+    fn 协议v2_资源解析各模式() {
+        let dir = std::env::temp_dir().join("furry-proto-v2");
+        let _ = fs::remove_dir_all(&dir);
+        let plugin = dir.join("demo");
+        fs::create_dir_all(plugin.join("frontend/sub")).unwrap();
+        fs::write(
+            plugin.join("plugin.json"),
+            r#"{
+                "id": "demo", "name": "示例", "version": "1.0.0", "api_version": 2,
+                "gui": {
+                    "views": [{ "id": "main", "title": "主页", "entry": "index.html", "slots": ["page"] }],
+                    "shell": { "title": "壳", "entry": "shell.html" }
+                }
+            }"#,
+        )
+        .unwrap();
+        fs::write(plugin.join("frontend/index.html"), "<h1>home</h1>").unwrap();
+        fs::write(plugin.join("frontend/shell.html"), "<h1>shell</h1>").unwrap();
+        fs::write(plugin.join("frontend/sub/app.js"), "console.log(1)").unwrap();
+
+        let base = plugin.join("frontend");
+
+        // view：声明校验 + 资源解析
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::View, "/demo/main/index.html").unwrap(),
+            base.join("index.html")
+        );
+        // view：根请求 → 视图声明入口
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::View, "/demo/main/").unwrap(),
+            base.join("index.html")
+        );
+        // view：未声明视图 → 404
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::View, "/demo/nope/index.html").unwrap_err(),
+            404
+        );
+        // shell：根请求 → 主壳声明入口
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::Shell, "/demo/").unwrap(),
+            base.join("shell.html")
+        );
+        // shell：显式资源
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::Shell, "/demo/index.html").unwrap(),
+            base.join("index.html")
+        );
+        // assets：任意资源
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::Assets, "/demo/sub/app.js").unwrap(),
+            base.join("sub/app.js")
+        );
+        // assets：根请求 → index.html
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::Assets, "/demo/").unwrap(),
+            base.join("index.html")
+        );
+        // 穿越拒绝
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::Assets, "/demo/../secret").unwrap_err(),
+            403
+        );
+        // 非法插件 ID
+        assert_eq!(
+            resolve_plugin_resource(&dir, &ProtocolKind::Assets, "/../secret").unwrap_err(),
+            403
+        );
+        // v1 兼容：views/main
+        assert_eq!(
+            resolve_plugin_resource(
+                &dir,
+                &ProtocolKind::from_host("views").unwrap(),
+                "/demo/main/index.html"
+            )
+            .unwrap(),
+            base.join("index.html")
+        );
+        // 未知 host 拒绝
+        assert!(ProtocolKind::from_host("web").is_none());
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -553,7 +976,7 @@ mod tests {
             zip.start_file("plugin.json", opts).unwrap();
             zip.write_all(
                 format!(
-                    r#"{{"id":"{id}","name":"测试插件","version":"1.0.0","api_version":1,"gui":{{"type":"view","title":"测试"}}}}"#
+                    r#"{{"id":"{id}","name":"测试插件","version":"1.0.0","api_version":2,"gui":{{"views":[{{"id":"main","title":"测试","entry":"index.html","slots":["page"]}}]}}}}"#
                 )
                 .as_bytes(),
             )

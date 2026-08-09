@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [preact()],
   resolve: {
     alias: {
-      // 让 React 生态组件库（liquid-glass-react）跑在 preact/compat 上
+      // 兼容 React 生态组件库，运行在 preact/compat 上
       react: "preact/compat",
       "react-dom": "preact/compat",
       "react/jsx-runtime": "preact/jsx-runtime",

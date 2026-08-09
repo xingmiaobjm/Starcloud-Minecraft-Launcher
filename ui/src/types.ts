@@ -48,18 +48,34 @@ export interface StoredAccount {
   last_used?: string | null;
 }
 
+/** 具名视图摘要（furry://view/{pid}/{view_id}/...） */
+export interface PluginViewInfo {
+  id: string;
+  title: string;
+  entry: string;
+  /** 可嵌入插槽：page / drawer / home / settings / sidebar */
+  slots: string[];
+}
+
 /** GUI 插件摘要 */
 export interface GuiPluginInfo {
   id: string;
   name: string;
   version: string;
-  gui_type: "view" | "replacement";
+  /** 插件类别：view / shell / mixed */
+  gui_type: "view" | "shell" | "mixed";
   title: string;
   entry: string;
   has_native: boolean;
   compatible: boolean;
   reason: string | null;
   enabled: boolean;
+  /** 具名视图列表（可嵌入插槽） */
+  views?: PluginViewInfo[];
+  /** 主壳接管入口（相对 frontend/） */
+  shell?: string | null;
+  /** 全部可嵌入插槽（去重） */
+  slots?: string[];
 }
 
 /** 微软设备码（登录页展示 user_code + verification_uri） */

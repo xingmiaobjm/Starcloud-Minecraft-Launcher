@@ -2,12 +2,17 @@
   "id": "demo",
   "name": "示例视图插件",
   "version": "0.1.0",
-  "api_version": 1,
+  "api_version": 2,
   "min_launcher_version": "0.2.0",
   "gui": {
-    "type": "view",
-    "title": "示例视图",
-    "icon": null,
-    "entry": "index.html"
+    "views": [
+      {
+        "id": "main",
+        "title": "示例视图",
+        "icon": null,
+        "entry": "index.html",
+        "slots": ["page", "sidebar"]
+      }
+    ]
   }
 }

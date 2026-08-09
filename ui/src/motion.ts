@@ -93,7 +93,7 @@ export function statusDotPulse(dot: HTMLElement): gsap.MatchMedia {
   const mm = gsap.matchMedia();
   mm.add("(prefers-reduced-motion: no-preference)", () => {
     gsap.to(dot, {
-      boxShadow: "0 0 14px rgba(27,217,106,0.85)",
+      boxShadow: "0 0 14px rgba(143,174,255,0.85)",
       repeat: -1,
       yoyo: true,
       duration: 0.7,

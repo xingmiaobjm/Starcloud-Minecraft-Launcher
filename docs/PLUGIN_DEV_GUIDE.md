@@ -1,24 +1,25 @@
 # Starcloud Minecraft Launcher — GUI 插件开发指南
 
-> 版本 0.2.0 | 2026-08-09  
-> 面向插件开发者：如何为启动器编写 GUI 插件（view / replacement 双通道）。
+> 版本 0.2.0 | 2026-08-09
+> 面向插件开发者：如何为启动器编写 GUI 插件（furry:// v2 通用资源协议）。
 
 ---
 
 ## 1. 插件机制概述
 
-启动器 GUI 支持两类插件：
+启动器 GUI 支持两类插件角色：
 
 | 类型 | 说明 | 挂载方式 |
 |------|------|----------|
-| `view` | 视图插件，作为独立页面 | 侧边栏"插件视图"区域出现入口，点击后在主区域以 iframe 加载 |
-| `replacement` | 替换插件，整体接管主界面 | 插件启用后接管整个窗口 shell（默认 GUI 兜底） |
+| 视图插件（`gui.views`） | 声明**一个或多个具名视图**，可嵌入任意界面位置 | 按 `slots` 插槽挂载：page（独立页面）/ drawer（抽屉）/ home（首页）/ settings（设置）/ sidebar（侧栏）；page 视图自动进入侧边栏"插件视图"区域 |
+| 主壳插件（`gui.shell`） | 整体接管主界面（原 replacement） | 插件启用后接管整个窗口 shell（默认 GUI 兜底） |
 
 插件前端由启动器通过自定义协议 `furry://` 托管静态资源，无需自带服务器：
 
 ```
-furry://views/{plugin_id}/{path}       # view 插件资源
-furry://replacement/{plugin_id}/{path} # replacement 插件资源
+furry://view/{plugin_id}/{view_id}/{path}   # 具名视图资源（可嵌入任意插槽）
+furry://shell/{plugin_id}/{path}            # 主壳接管资源
+furry://assets/{plugin_id}/{path}           # 静态资源（跨场景共享，无声明校验）
 ```
 
 插件内部可以直接调用启动器后端命令（Tauri IPC）并订阅事件，实现深度集成。
@@ -37,20 +38,26 @@ plugins/{plugin_id}/
 └── native/            # 原生模块（预留，本版本不加载）
 ```
 
-## 3. plugin.json 清单
+## 3. plugin.json 清单（v2）
 
 ```json
 {
   "id": "com.example.myplugin",
   "name": "我的插件",
   "version": "1.0.0",
-  "api_version": 1,
+  "api_version": 2,
   "min_launcher_version": "0.2.0",
   "gui": {
-    "type": "view",
-    "title": "插件标题",
-    "icon": null,
-    "entry": "index.html"
+    "views": [
+      {
+        "id": "main",
+        "title": "我的页面",
+        "icon": null,
+        "entry": "index.html",
+        "slots": ["page", "sidebar"]
+      }
+    ],
+    "shell": null
   }
 }
 ```
@@ -62,15 +69,20 @@ plugins/{plugin_id}/
 | `id` | 是 | 唯一标识。合法字符：字母/数字/`.`/`_`/`-`，≤128 字符；**禁止**空、`.`/`..`、路径分隔符（防路径穿越） |
 | `name` | 是 | 显示名称 |
 | `version` | 是 | 插件版本号（如 `1.0.0`） |
-| `api_version` | 否 | 插件 API 版本，默认 `1`。必须等于启动器当前支持的版本（`1`），否则标记不兼容 |
+| `api_version` | 否 | 插件 API 版本，默认 `2`。必须等于启动器当前支持的版本（`2`），否则标记不兼容 |
 | `min_launcher_version` | 否 | 最低启动器版本，低于当前启动器版本（`0.2.0`）时标记不兼容 |
-| `gui.type` | 是 | `"view"` 或 `"replacement"` |
-| `gui.title` | 否 | 侧边栏显示标题（view） |
-| `gui.icon` | 否 | 预留图标路径（当前版本不渲染，填 `null`） |
-| `gui.entry` | 否 | 相对 `frontend/` 的入口，默认 `index.html` |
+| `gui.views` | 否 | 具名视图列表（至少声明一个或声明 `gui.shell`） |
+| `gui.views[].id` | 是 | 视图 ID，`furry://view/{pid}/{vid}/` 路由用。v1 迁移默认 `"main"` |
+| `gui.views[].title` | 否 | 侧边栏/插槽显示标题 |
+| `gui.views[].icon` | 否 | 预留图标路径（当前版本不渲染，填 `null`） |
+| `gui.views[].entry` | 否 | 相对 `frontend/` 的入口，默认 `index.html` |
+| `gui.views[].slots` | 否 | 可嵌入插槽数组：`page` / `drawer` / `home` / `settings` / `sidebar`（空则仅作声明，不自动挂载） |
+| `gui.shell` | 否 | 主壳接管声明：`{ title, entry }`（entry 默认 `index.html`） |
 | `gui.native_module` | 否 | 预留原生模块路径（当前版本不加载） |
 
-## 4. 开发一个 view 插件（最小示例）
+> **v1 兼容**：`api_version: 1` 的 `gui.type`（`"view"` / `"replacement"`）清单会被自动归一化为 v2——`view` → `views:[{id:"main", slots:["page"]}]`，`replacement` → `shell`。旧插件的 `furry://views/{pid}/` 与 `furry://replacement/{pid}/` URL 同样兼容。
+
+## 4. 开发一个视图插件（最小示例）
 
 ### 4.1 目录结构
 
@@ -90,9 +102,11 @@ my-plugin/
   "id": "com.example.versions",
   "name": "版本速览",
   "version": "1.0.0",
-  "api_version": 1,
+  "api_version": 2,
   "min_launcher_version": "0.2.0",
-  "gui": { "type": "view", "title": "版本速览", "entry": "index.html" }
+  "gui": {
+    "views": [{ "id": "main", "title": "版本速览", "slots": ["page", "sidebar"] }]
+  }
 }
 ```
 
@@ -159,25 +173,51 @@ async function onProgress() {
 }
 ```
 
-## 5. 开发 replacement 插件
+## 5. 多视图与插槽嵌入（v2 新能力）
 
-replacement 插件与 view 插件结构相同，仅 `gui.type` 为 `"replacement"`：
+一个插件可声明多个视图，分别挂载到不同位置。例如一个"皮肤库"插件同时提供首页组件、独立页面与设置项：
+
+```json
+{
+  "id": "com.example.skins",
+  "name": "皮肤库",
+  "version": "1.0.0",
+  "api_version": 2,
+  "gui": {
+    "views": [
+      { "id": "home", "title": "今日推荐", "slots": ["home"] },
+      { "id": "browser", "title": "皮肤浏览器", "slots": ["page", "sidebar"] },
+      { "id": "options", "title": "皮肤设置", "slots": ["settings"] }
+    ]
+  }
+}
+```
+
+挂载规则：
+
+- `page` / `sidebar`：视图入口出现在侧边栏"插件视图"区域，点击后主区 iframe 加载 `furry://view/{pid}/{vid}/`
+- `home` / `settings` / `drawer`：由宿主界面在对应插槽按需嵌入（当前版本宿主仅自动挂载 page 插槽）
+- 同一视图可声明多个插槽（如上面 `browser` 同时挂 page 与 sidebar）
+
+## 6. 开发主壳插件（原 replacement）
+
+主壳插件与视图插件结构相同，声明 `gui.shell`：
 
 ```json
 {
   "id": "com.example.skin",
   "name": "皮肤整合",
   "version": "1.0.0",
-  "api_version": 1,
-  "gui": { "type": "replacement", "title": "皮肤整合", "entry": "index.html" }
+  "api_version": 2,
+  "gui": { "shell": { "title": "皮肤整合" } }
 }
 ```
 
-启用后，插件入口将整体接管主窗口（侧边栏/标题栏/状态栏均由插件自行绘制）。此时插件页面地址为 `furry://replacement/{id}/index.html`。
+启用后，插件入口将整体接管主窗口（侧边栏/标题栏/状态栏均由插件自行绘制）。此时插件页面地址为 `furry://shell/{id}/index.html`。
 
-> 注意：replacement 插件应自绘完整 UI（含窗口控制）。当前版本两个 replacement 插件同时启用时，以插件页中启用的顺序为准（后启用者生效）。
+> 注意：主壳插件应自绘完整 UI（含窗口控制）。当前版本多个主壳插件同时启用时，以插件页中启用的顺序为准（后启用者生效）。
 
-## 6. 可用的后端命令（节选）
+## 7. 可用的后端命令（节选）
 
 插件可调用的常用命令（与主界面一致，见 `src-tauri/src/commands.rs`）：
 
@@ -190,7 +230,7 @@ replacement 插件与 view 插件结构相同，仅 `gui.type` 为 `"replacement
 | `stop_game` | — | `void` |
 | `list_accounts` | — | `StoredAccount[]` |
 | `get_settings` | — | `Settings` |
-| `get_gui_plugins` | — | `GuiPluginInfo[]` |
+| `get_gui_plugins` | — | `GuiPluginInfo[]`（含 `views` / `shell` / `slots` 字段） |
 | `get_game_logs` | — | `string` |
 
 事件（通过 `@tauri-apps/api/event` 的 `listen` 订阅）：
@@ -204,7 +244,7 @@ replacement 插件与 view 插件结构相同，仅 `gui.type` 为 `"replacement
 | `game-exited` | `{ exitCode, crashed, message }` | 游戏退出 |
 | `error-occurred` | `{ context, message }` | 错误 |
 
-## 7. 打包与安装
+## 8. 打包与安装
 
 插件以 **zip 包** 分发，根级必须包含 `plugin.json`：
 
@@ -221,25 +261,25 @@ zip -r my-plugin.zip plugin.json frontend/
 安装安全校验：
 
 - 解压使用 `enclosed_name()` 拒绝绝对路径与 `..` 穿越条目；
-- `plugin.json` 必须合法；`id` 通过白名单校验；`gui.type` 必须为 `view`/`replacement`；
+- `plugin.json` 必须合法；`id` 通过白名单校验；`gui` 必须声明至少一个视图或主壳（`gui.views` / `gui.shell`）；
 - 覆盖安装会先删除旧目录。
 
 管理操作：插件页支持**删除**与**启用/禁用**。禁用通过目录内 `.disabled` 标记文件实现（存在即禁用、扫描跳过）。
 
-## 8. 开发调试建议
+## 9. 开发调试建议
 
 - **本地联调**：用 `cargo tauri dev` 启动开发模式，将插件 zip 通过插件页安装；修改后删除重装即可。
 - **环境变量覆盖插件目录**：设置 `STARCLOUD_PLUGINS_DIR` 指向自定义插件目录，可绕过默认位置直接扫描。
-- **浏览器预览**：view 插件可在普通浏览器中打开 `frontend/index.html` 预览样式；调用命令会失败（无 Tauri 桥接），应做降级提示（见 4.4 的 invoke 封装）。
-- **排查加载失败**：`plugin.json` 解析失败会跳过该插件并输出 `跳过无效 GUI 插件清单` 日志；检查 `id` 字符集与 `gui.type` 取值。
+- **浏览器预览**：视图插件可在普通浏览器中打开 `frontend/index.html` 预览样式；调用命令会失败（无 Tauri 桥接），应做降级提示（见 4.4 的 invoke 封装）。
+- **排查加载失败**：`plugin.json` 解析失败会跳过该插件并输出 `跳过无效 GUI 插件清单` 日志；检查 `id` 字符集、`api_version` 与 `gui.views`/`gui.shell` 声明。
 
-## 9. 参考实现
+## 10. 参考实现
 
 完整示例见仓库 `examples/gui-plugin-demo/`：
 
 ```
 examples/gui-plugin-demo/
-├── plugin.json          # view 插件清单
+├── plugin.json          # v2 视图插件清单（api_version 2）
 └── frontend/
     ├── index.html
     ├── app.js           # 调用 list_installed / get_settings

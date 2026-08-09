@@ -1,8 +1,24 @@
-// 插件页：GUI 插件列表（view / replacement）+ 安装（URL/本地 zip）+ 删除 + 启停
+// 插件页：GUI 插件列表（view / shell / mixed）+ 安装（URL/本地 zip）+ 删除 + 启停
+// furry:// v2：插件可声明多个具名视图（gui.views）与主壳（gui.shell），
+// 视图可嵌入 page/drawer/home/settings/sidebar 等插槽。
 
 import { useEffect, useState } from "preact/hooks";
 import { getGuiPlugins, installPlugin, listPlugins, removePlugin, setPluginEnabled } from "../api";
 import type { GuiPluginInfo } from "../types";
+
+const SLOT_LABELS: Record<string, string> = {
+  page: "页面",
+  drawer: "抽屉",
+  home: "首页",
+  settings: "设置",
+  sidebar: "侧栏",
+  shell: "主壳",
+};
+
+function TypeTag({ p }: { p: GuiPluginInfo }) {
+  const label = p.gui_type === "shell" ? "主壳" : p.gui_type === "mixed" ? "视图+主壳" : "视图";
+  return <span class="tag">{label}</span>;
+}
 
 export function Plugins() {
   const [gui, setGui] = useState<GuiPluginInfo[]>([]);
@@ -59,18 +75,18 @@ export function Plugins() {
     }
   };
 
-  const replacement = gui.find((p) => p.gui_type === "replacement" && p.compatible);
+  const shellPlugin = gui.find((p) => p.gui_type === "shell" && p.compatible);
 
   return (
     <div class="page">
       <div class="page-title">插件</div>
-      <div class="page-desc">GUI 插件可挂载视图或替换整个界面；核心插件在加载器初始化时自动加载</div>
+      <div class="page-desc">GUI 插件可声明多个视图挂载到任意界面位置，或整体接管主窗口；核心插件在加载器初始化时自动加载</div>
 
       {msg && <div class={`notice ${msg.err ? "err" : "ok"}`}>{msg.text}</div>}
 
-      {replacement && (
+      {shellPlugin && (
         <div class="notice">
-          替换模式提示：插件「{replacement.title || replacement.name}」将接管主界面，重启启动器后生效；
+          主壳插件「{shellPlugin.title || shellPlugin.name}」将接管整个主界面，重启启动器后生效；
           如需恢复默认界面，请将其禁用或删除。
         </div>
       )}
@@ -104,7 +120,7 @@ export function Plugins() {
             <div>
               <div class="primary">
                 {p.title || p.name}
-                <span class="tag">{p.gui_type === "view" ? "视图" : "替换"}</span>
+                <TypeTag p={p} />
                 <span class="tag">{p.has_native ? "原生模块" : "纯前端"}</span>
                 {p.compatible ? (
                   <span class="tag" style="color:var(--accent)">兼容</span>
@@ -117,6 +133,22 @@ export function Plugins() {
                 {p.id} v{p.version}
                 {p.reason ? ` · ${p.reason}` : ""}
               </div>
+              {(p.views?.length ?? 0) > 0 && (
+                <div class="secondary" style="margin-top:6px">
+                  视图：
+                  {p.views?.map((v) => (
+                    <span key={v.id} style="margin-right:10px">
+                      {v.title || v.id}
+                      {v.slots.length > 0 && (
+                        <span style="color:var(--text-faint)">
+                          {" "}
+                          [{v.slots.map((s) => SLOT_LABELS[s] ?? s).join(" · ")}]
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn" onClick={() => handleToggle(p)}>

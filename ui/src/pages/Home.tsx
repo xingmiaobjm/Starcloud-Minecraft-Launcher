@@ -1,7 +1,7 @@
 // 首页：右侧 3:4 启动卡片（版本按钮菜单 / 正版·离线滑块 / 账户选择 / 进度内嵌）
+// 视觉：Double-Bezel 嵌套玻璃面板（外层 hairline 环 + 内层 inset 高光）
 
 import { useEffect, useRef, useState } from "preact/hooks";
-import LiquidGlass from "liquid-glass-react";
 import { launchBtnGlow } from "../motion";
 import {
   launchGame,
@@ -140,17 +140,9 @@ export function Home({ status, statusDetail, progress, lastError, onClearError }
 
   return (
     <div class="home">
-      <LiquidGlass
-        className="launch-panel launch-panel-lg"
-        cornerRadius={14}
-        padding="24px 22px"
-        blurAmount={0.22}
-        saturation={150}
-        displacementScale={70}
-        aberrationIntensity={2}
-        elasticity={0.12}
-      >
-        <div class="mode-slider">
+      <div class="launch-shell">
+        <div class="launch-panel">
+          <div class="mode-slider">
           <div class={`mode-thumb ${mode === "offline" ? "offline" : ""}`} />
           <button
             class={`mode-opt ${mode === "microsoft" ? "active" : ""}`}
@@ -261,7 +253,8 @@ export function Home({ status, statusDetail, progress, lastError, onClearError }
             {localErr ? localErr : lastError}
           </div>
         )}
-      </LiquidGlass>
+        </div>
+      </div>
     </div>
   );
 }
