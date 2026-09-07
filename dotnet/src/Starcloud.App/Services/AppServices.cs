@@ -21,6 +21,10 @@ public sealed class AppServices
     public ForgeInstallerService Forge { get; }
     public MrPackInstallerService MrPack { get; }
     public SaveService Saves { get; }
+    public StarcloudIdService StarcloudId { get; }
+    public GameDiagnosticsService Diagnostics { get; }
+    public ModConflictService ModConflicts { get; }
+    public AiAssistantService Ai { get; }
 
     private AppServices()
     {
@@ -38,6 +42,10 @@ public sealed class AppServices
         MicrosoftAuth = new MicrosoftAuthService();
         MrPack = new MrPackInstallerService(Download);
         Saves = new SaveService();
+        StarcloudId = new StarcloudIdService();
+        Diagnostics = new GameDiagnosticsService(Installer, Manifest);
+        ModConflicts = new ModConflictService();
+        Ai = new AiAssistantService(StarcloudId, Mods, Diagnostics, ModConflicts);
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();

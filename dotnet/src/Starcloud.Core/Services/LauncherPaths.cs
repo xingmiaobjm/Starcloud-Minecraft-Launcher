@@ -15,6 +15,9 @@ public static class LauncherPaths
 
     public static string AccountsFile => Path.Combine(DataDir, "accounts.json");
 
+    /// <summary>Starcloud ID 会话（含云 AI 助手 API Key）</summary>
+    public static string StarcloudIdFile => Path.Combine(DataDir, "starcloud-id.json");
+
     public static string ManifestCacheFile => Path.Combine(DataDir, "version_manifest_cache.json");
 
     public static string JavaDir => Path.Combine(DataDir, "java");

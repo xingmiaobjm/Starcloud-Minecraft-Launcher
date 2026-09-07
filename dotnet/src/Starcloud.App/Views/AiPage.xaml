@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.App.Views.AiPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Starcloud.App.Views"
+    NavigationCacheMode="Disabled">
+
+    <Grid MaxWidth="1000" HorizontalAlignment="Stretch">
+
+        <!-- ═══ 未登录：Starcloud ID 登录卡片 ═══ -->
+        <Border x:Name="LoginPanel"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="32,28" MinWidth="420" MaxWidth="480">
+            <StackPanel Spacing="14">
+                <FontIcon Glyph="&#xE99A;" FontSize="40"
+                          Foreground="{ThemeResource BrandBlueBrush}" HorizontalAlignment="Center" />
+                <TextBlock Text="登录 Starcloud ID" FontSize="22" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="登录后系统会在后台为你的账号创建云 AI 助手 API Key，用于整合包推荐、游戏自动纠错与模组冲突自动处理。"
+                           TextWrapping="Wrap" TextAlignment="Center" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBox x:Name="IdBox" Header="Starcloud ID" PlaceholderText="用户名或邮箱" />
+                <PasswordBox x:Name="PwdBox" Header="密码" PlaceholderText="测试通道任意内容即可（至少 4 位）" />
+                <ComboBox x:Name="ChannelBox" Header="通道" SelectedIndex="0"
+                          HorizontalAlignment="Stretch" SelectionChanged="ChannelBox_SelectionChanged">
+                    <ComboBoxItem Content="测试通道（本地模拟，无需真实账号）" />
+                    <ComboBoxItem Content="云端通道（服务未部署，仅协议预留）" />
+                </ComboBox>
+                <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" Content="登录"
+                        HorizontalAlignment="Stretch" Click="Login_Click" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                    <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24" />
+                    <TextBlock x:Name="LoginError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                               TextWrapping="Wrap" Visibility="Collapsed" VerticalAlignment="Center" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ 已登录：AI 对话 ═══ -->
+        <Grid x:Name="ChatPanel" Visibility="Collapsed" RowSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- 会话头：用户信息 + API Key + 退出 -->
+            <Border Grid.Row="0"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="12" Padding="14,10">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Glyph="&#xE99A;" FontSize="24"
+                              Foreground="{ThemeResource BrandBlueBrush}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock x:Name="UserTitle" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="UserSub" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="6"
+                                Padding="8,4" ToolTipService.ToolTip="云 AI 助手 API Key（登录后由服务端创建）">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock x:Name="KeyText" FontSize="12" FontFamily="Consolas"
+                                           VerticalAlignment="Center" />
+                                <Button Content="复制" Padding="6,2" MinWidth="0" FontSize="12"
+                                        Click="CopyKey_Click" />
+                            </StackPanel>
+                        </Border>
+                        <Button Content="退出登录" Click="Logout_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 快捷能力 -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                <Button Content="推荐整合包" Tag="推荐整合包" Click="Quick_Click" />
+                <Button Content="游戏体检" Tag="游戏体检" Click="Quick_Click" />
+                <Button Content="检查模组冲突" Tag="检查模组冲突" Click="Quick_Click" />
+                <Button Content="你能做什么" Tag="你能做什么" Click="Quick_Click" />
+            </StackPanel>
+
+            <!-- 对话气泡 -->
+            <Border Grid.Row="2"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="16" Padding="8">
+                <ListView x:Name="ChatList" SelectionMode="None" Padding="4">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,3" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel ItemsUpdatingScrollMode="KeepLastItemInView" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:AiChatMessage">
+                            <Border Background="{x:Bind Bubble}" CornerRadius="12" Padding="12,8"
+                                    MaxWidth="640" HorizontalAlignment="{x:Bind Align}">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap"
+                                               Foreground="{x:Bind TextBrush}" />
+                                    <TextBlock Text="{x:Bind TimeText}" FontSize="11" Opacity="0.65"
+                                               Foreground="{x:Bind TextBrush}"
+                                               HorizontalAlignment="{x:Bind Align}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+
+            <!-- 输入行 -->
+            <Grid Grid.Row="3" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="InputBox" PlaceholderText="向 AI 助手提问，例如：帮我找个 1.20.1 的优化整合包"
+                         KeyDown="InputBox_KeyDown" VerticalAlignment="Center" />
+                <ProgressRing x:Name="SendProgress" Grid.Column="1" IsActive="False"
+                              Width="24" Height="24" VerticalAlignment="Center" />
+                <Button x:Name="SendBtn" Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
+                        Content="发送" Click="Send_Click" VerticalAlignment="Center" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>
