@@ -6,6 +6,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -287,15 +288,73 @@ public sealed partial class HomePage : Page
     private void TileMultiplayer_Click(object s, RoutedEventArgs e) =>
         LocalErrorBar.Message = "联机功能将在后续版本提供";
 
+    // ── 启动自检（版本 / 账户 / Java） ──
+    private bool? _javaOk;   // null=检测中
+
+    private void Recheck_Click(object s, RoutedEventArgs e) => RefreshGuide();
+
+    private void CheckGoVersion_Click(object s, RoutedEventArgs e) =>
+        (App.MainWindow as MainWindow)?.NavigateTo("download");
+    private void CheckGoAccount_Click(object s, RoutedEventArgs e) =>
+        (App.MainWindow as MainWindow)?.NavigateTo("accounts");
+    private void CheckGoJava_Click(object s, RoutedEventArgs e) =>
+        (App.MainWindow as MainWindow)?.NavigateTo("settings");
+
     private void RefreshGuide()
     {
         var hasInstalled = _rows.Count > 0;
         var hasAccount = _s.Accounts.Accounts.Count > 0 || PlayerNameBox.Text.Trim().Length > 0;
-        GuideCard.Visibility = hasInstalled && hasAccount ? Visibility.Collapsed : Visibility.Visible;
-        GuideStep1.Text = (hasInstalled ? "✔ " : "① ") + "安装版本" +
-                          (hasInstalled ? "（已完成）" : "（前往下载页）");
-        GuideStep2.Text = (hasAccount ? "✔ " : "② ") + "配置账户" +
-                          (hasAccount ? "（已完成）" : "（前往账户页）");
-        GuideStep3.Text = "③ 启动游戏";
+        SetCheckRow(CheckIconVersion, CheckTextVersion, CheckGoVersion,
+            hasInstalled, "游戏版本", hasInstalled ? "就绪" : "未安装", "前往下载");
+        SetCheckRow(CheckIconAccount, CheckTextAccount, CheckGoAccount,
+            hasAccount, "账户", hasAccount ? "就绪" : "未配置", "前往账户");
+        // Java 检测需要拉起 java -version，较慢，异步进行
+        _javaOk = null;
+        CheckTextJava.Text = "Java 运行时：检测中…";
+        _ = CheckJavaAsync();
+        UpdateCheckCardVisibility();
     }
+
+    private async Task CheckJavaAsync()
+    {
+        try
+        {
+            var runtimes = await _s.Java.ListRuntimesAsync();
+            var ok = runtimes.Count > 0 || !string.IsNullOrWhiteSpace(_s.Settings.JavaExecutable);
+            _javaOk = ok;
+            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, ok, "Java 运行时",
+                ok ? (runtimes.Count > 0 ? $"就绪（检测到 {runtimes.Count} 个）" : "就绪（使用手动指定路径）") : "未检测到",
+                "前往设置");
+        }
+        catch
+        {
+            _javaOk = false;
+            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, false, "Java 运行时", "检测失败", "前往设置");
+        }
+        UpdateCheckCardVisibility();
+    }
+
+    private void UpdateCheckCardVisibility()
+    {
+        var hasInstalled = _rows.Count > 0;
+        var hasAccount = _s.Accounts.Accounts.Count > 0 || PlayerNameBox.Text.Trim().Length > 0;
+        // 全部就绪后收起；Java 检测中保持显示以免闪动
+        CheckCard.Visibility = !hasInstalled || !hasAccount || _javaOk == false
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void SetCheckRow(FontIcon icon, TextBlock text, HyperlinkButton go,
+        bool ok, string label, string detail, string action)
+    {
+        icon.Glyph = ok ? "\uE73E" : "\uE7BA";
+        icon.Foreground = ok
+            ? ThemeBrush("SystemFillColorSuccessBrush")
+            : ThemeBrush("SystemFillColorCriticalBrush") ?? icon.Foreground;
+        text.Text = $"{label}：{detail}";
+        go.Content = action;
+        go.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static Brush? ThemeBrush(string key) =>
+        Application.Current.Resources.TryGetValue(key, out var v) ? v as Brush : null;
 }

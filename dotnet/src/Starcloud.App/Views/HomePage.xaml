@@ -37,16 +37,67 @@
                 <InfoBar x:Name="WarnBar" Severity="Warning" IsOpen="False" IsClosable="True"
                          Title="提示" />
 
-                <!-- 新手引导 -->
-                <Border x:Name="GuideCard" Visibility="Collapsed"
+                <!-- 启动自检：版本 / 账户 / Java，未就绪项可一键跳转 -->
+                <Border x:Name="CheckCard" Visibility="Collapsed"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="16">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="开始使用" FontWeight="SemiBold" FontSize="15" />
-                        <TextBlock x:Name="GuideStep1" Text="① 安装版本" />
-                        <TextBlock x:Name="GuideStep2" Text="② 配置账户" />
-                        <TextBlock x:Name="GuideStep3" Text="③ 启动游戏" />
+                    <StackPanel Spacing="2">
+                        <Grid Margin="0,0,0,6" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="启动自检" FontWeight="SemiBold" FontSize="15"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Padding="6" MinWidth="28" MinHeight="28"
+                                    Background="Transparent" BorderThickness="0"
+                                    Click="Recheck_Click" ToolTipService.ToolTip="重新检测">
+                                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                            </Button>
+                        </Grid>
+                        <Grid MinHeight="30" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon x:Name="CheckIconVersion" Glyph="&#xE73E;" FontSize="14"
+                                      VerticalAlignment="Center" />
+                            <TextBlock x:Name="CheckTextVersion" Grid.Column="1" FontSize="13"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <HyperlinkButton x:Name="CheckGoVersion" Grid.Column="2" Padding="0"
+                                             MinHeight="0" FontSize="12"
+                                             Click="CheckGoVersion_Click" />
+                        </Grid>
+                        <Grid MinHeight="30" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon x:Name="CheckIconAccount" Glyph="&#xE73E;" FontSize="14"
+                                      VerticalAlignment="Center" />
+                            <TextBlock x:Name="CheckTextAccount" Grid.Column="1" FontSize="13"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <HyperlinkButton x:Name="CheckGoAccount" Grid.Column="2" Padding="0"
+                                             MinHeight="0" FontSize="12"
+                                             Click="CheckGoAccount_Click" />
+                        </Grid>
+                        <Grid MinHeight="30" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon x:Name="CheckIconJava" Glyph="&#xE73E;" FontSize="14"
+                                      VerticalAlignment="Center" />
+                            <TextBlock x:Name="CheckTextJava" Grid.Column="1" FontSize="13"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <HyperlinkButton x:Name="CheckGoJava" Grid.Column="2" Padding="0"
+                                             MinHeight="0" FontSize="12"
+                                             Click="CheckGoJava_Click" />
+                        </Grid>
                     </StackPanel>
                 </Border>
             </StackPanel>

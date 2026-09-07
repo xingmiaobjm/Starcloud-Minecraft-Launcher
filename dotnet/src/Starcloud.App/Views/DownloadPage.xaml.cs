@@ -789,10 +789,16 @@ public sealed partial class DownloadPage : Page
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
             await _s.Download.DownloadFileAsync(file.Url, dest, file.Sha1, ct: CancellationToken.None);
 
-            OkBar.Message = info.Tag == "modpack"
-                ? $"{file.Filename} 已下载到 {info.Folder} 文件夹（整合包自动安装即将推出）"
-                : $"{file.Filename} 已安装到 {info.Folder}" +
-                  (versionId is null ? "" : $"（{versionId}）");
+            if (info.Tag == "modpack" && file.Filename.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
+            {
+                var summary = await InstallMrPackAsync(dest);
+                OkBar.Message = $"{file.Filename} 已安装。{summary}";
+            }
+            else
+            {
+                OkBar.Message = $"{file.Filename} 已安装到 {info.Folder}" +
+                                (versionId is null ? "" : $"（{versionId}）");
+            }
             OkBar.IsOpen = true;
             _okTimer.Stop();
             _okTimer.Start();
@@ -808,6 +814,82 @@ public sealed partial class DownloadPage : Page
             btn.IsEnabled = true;
             InstallProgress.Visibility = Visibility.Collapsed;
         }
+    }
+
+    // ── 整合包 .mrpack 自动安装 ──
+    private async Task<string> InstallMrPackAsync(string mrpackPath)
+    {
+        var dlg = new ContentDialog
+        {
+            Title = "安装整合包",
+            Content = CreateInstallPanel(out var statusText, out var bar),
+            CloseButtonText = "后台安装",
+            XamlRoot = Content.XamlRoot,
+        };
+        _ = dlg.ShowAsync();
+
+        var progress = new Progress<BatchProgress>(p => _dq.TryEnqueue(() =>
+        {
+            bar.Value = p.Percentage;
+            statusText.Text = p.Stage;
+        }));
+        var result = await _s.MrPack.InstallAsync(mrpackPath, _s.Settings, progress: progress);
+
+        // 依赖联动：缺失的原版 + 加载器（fabric-loader / forge / neoforge）
+        var game = result.GameVersion;
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(game))
+        {
+            if (!_s.Installer.IsInstalled(_s.Settings.DotMinecraft, game))
+            {
+                var entry = (await _s.Manifest.GetManifestAsync(false)).Versions
+                    .FirstOrDefault(v => v.Id == game);
+                if (entry is not null)
+                    await _s.Installer.InstallVanillaAsync(game, entry.Url, _s.Settings, progress);
+            }
+            parts.Add($"Minecraft {game}");
+
+            var javaMajor = 8;
+            try
+            {
+                var v = await _s.Installer.LoadVersionAsync(_s.Settings.DotMinecraft, game);
+                javaMajor = v.JavaVersion?.MajorVersion ?? 8;
+            }
+            catch { /* 读取失败按 Java 8 兜底，安装器会自动补齐运行时 */ }
+
+            if (result.Dependencies.TryGetValue("fabric-loader", out var fab))
+            {
+                await _s.Installer.InstallFabricAsync(game, fab, _s.Settings, progress);
+                parts.Add($"Fabric {fab}");
+            }
+            if (result.Dependencies.TryGetValue("forge", out var forge))
+            {
+                await _s.Forge.InstallViaInstallerAsync(
+                    ForgeInstallerService.ForgeInstallerUrl(game, forge), game, javaMajor, _s.Settings, progress);
+                parts.Add($"Forge {forge}");
+            }
+            if (result.Dependencies.TryGetValue("neoforge", out var neo))
+            {
+                await _s.Forge.InstallViaInstallerAsync(
+                    ForgeInstallerService.NeoForgeInstallerUrl(neo), game, javaMajor, _s.Settings, progress);
+                parts.Add($"NeoForge {neo}");
+            }
+        }
+
+        try { dlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
+        return parts.Count > 0
+            ? "已联动安装 " + string.Join(" + ", parts)
+            : $"共下载 {result.DownloadedFiles} 个文件";
+    }
+
+    private static UIElement CreateInstallPanel(out TextBlock statusText, out ProgressBar bar)
+    {
+        var panel = new StackPanel { Spacing = 10, MinWidth = 300 };
+        statusText = new TextBlock { Text = "准备中…", TextWrapping = TextWrapping.Wrap, FontSize = 12 };
+        bar = new ProgressBar { Maximum = 100 };
+        panel.Children.Add(statusText);
+        panel.Children.Add(bar);
+        return panel;
     }
 
     // ── 格式化 ──

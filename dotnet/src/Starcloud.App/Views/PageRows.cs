@@ -30,6 +30,13 @@ public sealed class VersionGroupRow
 /// <summary>版本页本地版本条目</summary>
 public sealed record LocalVersionRow(string Id, string KindText, string SizeText);
 
+/// <summary>存档页世界条目</summary>
+public sealed record SaveRow(string FolderName, string Name, string? IconPath,
+    string LastPlayedText, string SizeText)
+{
+    public bool HasIcon => IconPath is not null;
+}
+
 /// <summary>社区资源搜索结果行视图模型</summary>
 public sealed class ModRow
 {

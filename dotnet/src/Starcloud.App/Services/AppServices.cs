@@ -19,6 +19,8 @@ public sealed class AppServices
     public MicrosoftAuthService MicrosoftAuth { get; }
     public JavaService Java { get; }
     public ForgeInstallerService Forge { get; }
+    public MrPackInstallerService MrPack { get; }
+    public SaveService Saves { get; }
 
     private AppServices()
     {
@@ -34,6 +36,8 @@ public sealed class AppServices
         Launcher = new GameLauncher(Installer);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
+        MrPack = new MrPackInstallerService(Download);
+        Saves = new SaveService();
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();

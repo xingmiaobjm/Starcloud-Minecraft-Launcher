@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
         Type page = tag switch
         {
             "versions" => typeof(VersionsPage),
+            "saves" => typeof(SavesPage),
             "download" => typeof(DownloadPage),
             "accounts" => typeof(AccountsPage),
             "settings" => typeof(SettingsPage),
