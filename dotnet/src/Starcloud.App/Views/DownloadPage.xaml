@@ -202,7 +202,8 @@
                                                Margin="0,0,12,0" VerticalAlignment="Center"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <ComboBox x:Name="ForgeCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" Visibility="Collapsed" />
+                                              HorizontalAlignment="Right" Visibility="Collapsed"
+                                              SelectionChanged="LoaderCombo_SelectionChanged" />
                                 </Grid>
                                 <Grid Padding="0,12" ColumnSpacing="16"
                                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
@@ -217,7 +218,8 @@
                                                Margin="0,0,12,0" VerticalAlignment="Center"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <ComboBox x:Name="NeoForgeCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" Visibility="Collapsed" />
+                                              HorizontalAlignment="Right" Visibility="Collapsed"
+                                              SelectionChanged="LoaderCombo_SelectionChanged" />
                                 </Grid>
                                 <Grid Padding="0,12" ColumnSpacing="16"
                                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
@@ -232,7 +234,8 @@
                                                Margin="0,0,12,0" VerticalAlignment="Center"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <ComboBox x:Name="FabricCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" Visibility="Collapsed" />
+                                              HorizontalAlignment="Right" Visibility="Collapsed"
+                                              SelectionChanged="LoaderCombo_SelectionChanged" />
                                 </Grid>
                                 <Grid Padding="0,12">
                                     <Grid.ColumnDefinitions>

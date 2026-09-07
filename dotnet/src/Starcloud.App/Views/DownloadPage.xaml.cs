@@ -30,6 +30,7 @@ public sealed partial class DownloadPage : Page
     private List<ManifestVersion> _versions = [];
     private string? _detailId;
     private bool _busy;
+    private bool _suppressLoader;    // 加载器互斥重置期间抑制 SelectionChanged
 
     // ── 社区资源 ──
     private static readonly (string Tag, string SearchTitle, string Folder, string Verb)[] Sections =
@@ -207,9 +208,14 @@ public sealed partial class DownloadPage : Page
         // 详情可能已被切换（用户快速返回再进入），仅当仍是当前详情时才应用
         if (_detailId != id) return;
 
-        SetLoaderRow(ForgeCombo, ForgeStatus, WithNone(forgeTask.Result));
-        SetLoaderRow(NeoForgeCombo, NeoForgeStatus, WithNone(neoTask.Result));
-        SetLoaderRow(FabricCombo, FabricStatus, WithNone(fabricTask.Result));
+        _suppressLoader = true;
+        try
+        {
+            SetLoaderRow(ForgeCombo, ForgeStatus, WithNone(forgeTask.Result));
+            SetLoaderRow(NeoForgeCombo, NeoForgeStatus, WithNone(neoTask.Result));
+            SetLoaderRow(FabricCombo, FabricStatus, WithNone(fabricTask.Result));
+        }
+        finally { _suppressLoader = false; }
     }
 
     private static List<ComboItem> WithNone(IEnumerable<LoaderBuild> builds) =>
@@ -257,6 +263,59 @@ public sealed partial class DownloadPage : Page
     private static string? PickBuild(ComboBox combo) =>
         (combo.SelectedValue as ComboItem)?.Value is { Length: > 0 } v ? v : null;
 
+    // ════════════ 加载器互斥（Forge / NeoForge / Fabric 三选一） ════════════
+
+    private void LoaderCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // XAML 解析期间右侧面板尚未就绪时跳过
+        if (ForgeCombo is null || NeoForgeCombo is null || FabricCombo is null) return;
+        if (_suppressLoader) return;
+
+        var combo = (ComboBox)sender;
+        if (PickBuild(combo) is not null)
+        {
+            // 选定任一加载器后，其余两个自动回到"不安装"
+            _suppressLoader = true;
+            try
+            {
+                if (combo != ForgeCombo && PickBuild(ForgeCombo) is not null)
+                    ForgeCombo.SelectedIndex = 0;
+                if (combo != NeoForgeCombo && PickBuild(NeoForgeCombo) is not null)
+                    NeoForgeCombo.SelectedIndex = 0;
+                if (combo != FabricCombo && PickBuild(FabricCombo) is not null)
+                    FabricCombo.SelectedIndex = 0;
+            }
+            finally { _suppressLoader = false; }
+        }
+        RefreshLoaderStatus();
+    }
+
+    /// <summary>统一刷新三行状态文本：将安装 / 与所选加载器互斥 / 可以添加</summary>
+    private void RefreshLoaderStatus()
+    {
+        var fabricSelected = PickBuild(FabricCombo) is not null;
+        RefreshLoaderRow(ForgeStatus, ForgeCombo, fabricSelected);
+        RefreshLoaderRow(NeoForgeStatus, NeoForgeCombo, fabricSelected);
+        RefreshLoaderRow(FabricStatus, FabricCombo, fabricSelected);
+    }
+
+    private void RefreshLoaderRow(TextBlock status, ComboBox combo, bool fabricSelected)
+    {
+        if (combo.Visibility != Visibility.Visible)
+        {
+            status.Text = "无";
+            return;
+        }
+        if (PickBuild(combo) is { } selected)
+            status.Text = combo == FabricCombo
+                ? $"{selected} · 同装 Fabric API"
+                : $"{selected} · 将安装";
+        else if (fabricSelected || PickBuild(ForgeCombo) is not null || PickBuild(NeoForgeCombo) is not null)
+            status.Text = "与所选加载器互斥";
+        else
+            status.Text = "可以添加";
+    }
+
     // ════════════ 原版：开始下载 ════════════
 
     private async void StartDownload_Click(object s, RoutedEventArgs e)
@@ -291,6 +350,20 @@ public sealed partial class DownloadPage : Page
             {
                 progress.Report(new BatchProgress($"安装 Fabric {fabric}", 0, 0, 0, 0, 0, null));
                 await _s.Installer.InstallFabricAsync(id, fabric, _s.Settings, progress);
+
+                // 选 Fabric 后自动同装 Fabric API（Modrinth P7dR8mSH），失败不阻塞主安装
+                try
+                {
+                    progress.Report(new BatchProgress("下载 Fabric API", 0, 0, 0, 0, 0, null));
+                    var apiVersions = await _s.Mods.ListVersionsAsync("P7dR8mSH", "fabric", id);
+                    if (apiVersions.FirstOrDefault()?.PrimaryFile is { } api)
+                    {
+                        var apiDest = Path.Combine(_s.Settings.DotMinecraft, "mods", api.Filename);
+                        await _s.Download.DownloadFileAsync(api.Url, apiDest, api.Sha1,
+                            ct: CancellationToken.None);
+                    }
+                }
+                catch { /* Fabric API 获取失败不影响 Fabric 本体安装 */ }
             }
             if (forge is not null)
             {
