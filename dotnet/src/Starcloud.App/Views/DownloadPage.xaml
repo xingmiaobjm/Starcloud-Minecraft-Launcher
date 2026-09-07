@@ -129,16 +129,9 @@
                                 BorderThickness="1" CornerRadius="16" Padding="4">
                             <ListView x:Name="VersionList" SelectionMode="Single"
                                       IsItemClickEnabled="True" ItemClick="VersionList_ItemClick">
-                                <ListView.ItemContainerStyle>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        <Setter Property="MinHeight" Value="52" />
-                                        <Setter Property="Padding" Value="0" />
-                                        <Setter Property="Margin" Value="0,1" />
-                                    </Style>
-                                </ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="local:DownloadRow">
+                                <ListView.Resources>
+                                    <!-- 平铺行（快照/远古版/搜索结果） -->
+                                    <DataTemplate x:Key="VersionFlatTemplate" x:DataType="local:DownloadRow">
                                         <Grid Padding="12,8" ColumnSpacing="8">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -155,107 +148,395 @@
                                                        Foreground="{x:Bind BadgeBrush}" />
                                         </Grid>
                                     </DataTemplate>
-                                </ListView.ItemTemplate>
+                                    <!-- 大版本抽屉行（正式版默认视图）：折叠为组头，展开显示组内版本 -->
+                                    <DataTemplate x:Key="VersionGroupTemplate" x:DataType="local:VersionGroupRow">
+                                        <Expander HorizontalAlignment="Stretch"
+                                                  HorizontalContentAlignment="Stretch" Margin="2,1">
+                                            <Expander.Header>
+                                                <Grid ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{x:Bind Major}" FontWeight="SemiBold" />
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind CountText}"
+                                                               FontSize="12" VerticalAlignment="Center"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </Grid>
+                                            </Expander.Header>
+                                            <ListView ItemsSource="{x:Bind Items}" SelectionMode="None"
+                                                      IsItemClickEnabled="True"
+                                                      ItemClick="VersionGroupItem_Click"
+                                                      ScrollViewer.VerticalScrollMode="Disabled"
+                                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                                      Padding="0,2">
+                                                <ListView.ItemContainerStyle>
+                                                    <Style TargetType="ListViewItem">
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                        <Setter Property="MinHeight" Value="48" />
+                                                        <Setter Property="Padding" Value="0" />
+                                                        <Setter Property="Margin" Value="0,1" />
+                                                    </Style>
+                                                </ListView.ItemContainerStyle>
+                                                <ListView.ItemTemplate>
+                                                    <DataTemplate x:DataType="local:DownloadRow">
+                                                        <Grid Padding="10,7" ColumnSpacing="8" CornerRadius="8"
+                                                              Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Spacing="2">
+                                                                <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{x:Bind TimeText}" FontSize="11"
+                                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" Text="{x:Bind Badge}" FontSize="11"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="{x:Bind BadgeBrush}" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ListView.ItemTemplate>
+                                            </ListView>
+                                        </Expander>
+                                    </DataTemplate>
+                                </ListView.Resources>
                             </ListView>
                         </Border>
                     </Grid>
 
-                    <!-- 详情视图（PCL2 式：版本号 + 加载器选择 + 开始下载） -->
+                    <!-- 详情视图（PCL2 式：标题行 + 加载器抽屉 + 底部开始下载） -->
                     <Grid x:Name="DetailPanel" RowSpacing="12" Visibility="Collapsed">
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <!-- 标题行 -->
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+                        <!-- 标题行：返回 + 草方块 + 版本号框 -->
+                        <Grid Grid.Row="0" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
                             <Button Click="Back_Click" Padding="10,8" CornerRadius="8"
                                     VerticalAlignment="Center">
                                 <FontIcon Glyph="&#xE72B;" FontSize="14" />
                             </Button>
-                            <StackPanel Spacing="2" VerticalAlignment="Center">
-                                <TextBlock x:Name="DetailTitle" FontSize="22" FontWeight="SemiBold" />
-                                <TextBlock x:Name="DetailMeta" FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            </StackPanel>
-                        </StackPanel>
+                            <!-- 草方块图标（纯 XAML：上草皮下泥土） -->
+                            <Border Grid.Column="1" Width="44" Height="44" CornerRadius="8"
+                                    VerticalAlignment="Center"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="5*" />
+                                        <RowDefinition Height="4*" />
+                                    </Grid.RowDefinitions>
+                                    <Rectangle Fill="#6FBF44" />
+                                    <Rectangle Grid.Row="1" Fill="#8A5A33" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="2" VerticalAlignment="Center"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="8" Padding="14,7">
+                                <StackPanel Spacing="1">
+                                    <TextBlock x:Name="DetailTitle" FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="DetailMeta" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
 
-                        <!-- 加载器选择卡 -->
-                        <Border Grid.Row="1"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1" CornerRadius="16" Padding="16">
-                            <StackPanel MaxWidth="680" HorizontalAlignment="Left">
-                                <TextBlock Text="安装加载器（可选）" FontWeight="SemiBold" />
-                                <Grid Padding="0,12" ColumnSpacing="16"
-                                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                      BorderThickness="0,0,0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Forge" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="ForgeStatus" Grid.Column="1" Text="获取中…"
-                                               Margin="0,0,12,0" VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <ComboBox x:Name="ForgeCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" Visibility="Collapsed"
-                                              SelectionChanged="LoaderCombo_SelectionChanged" />
-                                </Grid>
-                                <Grid Padding="0,12" ColumnSpacing="16"
-                                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                      BorderThickness="0,0,0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="NeoForge" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="NeoForgeStatus" Grid.Column="1" Text="获取中…"
-                                               Margin="0,0,12,0" VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <ComboBox x:Name="NeoForgeCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" Visibility="Collapsed"
-                                              SelectionChanged="LoaderCombo_SelectionChanged" />
-                                </Grid>
-                                <Grid Padding="0,12" ColumnSpacing="16"
-                                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                      BorderThickness="0,0,0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Fabric" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="FabricStatus" Grid.Column="1" Text="获取中…"
-                                               Margin="0,0,12,0" VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <ComboBox x:Name="FabricCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" Visibility="Collapsed"
-                                              SelectionChanged="LoaderCombo_SelectionChanged" />
-                                </Grid>
-                                <Grid Padding="0,12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="OptiFine" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="1" Text="无" VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                </Grid>
-                            </StackPanel>
-                        </Border>
+                        <!-- 加载器抽屉（手风琴；选中任一构建后其余加载器锁定点不动） -->
+                        <ScrollViewer Grid.Row="1" VerticalAlignment="Top"
+                                      HorizontalScrollMode="Disabled">
+                            <StackPanel Spacing="10">
 
-                        <!-- 底部操作 -->
-                        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right"
-                                    Spacing="12">
-                            <TextBlock x:Name="DetailStateText" VerticalAlignment="Center" FontSize="12"
+                                <!-- Forge -->
+                                <Expander x:Name="ForgeExpander" HorizontalAlignment="Stretch"
+                                          HorizontalContentAlignment="Stretch">
+                                    <Expander.Header>
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Forge" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock x:Name="ForgeStatus" Grid.Column="1" Text="获取中…" FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                    </Expander.Header>
+                                    <StackPanel Spacing="10" Padding="4,4,4,8">
+                                        <Button x:Name="ForgeRecBtn" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch" CornerRadius="8"
+                                                Padding="12,9" BorderThickness="1"
+                                                Click="ForgeRec_Click">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock x:Name="ForgeRecVersion" FontWeight="SemiBold" />
+                                                    <TextBlock x:Name="ForgeRecNote" FontSize="11"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <Border x:Name="ForgeRecBadge" Grid.Column="1"
+                                                        Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                                        CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                    <TextBlock x:Name="ForgeRecBadgeText" Text="推荐" FontSize="11"
+                                                               Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                                </Border>
+                                            </Grid>
+                                        </Button>
+                                        <TextBlock x:Name="ForgeCountText" Text="全部版本 (0)" FontSize="13"
+                                                   FontWeight="SemiBold" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <ListView x:Name="ForgeBuildList" SelectionMode="None"
+                                                  IsItemClickEnabled="True" ItemClick="ForgeBuild_Click"
+                                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="48" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,1" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="local:LoaderBuildRow">
+                                                    <Grid Padding="10,7" ColumnSpacing="12"
+                                                          CornerRadius="8"
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{x:Bind Version}" FontWeight="SemiBold" />
+                                                            <TextBlock Text="{x:Bind Sub}" FontSize="11"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        </StackPanel>
+                                                        <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
+                                                                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                                CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                            <TextBlock Text="已选" FontSize="11"
+                                                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <TextBlock x:Name="ForgeEmptyText" Text="暂无可用构建" Visibility="Collapsed"
+                                                   FontSize="12" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                </Expander>
+
+                                <!-- NeoForge -->
+                                <Expander x:Name="NeoForgeExpander" HorizontalAlignment="Stretch"
+                                          HorizontalContentAlignment="Stretch">
+                                    <Expander.Header>
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="NeoForge" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock x:Name="NeoForgeStatus" Grid.Column="1" Text="获取中…" FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                    </Expander.Header>
+                                    <StackPanel Spacing="10" Padding="4,4,4,8">
+                                        <Button x:Name="NeoForgeRecBtn" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch" CornerRadius="8"
+                                                Padding="12,9" BorderThickness="1"
+                                                Click="NeoForgeRec_Click">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock x:Name="NeoForgeRecVersion" FontWeight="SemiBold" />
+                                                    <TextBlock x:Name="NeoForgeRecNote" FontSize="11"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <Border x:Name="NeoForgeRecBadge" Grid.Column="1"
+                                                        Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                                        CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                    <TextBlock x:Name="NeoForgeRecBadgeText" Text="推荐" FontSize="11"
+                                                               Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                                </Border>
+                                            </Grid>
+                                        </Button>
+                                        <TextBlock x:Name="NeoForgeCountText" Text="全部版本 (0)" FontSize="13"
+                                                   FontWeight="SemiBold" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <ListView x:Name="NeoForgeBuildList" SelectionMode="None"
+                                                  IsItemClickEnabled="True" ItemClick="NeoForgeBuild_Click"
+                                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="48" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,1" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="local:LoaderBuildRow">
+                                                    <Grid Padding="10,7" ColumnSpacing="12"
+                                                          CornerRadius="8"
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{x:Bind Version}" FontWeight="SemiBold" />
+                                                            <TextBlock Text="{x:Bind Sub}" FontSize="11"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        </StackPanel>
+                                                        <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
+                                                                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                                CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                            <TextBlock Text="已选" FontSize="11"
+                                                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <TextBlock x:Name="NeoForgeEmptyText" Text="暂无可用构建" Visibility="Collapsed"
+                                                   FontSize="12" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                </Expander>
+
+                                <!-- Fabric -->
+                                <Expander x:Name="FabricExpander" HorizontalAlignment="Stretch"
+                                          HorizontalContentAlignment="Stretch">
+                                    <Expander.Header>
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Fabric" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock x:Name="FabricStatus" Grid.Column="1" Text="获取中…" FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                    </Expander.Header>
+                                    <StackPanel Spacing="10" Padding="4,4,4,8">
+                                        <Button x:Name="FabricRecBtn" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch" CornerRadius="8"
+                                                Padding="12,9" BorderThickness="1"
+                                                Click="FabricRec_Click">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock x:Name="FabricRecVersion" FontWeight="SemiBold" />
+                                                    <TextBlock x:Name="FabricRecNote" FontSize="11"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <Border x:Name="FabricRecBadge" Grid.Column="1"
+                                                        Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                                        CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                    <TextBlock x:Name="FabricRecBadgeText" Text="推荐" FontSize="11"
+                                                               Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                                </Border>
+                                            </Grid>
+                                        </Button>
+                                        <TextBlock x:Name="FabricCountText" Text="全部版本 (0)" FontSize="13"
+                                                   FontWeight="SemiBold" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <ListView x:Name="FabricBuildList" SelectionMode="None"
+                                                  IsItemClickEnabled="True" ItemClick="FabricBuild_Click"
+                                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="48" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,1" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="local:LoaderBuildRow">
+                                                    <Grid Padding="10,7" ColumnSpacing="12"
+                                                          CornerRadius="8"
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{x:Bind Version}" FontWeight="SemiBold" />
+                                                            <TextBlock Text="{x:Bind Sub}" FontSize="11"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        </StackPanel>
+                                                        <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
+                                                                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                                CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                            <TextBlock Text="已选" FontSize="11"
+                                                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <TextBlock x:Name="FabricEmptyText" Text="暂无可用构建" Visibility="Collapsed"
+                                                   FontSize="12" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                </Expander>
+
+                                <!-- OptiFine（暂不支持安装） -->
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="8" Padding="16,12"
+                                        Opacity="0.6">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="OptiFine" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="暂不支持" VerticalAlignment="Center"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- 底部：状态 + 开始下载（居中胶囊大按钮，PCL2 式） -->
+                        <StackPanel Grid.Row="2" Spacing="6">
+                            <TextBlock x:Name="DetailStateText" HorizontalAlignment="Center" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <Button x:Name="StartBtn" Content="开始下载" MinWidth="160" Height="40"
-                                    Style="{StaticResource AccentButtonStyle}" Click="StartDownload_Click" />
+                            <Button x:Name="StartBtn" HorizontalAlignment="Center" Padding="30,10"
+                                    CornerRadius="24" Style="{StaticResource AccentButtonStyle}"
+                                    Click="StartDownload_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon Glyph="&#xE896;" FontSize="16" />
+                                    <TextBlock Text="开始下载" FontSize="15" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </Grid>
                 </Grid>

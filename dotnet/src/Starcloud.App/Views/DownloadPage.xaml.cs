@@ -1,5 +1,5 @@
 // 下载页：PCL2 式左侧分类（原版游戏 + 社区资源五类）
-// 原版：版本列表 → 点击进入详情（Forge/NeoForge/Fabric/OptiFine 加载器选择 + 开始下载）
+// 原版：版本列表（正式版按大版本抽屉折叠）→ 详情（Forge/NeoForge/Fabric 抽屉三选一 + 开始下载）
 // 社区：Modrinth 搜索筛选安装（Mod/整合包/数据包/资源包/光影包）
 
 using System.Globalization;
@@ -30,7 +30,23 @@ public sealed partial class DownloadPage : Page
     private List<ManifestVersion> _versions = [];
     private string? _detailId;
     private bool _busy;
-    private bool _suppressLoader;    // 加载器互斥重置期间抑制 SelectionChanged
+
+    // ── 详情页加载器（Forge/NeoForge/Fabric 抽屉三选一） ──
+    private enum LoaderKind { Forge, NeoForge, Fabric }
+
+    private static readonly LoaderKind[] LoaderKeys =
+        [LoaderKind.Forge, LoaderKind.NeoForge, LoaderKind.Fabric];
+
+    private static readonly Dictionary<LoaderKind, (string Name, string CacheKind)> LoaderInfo = new()
+    {
+        [LoaderKind.Forge] = ("Forge", "forge"),
+        [LoaderKind.NeoForge] = ("NeoForge", "neoforge"),
+        [LoaderKind.Fabric] = ("Fabric", "fabric"),
+    };
+
+    // 每个加载器的构建列表（null = 拉取中）与已选构建（null = 不安装）
+    private readonly Dictionary<LoaderKind, List<LoaderBuild>?> _builds = [];
+    private readonly Dictionary<LoaderKind, string?> _picked = [];
 
     // ── 社区资源 ──
     private static readonly (string Tag, string SearchTitle, string Folder, string Verb)[] Sections =
@@ -144,12 +160,35 @@ public sealed partial class DownloadPage : Page
         };
         if (q.Length > 0)
             src = src.Where(v => v.Id.Contains(q, StringComparison.OrdinalIgnoreCase));
-        VersionList.ItemsSource = src.Select(v =>
+
+        var rows = src.Select(v =>
         {
             var installed = installedIds.Contains(v.Id);
             return new DownloadRow(v.Id, Describe(v),
                 installed ? "已安装" : "", installed ? InstalledBrush : null);
         }).ToList();
+
+        // 正式版且未搜索时按大版本抽屉折叠；搜索或快照/远古版平铺
+        if (TypeTag == "release" && q.Length == 0)
+        {
+            VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionGroupTemplate"];
+            VersionList.ItemsSource = rows
+                .GroupBy(r => MajorOf(r.Id))
+                .Select(g => new VersionGroupRow { Major = g.Key, Count = g.Count(), Items = g.ToList() })
+                .ToList();
+        }
+        else
+        {
+            VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionFlatTemplate"];
+            VersionList.ItemsSource = rows;
+        }
+    }
+
+    /// <summary>大版本分组键："1.21.1" → "1.21"（取前两段）</summary>
+    private static string MajorOf(string id)
+    {
+        var parts = id.Split('.');
+        return parts.Length <= 2 ? id : string.Join('.', parts[..2]);
     }
 
     private static string Describe(ManifestVersion v) =>
@@ -166,6 +205,12 @@ public sealed partial class DownloadPage : Page
     // ════════════ 原版：版本详情（加载器选择） ════════════
 
     private void VersionList_ItemClick(object s, ItemClickEventArgs e)
+    {
+        if (_busy || e.ClickedItem is not DownloadRow row) return;
+        OpenDetail(row.Id);
+    }
+
+    private void VersionGroupItem_Click(object s, ItemClickEventArgs e)
     {
         if (_busy || e.ClickedItem is not DownloadRow row) return;
         OpenDetail(row.Id);
@@ -199,7 +244,19 @@ public sealed partial class DownloadPage : Page
 
     private async Task LoadLoaderOptionsAsync(string id)
     {
-        // 并行拉取三家加载器的构建列表（失败按"无"处理）
+        _builds.Clear();
+        _picked.Clear();
+
+        // 缓存优先：先渲染本地缓存（离线可用），后台再从下载源刷新
+        var dotMc = _s.Settings.DotMinecraft;
+        foreach (var kind in LoaderKeys)
+        {
+            _builds[kind] = LoaderBuildCache.Read(dotMc, LoaderInfo[kind].CacheKind, id);
+            _picked[kind] = null;
+        }
+        if (_detailId == id) RefreshLoaderUI();
+
+        // 并行拉取三家加载器的构建列表（失败时保留缓存或按无处理）
         var forgeTask = SafeBuildsAsync(() => _s.Forge.ListForgeBuildsAsync(id));
         var neoTask = SafeBuildsAsync(() => _s.Forge.ListNeoForgeBuildsAsync(id));
         var fabricTask = SafeFabricBuildsAsync(id);
@@ -207,39 +264,21 @@ public sealed partial class DownloadPage : Page
 
         // 详情可能已被切换（用户快速返回再进入），仅当仍是当前详情时才应用
         if (_detailId != id) return;
-
-        _suppressLoader = true;
-        try
-        {
-            SetLoaderRow(ForgeCombo, ForgeStatus, WithNone(forgeTask.Result));
-            SetLoaderRow(NeoForgeCombo, NeoForgeStatus, WithNone(neoTask.Result));
-            SetLoaderRow(FabricCombo, FabricStatus, WithNone(fabricTask.Result));
-        }
-        finally { _suppressLoader = false; }
+        ApplyBuilds(LoaderKind.Forge, forgeTask.Result, id);
+        ApplyBuilds(LoaderKind.NeoForge, neoTask.Result, id);
+        ApplyBuilds(LoaderKind.Fabric, fabricTask.Result, id);
     }
 
-    private static List<ComboItem> WithNone(IEnumerable<LoaderBuild> builds) =>
-        new[] { new ComboItem("", "不安装") }
-            .Concat(builds.Select(b => new ComboItem(b.Version, b.Label)))
-            .ToList();
-
-    private static void SetLoaderRow(ComboBox combo, TextBlock status, List<ComboItem> options)
+    /// <summary>应用拉取结果：成功则写缓存并覆盖，失败且无缓存按无处理</summary>
+    private void ApplyBuilds(LoaderKind kind, List<LoaderBuild> fetched, string id)
     {
-        if (options.Count <= 1)
+        if (fetched.Count > 0)
         {
-            combo.ItemsSource = null;
-            combo.Visibility = Visibility.Collapsed;
-            status.Text = "无";
-            status.Visibility = Visibility.Visible;
+            _builds[kind] = fetched;
+            LoaderBuildCache.Write(_s.Settings.DotMinecraft, LoaderInfo[kind].CacheKind, id, fetched);
         }
-        else
-        {
-            combo.ItemsSource = options;
-            combo.SelectedIndex = 0;
-            combo.Visibility = Visibility.Visible;
-            status.Text = "可以添加";
-            status.Visibility = Visibility.Visible;
-        }
+        _builds[kind] ??= [];
+        RefreshLoaderUI();
     }
 
     private static async Task<List<LoaderBuild>> SafeBuildsAsync(Func<Task<List<LoaderBuild>>> f)
@@ -254,66 +293,134 @@ public sealed partial class DownloadPage : Page
         {
             var loaders = await _s.Fabric.ListLoadersAsync(id);
             return loaders
-                .Select(l => new LoaderBuild(l.Version, l.Version + (l.Loader.Stable ? "" : "（预览）")))
+                .Select(l => new LoaderBuild(l.Version, l.Loader.Stable ? null : "预览版", l.Loader.Stable))
                 .ToList();
         }
         catch { return []; }
     }
 
-    private static string? PickBuild(ComboBox combo) =>
-        (combo.SelectedValue as ComboItem)?.Value is { Length: > 0 } v ? v : null;
+    // ════════════ 加载器抽屉渲染与互斥（Forge / NeoForge / Fabric 三选一） ════════════
 
-    // ════════════ 加载器互斥（Forge / NeoForge / Fabric 三选一） ════════════
-
-    private void LoaderCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private (Button Rec, TextBlock RecVersion, TextBlock RecNote, Border RecBadge, TextBlock RecBadgeText,
+             TextBlock Count, ListView List, TextBlock Empty, TextBlock Status) LoaderControls(
+        LoaderKind kind) => kind switch
     {
-        // XAML 解析期间右侧面板尚未就绪时跳过
-        if (ForgeCombo is null || NeoForgeCombo is null || FabricCombo is null) return;
-        if (_suppressLoader) return;
+        LoaderKind.Forge => (ForgeRecBtn, ForgeRecVersion, ForgeRecNote, ForgeRecBadge, ForgeRecBadgeText,
+                             ForgeCountText, ForgeBuildList, ForgeEmptyText, ForgeStatus),
+        LoaderKind.NeoForge => (NeoForgeRecBtn, NeoForgeRecVersion, NeoForgeRecNote, NeoForgeRecBadge,
+                                NeoForgeRecBadgeText, NeoForgeCountText, NeoForgeBuildList,
+                                NeoForgeEmptyText, NeoForgeStatus),
+        _ => (FabricRecBtn, FabricRecVersion, FabricRecNote, FabricRecBadge, FabricRecBadgeText,
+              FabricCountText, FabricBuildList, FabricEmptyText, FabricStatus),
+    };
 
-        var combo = (ComboBox)sender;
-        if (PickBuild(combo) is not null)
+    /// <summary>推荐构建：Forge 取推荐/最新标记，其余取最新一项；无则不显示推荐卡</summary>
+    private static LoaderBuild? RecommendedOf(LoaderKind kind, List<LoaderBuild> builds) => kind switch
+    {
+        LoaderKind.Forge => builds.FirstOrDefault(b => b.Note == "推荐")
+                         ?? builds.FirstOrDefault(b => b.Note == "最新"),
+        _ => builds.FirstOrDefault(),
+    };
+
+    /// <summary>统一刷新三个抽屉：推荐卡、构建列表、锁定状态与头部状态文本</summary>
+    private void RefreshLoaderUI()
+    {
+        foreach (var kind in LoaderKeys)
         {
-            // 选定任一加载器后，其余两个自动回到"不安装"
-            _suppressLoader = true;
-            try
+            var (rec, recVersion, recNote, _, recBadgeText, count, list, empty, _) =
+                LoaderControls(kind);
+            var builds = _builds[kind];
+            var picked = _picked[kind];
+
+            if (builds is null)
             {
-                if (combo != ForgeCombo && PickBuild(ForgeCombo) is not null)
-                    ForgeCombo.SelectedIndex = 0;
-                if (combo != NeoForgeCombo && PickBuild(NeoForgeCombo) is not null)
-                    NeoForgeCombo.SelectedIndex = 0;
-                if (combo != FabricCombo && PickBuild(FabricCombo) is not null)
-                    FabricCombo.SelectedIndex = 0;
+                rec.Visibility = Visibility.Collapsed;
+                count.Text = "全部版本";
+                list.ItemsSource = null;
+                empty.Visibility = Visibility.Collapsed;
+                continue;
             }
-            finally { _suppressLoader = false; }
+
+            if (RecommendedOf(kind, builds) is not { } recBuild)
+            {
+                rec.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                rec.Visibility = Visibility.Visible;
+                recVersion.Text = recBuild.Version;
+                recNote.Text = recBuild.Note ?? "稳定版";
+                recBadgeText.Text = picked == recBuild.Version ? "已选" : "推荐";
+            }
+            count.Text = $"全部版本 ({builds.Count})";
+            list.ItemsSource = builds.Select(b => new LoaderBuildRow(
+                b.Version, b.Note ?? (b.Stable ? "稳定版" : "预览版"), picked == b.Version)).ToList();
+            empty.Visibility = builds.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
+
+        RefreshLoaderLocks();
         RefreshLoaderStatus();
     }
 
-    /// <summary>统一刷新三行状态文本：将安装 / 与所选加载器互斥 / 可以添加</summary>
-    private void RefreshLoaderStatus()
+    /// <summary>任一加载器选中构建后锁定其余两个（按钮与列表点不动），点击已选项可取消选中解锁</summary>
+    private void RefreshLoaderLocks()
     {
-        var fabricSelected = PickBuild(FabricCombo) is not null;
-        RefreshLoaderRow(ForgeStatus, ForgeCombo, fabricSelected);
-        RefreshLoaderRow(NeoForgeStatus, NeoForgeCombo, fabricSelected);
-        RefreshLoaderRow(FabricStatus, FabricCombo, fabricSelected);
+        var anyPicked = LoaderKeys.Any(k => _picked[k] is not null);
+        foreach (var kind in LoaderKeys)
+        {
+            var enabled = !anyPicked || _picked[kind] is not null;
+            var c = LoaderControls(kind);
+            c.Rec.IsEnabled = enabled;
+            c.List.IsEnabled = enabled;
+        }
     }
 
-    private void RefreshLoaderRow(TextBlock status, ComboBox combo, bool fabricSelected)
+    /// <summary>统一刷新三行头部状态文本：将安装 / 与所选加载器互斥 / 可以添加 / 获取中 / 无可用构建</summary>
+    private void RefreshLoaderStatus()
     {
-        if (combo.Visibility != Visibility.Visible)
+        foreach (var kind in LoaderKeys)
         {
-            status.Text = "无";
-            return;
+            var status = LoaderControls(kind).Status;
+            if (_picked[kind] is { } p)
+                status.Text = kind == LoaderKind.Fabric ? $"{p} · 同装 Fabric API" : $"{p} · 将安装";
+            else if (LoaderKeys.Any(k => _picked[k] is not null))
+                status.Text = "与所选加载器互斥";
+            else if (_builds[kind] is null)
+                status.Text = "获取中…";
+            else if (_builds[kind]!.Count == 0)
+                status.Text = "无可用构建";
+            else
+                status.Text = "可以添加";
         }
-        if (PickBuild(combo) is { } selected)
-            status.Text = combo == FabricCombo
-                ? $"{selected} · 同装 Fabric API"
-                : $"{selected} · 将安装";
-        else if (fabricSelected || PickBuild(ForgeCombo) is not null || PickBuild(NeoForgeCombo) is not null)
-            status.Text = "与所选加载器互斥";
-        else
-            status.Text = "可以添加";
+    }
+
+    // ── 抽屉交互 ──
+    private void ForgeRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.Forge);
+    private void NeoForgeRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.NeoForge);
+    private void FabricRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.Fabric);
+
+    private void PickRec(LoaderKind kind)
+    {
+        if (_builds[kind] is not { Count: > 0 } builds) return;
+        if (RecommendedOf(kind, builds) is not { } rec) return;
+        _picked[kind] = _picked[kind] == rec.Version ? null : rec.Version;
+        RefreshLoaderUI();
+    }
+
+    private void ForgeBuild_Click(object s, ItemClickEventArgs e) =>
+        PickBuildRow(LoaderKind.Forge, e.ClickedItem);
+
+    private void NeoForgeBuild_Click(object s, ItemClickEventArgs e) =>
+        PickBuildRow(LoaderKind.NeoForge, e.ClickedItem);
+
+    private void FabricBuild_Click(object s, ItemClickEventArgs e) =>
+        PickBuildRow(LoaderKind.Fabric, e.ClickedItem);
+
+    private void PickBuildRow(LoaderKind kind, object clicked)
+    {
+        if (clicked is not LoaderBuildRow row) return;
+        _picked[kind] = _picked[kind] == row.Version ? null : row.Version;
+        RefreshLoaderUI();
     }
 
     // ════════════ 原版：开始下载 ════════════
@@ -328,9 +435,9 @@ public sealed partial class DownloadPage : Page
             ErrorBar.IsOpen = true;
             return;
         }
-        var fabric = PickBuild(FabricCombo);
-        var forge = PickBuild(ForgeCombo);
-        var neo = PickBuild(NeoForgeCombo);
+        var fabric = _picked.GetValueOrDefault(LoaderKind.Fabric);
+        var forge = _picked.GetValueOrDefault(LoaderKind.Forge);
+        var neo = _picked.GetValueOrDefault(LoaderKind.NeoForge);
 
         await RunInstallAsync(async progress =>
         {

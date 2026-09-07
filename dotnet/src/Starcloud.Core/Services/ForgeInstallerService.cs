@@ -5,8 +5,8 @@ using System.Text.Json;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>加载器构建（Version 为原始构建号，Label 为显示文本，如 "47.2.0（推荐）"）</summary>
-public sealed record LoaderBuild(string Version, string Label);
+/// <summary>加载器构建（Version 为原始构建号，Note 为推荐标记如 "推荐"/"最新稳定版"）</summary>
+public sealed record LoaderBuild(string Version, string? Note = null, bool Stable = true);
 
 public sealed class ForgeInstallerService
 {
@@ -21,25 +21,57 @@ public sealed class ForgeInstallerService
 
     // ── 构建列表 ──
 
-    /// <summary>Forge 构建列表（promotions：推荐 / 最新）</summary>
+    /// <summary>Forge 构建列表：maven-metadata 全量构建（新→旧），promotions 提供"推荐/最新"标记</summary>
     public async Task<List<LoaderBuild>> ListForgeBuildsAsync(string mcVersion, CancellationToken ct = default)
     {
-        var json = await _downloader.GetStringAsync(
+        var meta = await _downloader.GetStringAsync(
+            "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", ct);
+        var promosJson = await _downloader.GetStringAsync(
             "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", ct);
-        using var doc = JsonDocument.Parse(json);
-        var promos = doc.RootElement.GetProperty("promos");
-        var builds = new List<LoaderBuild>();
-        if (promos.TryGetProperty($"{mcVersion}-recommended", out var rec) &&
-            rec.GetString() is { Length: > 0 } recVer)
-            builds.Add(new LoaderBuild(recVer, $"{recVer}（推荐）"));
-        if (promos.TryGetProperty($"{mcVersion}-latest", out var lat) &&
-            lat.GetString() is { Length: > 0 } latVer &&
-            builds.All(b => b.Version != latVer))
-            builds.Add(new LoaderBuild(latVer, $"{latVer}（最新）"));
-        return builds;
+
+        var prefix = $"{mcVersion}-";
+        var builds = new List<string>();
+        foreach (var tag in SplitVersions(meta))
+        {
+            if (tag.StartsWith(prefix, StringComparison.Ordinal) &&
+                int.TryParse(tag[prefix.Length..], out _))
+                builds.Add(tag);
+        }
+        builds.Reverse();   // metadata 为旧→新，倒序后新→旧
+
+        string? recommended = null, latest = null;
+        using (var doc = JsonDocument.Parse(promosJson))
+        {
+            var promos = doc.RootElement.GetProperty("promos");
+            if (promos.TryGetProperty($"{mcVersion}-recommended", out var rec))
+                recommended = rec.GetString();
+            if (promos.TryGetProperty($"{mcVersion}-latest", out var lat))
+                latest = lat.GetString();
+        }
+
+        return builds
+            .Select(v => new LoaderBuild(v[prefix.Length..],
+                v == $"{prefix}{recommended}" ? "推荐"
+                : v == $"{prefix}{latest}" ? "最新" : null))
+            .ToList();
     }
 
-    /// <summary>NeoForge 构建列表（按 MC 版本前缀过滤，取最新 8 个；不适配的版本返回空）</summary>
+    /// <summary>从 maven-metadata.xml 提取 &lt;version&gt; 标签内容</summary>
+    private static IEnumerable<string> SplitVersions(string xml)
+    {
+        const string open = "<version>", close = "</version>";
+        var i = 0;
+        while ((i = xml.IndexOf(open, i, StringComparison.Ordinal)) >= 0)
+        {
+            var start = i + open.Length;
+            var end = xml.IndexOf(close, start, StringComparison.Ordinal);
+            if (end < 0) yield break;
+            yield return xml[start..end].Trim();
+            i = end;
+        }
+    }
+
+    /// <summary>NeoForge 构建列表（按 MC 版本前缀过滤，新→旧；不适配的版本返回空）</summary>
     public async Task<List<LoaderBuild>> ListNeoForgeBuildsAsync(string mcVersion, CancellationToken ct = default)
     {
         var prefix = NeoForgePrefix(mcVersion);
@@ -58,13 +90,14 @@ public sealed class ForgeInstallerService
                 : default;
 
         if (items.Equals(default)) return [];
-        return items
+        var all = items
             .Select(i => i.ValueKind == JsonValueKind.String ? i.GetString() : null)
             .OfType<string>()
             .Where(v => v.StartsWith(prefix, StringComparison.Ordinal))
             .OrderByDescending(NeoForgeOrderKey)
-            .Take(8)
-            .Select(v => new LoaderBuild(v, v))
+            .ToList();
+        return all
+            .Select((v, i) => new LoaderBuild(v, i == 0 ? "最新稳定版" : null))
             .ToList();
     }
 
