@@ -8,12 +8,13 @@ use crate::core::install::InstallService;
 use crate::download::engine::DownloadEngine;
 use crate::download::progress::{ProgressInfo, ProgressStatus, ProgressTracker};
 use crate::error::Result;
-use crate::launch::java::JavaDetector;
+use crate::launch::java::{cache_java, pick_for, JavaDetector};
 use crate::launch::{LaunchConfig, LaunchEngine};
 use crate::plugin::{CrashInfo, PluginContext, PluginManager, PluginStage};
 use crate::version::manifest::VersionDetails;
 use crate::version_manager::{VersionInstaller, VersionValidator};
 use std::io::BufRead;
+use std::path::Path;
 use std::sync::Arc;
 
 /// 启动结果
@@ -31,6 +32,33 @@ impl LaunchOutcome {
     /// 是否成功退出
     pub fn succeeded(&self) -> bool {
         self.exit_code == Some(0)
+    }
+}
+
+/// 启动前自检结果项
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PreflightIssue {
+    /// "error"（阻断启动）| "warning"（提示不阻断）| "info"
+    pub level: String,
+    pub title: String,
+    pub message: String,
+}
+
+impl PreflightIssue {
+    fn error(title: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            level: "error".into(),
+            title: title.into(),
+            message: message.into(),
+        }
+    }
+
+    fn warning(title: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            level: "warning".into(),
+            title: title.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -85,28 +113,28 @@ impl LaunchService {
         username: &str,
         profile: Option<&LaunchProfile>,
     ) -> LaunchConfig {
-        let (min_mem, max_mem, width, height) = profile
-            .map(|p| {
-                (
-                    p.min_memory_mb,
-                    p.max_memory_mb,
-                    p.window_width,
-                    p.window_height,
-                )
-            })
+        let (min_mem, max_mem) = profile
+            .map(|p| (p.min_memory_mb, p.max_memory_mb))
             .unwrap_or((
                 self.config.default_min_memory_mb,
                 self.config.default_max_memory_mb,
-                self.config.default_window_width,
-                self.config.default_window_height,
             ));
 
-        let mut cfg = LaunchConfig::basic(version_id, &self.config.dot_minecraft, username)
-            .with_memory(min_mem, max_mem)
-            .with_window(width, height);
+        // 版本隔离时使用独立游戏目录（资源/库仍取自 .minecraft）
+        let game_dir = self
+            .config
+            .runtime_game_dir
+            .as_ref()
+            .unwrap_or(&self.config.dot_minecraft);
+
+        let mut cfg = LaunchConfig::basic(version_id, game_dir.clone(), username)
+            .with_memory(min_mem, max_mem);
 
         cfg.java_executable = self.config.java_executable.clone();
         cfg.extra_jvm_args = self.config.extra_jvm_args.clone();
+        cfg.extra_game_args = self.config.extra_game_args.clone();
+        cfg.use_high_performance_gpu = self.config.use_high_performance_gpu;
+        cfg.use_builtin_jvm_args = self.config.use_builtin_jvm_args;
 
         if let Some(p) = profile {
             cfg.extra_jvm_args = p.extra_jvm_args.clone();
@@ -114,7 +142,161 @@ impl LaunchService {
                 cfg.dot_minecraft = dir.clone();
             }
         }
+
+        // 游戏语言与启动器语言同步：按配置语言注入 JVM 本地化参数（置于最后，避免被 profile 覆盖）
+        let (lang_tag, country) = if self.config.language.starts_with("en") {
+            ("en_US", "US")
+        } else {
+            ("zh_CN", "CN")
+        };
+        cfg.extra_jvm_args.push(format!("-Duser.language={}", lang_tag));
+        cfg.extra_jvm_args.push(format!("-Duser.country={}", country));
         cfg
+    }
+
+    /// 将游戏语言写入 options.txt 的 lang 键（游戏语言与启动器语言同步）
+    ///
+    /// 语言映射：zh* → zh_cn；en* → en_us；其他 → 语言码小写转下划线。
+    /// 仅首次启动或启动器语言变更后调用（由命令层判断 `synced_language`）。
+    pub async fn apply_game_language(dot_minecraft: &Path, language: &str) -> crate::error::Result<()> {
+        use tokio::fs;
+        let lang_key = if language.starts_with("zh") {
+            "zh_cn".to_string()
+        } else if language.starts_with("en") {
+            "en_us".to_string()
+        } else {
+            language.to_lowercase().replace('-', "_")
+        };
+        let path = dot_minecraft.join("options.txt");
+        let mut lines: Vec<String> = if path.exists() {
+            fs::read_to_string(&path)
+                .await?
+                .lines()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let target = format!("lang:{}", lang_key);
+        let mut replaced = false;
+        for line in lines.iter_mut() {
+            if line.starts_with("lang:") {
+                if line != &target {
+                    *line = target.clone();
+                }
+                replaced = true;
+                break;
+            }
+        }
+        if !replaced {
+            lines.push(target);
+        }
+        fs::create_dir_all(dot_minecraft).await?;
+        fs::write(&path, lines.join("\n") + "\n").await?;
+        log::info!("已设置游戏语言 {} (lang={}, {})", language, lang_key, path.display());
+        Ok(())
+    }
+
+    /// 启动前自检：Java / 磁盘空间 / 内存设置 / 版本安装状态
+    ///
+    /// 返回结果列表；`level == "error"` 表示应阻断启动。
+    pub async fn preflight(&self, version_id: &str) -> Vec<PreflightIssue> {
+        let mut issues = Vec::new();
+
+        // 1. Java 可用性（按版本要求的 Java 版本检查）
+        let required_java = VersionInstaller::new(DownloadEngine::new(&self.config.dot_minecraft))
+            .read_installed_version(version_id)
+            .await
+            .ok()
+            .and_then(|d| d.java_version.map(|j| j.major_version))
+            .unwrap_or(8);
+        let mut java_named = false;
+        if let Some(java) = &self.config.java_executable {
+            java_named = true;
+            if !java.exists() {
+                issues.push(PreflightIssue::error(
+                    "Java 路径无效",
+                    format!("配置的 Java 不存在: {}", java.display()),
+                ));
+            } else if JavaDetector::detect_at(java).is_err() {
+                issues.push(PreflightIssue::error(
+                    "Java 校验失败",
+                    format!("无法识别 Java: {}", java.display()),
+                ));
+            }
+        }
+        if !java_named
+            && JavaDetector::new()
+                .with_min_version(required_java)
+                .detect_or_cached()
+                .is_err()
+        {
+            issues.push(PreflightIssue::warning(
+                "未找到满足要求的 Java",
+                format!(
+                    "需要 Java {} 及以上；启动时将自动下载内置 Java（Adoptium JRE），或可在设置中手动指定 Java 路径",
+                    required_java
+                ),
+            ));
+        }
+
+        // 2. 磁盘空间（.minecraft 所在盘）
+        let target = self
+            .config
+            .dot_minecraft
+            .to_string_lossy()
+            .to_lowercase();
+        let mut free_bytes: Option<u64> = None;
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        for disk in &disks {
+            let mount = disk.mount_point().to_string_lossy().to_lowercase();
+            if target.starts_with(&mount) {
+                free_bytes = Some(disk.available_space());
+                break;
+            }
+        }
+        if let Some(free) = free_bytes {
+            let free_mb = free / 1024 / 1024;
+            if free_mb < 512 {
+                issues.push(PreflightIssue::error(
+                    "磁盘空间不足",
+                    format!(".minecraft 所在磁盘仅剩 {} MB", free_mb),
+                ));
+            } else if free_mb < 2048 {
+                issues.push(PreflightIssue::warning(
+                    "磁盘空间紧张",
+                    format!(".minecraft 所在磁盘仅剩 {} MB", free_mb),
+                ));
+            }
+        }
+
+        // 3. 内存设置合理性
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+        let total_mb = sys.total_memory() / 1024 / 1024;
+        let max_mb = u64::from(self.config.default_max_memory_mb);
+        if total_mb > 0 && max_mb > total_mb {
+            issues.push(PreflightIssue::error(
+                "内存设置过高",
+                format!("最大内存 {} MB 超过物理内存 {} MB", max_mb, total_mb),
+            ));
+        } else if total_mb > 0 && max_mb > total_mb * 3 / 4 {
+            issues.push(PreflightIssue::warning(
+                "内存设置偏高",
+                format!("最大内存 {} MB 超过物理内存的 75%（共 {} MB）", max_mb, total_mb),
+            ));
+        }
+
+        // 4. 版本安装状态
+        let installer = VersionInstaller::new(DownloadEngine::new(&self.config.dot_minecraft));
+        if !installer.is_installed(version_id) {
+            issues.push(PreflightIssue::warning(
+                "版本未安装",
+                "启动时将自动下载并安装该版本",
+            ));
+        }
+
+        issues
     }
 
     /// 解析账户凭据：默认账户优先（微软账户尝试续期），否则离线账户
@@ -154,16 +336,67 @@ impl LaunchService {
         OfflineAccount::new(username).map(|a| a.credentials())
     }
 
-    /// 构造启动引擎（配置指定 Java 时精确检测，否则全局检测）
-    fn build_launch_engine(&self, engine: DownloadEngine) -> Result<LaunchEngine> {
+    /// 构造启动引擎（多 Java 智能选择）
+    ///
+    /// 选择顺序：
+    /// 1. 显式配置的 Java（全局/版本级覆盖，已并入 self.config）
+    /// 2. 启动器已下载 + 系统检测中「版本最接近需求」的运行时（pick_for）
+    /// 3. 都没有 → 自动下载需求版本（Adoptium；个别版本无 JRE 时按推荐 LTS 兜底）
+    async fn build_launch_engine(&self, engine: DownloadEngine, required_java: u32) -> Result<LaunchEngine> {
+        // 1. 显式配置优先
         if let Some(java) = &self.config.java_executable {
             if java.exists() {
                 let runtime = JavaDetector::detect_at(java)?;
+                log::info!(
+                    "启动使用配置的 Java {}（{}）",
+                    runtime.major_version,
+                    runtime.executable.display()
+                );
                 return Ok(LaunchEngine::with_java(engine, runtime));
             }
-            log::warn!("配置的 Java 路径不存在: {}，回退自动检测", java.display());
+            log::warn!("配置的 Java 路径不存在: {}，回退智能选择", java.display());
         }
-        LaunchEngine::new(engine)
+
+        // 2. 多 Java 匹配：已下载 + 系统检测（去重），选最接近需求版本
+        let downloader = crate::launch::java_download::JavaDownloader::new()?;
+        let root = crate::launch::java_download::java_download_root();
+        let mut candidates = downloader.list_downloaded_runtimes();
+        candidates.extend(
+            JavaDetector::new()
+                .detect_all()
+                .into_iter()
+                .filter(|r| !r.executable.starts_with(&root)),
+        );
+        if let Some(runtime) = pick_for(&candidates, required_java) {
+            cache_java(&runtime);
+            log::info!(
+                "多 Java 匹配: 用 Java {}（{}）满足要求 >= {}",
+                runtime.major_version,
+                runtime.executable.display(),
+                required_java
+            );
+            return Ok(LaunchEngine::with_java(engine, runtime));
+        }
+
+        // 3. 自动下载需求版本（个别版本无独立 JRE 包时回退 LTS 推荐）
+        log::info!(
+            "未找到满足要求（>= {}）的 Java，开始自动下载",
+            required_java
+        );
+        let runtime = match downloader.download_java(required_java).await {
+            Ok(rt) => rt,
+            Err(e) => {
+                log::warn!("下载 Java {} 失败（{}），按 LTS 推荐兜底", required_java, e);
+                downloader.auto_download(required_java).await?
+            }
+        };
+        cache_java(&runtime);
+        log::info!(
+            "自动下载使用 Java {}（{}）",
+            runtime.major_version,
+            runtime.executable.display()
+        );
+        Ok(LaunchEngine::with_java(engine, runtime))
     }
 
     /// 解析启动所需全部部件（确保安装→库/jar 就绪→配置→账户→引擎）
@@ -188,7 +421,7 @@ impl LaunchService {
         let libs = engine
             .library_downloader()
             .concurrency(self.config.download_concurrency.max(1))
-            .natives_dir(engine.natives_dir(version_id))
+            .natives_dir(engine.version_natives_dir(&details))
             .with_tracker(tracker.clone())
             .download_libraries(&details.libraries)
             .await?;
@@ -216,8 +449,13 @@ impl LaunchService {
         // 校验
         VersionValidator::validate_launch_config(&cfg)?;
 
-        // 启动引擎
-        let launcher = self.build_launch_engine(engine)?;
+        // 启动引擎（按版本要求的 Java 智能匹配；version.json 无声明时默认 Java 8）
+        let required_java = details
+            .java_version
+            .as_ref()
+            .map(|j| j.major_version)
+            .unwrap_or(8);
+        let launcher = self.build_launch_engine(engine, required_java).await?;
         Ok((cfg, details, libs, launcher))
     }
 

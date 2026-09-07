@@ -1,0 +1,39 @@
+/* Spinner — 旋转受 --anim-scale 控制（除法：倍率越大转得越快；no-anim 时停转） */
+.spinner {
+  display: inline-block;
+  border-style: solid;
+  border-color: var(--stroke-divider);
+  border-top-color: var(--accent, var(--accent-fallback));
+  border-radius: var(--radius-full);
+  animation: spin calc(0.6s / var(--anim-scale)) linear infinite;
+  flex-shrink: 0;
+}
+
+.sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.md {
+  width: 20px;
+  height: 20px;
+  border-width: 2.5px;
+}
+
+.lg {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+}
+
+.no-anim .spinner {
+  animation: none;
+  border-top-color: var(--stroke-control-strong);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

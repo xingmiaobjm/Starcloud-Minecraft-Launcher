@@ -1,5 +1,8 @@
 # 性能优化测试报告
 
+> **【历史报告】** 本报告基于旧 Rust 核心（criterion.rs / cargo bench）。
+> 核心逻辑已用 C# 重写（dotnet/），本数据不再反映当前实现，仅作历史参考。
+
 > 项目：Starcloud Minecraft Launcher Core  
 > 报告日期：2026-06-22（基线，阶段0） | 版本 0.2.0 核对日期 2026-08-09  
 > 测试工具：criterion.rs / cargo bench

@@ -1,0 +1,357 @@
+/* ═══════════════════════════════════════════════════════════════════
+   App Shell — Microsoft Store 布局
+   常驻展开 NavigationView（全高侧栏）+ 品牌区 + 内容列
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import "./styles/tokens.css";
+
+/* ── Window ── */
+.window {
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-overlay);
+  background: var(--bg-canvas);
+}
+
+.shell {
+  display: flex;
+  height: 100%;
+  background: var(--bg-canvas);
+}
+
+/* ═══ Sidebar：Win11 NavigationView（常驻展开）═══ */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 232px;
+  flex-shrink: 0;
+  padding: 0 var(--space-2) var(--space-3);
+  border-right: 1px solid var(--stroke-divider);
+  overflow: hidden;
+  z-index: var(--z-nav);
+}
+
+/* ── Brand（侧栏顶部品牌区，兼作拖拽区）── */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--titlebar-height);
+  flex-shrink: 0;
+  margin: 0 calc(var(--space-2) * -1);
+  padding: 0 var(--space-3);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.brandIcon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  fill: var(--accent, var(--accent-fallback));
+}
+
+.brandName {
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ── Nav ── */
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: var(--space-2);
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.navSection {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  color: var(--text-tertiary);
+  padding: var(--space-3) var(--space-2) var(--space-1);
+  white-space: nowrap;
+}
+
+.navItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-weight: var(--weight-normal);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+  }
+
+  &:active {
+    background: var(--bg-control-pressed);
+  }
+}
+
+/* 激活项：Win11 NavigationView——左侧强调色 pill + 浅底 */
+.navItemActive {
+  background: var(--bg-control);
+  font-weight: var(--weight-semibold);
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 16px;
+    border-radius: var(--radius-full);
+    background: var(--accent, var(--accent-fallback));
+    animation: pillIn var(--dur-normal) var(--ease-fluent) both;
+  }
+
+  &:hover {
+    background: var(--bg-control-hover);
+  }
+}
+
+@keyframes pillIn {
+  from {
+    transform: translateY(-50%) scaleY(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(-50%) scaleY(1);
+    opacity: 1;
+  }
+}
+
+.navIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.navItemActive .navIcon {
+  color: var(--accent, var(--accent-fallback));
+}
+
+.navLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+/* 运行中任务徽标（Store 下载队列式） */
+.navBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--accent, var(--accent-fallback));
+  color: var(--accent-contrast);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Sidebar Footer：调度中心 + 版本 ── */
+.sidebarFooter {
+  flex-shrink: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--stroke-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebarVersion {
+  padding: var(--space-1) var(--space-3) 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ═══ Main 列 ═══ */
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── Titlebar：拖拽条 + caption（无文字，品牌在侧栏）── */
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--titlebar-height);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebarControls {
+  display: flex;
+  gap: 0;
+  -webkit-app-region: no-drag;
+}
+
+.titlebarBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 34px;
+  margin-top: 2px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+
+  &:active {
+    background: var(--bg-control-pressed);
+  }
+}
+
+.titlebarClose {
+  &:hover {
+    background: var(--color-danger);
+    color: #fff;
+  }
+}
+
+/* ── Content ── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--content-padding);
+  scroll-behavior: smooth;
+}
+
+/* ── Floating Log Button ── */
+.floatLog {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--z-float);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.floatLogBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-md);
+  background: var(--bg-layer);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-flyout);
+  transition: background var(--dur-fast) var(--ease-fluent), color var(--dur-fast) var(--ease-fluent);
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+  }
+}
+
+.floatLogPanel {
+  width: 440px;
+  max-height: 340px;
+  border: 1px solid var(--stroke-flyout);
+  border-radius: var(--radius-overlay);
+  background: var(--bg-flyout);
+  backdrop-filter: var(--blur-flyout);
+  -webkit-backdrop-filter: var(--blur-flyout);
+  box-shadow: var(--shadow-dialog);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.floatLogHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.floatLogClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+}
+
+.floatLogBody {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-caption);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: var(--leading-snug);
+}

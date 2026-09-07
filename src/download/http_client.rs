@@ -1,4 +1,5 @@
 use crate::error::{LauncherError, Result};
+use crate::download::sources::{self, SourceKind};
 use std::time::Duration;
 
 /// 下载重试配置
@@ -107,8 +108,40 @@ impl HttpClient {
         &self.inner
     }
 
-    /// 带重试的 GET 请求
+    /// 带重试的 GET 请求（自动走活动镜像源，镜像失败时回退官方地址）
     pub async fn get_with_retry(&self, url: &str) -> Result<reqwest::Response> {
+        let sources = sources::healthy_sources();
+        self.get_with_fallback(url, &sources).await
+    }
+
+    /// 按优先级遍历所有源下载（每个源内部带重试），失败时自动尝试下一个源
+    pub async fn get_with_fallback(
+        &self,
+        url: &str,
+        priority_sources: &[SourceKind],
+    ) -> Result<reqwest::Response> {
+        let mut last_err = None;
+        for &kind in priority_sources {
+            let rewritten = sources::rewrite_url_for(kind, url);
+            match self.get_with_retry_single(&rewritten).await {
+                Ok(resp) => {
+                    sources::record_source_success(kind);
+                    return Ok(resp);
+                }
+                Err(e) => {
+                    log::warn!("源 {} 下载失败: {} (url={})", kind.name(), e, rewritten);
+                    sources::record_source_failure(kind);
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            LauncherError::DownloadError("所有下载源均失败".to_string())
+        }))
+    }
+
+    /// 单个地址的重试逻辑（内部实现）
+    async fn get_with_retry_single(&self, url: &str) -> Result<reqwest::Response> {
         let url = url.to_string();
         let retryable = self.retry_config.retryable_statuses.clone();
         let client = self.inner.clone();
@@ -138,8 +171,40 @@ impl HttpClient {
             .await
     }
 
-    /// 带重试的 GET 请求并返回 bytes
+    /// 带重试的 GET 请求并返回 bytes（自动走健康源列表，逐源回退）
     pub async fn get_bytes_with_retry(&self, url: &str) -> Result<Vec<u8>> {
+        let sources = sources::healthy_sources();
+        self.get_bytes_with_fallback(url, &sources).await
+    }
+
+    /// 按优先级遍历所有源下载 bytes（每个源内部带重试），失败时自动尝试下一个源
+    pub async fn get_bytes_with_fallback(
+        &self,
+        url: &str,
+        priority_sources: &[SourceKind],
+    ) -> Result<Vec<u8>> {
+        let mut last_err = None;
+        for &kind in priority_sources {
+            let rewritten = sources::rewrite_url_for(kind, url);
+            match self.get_bytes_with_retry_single(&rewritten).await {
+                Ok(bytes) => {
+                    sources::record_source_success(kind);
+                    return Ok(bytes);
+                }
+                Err(e) => {
+                    log::warn!("源 {} 下载失败: {} (url={})", kind.name(), e, rewritten);
+                    sources::record_source_failure(kind);
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            LauncherError::DownloadError("所有下载源均失败".to_string())
+        }))
+    }
+
+    /// 单个地址的重试逻辑（内部实现）
+    async fn get_bytes_with_retry_single(&self, url: &str) -> Result<Vec<u8>> {
         let url = url.to_string();
         let retryable = self.retry_config.retryable_statuses.clone();
         let client = self.inner.clone();

@@ -12,6 +12,7 @@
 //! - **[config]** - 配置管理：启动器全局配置、启动配置集
 //! - **[account]** - 账户管理：离线、Mojang、微软 OAuth2 认证
 //! - **[modloader]** - ModLoader 支持：Forge、Fabric、Quilt
+//! - **[terracotta]** - 陶瓦联机：平台包下载/解压、核心子进程、本地 HTTP API
 
 pub mod account;
 pub mod config;
@@ -22,6 +23,7 @@ pub mod launch;
 pub mod logging;
 pub mod modloader;
 pub mod plugin;
+pub mod terracotta;
 pub mod version;
 pub mod version_manager;
 

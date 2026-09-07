@@ -58,13 +58,6 @@ impl VersionValidator {
             ));
         }
 
-        // 检查窗口
-        if config.window_width < 320 || config.window_height < 240 {
-            return Err(LauncherError::ArgumentError(
-                "窗口大小至少为 320x240".to_string(),
-            ));
-        }
-
         Ok(())
     }
 

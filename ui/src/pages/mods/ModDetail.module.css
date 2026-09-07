@@ -1,0 +1,371 @@
+@import "../../styles/tokens.css";
+
+/* ═══════════════════════════════════════════════════════════════════
+   模组详情面板 — Fluent 宽卡片（Win11 设置详情页基准）
+   退场动画基准时长（0.3s）需与容器 Mods.tsx 的 DETAIL_LEAVE_MS 兜底一致
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 面板骨架 ── */
+.detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: modIn var(--dur-slow) var(--ease-fluent);
+}
+
+.leaving {
+  animation: modOut var(--dur-slow) var(--ease-fluent-in) forwards;
+}
+
+@keyframes modIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes modOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+/* ── 顶栏：返回 + 外链 ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.linkBtns {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── 项目信息宽卡片 ── */
+.hero {
+  display: flex;
+  gap: var(--space-4);
+  flex-shrink: 0;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-card);
+}
+
+.heroIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-control);
+}
+
+.heroInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-size: var(--text-subtitle);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+}
+
+.meta {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.desc {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ── 版本区（内部滚动）── */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-right: var(--space-1);
+  padding-bottom: var(--space-2);
+}
+
+.filesHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  flex-shrink: 0;
+}
+
+.filesTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.filesCaption {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+/* 加载/失败/空态在版本区内垂直居中 */
+.bodyStatus {
+  margin: auto 0;
+}
+
+/* ── 版本类型分段（Fluent 分段控件）── */
+.seg {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-control);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-control);
+  align-self: flex-start;
+  flex-shrink: 0;
+}
+
+.segItem {
+  padding: 4px 12px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.segItem:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
+}
+
+.segItem:active {
+  background: var(--bg-control-pressed);
+}
+
+.segItemActive,
+.segItemActive:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── 大版本标签 ── */
+.vgBar {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.vgTab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 26px;
+  padding: 2px 12px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-full);
+  background: var(--bg-control);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent);
+}
+
+.vgTab:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
+}
+
+.vgTabActive,
+.vgTabActive:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent, var(--accent-fallback));
+  font-weight: var(--weight-semibold);
+}
+
+.vgName {
+  font-variant-numeric: tabular-nums;
+}
+
+.vgCount {
+  font-size: var(--text-caption);
+  color: inherit;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 加载器 · 小版本分组（Expander 卡片）── */
+.vgBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.combo {
+  flex-shrink: 0;
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-overlay);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.comboHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+}
+
+.comboHead:hover {
+  background: var(--bg-card-hover);
+}
+
+.comboHead:active {
+  background: var(--bg-subtle);
+}
+
+.comboLoader {
+  font-weight: var(--weight-semibold);
+}
+
+.comboMinor {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.comboCaret {
+  color: var(--text-tertiary);
+}
+
+.comboCaret svg {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.comboCollapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-normal) var(--ease-fluent);
+}
+
+.comboCollapseOpen {
+  grid-template-rows: 1fr;
+}
+
+.comboFiles {
+  overflow: hidden;
+}
+
+/* ── 文件行 ── */
+.fileRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--stroke-divider);
+}
+
+.fileMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fileVer {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.fileMeta {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+}
+
+.fileActions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.fileProgress {
+  margin-top: var(--space-2);
+}

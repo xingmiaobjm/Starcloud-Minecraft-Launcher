@@ -11,4 +11,4 @@ pub mod launch;
 
 pub use account::{AccountService, MicrosoftLoginPoll};
 pub use install::InstallService;
-pub use launch::{LaunchOutcome, LaunchService};
+pub use launch::{LaunchOutcome, LaunchService, PreflightIssue};

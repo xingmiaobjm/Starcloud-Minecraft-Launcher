@@ -1,0 +1,171 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Global Styles — Reset & Base（Fluent Native）
+   ═══════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--bg-canvas);
+  overflow: hidden;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 错误/日志/技术内容可选中复制（全局 user-select:none 的人性化例外） */
+pre,
+code,
+.selectable,
+.selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* ── Scrollbar（Fluent 细滚动条）── */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border: 4px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+  min-height: 32px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ── Focus ring（Fluent 双色焦点环）── */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--stroke-focus-outer);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--stroke-focus-inner);
+}
+
+/* ── Selection ── */
+::selection {
+  background: var(--accent-ring);
+  color: var(--text-primary);
+}
+
+/* ── Links ── */
+a {
+  color: var(--accent, var(--accent-fallback));
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ── Code / Pre ── */
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Utility: visually hidden ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Page layout utilities（全页面共享，替代各 module.css 的重复定义）
+   ═══════════════════════════════════════════════════════════════ */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page-title {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.page-desc {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.page-section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-top: var(--space-2);
+}

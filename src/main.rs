@@ -51,20 +51,12 @@ enum Commands {
         #[arg(long, default_value = "4096")]
         max_memory: u32,
 
-        /// 窗口宽度
-        #[arg(long, default_value = "854")]
-        width: u32,
-
-        /// 窗口高度
-        #[arg(long, default_value = "480")]
-        height: u32,
-
         /// .minecraft 目录路径
         #[arg(short, long, default_value = ".minecraft")]
         dir: String,
 
         /// 仅输出启动命令，不实际启动
-        #[arg(short, long)]
+        #[arg(long)]
         dry_run: bool,
 
         /// Java 路径（留空自动检测）
@@ -122,6 +114,25 @@ enum Commands {
     },
     /// 检查 Java 环境
     Check,
+    /// Java 运行时管理
+    Java {
+        #[command(subcommand)]
+        action: JavaAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum JavaAction {
+    /// 自动下载 Java（Adoptium）
+    Download {
+        /// 最低版本要求（默认 21）
+        #[arg(short, long, default_value = "21")]
+        min_version: u32,
+    },
+    /// 列出已下载的 Java 版本
+    List,
+    /// 列出 Adoptium 可用版本
+    Versions,
 }
 
 // ============================================================
@@ -147,24 +158,12 @@ async fn main() {
             username,
             min_memory,
             max_memory,
-            width,
-            height,
             dir,
             dry_run,
             java,
         } => {
-            cmd_launch(
-                &version,
-                &username,
-                min_memory,
-                max_memory,
-                width,
-                height,
-                &dir,
-                dry_run,
-                java.as_deref(),
-            )
-            .await
+            cmd_launch(&version, &username, min_memory, max_memory, &dir, dry_run, java.as_deref())
+                .await
         }
         Commands::List { dir } => cmd_list(&dir).await,
         Commands::Remove { version, dir } => cmd_remove(&version, &dir).await,
@@ -173,6 +172,7 @@ async fn main() {
         Commands::Config { path, show, reset } => cmd_config(&path, show, reset).await,
         Commands::Plugins { dir } => cmd_plugins(&dir).await,
         Commands::Check => cmd_check().await,
+        Commands::Java { action } => cmd_java(action).await,
     };
 
     if let Err(e) = result {
@@ -241,8 +241,6 @@ async fn cmd_launch(
     username: &str,
     min_mem: u32,
     max_mem: u32,
-    width: u32,
-    height: u32,
     dir: &str,
     dry_run: bool,
     java_path: Option<&str>,
@@ -256,8 +254,6 @@ async fn cmd_launch(
     let mut profile = LaunchProfile::new("cli", version, username);
     profile.min_memory_mb = min_mem;
     profile.max_memory_mb = max_mem;
-    profile.window_width = width;
-    profile.window_height = height;
 
     if dry_run {
         let cmd = svc
@@ -347,7 +343,8 @@ async fn cmd_remove(version: &str, dir: &str) -> Result<()> {
 /// versions 命令
 async fn cmd_versions(count: usize, snapshots: bool) -> Result<()> {
     println!("获取版本清单...");
-    let manifest = starcloud_minecraft::download::fetch_version_manifest().await?;
+    let cached = starcloud_minecraft::download::fetch_version_manifest_cached(true).await?;
+    let manifest = cached.manifest;
 
     let filtered: Vec<_> = manifest
         .versions
@@ -405,10 +402,6 @@ async fn cmd_config(path: &str, show: bool, reset: bool) -> Result<()> {
         println!(
             "  默认内存:         {} ~ {} MB",
             config.default_min_memory_mb, config.default_max_memory_mb
-        );
-        println!(
-            "  默认窗口:         {}x{}",
-            config.default_window_width, config.default_window_height
         );
         println!("  下载并发:         {}", config.download_concurrency);
         println!("  下载重试:         {} 次", config.download_max_retries);
@@ -542,4 +535,79 @@ async fn cmd_check() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// java 命令 - 下载/列出/查询 Java 运行时
+async fn cmd_java(action: JavaAction) -> Result<()> {
+    use starcloud_minecraft::launch::JavaDownloader;
+
+    match action {
+        JavaAction::Download { min_version } => {
+            println!(
+                "{} 自动下载 Java >= {} ...",
+                "▶".green().bold(),
+                min_version.to_string().cyan()
+            );
+            let downloader = JavaDownloader::new()?;
+            let runtime = downloader.auto_download(min_version).await?;
+            println!(
+                "  {} Java {} 下载完成",
+                "✓".green(),
+                runtime.major_version.to_string().bold()
+            );
+            println!(
+                "    路径:      {}",
+                runtime.executable.display().to_string().green()
+            );
+            println!("    版本:      {}", runtime.version_string.dimmed());
+        }
+        JavaAction::List => {
+            let downloader = JavaDownloader::new()?;
+            let versions = downloader.list_downloaded();
+            if versions.is_empty() {
+                println!("{} 没有已下载的 Java。使用 {} 下载。", "⊙".yellow(), "starcloud-minecraft java download".cyan());
+                return Ok(());
+            }
+            println!("已下载的 Java 版本 ({} 个):", versions.len().to_string().bold());
+            for v in &versions {
+                let dir = downloader.get_java_path(*v);
+                let parent = dir.as_ref().and_then(|p| p.parent()).and_then(|p| p.parent());
+                let size = parent.map(|p| dir_size(p)).unwrap_or(0);
+                let size_str = if size > 1_073_741_824 {
+                    format!("{:.1} GB", size as f64 / 1_073_741_824.0)
+                } else {
+                    format!("{:.1} MB", size as f64 / 1_048_576.0)
+                };
+                println!("    Java {}  {}", v.to_string().green(), size_str.dimmed());
+            }
+        }
+        JavaAction::Versions => {
+            println!("查询 Adoptium 可用版本...");
+            let downloader = JavaDownloader::new()?;
+            let versions = downloader.fetch_available_versions().await?;
+            println!("\n可用版本 ({} 个):\n", versions.len());
+            for v in &versions {
+                let is_lts = [8, 11, 17, 21, 25].contains(v);
+                let tag = if is_lts { " [LTS]" } else { "" };
+                println!("  Java {}{}", v.to_string().green(), tag.yellow());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 计算目录大小（递归）
+fn dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                total += dir_size(&path);
+            } else if let Ok(meta) = path.metadata() {
+                total += meta.len();
+            }
+        }
+    }
+    total
 }

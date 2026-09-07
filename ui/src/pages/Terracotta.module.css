@@ -1,0 +1,181 @@
+@import "../styles/tokens.css";
+
+/* ── 状态卡 ── */
+.statusLoading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.statusItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.statusLabel {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.progressWrap {
+  margin-top: var(--space-4);
+}
+
+/* ── 安装 / 操作区 ── */
+.installHint {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+}
+
+.actionsRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.actionsDivider {
+  width: 1px;
+  height: 24px;
+  background: var(--stroke-divider);
+  flex-shrink: 0;
+}
+
+.roomInput {
+  flex: 1;
+  min-width: 180px;
+}
+
+.actionsStop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.actionsHint {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+
+/* ── 房间 / 状态详情 ── */
+.roomTitle {
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.roomRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.roomCode {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke-divider);
+  letter-spacing: var(--tracking-wide);
+  word-break: break-all;
+}
+
+.roomHint,
+.stateHint {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+.stateTitle {
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.stateTitleErr {
+  color: var(--color-danger);
+}
+
+/* ── 日志 ── */
+.logHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.logActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.logBody {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--stroke-divider);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  line-height: var(--leading-normal);
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── 使用指引 ── */
+.guideTitle {
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.guideSteps {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.guideSteps li::marker {
+  color: var(--text-tertiary);
+  font-weight: var(--weight-medium);
+}
+
+/* ── 品牌标识（联机由 Terracotta | 陶瓦联机 提供技术支持）── */
+.brandLine {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  text-align: center;
+}

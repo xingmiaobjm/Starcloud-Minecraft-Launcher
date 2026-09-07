@@ -1,7 +1,7 @@
 {
   "name": "starcloud-launcher-ui",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,10 +11,15 @@
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
     "gsap": "^3.15.0",
+    "lucide": "^1.41.0",
+    "morphicons": "^1.7.1",
     "preact": "^10.26.0"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",
+    "@tauri-apps/cli": "^2.11.4",
+    "postcss-nesting": "^14.0.1",
+    "postcss-preset-env": "^11.3.2",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   }

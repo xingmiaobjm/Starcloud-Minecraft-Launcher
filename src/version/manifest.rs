@@ -59,8 +59,9 @@ pub struct VersionDetails {
     pub main_class: String,
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: Option<String>,
-    #[serde(rename = "minimumLauncherVersion")]
-    pub minimum_launcher_version: i32,
+    /// 新版（1.21.4+）version.json 已移除该字段，需可缺省
+    #[serde(rename = "minimumLauncherVersion", default)]
+    pub minimum_launcher_version: Option<i32>,
     #[serde(rename = "releaseTime")]
     pub release_time: String,
     pub time: String,

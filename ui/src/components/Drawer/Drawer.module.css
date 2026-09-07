@@ -1,0 +1,96 @@
+/* Drawer — Fluent 右侧滑出面板 */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-smoke);
+  z-index: var(--z-drawer-backdrop);
+  animation: overlayFadeIn var(--dur-fast) var(--ease-fluent) both;
+}
+
+@keyframes overlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-layer);
+  border-left: 1px solid var(--stroke-flyout);
+  border-radius: 0;
+  box-shadow: var(--shadow-flyout);
+  z-index: var(--z-drawer);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: drawerSlideIn var(--dur-slow) var(--ease-fluent) both;
+}
+
+@keyframes drawerSlideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+}
+
+.body {
+  flex: 1;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  overflow-y: auto;
+}

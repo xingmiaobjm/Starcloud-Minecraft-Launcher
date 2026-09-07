@@ -1,0 +1,379 @@
+/* 首页 —— PCL2 式左卡布局（Fluent Native 材质） */
+
+/* ── 双列骨架：左卡（固定宽）+ 右列（自适应）── */
+.home {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* ══ 左列：启动面板（PCL 卡位）══ */
+.launchPanel {
+  position: sticky;
+  top: 0;
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+/* 账户模式 pills（正版 / 离线） */
+.modeSeg {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.segOpt {
+  flex: 1;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-full);
+  background: var(--bg-control);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent), color var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+  }
+}
+
+.segOptActive {
+  background: var(--accent-soft);
+  border-color: var(--accent, var(--accent-fallback));
+  color: var(--accent, var(--accent-fallback));
+  font-weight: var(--weight-semibold);
+}
+
+/* 头像 + 账户区（PCL 中央位） */
+.accountZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0 var(--space-2);
+  min-height: 96px;
+  justify-content: center;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--accent, var(--accent-fallback));
+  font-family: var(--font-display);
+  font-size: var(--text-subtitle);
+  font-weight: var(--weight-semibold);
+  user-select: none;
+}
+
+.accountName {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  text-align: center;
+  max-width: 100%;
+}
+
+.accountHint {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-normal);
+  color: var(--text-tertiary);
+}
+
+.accountName :global(input) {
+  width: 180px;
+  text-align: center;
+}
+
+/* 控件行 */
+.control {
+  width: 100%;
+}
+
+.grow {
+  flex: 1;
+}
+
+.loadingRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-height);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.panelEmpty {
+  padding: var(--space-4) var(--space-3);
+  border-style: solid;
+  border-color: transparent;
+  background: var(--bg-subtle);
+}
+
+.panelEmpty :global(.action) {
+  justify-content: center;
+}
+
+/* 版本元信息 */
+.metaLine {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+/* PCL 式双行主按钮 */
+.launchBtn {
+  height: 56px;
+  padding: 0 var(--space-4);
+}
+
+.btnMain {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.btnTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  line-height: 1.2;
+}
+
+.btnSub {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-normal);
+  opacity: 0.78;
+  line-height: 1.2;
+}
+
+/* 次要操作行 */
+.actionsRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* 状态行 */
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-success-solid);
+}
+
+.statusDetail {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  text-align: center;
+  word-break: break-word;
+}
+
+/* 多行提示 */
+.noticeMulti :global(.text) {
+  white-space: pre-line;
+}
+
+/* ══ 右列 ══ */
+.right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-1);
+}
+
+/* 引导卡 */
+.guideCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.stepRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+  }
+}
+
+.stepRowCurrent {
+  background: var(--accent-soft);
+}
+
+.stepBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--bg-control);
+  border: 1px solid var(--stroke-card);
+  color: var(--text-tertiary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+}
+
+.stepBadgeDone {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
+}
+
+.stepBadgeCurrent {
+  border-color: var(--accent, var(--accent-fallback));
+  color: var(--accent, var(--accent-fallback));
+}
+
+.stepMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.stepTitle {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.stepRowDone .stepTitle {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-disabled);
+}
+
+.stepDesc {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.stepChevron {
+  color: var(--text-tertiary);
+}
+
+/* 快捷入口 tiles（Store 卡片行） */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.tileIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--accent, var(--accent-fallback));
+}
+
+.tileMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tileTitle {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.tileDesc {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tileChevron {
+  color: var(--text-tertiary);
+}
+
+/* ── 窄窗口回退：单列，卡置顶 ── */
+@media (max-width: 900px) {
+  .home {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .launchPanel {
+    position: static;
+    width: 100%;
+  }
+}

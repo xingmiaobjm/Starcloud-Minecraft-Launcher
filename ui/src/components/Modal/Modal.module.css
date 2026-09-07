@@ -1,0 +1,62 @@
+/* Modal — Fluent ContentDialog */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-smoke);
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: overlayFadeIn var(--dur-fast) var(--ease-fluent) both;
+}
+
+@keyframes overlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.panel {
+  background: var(--bg-layer);
+  border: 1px solid var(--stroke-flyout);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-dialog);
+  max-height: calc(100vh - 48px);
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: panelEnter var(--dur-slow) var(--ease-fluent) both;
+}
+
+@keyframes panelEnter {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.header {
+  padding: var(--space-5) var(--space-6) var(--space-2);
+  flex-shrink: 0;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+.body {
+  padding: var(--space-2) var(--space-6) var(--space-5);
+  overflow-y: auto;
+}

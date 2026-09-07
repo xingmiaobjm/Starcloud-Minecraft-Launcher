@@ -1,0 +1,92 @@
+/* VersionMenu — Fluent 版本选择抽屉 */
+
+.tip {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-3);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8) 0;
+  font-size: var(--text-body);
+  color: var(--text-tertiary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-overlay);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent);
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+}
+
+.active {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent, var(--accent-fallback)) 35%, transparent);
+}
+
+.active:hover {
+  background: var(--accent-soft-hover);
+}
+
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.icon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+
+.name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: 30px;
+}
+
+.date {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

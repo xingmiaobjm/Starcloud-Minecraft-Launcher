@@ -1,0 +1,257 @@
+// Minecraft 清单与版本 JSON 的数据模型（System.Text.Json，蛇形命名）
+
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Starcloud.Core.Models;
+
+public sealed class MinecraftManifest
+{
+    [JsonPropertyName("latest")]
+    public ManifestLatest Latest { get; set; } = new();
+
+    [JsonPropertyName("versions")]
+    public List<ManifestVersion> Versions { get; set; } = [];
+}
+
+public sealed class ManifestLatest
+{
+    [JsonPropertyName("release")]
+    public string Release { get; set; } = "";
+
+    [JsonPropertyName("snapshot")]
+    public string Snapshot { get; set; } = "";
+}
+
+public sealed class ManifestVersion
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "";
+
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = "";
+
+    [JsonPropertyName("releaseTime")]
+    public string ReleaseTime { get; set; } = "";
+
+    [JsonIgnore]
+    public bool Installed { get; set; }
+}
+
+/// <summary>版本 JSON（version json）</summary>
+public sealed class MinecraftVersion
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("mainClass")]
+    public string MainClass { get; set; } = "";
+
+    /// <summary>旧版（1.13 前）启动参数字符串</summary>
+    [JsonPropertyName("minecraftArguments")]
+    public string? MinecraftArguments { get; set; }
+
+    [JsonPropertyName("arguments")]
+    public VersionArguments? Arguments { get; set; }
+
+    [JsonPropertyName("assetIndex")]
+    public AssetIndexRef? AssetIndex { get; set; }
+
+    [JsonPropertyName("assets")]
+    public string? Assets { get; set; }
+
+    [JsonPropertyName("downloads")]
+    public VersionDownloads? Downloads { get; set; }
+
+    [JsonPropertyName("javaVersion")]
+    public JavaVersionRef? JavaVersion { get; set; }
+
+    [JsonPropertyName("libraries")]
+    public List<Library> Libraries { get; set; } = [];
+
+    [JsonPropertyName("inheritsFrom")]
+    public string? InheritsFrom { get; set; }
+
+    [JsonPropertyName("logging")]
+    public JsonElement? Logging { get; set; }
+
+    [JsonPropertyName("releaseTime")]
+    public string? ReleaseTime { get; set; }
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+}
+
+public sealed class VersionArguments
+{
+    [JsonPropertyName("game")]
+    public List<ArgumentItem> Game { get; set; } = [];
+
+    [JsonPropertyName("jvm")]
+    public List<ArgumentItem> Jvm { get; set; } = [];
+}
+
+/// <summary>参数项：纯字符串，或带规则的对象（value 可为数组）</summary>
+public sealed class ArgumentItem
+{
+    [JsonPropertyName("value")]
+    public JsonElement Value { get; set; }
+
+    [JsonPropertyName("rules")]
+    public List<OsRule>? Rules { get; set; }
+
+    [JsonIgnore]
+    public bool IsObject => Value.ValueKind is JsonValueKind.String or JsonValueKind.Array;
+}
+
+public sealed class OsRule
+{
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = "allow";
+
+    [JsonPropertyName("os")]
+    public OsSpec? Os { get; set; }
+
+    [JsonPropertyName("features")]
+    public Dictionary<string, JsonElement>? Features { get; set; }
+}
+
+public sealed class OsSpec
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("arch")]
+    public string? Arch { get; set; }
+}
+
+public sealed class AssetIndexRef
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = "";
+
+    [JsonPropertyName("sha1")]
+    public string? Sha1 { get; set; }
+
+    [JsonPropertyName("totalSize")]
+    public long TotalSize { get; set; }
+}
+
+public sealed class VersionDownloads
+{
+    [JsonPropertyName("client")]
+    public DownloadableFile? Client { get; set; }
+
+    [JsonPropertyName("client_mappings")]
+    public DownloadableFile? ClientMappings { get; set; }
+}
+
+public sealed class DownloadableFile
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = "";
+
+    [JsonPropertyName("sha1")]
+    public string Sha1 { get; set; } = "";
+
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+
+    [JsonPropertyName("path")]
+    public string? Path { get; set; }
+}
+
+public sealed class JavaVersionRef
+{
+    [JsonPropertyName("component")]
+    public string Component { get; set; } = "java-runtime-generic";
+
+    [JsonPropertyName("majorVersion")]
+    public int MajorVersion { get; set; } = 8;
+}
+
+public sealed class Library
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("downloads")]
+    public LibraryDownloads? Downloads { get; set; }
+
+    [JsonPropertyName("rules")]
+    public List<OsRule>? Rules { get; set; }
+
+    [JsonPropertyName("extract")]
+    public ExtractSpec? Extract { get; set; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; set; }
+}
+
+public sealed class LibraryDownloads
+{
+    [JsonPropertyName("artifact")]
+    public DownloadableFile? Artifact { get; set; }
+
+    [JsonPropertyName("classifiers")]
+    public Dictionary<string, DownloadableFile>? Classifiers { get; set; }
+}
+
+public sealed class ExtractSpec
+{
+    [JsonPropertyName("exclude")]
+    public List<string>? Exclude { get; set; }
+}
+
+/// <summary>资源索引文件内容：{ "objects": { "name": { "hash", "size } } }</summary>
+public sealed class AssetIndexFile
+{
+    [JsonPropertyName("objects")]
+    public Dictionary<string, AssetObject> Objects { get; set; } = new();
+}
+
+public sealed class AssetObject
+{
+    [JsonPropertyName("hash")]
+    public string Hash { get; set; } = "";
+
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+}
+
+/// <summary>Fabric 加载器元数据（launcher-meta profile）</summary>
+public sealed class FabricProfile
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("inheritsFrom")]
+    public string InheritsFrom { get; set; } = "";
+
+    [JsonPropertyName("releaseTime")]
+    public string? ReleaseTime { get; set; }
+
+    [JsonPropertyName("time")]
+    public string? Time { get; set; }
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("mainClass")]
+    public string MainClass { get; set; } = "";
+
+    [JsonPropertyName("arguments")]
+    public VersionArguments? Arguments { get; set; }
+
+    [JsonPropertyName("libraries")]
+    public List<Library> Libraries { get; set; } = [];
+
+    [JsonPropertyName("minecraft")]
+    public string? Minecraft { get; set; }
+}

@@ -66,8 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 8. 创建启动配置
     let config = LaunchConfig::basic(&version_entry.id, &dot_minecraft, "Player")
-        .with_memory(2048, 4096)
-        .with_window(1280, 720);
+        .with_memory(2048, 4096);
 
     // 9. 输出启动命令（调试用）
     let command_line = launch_engine.print_command(&config, &version_details, &library_paths)?;

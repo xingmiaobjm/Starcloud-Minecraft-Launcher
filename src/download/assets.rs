@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Semaphore;
 
 /// 资源文件下载器
 pub struct AssetDownloader {
@@ -50,7 +51,7 @@ impl AssetDownloader {
         self
     }
 
-    /// 下载资源索引对应的所有资源文件
+    /// 下载资源索引对应的所有资源文件（Semaphore 全量并发，真正并行）
     pub async fn download_assets(&self, asset_index: &AssetIndex) -> Result<()> {
         let objects_dir = self.base_dir.join("objects");
         fs::create_dir_all(&objects_dir).await?;
@@ -64,38 +65,38 @@ impl AssetDownloader {
         );
 
         let http = HttpClient::new()?;
-        let mut tasks = Vec::new();
+        let semaphore = Arc::new(Semaphore::new(self.concurrency));
 
         if let Some(tracker) = &self.tracker {
             tracker.begin_stage("下载资源", total_size);
         }
 
+        let mut handles = Vec::with_capacity(total);
+
         for obj in asset_index.objects.values() {
-            if tasks.len() >= self.concurrency {
-                // 等待一批完成
-                for task in tasks.drain(..) {
-                    let size = task.await??;
-                    if let Some(tracker) = &self.tracker {
-                        tracker.add_progress(size);
-                    }
-                }
-            }
+            let permit = semaphore.clone().acquire_owned();
             let dir = objects_dir.clone();
             let http = http.clone();
             let obj_hash = obj.hash.clone();
             let obj_size = obj.size;
             let base_url = self.base_url.clone();
-            tasks.push(tokio::spawn(async move {
-                download_single_asset(&http, &dir, &obj_hash, obj_size, &base_url).await
-            }));
+            let tracker = self.tracker.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = permit.await;
+                let size =
+                    download_single_asset(&http, &dir, &obj_hash, obj_size, &base_url).await?;
+                if let Some(tracker) = &tracker {
+                    tracker.add_progress(size);
+                }
+                Ok::<_, LauncherError>(size)
+            });
+            handles.push(handle);
         }
 
-        // 等待剩余任务
-        for task in tasks {
-            let size = task.await??;
-            if let Some(tracker) = &self.tracker {
-                tracker.add_progress(size);
-            }
+        // 等待所有任务完成
+        for handle in handles {
+            handle.await??;
         }
 
         if let Some(tracker) = &self.tracker {

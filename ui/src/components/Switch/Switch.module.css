@@ -1,0 +1,61 @@
+/* Switch — Fluent 开关 */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 40px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 1px solid var(--stroke-control-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-control);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent);
+}
+
+.switch:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+}
+
+.knob {
+  position: absolute;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--text-secondary);
+  transition: left var(--dur-normal) var(--ease-fluent),
+    background var(--dur-fast) var(--ease-fluent), width var(--dur-fast) var(--ease-fluent),
+    height var(--dur-fast) var(--ease-fluent);
+}
+
+/* 按住时圆点放大（Fluent 细节） */
+.switch:active:not(:disabled) .knob {
+  width: 14px;
+  height: 14px;
+}
+
+.on {
+  background: var(--accent, var(--accent-fallback));
+  border-color: var(--accent, var(--accent-fallback));
+}
+
+.on .knob {
+  left: 23px;
+  background: var(--accent-contrast);
+}
+
+.on:active:not(:disabled) .knob {
+  left: 21px;
+}
+
+.switch:disabled {
+  background: var(--bg-control-disabled);
+  border-color: var(--stroke-control);
+  cursor: default;
+}
+
+.switch:disabled .knob {
+  background: var(--text-disabled);
+}

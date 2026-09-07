@@ -4,20 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Starcloud Minecraft Launcher - 现代化 Minecraft 启动器" />
-    <meta name="theme-color" content="#0e1116" />
+    <meta name="theme-color" content="#f3f3f3" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238faeff'/%3E%3Cpath d='M16 7l2.2 4.9 5.3.6-3.9 3.6 1 5.2L16 18.4l-4.6 2.9 1-5.2-3.9-3.6 5.3-.6z' fill='%2305060a'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230067c0'/%3E%3Cpath d='M16 6l3 6.5 7 1-5 4.5 1.5 6.5-6.5-3.5-6.5 3.5L11 18l-5-4.5 7-1z' fill='%23fff'/%3E%3C/svg%3E"
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="preconnect" href="https://cdn.modrinth.com" crossorigin />
+    <link rel="preconnect" href="https://mod.mcimirror.top" />
     <title>Starcloud Minecraft Launcher</title>
   </head>
   <body>
+    <!--
+      DESIGN CONTRACT — Fluent Native（seed key 1fcf0ab6 / 用户指定方向：微软商店风格）
+      THESIS: 把启动器做成 Windows 11 的"第 17 个系统应用"——用玩家最熟悉、最信任的
+        本机商店质感，消解第三方启动器"来路不明"的心理门槛；拒绝深色电竞风与大面积玻璃拟物。
+      OWN-WORLD: Mica 分层表面（#f3f3f3/#202020 底 + 白/#2b2b2b 卡片 + 1px 描边），
+        Segoe UI Variable 字体栈，系统强调色为唯一 accent，4px 控件圆角 / 8px 浮层圆角，
+        acrylic 模糊仅用于菜单与下拉，Fluent 标准缓动 cubic-bezier(0.1,0.9,0.2,1)。
+      STORY: 玩家知道这是"和系统长在一起"的正经工具——选版本、点启动、看进度，
+        每一步都有商店级的状态反馈；错误可复制、危险操作有确认、键盘全程可达。
+      FIRST VIEWPORT: 首页 = 顶部 44px 自绘标题栏 + 左侧 NavigationView（激活项 pill）+
+        状态栏（就绪/安装中/运行中/错误）+ 内容区大标题与版本选择卡、右侧巨型启动按钮。
+      FORM: 用户指定方向（微软商店 + Win11 设置工艺基准），取代全部历史视觉方向。
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md.
+    -->
     <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

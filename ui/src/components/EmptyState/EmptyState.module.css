@@ -1,0 +1,58 @@
+/* EmptyState — 统一空/失败状态 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-6);
+  border: 1px dashed var(--stroke-card);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.error {
+  border-color: var(--color-danger-soft);
+  border-style: solid;
+  background: color-mix(in srgb, var(--color-danger) 4%, transparent);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: var(--bg-control);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-1);
+
+  svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.error .icon {
+  color: var(--color-danger);
+}
+
+.title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.desc {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  max-width: 420px;
+  line-height: var(--leading-normal);
+}
+
+.action {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+}

@@ -6,7 +6,7 @@ resolver = "2"
 
 [package]
 name = "starcloud-minecraft"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Minecraft 启动器核心模块 - 下载引擎、启动引擎、插件系统"
 license = "MIT"
@@ -28,7 +28,9 @@ path = "examples/basic_launcher.rs"
 # 异步运行时
 tokio = { version = "1", features = ["full"] }
 # HTTP 客户端
-reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate", "blocking"] }
+# 流式处理（响应体逐块读取）
+futures-util = "0.3"
 # JSON 序列化
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -40,12 +42,17 @@ tracing-appender = "0.2"
 tracing-log = "0.2"
 # SHA1 校验
 sha1 = { version = "0.10", package = "sha1" }
+# SHA256（图标缓存文件名）
+sha2 = "0.10"
 # MD5（离线账户 UUID 生成）
 md-5 = { version = "0.10", package = "md-5" }
 # 文件操作
 tempfile = "3"
 # ZIP 解压
 zip = "2"
+# tar.gz 解压（陶瓦联机平台包）
+flate2 = "1"
+tar = "0.4"
 # 动态库加载（插件系统）
 libloading = "0.8"
 # 错误处理
@@ -73,6 +80,8 @@ percent-encoding = "2"
 clap = { version = "4", features = ["derive"] }
 # 终端输出美化
 colored = "2"
+# 系统信息（内存/磁盘推荐、自检）
+sysinfo = "0.33"
 
 [dev-dependencies]
 # 测试用

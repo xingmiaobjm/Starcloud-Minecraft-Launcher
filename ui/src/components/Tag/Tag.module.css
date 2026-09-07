@@ -1,0 +1,40 @@
+/* Tag — Fluent 信息徽标 */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-tight);
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.default {
+  background: var(--bg-control);
+  border-color: var(--stroke-control);
+  color: var(--text-secondary);
+}
+
+.accent {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent, var(--accent-fallback));
+}
+
+.success {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.warning {
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+  color: var(--color-warning);
+}
+
+.danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}

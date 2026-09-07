@@ -1,0 +1,216 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Accounts — Fluent Native（页面骨架用全局 .page/.page-header）
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 卡片内标题 / 提示 ── */
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.hint {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+/* ── 添加离线账户 ── */
+.addRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.addInput {
+  flex: 1;
+}
+
+/* 抵消 Input 内 label 的高度，使按钮与输入框同行 */
+.addButton {
+  flex-shrink: 0;
+  margin-top: 25px;
+}
+
+/* ── 微软登录 ── */
+.msIdle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.msLogin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--stroke-divider);
+  border-radius: var(--radius-overlay);
+  background: var(--bg-subtle);
+}
+
+.msCodeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+/* 授权码：可键盘操作的 button，大号等宽字体 */
+.msCode {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--stroke-control-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-control);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-subtitle);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: 0.2em;
+  cursor: pointer;
+  user-select: all;
+  transition: background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent),
+    transform var(--dur-fast) var(--ease-fluent);
+}
+.msCode:hover {
+  background: var(--bg-control-hover);
+  border-color: var(--accent, var(--accent-fallback));
+}
+.msCode:active {
+  background: var(--bg-control-pressed);
+  transform: scale(0.98);
+}
+
+.msCodeTip {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.msUri {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+.msStatus {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  min-height: 1.5em;
+}
+
+.msActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.msResult {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.msErrorText {
+  color: var(--color-danger);
+}
+
+/* ── 账户列表（每账户一张 Card）── */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.accountCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* 头像占位：Win11 风格强调色圆 + 首字母 */
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--accent, var(--accent-fallback));
+  color: var(--accent-contrast);
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  user-select: none;
+}
+
+.accountInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.accountName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+.accountName > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 默认徽标：强调色软底胶囊 */
+.defaultBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--accent, var(--accent-fallback));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  user-select: none;
+}
+
+.accountMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.accountActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}

@@ -19,7 +19,10 @@ use tauri::http;
 use tauri::Manager;
 
 /// 启动器版本（GUI 插件 min_launcher_version 校验基准）
-pub const LAUNCHER_VERSION: &str = "0.2.0";
+///
+/// 单一来源：src-tauri/Cargo.toml 的 `version` 字段（cargo 编译期注入，
+/// 修改 Cargo.toml 版本后自动生效，无需再改此处）。
+pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// 当前支持的 GUI 插件 API 版本
 pub const GUI_PLUGIN_API_VERSION: u32 = 2;
 

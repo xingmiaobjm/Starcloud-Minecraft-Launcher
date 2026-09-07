@@ -1,0 +1,53 @@
+/* Slider — Fluent 滑块 */
+.slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+
+  /* 轨道：4px，前段填充强调色 */
+  &::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(
+      to right,
+      var(--accent, var(--accent-fallback)) var(--fill, 0%),
+      var(--stroke-divider) var(--fill, 0%)
+    );
+  }
+
+  /* 拇指：20px 圆点，中心强调色，外环表面色 */
+  &::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    margin-top: -8px;
+    border-radius: var(--radius-full);
+    background: var(--bg-card);
+    border: 5px solid var(--accent, var(--accent-fallback));
+    box-sizing: border-box;
+    transition: border-width var(--dur-fast) var(--ease-fluent);
+  }
+
+  &:hover:not(:disabled)::-webkit-slider-thumb {
+    border-width: 4px;
+  }
+
+  &:active:not(:disabled)::-webkit-slider-thumb {
+    border-width: 6px;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  &:focus-visible {
+    outline: var(--focus-ring-width) solid var(--stroke-focus-outer);
+    outline-offset: 2px;
+    border-radius: var(--radius-full);
+  }
+}

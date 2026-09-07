@@ -1,0 +1,51 @@
+/* ═══════════════════════════════════════════════════════════════════
+   PluginView — Fluent Native（插件视图：无页内边距，全屏撑满内容区）
+   ═══════════════════════════════════════════════════════════════════ */
+
+.view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* 抵消内容区壳层的 --content-padding，插件视图全屏铺满 */
+  height: calc(100% + 2 * var(--content-padding));
+  margin: calc(-1 * var(--content-padding));
+  overflow: hidden;
+  background: var(--bg-layer);
+}
+
+.iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: none;
+  display: block;
+  background: var(--bg-layer);
+}
+
+/* 加载中 / 失败覆盖层：盖住 iframe，避免半加载内容可交互 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: var(--bg-canvas);
+  animation: overlayIn var(--dur-normal) var(--ease-fluent) backwards;
+}
+
+.overlayText {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,20 @@
+@import "../../styles/tokens.css";
+
+/* Mod 图标基础样式；尺寸与圆角由调用方 className 提供 */
+
+.icon {
+  display: block;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* 背景色/前景色由组件按 seed 动态注入（动态值，允许内联） */
+.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  user-select: none;
+}

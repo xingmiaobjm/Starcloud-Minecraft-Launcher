@@ -1,0 +1,361 @@
+@import "../styles/tokens.css";
+
+/* ═══════════════════════════════════════════════════════════════════
+   下载页 — Fluent Native（Win11 设置列表 + Microsoft Store 安装行为）
+   页面骨架/页头/工具栏基础布局来自 global.css 的 .page/.page-header/.page-toolbar
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 页面骨架：固定高度，工具栏常驻，列表区内部滚动 ── */
+.page {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── 工具栏 ── */
+.toolbar {
+  flex-shrink: 0;
+}
+
+.searchInput {
+  width: 220px;
+}
+
+.toolbarEnd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.cacheTag {
+  flex-shrink: 0;
+}
+
+/* ── 分段筛选（Fluent 分段控件：浅控件底 + 浮起选中页）── */
+.seg {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-control);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+
+.segItem {
+  padding: 4px 12px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.segItem:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
+}
+
+.segItem:active {
+  background: var(--bg-control-pressed);
+  color: var(--text-secondary);
+}
+
+.segItemActive,
+.segItemActive:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── 统计行 ── */
+.summary {
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 版本列表（内部滚动区）── */
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-right: var(--space-1);
+  padding-bottom: var(--space-2);
+}
+
+/* 空态/失败态顶部对齐（避免大面积垂直空腔） */
+.listStatus {
+  margin: var(--space-6) 0;
+}
+
+/* ── 大版本分组（Win11 设置 Expander 卡片）── */
+.group {
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+}
+
+.groupHead:hover {
+  background: var(--bg-card-hover);
+}
+
+.groupHead:active {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.groupIcon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.groupName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.groupCount {
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.groupCaret {
+  color: var(--text-secondary);
+}
+
+.groupCaret svg {
+  flex-shrink: 0;
+}
+
+/* 分组体：外层负责裁剪与高度（GSAP 展开/收起动画接管 display） */
+.groupBody {
+  display: none;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--stroke-divider);
+}
+
+.groupBodyOpen {
+  display: block;
+}
+
+.groupBodyInner {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2);
+}
+
+/* ── 版本行（Fluent 列表行：左侧信息 + 右侧操作）── */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  transition: background var(--dur-fast) var(--ease-fluent);
+}
+
+.row:hover {
+  background: var(--bg-control-hover);
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.rowIcon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.versionId {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rowMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* 进度条与版本号文本对齐（图标 32 + 间距 12） */
+.rowProgress {
+  margin-left: 44px;
+}
+
+/* ── 加载器选择弹窗 ── */
+.modalSub {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.loaderList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.loaderStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.loaderItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-control);
+  background: var(--bg-control);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent);
+}
+
+.loaderItem:hover {
+  background: var(--bg-control-hover);
+  border-color: var(--stroke-control-strong);
+}
+
+.loaderItem:active {
+  background: var(--bg-control-pressed);
+  color: var(--text-secondary);
+}
+
+.loaderIcon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 5px;
+  object-fit: contain;
+  border: 1px solid var(--stroke-divider);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  image-rendering: pixelated;
+}
+
+.loaderText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.loaderName {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.loaderDesc {
+  font-size: var(--text-caption);
+  line-height: var(--leading-snug);
+  color: var(--text-secondary);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

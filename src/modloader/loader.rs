@@ -85,6 +85,12 @@ pub mod fabric {
     use super::*;
     use crate::error::{LauncherError, Result};
 
+    /// meta 接口返回的顶层条目：loader 内才是加载器信息
+    #[derive(Debug, Deserialize)]
+    struct FabricEntry {
+        loader: FabricLoaderVersion,
+    }
+
     #[derive(Debug, Deserialize)]
     struct FabricLoaderVersion {
         version: String,
@@ -106,12 +112,12 @@ pub mod fabric {
             )));
         }
 
-        let loaders: Vec<FabricLoaderVersion> = response.json().await?;
-        loaders
+        let entries: Vec<FabricEntry> = response.json().await?;
+        entries
             .iter()
-            .find(|l| l.stable)
-            .or_else(|| loaders.first())
-            .map(|l| l.version.clone())
+            .find(|e| e.loader.stable)
+            .or_else(|| entries.first())
+            .map(|e| e.loader.version.clone())
             .ok_or_else(|| LauncherError::VersionNotFound("没有可用的 Fabric Loader".into()))
     }
 
@@ -142,7 +148,43 @@ pub mod quilt {
     use super::*;
     use crate::error::{LauncherError, Result};
 
-    /// 获取最新 Quilt Loader
+    /// meta 接口返回的顶层条目：loader 内才是加载器信息
+    #[derive(Debug, Deserialize)]
+    struct QuiltEntry {
+        loader: QuiltLoaderVersion,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct QuiltLoaderVersion {
+        version: String,
+    }
+
+    /// 判断是否为预发布版本（beta / alpha / rc 等）
+    fn is_prerelease(version: &str) -> bool {
+        let lower = version.to_lowercase();
+        lower.contains("beta") || lower.contains("alpha") || lower.contains("rc") || lower.contains("-")
+    }
+
+    /// 按数字段比较版本号（用于选取最大稳定版）
+    fn compare_version(a: &str, b: &str) -> std::cmp::Ordering {
+        fn parts(s: &str) -> Vec<u64> {
+            s.split(|c: char| !c.is_ascii_digit())
+                .filter(|p| !p.is_empty())
+                .map(|p| p.parse().unwrap_or(0))
+                .collect()
+        }
+        let pa = parts(a);
+        let pb = parts(b);
+        for (x, y) in pa.iter().zip(pb.iter()) {
+            match x.cmp(y) {
+                std::cmp::Ordering::Equal => continue,
+                other => return other,
+            }
+        }
+        pa.len().cmp(&pb.len())
+    }
+
+    /// 获取最新 Quilt Loader（优先稳定版，否则取版本号最大者）
     pub async fn get_latest_loader(mc_version: &str) -> Result<String> {
         let url = format!("https://meta.quiltmc.org/v3/versions/loader/{}", mc_version);
         let response = reqwest::get(&url).await?;
@@ -154,16 +196,28 @@ pub mod quilt {
             )));
         }
 
-        #[derive(Debug, Deserialize)]
-        struct LoaderEntry {
-            version: String,
-        }
-
-        let loaders: Vec<LoaderEntry> = response.json().await?;
-        loaders
-            .first()
-            .map(|l| l.version.clone())
+        let entries: Vec<QuiltEntry> = response.json().await?;
+        entries
+            .iter()
+            .filter(|e| !is_prerelease(&e.loader.version))
+            .max_by(|a, b| compare_version(&a.loader.version, &b.loader.version))
+            .or_else(|| entries.iter().max_by(|a, b| compare_version(&a.loader.version, &b.loader.version)))
+            .map(|e| e.loader.version.clone())
             .ok_or_else(|| LauncherError::VersionNotFound("没有可用的 Quilt Loader".into()))
+    }
+
+    /// 获取 Quilt 安装所需的 profile JSON
+    pub async fn get_profile_json(
+        mc_version: &str,
+        loader_version: &str,
+    ) -> Result<serde_json::Value> {
+        let url = format!(
+            "https://meta.quiltmc.org/v3/versions/loader/{}/{}/profile/json",
+            mc_version, loader_version
+        );
+        let response = reqwest::get(&url).await?;
+        let json: serde_json::Value = response.json().await?;
+        Ok(json)
     }
 
     /// 构建 Quilt 安装目录路径
@@ -171,5 +225,80 @@ pub mod quilt {
         dot_minecraft
             .join("versions")
             .join(format!("quilt-loader-{}-{}", loader_version, mc_version))
+    }
+}
+
+/// NeoForge 安装器
+pub mod neoforge {
+    use super::*;
+    use crate::error::{LauncherError, Result};
+
+    /// 获取指定 MC 版本可用的最新 NeoForge 构建号
+    ///
+    /// 从 maven-metadata.xml 中筛选形如 `{mc}-{build}` 的版本并取最大构建号。
+    pub async fn get_latest_version(mc_version: &str) -> Result<String> {
+        let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+        let response = reqwest::get(url).await?;
+        if !response.status().is_success() {
+            return Err(LauncherError::VersionNotFound(format!(
+                "MC {} 没有可用的 NeoForge 版本",
+                mc_version
+            )));
+        }
+        let text = response.text().await?;
+        let versions = parse_metadata_versions(&text);
+        let prefix = format!("{}-", mc_version);
+        let candidate = versions
+            .iter()
+            .filter(|v| v.starts_with(&prefix))
+            .max_by(|a, b| compare_version(a, b));
+        candidate.cloned().ok_or_else(|| {
+            LauncherError::VersionNotFound(format!("MC {} 没有可用的 NeoForge 版本", mc_version))
+        })
+    }
+
+    /// 从 maven-metadata.xml 文本中解析 <version> 列表
+    fn parse_metadata_versions(xml: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for line in xml.lines() {
+            let line = line.trim();
+            if line.starts_with("<version>") && line.ends_with("</version>") {
+                let inner = &line["<version>".len()..line.len() - "</version>".len()];
+                if !inner.is_empty() {
+                    out.push(inner.to_string());
+                }
+            }
+        }
+        out
+    }
+
+    /// 按版本号数字段比较（忽略 `{mc}-` 前缀，比较构建号部分）
+    fn compare_version(a: &str, b: &str) -> std::cmp::Ordering {
+        fn parts(s: &str) -> Vec<u64> {
+            s.split(|c: char| !c.is_ascii_digit())
+                .filter(|p| !p.is_empty())
+                .map(|p| p.parse().unwrap_or(0))
+                .collect()
+        }
+        let pa = parts(a);
+        let pb = parts(b);
+        for (x, y) in pa.iter().zip(pb.iter()) {
+            match x.cmp(y) {
+                std::cmp::Ordering::Equal => continue,
+                other => return other,
+            }
+        }
+        pa.len().cmp(&pb.len())
+    }
+
+    /// 构建 NeoForge 安装目录路径
+    pub fn install_dir(
+        dot_minecraft: &Path,
+        mc_version: &str,
+        loader_version: &str,
+    ) -> PathBuf {
+        dot_minecraft
+            .join("versions")
+            .join(format!("{}-neoforge-{}", mc_version, loader_version))
     }
 }

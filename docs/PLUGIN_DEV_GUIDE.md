@@ -1,5 +1,9 @@
 # Starcloud Minecraft Launcher — GUI 插件开发指南
 
+> **【已弃用 · 2026-09-06】** 本指南描述的 GUI 插件系统（furry:// 协议）属于旧
+> Tauri/WebView 架构。项目已全面转向 .NET / WinUI 3（见根目录 README.md 与
+> docs/ARCHITECTURE.md），.NET 版暂未实现插件系统，本文仅作历史参考。
+
 > 版本 0.2.0 | 2026-08-09
 > 面向插件开发者：如何为启动器编写 GUI 插件（furry:// v2 通用资源协议）。
 

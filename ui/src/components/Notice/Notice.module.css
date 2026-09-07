@@ -1,0 +1,124 @@
+/* Notice — Fluent InfoBar：浅色底 + 彩色图标，不用侧边彩条 */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-info) 7%, var(--bg-layer));
+  font-size: var(--text-body);
+  color: var(--text-primary);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-info);
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.text {
+  line-height: var(--leading-snug);
+  word-break: break-word;
+}
+
+.raw {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+
+  summary {
+    cursor: pointer;
+    user-select: none;
+    width: fit-content;
+
+    &:hover {
+      color: var(--text-secondary);
+    }
+  }
+
+  pre {
+    margin-top: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-control);
+    border-radius: var(--radius-control);
+    max-height: 120px;
+    overflow-y: auto;
+  }
+}
+
+.retry {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-control);
+  background: var(--bg-control);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+  }
+}
+
+.close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent);
+
+  &:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+}
+
+.ok {
+  background: color-mix(in srgb, var(--color-success) 7%, var(--bg-layer));
+
+  .icon {
+    color: var(--color-success);
+  }
+}
+
+.err {
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--bg-layer));
+
+  .icon {
+    color: var(--color-danger);
+  }
+}
+
+.info {
+  background: color-mix(in srgb, var(--color-info) 7%, var(--bg-layer));
+}

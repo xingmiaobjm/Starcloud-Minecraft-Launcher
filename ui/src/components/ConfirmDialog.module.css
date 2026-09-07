@@ -1,0 +1,15 @@
+/* ConfirmDialog — Fluent 内容对话框动作区 */
+.message {
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+  word-break: break-word;
+  white-space: pre-line;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}

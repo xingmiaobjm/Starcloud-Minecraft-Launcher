@@ -1,0 +1,152 @@
+@import "../styles/tokens.css";
+
+/* ═══════════════════════════════════════════════════════════════════
+   模组资源页 — 容器（页头/搜索工具栏/筛选区）
+   列表行样式见 ./mods/ModList.module.css；详情面板样式见 ./mods/ModDetail.module.css
+   页面骨架/页头/工具栏基础布局来自 global.css 的 .page/.page-header/.page-toolbar
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 页面骨架：固定高度，工具栏常驻，列表区内部滚动 ── */
+.page {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 详情视图为宽卡片，不受版心宽度限制 */
+.pageWide {
+  max-width: none;
+}
+
+/* ── 搜索卡片 ── */
+.searchCard {
+  flex-shrink: 0;
+}
+
+.toolbar {
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* ── 分段筛选（Fluent 分段控件：浅控件底 + 浮起选中页）── */
+.seg {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-control);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+
+/* 资源分类分段：独占一行，允许换行 */
+.catBar {
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.segItem {
+  padding: 4px 12px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.segItem:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
+}
+
+.segItem:active {
+  background: var(--bg-control-pressed);
+}
+
+.segItemActive,
+.segItemActive:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── 筛选展开开关 ── */
+.filtersToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  min-height: var(--control-height);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-control);
+  background: var(--bg-control);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.filtersToggle:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
+}
+
+.filtersToggle:active {
+  background: var(--bg-control-pressed);
+}
+
+.filtersToggleOpen,
+.filtersToggleOpen:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent, var(--accent-fallback));
+}
+
+/* ── 筛选面板（grid-rows 高度过渡展开/收起）── */
+.filtersPanel {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows var(--dur-slow) var(--ease-fluent);
+}
+
+.filtersPanelOpen {
+  grid-template-rows: 1fr;
+}
+
+.filtersInner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding-top: var(--space-3);
+}
+
+/* ── 结果统计 ── */
+.summary {
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}

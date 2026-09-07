@@ -1,0 +1,191 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Plugins — Fluent Native（页面骨架用全局 .page/.page-header）
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 卡片内标题 / 安装行 ── */
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-body-large);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.installRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.installInput {
+  flex: 1;
+}
+
+.installHint {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  margin-top: var(--space-2);
+  line-height: var(--leading-normal);
+}
+
+/* ── 主壳接管提示（Win11 信息条：警示底色 + 常规文字）── */
+.shellWarning {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  border-radius: var(--radius-overlay);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+}
+
+/* ── GUI 插件列表（每插件一张 Card）── */
+.pluginList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pluginCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  animation: cardIn var(--dur-slow) var(--ease-fluent) backwards;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 图标占位：强调色软底圆角方块 */
+.pluginIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-overlay);
+  background: var(--accent-soft);
+  color: var(--accent, var(--accent-fallback));
+}
+
+.pluginIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.pluginBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pluginName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pluginTitle {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+
+.pluginMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  min-width: 0;
+}
+
+.pluginId {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pluginReason {
+  font-family: var(--font-sans);
+}
+
+/* 具名视图列表：标签 + 逐项（替代原内联 marginRight） */
+.pluginViews {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+.viewsLabel {
+  color: var(--text-tertiary);
+}
+
+.viewItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.viewSlots {
+  color: var(--text-tertiary);
+}
+
+.pluginActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+/* ── 列表加载中 ── */
+.listLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8) 0;
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+/* ── 核心插件列表 ── */
+.coreEmpty {
+  font-size: var(--text-body);
+  color: var(--text-tertiary);
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+}
+
+.coreItem {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.coreItem:last-child {
+  border-bottom: none;
+}
+
+.coreItemId {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}

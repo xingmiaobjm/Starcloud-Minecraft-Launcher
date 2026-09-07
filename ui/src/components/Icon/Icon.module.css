@@ -1,0 +1,10 @@
+/* Icon —— Morphicons 元素适配 */
+morph-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: fit-content;
+  height: fit-content;
+  line-height: 0;
+}

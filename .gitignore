@@ -15,6 +15,9 @@ logs/
 launcher_data/
 plugins/
 
+# 打包产物归档（releases/ 存放所有历史安装包）
+/releases/
+
 # 本地环境
 .env
 .env.local
@@ -22,3 +25,31 @@ plugins/
 .idea/
 .DS_Store
 Thumbs.db
+
+# .NET / WinUI 3
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/.vs/
+dotnet/**/*.user
+dotnet/AppPackages/
+
+# 临时构建与调试输出
+/build_log.txt
+/build_output.txt
+/launch_output.txt
+/tauri_build_log.txt
+/src-tauri/cargo_build_log.txt
+/test_output.txt
+/stdout.txt
+/stderr.txt
+/ui/mirror_test_out.txt
+/adoptium_response.json
+/glass-check.png
+
+# 本地工具状态与素材库
+/.agents/
+/.impeccable/
+/.trae/
+/skills-lock.json
+/package.json
+/MC-Icons/

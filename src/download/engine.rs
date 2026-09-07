@@ -1,5 +1,5 @@
 use crate::error::{LauncherError, Result};
-use crate::version::manifest::ExtractConfig;
+use crate::version::manifest::{ArgumentValue, ArgumentValueInner, ExtractConfig, VersionDetails};
 use std::path::Path;
 
 /// 下载引擎 - 调度版本、资源、库的下载
@@ -43,6 +43,38 @@ impl DownloadEngine {
             .join("versions")
             .join(version_id)
             .join("natives")
+    }
+
+    /// 版本对应的 natives 解压目录：
+    /// 新式布局（1.21.9+/26.x，jvm 参数引用 `${natives_directory}/java`）→ `{natives}/java`；
+    /// 旧式布局（≤1.21.8，`-Djava.library.path=${natives_directory}`）→ `{natives}`。
+    pub fn version_natives_dir(&self, details: &VersionDetails) -> std::path::PathBuf {
+        let base = self.natives_dir(&details.id);
+        if self.uses_natives_subdir(details) {
+            base.join("java")
+        } else {
+            base
+        }
+    }
+
+    /// 新式 natives 子目录布局检测：jvm 参数里出现 `${natives_directory}/`。
+    fn uses_natives_subdir(&self, details: &VersionDetails) -> bool {
+        details
+            .arguments
+            .as_ref()
+            .map(|a| {
+                a.jvm.iter().any(|arg| {
+                    let s = match arg {
+                        ArgumentValue::Simple(s) => s.clone(),
+                        ArgumentValue::Conditional(c) => match &c.value {
+                            ArgumentValueInner::Single(s) => s.clone(),
+                            ArgumentValueInner::Multiple(v) => v.join(" "),
+                        },
+                    };
+                    s.contains("${natives_directory}/")
+                })
+            })
+            .unwrap_or(false)
     }
 
     /// 获取客户端 jar 路径（versions/{id}/{id}.jar）

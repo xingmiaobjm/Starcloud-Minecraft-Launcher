@@ -1,0 +1,29 @@
+/* Card — Fluent 卡片 */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4) var(--space-5);
+  transition: background var(--dur-fast) var(--ease-fluent),
+    box-shadow var(--dur-fast) var(--ease-fluent);
+}
+
+.noPadding {
+  padding: 0;
+  overflow: hidden;
+}
+
+.interactive {
+  cursor: pointer;
+
+  &:hover {
+    background: var(--bg-card-hover);
+    box-shadow: var(--shadow-flyout);
+  }
+
+  &:active {
+    background: var(--bg-layer-pressed);
+    box-shadow: var(--shadow-card);
+  }
+}

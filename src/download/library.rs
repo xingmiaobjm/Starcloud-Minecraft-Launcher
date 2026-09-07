@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Semaphore;
 
 /// 库文件下载器
 pub struct LibraryDownloader {
@@ -85,6 +86,17 @@ impl LibraryDownloader {
             // 新式 native 库：名称含 `:natives-` classifier（1.13+ 独立条目，无 natives 字段）
             let is_native = lib.name.contains(":natives-");
 
+            // 新式 native 需按当前架构挑选 classifier：新版 manifest 对
+            // natives-windows / natives-windows-arm64 / natives-windows-x86 只给 os 规则、
+            // 不给 arch 规则，若不过滤会把全架构 dll 解压进同一目录互相覆盖。
+            if is_native {
+                let classifier = lib.name.rsplit(':').next().unwrap_or("");
+                let cf = classifier.strip_prefix("natives-").unwrap_or(classifier);
+                if !native_classifier_matches(cf, &self.os_name, &self.os_arch) {
+                    continue;
+                }
+            }
+
             // 解析下载条目（新版 downloads.artifact / 旧版 url 回退）
             let artifact = resolve_artifact(lib);
 
@@ -133,23 +145,27 @@ impl LibraryDownloader {
             tracker.begin_stage("下载库文件", total_bytes);
         }
 
-        // 分批并发下载（统一走 HttpClient：超时 + 重试 + 连接池）
-        for batch in download_queue.chunks(self.concurrency) {
-            let mut tasks = Vec::new();
-            for (artifact, path) in batch {
-                let http = http.clone();
-                let path = path.clone();
-                let artifact = artifact.clone();
-                tasks.push(tokio::spawn(async move {
-                    download_single_library(&http, &artifact, &path).await
-                }));
-            }
-            for task in tasks {
-                let size = task.await??;
-                if let Some(tracker) = &self.tracker {
+        // Semaphore 全量并发：所有任务一次性 spawn，Semaphore 控制并发数
+        let semaphore = Arc::new(Semaphore::new(self.concurrency));
+        let mut handles = Vec::with_capacity(download_queue.len());
+
+        for (artifact, path) in download_queue {
+            let permit = semaphore.clone().acquire_owned();
+            let http = http.clone();
+            let tracker = self.tracker.clone();
+            let handle = tokio::spawn(async move {
+                let _permit = permit.await;
+                let size = download_single_library(&http, &artifact, &path).await?;
+                if let Some(tracker) = &tracker {
                     tracker.add_progress(size);
                 }
-            }
+                Ok::<_, LauncherError>(size)
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await??;
         }
 
         // 解压 native 库（清空旧目录，避免残留旧版本文件）
@@ -288,6 +304,27 @@ fn check_rules(rules: Option<&Vec<Rule>>, os_name: &str, os_arch: &str) -> bool 
     }
 
     allowed
+}
+
+/// 新式 native 库 classifier 的架构匹配。
+///
+/// classifier 形如 `windows` / `windows-arm64` / `windows-x86` / `macos-arm64`。
+/// 无架构后缀 = 默认 x64；需与当前 os_arch（std::env::consts::ARCH）一致才保留，
+/// 避免全架构 dll 解压进同一目录同名覆盖。
+fn native_classifier_matches(classifier: &str, os_name: &str, os_arch: &str) -> bool {
+    let expected_os = match os_name {
+        "windows" => "windows",
+        "osx" => "macos",
+        "linux" => "linux",
+        other => return classifier == other,
+    };
+    match classifier.strip_prefix(&format!("{}-", expected_os)) {
+        // 无架构后缀 = 默认 x64（aarch64 上有独立 arm64 classifier，x64 上则用无后缀）
+        None => classifier == expected_os && (os_arch == "x86_64" || os_arch == "x64"),
+        Some("arm64") => os_arch == "aarch64" || os_arch == "arm64",
+        Some("x86") => os_arch == "x86",
+        Some(_) => false,
+    }
 }
 
 /// 检测当前操作系统名称（Mojang 格式）
@@ -436,5 +473,28 @@ mod tests {
         );
         // 旧版回退无 sha1
         assert!(artifact.sha1.is_empty());
+    }
+
+    #[test]
+    fn test_native_classifier_matches() {
+        // Windows x64：只保留无后缀的 natives-windows
+        assert!(native_classifier_matches("windows", "windows", "x86_64"));
+        assert!(!native_classifier_matches("windows-arm64", "windows", "x86_64"));
+        assert!(!native_classifier_matches("windows-x86", "windows", "x86_64"));
+        // Windows arm64：保留 natives-windows-arm64
+        assert!(!native_classifier_matches("windows", "windows", "aarch64"));
+        assert!(native_classifier_matches("windows-arm64", "windows", "aarch64"));
+        // Windows x86
+        assert!(native_classifier_matches("windows-x86", "windows", "x86"));
+        // macOS：x64 用 macos，arm64 用 macos-arm64
+        assert!(native_classifier_matches("macos", "osx", "x86_64"));
+        assert!(!native_classifier_matches("macos-arm64", "osx", "x86_64"));
+        assert!(!native_classifier_matches("macos", "osx", "aarch64"));
+        assert!(native_classifier_matches("macos-arm64", "osx", "aarch64"));
+        // Linux
+        assert!(native_classifier_matches("linux", "linux", "x86_64"));
+        // 平台不匹配
+        assert!(!native_classifier_matches("windows", "osx", "x86_64"));
+        assert!(!native_classifier_matches("linux", "windows", "x86_64"));
     }
 }

@@ -1,0 +1,397 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Settings — Fluent Native（Win11 设置页：分组卡片 + 左标签右控件行式布局）
+   页面骨架使用全局 .page / .page-header
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 加载态 ── */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10) 0;
+}
+
+/* ── 未保存更改条（吸顶，始终可见）── */
+.dirtyBar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  background: var(--bg-canvas);
+}
+.dirtyNotice {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── 分组（Win11：组标题在卡片外）── */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.groupTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  padding-left: var(--space-1);
+}
+
+/* ── 行布局：紧凑行（左文本右控件，min-height 48px）与展开行（控件换行到下方）── */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 48px;
+  padding: var(--space-1) 0;
+}
+.rowStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rowTitle {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+.rowDesc {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+.rowHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.rowWide {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── 控件尺寸 ── */
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.customJavaInput {
+  margin-top: var(--space-1);
+}
+.numInput {
+  width: 128px;
+  flex-shrink: 0;
+}
+.compactSelect {
+  width: 150px;
+  flex-shrink: 0;
+}
+.langSelect {
+  width: 168px;
+  flex-shrink: 0;
+}
+
+/* ── 分隔线 ── */
+.divider {
+  border-top: 1px solid var(--stroke-divider);
+  margin: var(--space-2) 0;
+}
+
+/* ── 滑块行 ── */
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 32px;
+}
+.sliderLabel {
+  flex-shrink: 0;
+  width: 64px;
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+.sliderGrow {
+  flex: 1;
+  min-width: 0;
+}
+.sliderValue {
+  flex-shrink: 0;
+  min-width: 72px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Java 下载进度（阶段文本 + 不确定进度；后端暂不推送字节级进度）── */
+.javaProgress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.javaProgressHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+.indeterminate {
+  position: relative;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--stroke-divider);
+  overflow: hidden;
+}
+.indeterminate > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: var(--radius-full);
+  background: var(--accent, var(--accent-fallback));
+  animation: javaSlide calc(var(--dur-slow) * 4) var(--ease-fluent) infinite;
+}
+@keyframes javaSlide {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+
+/* ── Java 运行时列表 ── */
+.javaList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.javaItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.javaItem + .javaItem {
+  border-top: 1px solid var(--stroke-divider);
+}
+.javaInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.javaMain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.javaVer {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.javaPath {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.emptyHint {
+  padding: var(--space-3) 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  line-height: var(--leading-normal);
+}
+
+/* ── 下载源 ── */
+.srcPicker {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.srcOpt {
+  padding: 5px var(--space-3);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-control);
+  background: var(--bg-control);
+  border: 1px solid var(--stroke-control);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+.srcOpt:hover {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
+}
+.srcOptActive {
+  background: var(--accent-soft);
+  border-color: var(--accent, var(--accent-fallback));
+  color: var(--accent, var(--accent-fallback));
+}
+.srcOptActive:hover {
+  background: var(--accent-soft-hover);
+}
+
+.srcTable {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 72px minmax(0, 1.2fr);
+  border: 1px solid var(--stroke-divider);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.srcRow {
+  display: contents;
+}
+.srcRow > span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-caption);
+  border-top: 1px solid var(--stroke-divider);
+  color: var(--text-secondary);
+}
+.srcRow:first-child > span {
+  border-top: none;
+}
+.srcRowActive > span {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+.srcName {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srcNow {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent, var(--accent-fallback));
+  color: var(--accent-contrast);
+}
+.srcOk {
+  color: var(--color-success);
+  font-weight: var(--weight-medium);
+}
+.srcBad {
+  color: var(--color-danger);
+  font-weight: var(--weight-medium);
+}
+.srcSpeed {
+  font-family: var(--font-mono);
+  justify-content: flex-end;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 开发者日志 ── */
+.devLog {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--stroke-divider);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* ── 页脚版本 ── */
+.footerVersion {
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--stroke-divider);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  text-align: center;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ── 主题色色板 ── */
+.swatchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--swatch-color, var(--accent, var(--accent-fallback)));
+  color: var(--swatch-contrast, #fff);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent), box-shadow var(--dur-fast) var(--ease-fluent);
+}
+
+.swatch:hover {
+  transform: scale(1.12);
+}
+
+.swatch:active {
+  transform: scale(0.95);
+}
+
+.swatchActive {
+  border-color: var(--text-primary);
+  box-shadow: var(--shadow-card);
+}
+
+.swatchSystem {
+  font-family: var(--font-display);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+}
+
+.swatchCheck {
+  color: var(--swatch-contrast, #fff);
+}

@@ -1,0 +1,223 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Design Tokens — Fluent Native（Windows 11 设计语言）
+   工艺基准：Microsoft Store + Windows 11 设置
+   Mica 分层表面 · Segoe UI Variable 字体栈 · 系统强调色 · 4/8px 圆角
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Accent: 跟随系统强调色 ──
+     先给确定性回退，再用 @supports 启用系统 AccentColor：
+     自定义属性"已定义即不走 var() fallback"，浏览器不支持 AccentColor
+     关键字时若直接声明会导致全部回退失效（变量持有非法值） */
+  --accent: var(--accent-fallback);
+  --accent-text: var(--accent-contrast);
+  --accent-fallback: #0067c0;
+  --accent-hover: color-mix(in srgb, var(--accent, var(--accent-fallback)) 92%, black);
+  --accent-pressed: color-mix(in srgb, var(--accent, var(--accent-fallback)) 85%, black);
+  --accent-soft: color-mix(in srgb, var(--accent, var(--accent-fallback)) 10%, transparent);
+  --accent-soft-hover: color-mix(in srgb, var(--accent, var(--accent-fallback)) 15%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent, var(--accent-fallback)) 45%, transparent);
+  /* 深色底上的强调色文字（浅色主题=白，深色主题=黑） */
+  --accent-contrast: #ffffff;
+
+  /* ── Semantic status（Fluent 信号色，仅作状态信号）── */
+  --color-success: #0f7b0f;
+  --color-success-solid: #0f7b0f;
+  --color-warning: #9d5d00;
+  --color-warning-solid: #f8cc00;
+  --color-danger: #c42b1c;
+  --color-danger-hover: color-mix(in srgb, var(--color-danger) 92%, black);
+  --color-danger-pressed: color-mix(in srgb, var(--color-danger) 85%, black);
+  --color-danger-soft: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  --color-info: var(--accent, var(--accent-fallback));
+
+  /* ── Surface: Mica 分层 ── */
+  --bg-canvas: #f3f3f3;
+  --bg-layer: #ffffff;
+  --bg-layer-hover: rgba(249, 249, 249, 0.5);
+  --bg-layer-pressed: rgba(249, 249, 249, 0.3);
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-subtle: #f9f9f9;
+  --bg-flyout: #f9f9f9;
+  --bg-smoke: rgba(0, 0, 0, 0.3);
+  --bg-control: rgba(255, 255, 255, 0.7);
+  --bg-control-hover: rgba(249, 249, 249, 0.5);
+  --bg-control-pressed: rgba(249, 249, 249, 0.3);
+  --bg-control-disabled: rgba(249, 249, 249, 0.3);
+
+  /* ── Text ── */
+  --text-primary: rgba(0, 0, 0, 0.896);
+  --text-secondary: rgba(0, 0, 0, 0.606);
+  --text-tertiary: rgba(0, 0, 0, 0.446);
+  --text-disabled: rgba(0, 0, 0, 0.361);
+  --text-placeholder: rgba(0, 0, 0, 0.446);
+  --text-inverse: #ffffff;
+
+  /* ── Stroke ── */
+  --stroke-card: rgba(117, 117, 117, 0.4);
+  --stroke-divider: rgba(0, 0, 0, 0.0803);
+  --stroke-control: rgba(0, 0, 0, 0.0578);
+  --stroke-control-strong: rgba(0, 0, 0, 0.4458);
+  --stroke-flyout: rgba(0, 0, 0, 0.0578);
+  --stroke-focus-outer: #000000;
+  --stroke-focus-inner: #ffffff;
+
+  /* ── Elevation（WinUI 阴影阶梯）── */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-flyout: 0 4px 8px rgba(0, 0, 0, 0.1), 0 0 2px rgba(0, 0, 0, 0.1);
+  --shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.19), 0 2px 21px rgba(0, 0, 0, 0.14);
+  --shadow-tooltip: 0 4px 14px rgba(0, 0, 0, 0.18);
+
+  /* ── Radius（Win11: 控件 4 / 浮层与对话框 8 / 窗口 8）── */
+  --radius-control: 4px;
+  --radius-overlay: 8px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* ── Spacing ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── Typography: Segoe UI Variable ramp ── */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system,
+    BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "PingFang SC",
+    "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", "Consolas", "SF Mono",
+    "JetBrains Mono", monospace;
+
+  --text-caption: 12px;
+  --text-body: 14px;
+  --text-body-strong: 14px;
+  --text-body-large: 16px;
+  --text-subtitle: 20px;
+  --text-title: 28px;
+
+  --weight-normal: 400;
+  --weight-medium: 590;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.25;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.02em;
+
+  /* ── Controls（Win11 控件几何）── */
+  --control-height-sm: 26px;
+  --control-height: 32px;
+  --control-height-lg: 40px;
+  --focus-ring-width: 2px;
+
+  /* ── Acrylic（仅浮层：菜单/下拉/工具提示）── */
+  --blur-flyout: blur(30px) saturate(125%);
+
+  /* ── Motion（Fluent 标准曲线与时长；时长一律除以 --anim-scale）── */
+  --ease-fluent: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --ease-fluent-in: cubic-bezier(0.7, 0, 1, 0.5);
+  --ease-out: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --ease-in: cubic-bezier(0.7, 0, 1, 0.5);
+  --ease-in-out: cubic-bezier(0.8, 0, 0.2, 1);
+  --dur-fast: calc(0.1s / var(--anim-scale));
+  --dur-normal: calc(0.15s / var(--anim-scale));
+  --dur-slow: calc(0.3s / var(--anim-scale));
+
+  /* ── Layout ── */
+  --titlebar-height: 44px;
+  --sidebar-width: 64px;
+  --sidebar-width-expanded: 216px;
+  --statusbar-height: 36px;
+  --content-padding: 28px;
+
+  /* ── Z-index 阶梯 ── */
+  --z-nav: 10;
+  --z-float: 50;
+  --z-drawer: 90;
+  --z-drawer-backdrop: 89;
+  --z-dialog: 100;
+  --z-dialog-backdrop: 99;
+  --z-context: 120;
+  --z-toast: 130;
+
+  /* ── Animation scale ── */
+  --anim-scale: 1;
+}
+
+/* 系统强调色支持时启用（WebView2 Chromium 93+ / 生产环境生效）；
+   用户选了主题色（--accent-user）时始终优先于系统色 */
+@supports (color: AccentColor) {
+  :root {
+    --accent: var(--accent-user, AccentColor);
+    --accent-text: var(--accent-user-text, AccentColorText);
+  }
+}
+
+/* ── Dark Theme（Win11 深色 Mica）── */
+[data-theme="dark"] {
+  --accent-contrast: #000000;
+
+  --bg-canvas: #202020;
+  --bg-layer: #2b2b2b;
+  --bg-layer-hover: rgba(255, 255, 255, 0.0605);
+  --bg-layer-pressed: rgba(255, 255, 255, 0.0419);
+  --bg-card: #2b2b2b;
+  --bg-card-hover: #323232;
+  --bg-subtle: #272727;
+  --bg-flyout: #2c2c2c;
+  --bg-smoke: rgba(0, 0, 0, 0.42);
+  --bg-control: rgba(255, 255, 255, 0.0605);
+  --bg-control-hover: rgba(255, 255, 255, 0.0837);
+  --bg-control-pressed: rgba(255, 255, 255, 0.0326);
+  --bg-control-disabled: rgba(255, 255, 255, 0.0419);
+
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.786);
+  --text-tertiary: rgba(255, 255, 255, 0.544);
+  --text-disabled: rgba(255, 255, 255, 0.3628);
+  --text-placeholder: rgba(255, 255, 255, 0.544);
+  --text-inverse: #000000;
+
+  --stroke-card: rgba(255, 255, 255, 0.0698);
+  --stroke-divider: rgba(255, 255, 255, 0.0837);
+  --stroke-control: rgba(255, 255, 255, 0.0698);
+  --stroke-control-strong: rgba(255, 255, 255, 0.544);
+  --stroke-flyout: rgba(255, 255, 255, 0.0837);
+  --stroke-focus-outer: #ffffff;
+  --stroke-focus-inner: #000000;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-flyout: 0 4px 8px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.26);
+  --shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.37), 0 2px 21px rgba(0, 0, 0, 0.28);
+  --shadow-tooltip: 0 4px 14px rgba(0, 0, 0, 0.36);
+
+  --color-success: #6ccb5f;
+  --color-warning: #fce100;
+  --color-danger: #ff99a4;
+  --color-danger-soft: color-mix(in srgb, #ff99a4 12%, transparent);
+  --color-info: color-mix(in srgb, var(--accent, var(--accent-fallback)) 70%, #4cc2ff);
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --anim-scale: 0;
+  }
+}
+
+/* ── No animation override ── */
+.no-anim {
+  --anim-scale: 0;
+}
