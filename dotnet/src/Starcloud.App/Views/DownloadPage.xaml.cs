@@ -118,7 +118,20 @@ public sealed partial class DownloadPage : Page
         var isVanilla = CurrentCategory == "vanilla";
         VanillaPanel.Visibility = isVanilla ? Visibility.Visible : Visibility.Collapsed;
         CommunityPanel.Visibility = isVanilla ? Visibility.Collapsed : Visibility.Visible;
-        if (!isVanilla) _ = EnsureCommunityAsync();
+        if (isVanilla) return;
+
+        if (_communityInit)
+        {
+            // 分区切换（如 Mod → 整合包）：重建筛选控件并重新搜索，否则内容停留在上一个分区
+            _suppress = true;
+            try { RebuildFilterRows(); }
+            finally { _suppress = false; }
+            _ = SearchAsync(reset: true);
+        }
+        else
+        {
+            _ = EnsureCommunityAsync();
+        }
     }
 
     // ════════════ 原版：清单与筛选 ════════════
