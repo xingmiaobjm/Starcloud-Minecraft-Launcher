@@ -126,7 +126,7 @@
                         <Border Grid.Row="1"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1" CornerRadius="8" Padding="4">
+                                BorderThickness="1" CornerRadius="16" Padding="4">
                             <ListView x:Name="VersionList" SelectionMode="Single"
                                       IsItemClickEnabled="True" ItemClick="VersionList_ItemClick">
                                 <ListView.ItemContainerStyle>
@@ -186,25 +186,25 @@
                         <Border Grid.Row="1"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1" CornerRadius="16" Padding="16,8">
+                                BorderThickness="1" CornerRadius="16" Padding="16">
                             <StackPanel MaxWidth="680" HorizontalAlignment="Left">
-                                <TextBlock Text="安装加载器（可选）" FontWeight="SemiBold" Margin="0,6,0,4" />
-                                <Grid Padding="0,10" ColumnSpacing="16"
+                                <TextBlock Text="安装加载器（可选）" FontWeight="SemiBold" />
+                                <Grid Padding="0,12" ColumnSpacing="16"
                                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                       BorderThickness="0,0,0,1">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="Forge" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="ForgeCombo" Grid.Column="1" MinWidth="260"
-                                              HorizontalAlignment="Right" />
-                                    <TextBlock x:Name="ForgeStatus" Grid.Column="1" Text="无"
-                                               VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               Visibility="Collapsed" />
+                                    <TextBlock x:Name="ForgeStatus" Grid.Column="1" Text="获取中…"
+                                               Margin="0,0,12,0" VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ComboBox x:Name="ForgeCombo" Grid.Column="2" MinWidth="260"
+                                              HorizontalAlignment="Right" Visibility="Collapsed" />
                                 </Grid>
-                                <Grid Padding="0,10" ColumnSpacing="16"
+                                <Grid Padding="0,12" ColumnSpacing="16"
                                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                       BorderThickness="0,0,0,1">
                                     <Grid.ColumnDefinitions>
@@ -213,28 +213,28 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="NeoForge" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="NeoForgeCombo" Grid.Column="2" MinWidth="260"
-                                              HorizontalAlignment="Right" />
                                     <TextBlock x:Name="NeoForgeStatus" Grid.Column="1" Text="获取中…"
                                                Margin="0,0,12,0" VerticalAlignment="Center"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ComboBox x:Name="NeoForgeCombo" Grid.Column="2" MinWidth="260"
+                                              HorizontalAlignment="Right" Visibility="Collapsed" />
                                 </Grid>
-                                <Grid Padding="0,10" ColumnSpacing="16"
+                                <Grid Padding="0,12" ColumnSpacing="16"
                                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                       BorderThickness="0,0,0,1">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="Fabric" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="FabricCombo" Grid.Column="1" MinWidth="260"
-                                              HorizontalAlignment="Right" />
-                                    <TextBlock x:Name="FabricStatus" Grid.Column="1" Text="无"
-                                               VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               Visibility="Collapsed" />
+                                    <TextBlock x:Name="FabricStatus" Grid.Column="1" Text="获取中…"
+                                               Margin="0,0,12,0" VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ComboBox x:Name="FabricCombo" Grid.Column="2" MinWidth="260"
+                                              HorizontalAlignment="Right" Visibility="Collapsed" />
                                 </Grid>
-                                <Grid Padding="0,10" ColumnSpacing="16">
+                                <Grid Padding="0,12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />

@@ -17,19 +17,27 @@
             <Color x:Key="SystemAccentColorDark2">#B78600</Color>
             <Color x:Key="SystemAccentColorDark3">#8F6800</Color>
 
-            <!-- 大圆角：控件（按钮/输入框）8，弹出层 12 -->
+            <!-- 大圆角：控件（按钮/输入框）8，卡片 16，弹出层 12 -->
             <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+            <CornerRadius x:Key="CardCornerRadius">16</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
 
             <!-- 品牌蓝 #B0CCF1：深色主题直接使用；浅色主题加深同色相以保证对比度 -->
+            <!-- 品牌黄 #FFB900 亮度高，浅/深主题下 accent 面上必须用黑字（默认白字对比仅约 1.6:1） -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="BrandBlueBrush" Color="#4C7FC4" />
                     <SolidColorBrush x:Key="BrandTintBrush" Color="#33B0CCF1" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E6000000" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B3000000" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C000000" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="BrandBlueBrush" Color="#B0CCF1" />
                     <SolidColorBrush x:Key="BrandTintBrush" Color="#26B0CCF1" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E6000000" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B3000000" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C000000" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

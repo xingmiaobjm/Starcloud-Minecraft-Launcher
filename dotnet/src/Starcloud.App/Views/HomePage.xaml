@@ -80,7 +80,7 @@
                     <Border Grid.Row="1"
                             Background="{ThemeResource LayerFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="6">
+                            BorderThickness="1" CornerRadius="8">
                         <Grid>
                             <ListView x:Name="VersionList" SelectionMode="Single" Padding="4"
                                       SelectionChanged="VersionList_SelectionChanged">
@@ -153,24 +153,36 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="TileDownload_Click">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="下载版本" FontWeight="SemiBold" />
-                        <TextBlock Text="获取官方版本与加载器" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE896;" FontSize="18"
+                                  Foreground="{ThemeResource BrandBlueBrush}" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="下载版本" FontWeight="SemiBold" />
+                            <TextBlock Text="获取官方版本与加载器" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="1" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="TileMods_Click">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="模组资源" FontWeight="SemiBold" />
-                        <TextBlock Text="搜索并安装 Mod 与整合包" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE71D;" FontSize="18"
+                                  Foreground="{ThemeResource BrandBlueBrush}" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="模组资源" FontWeight="SemiBold" />
+                            <TextBlock Text="搜索并安装 Mod 与整合包" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="2" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="TileMultiplayer_Click">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="好友联机" FontWeight="SemiBold" />
-                        <TextBlock Text="无需公网 IP，一键开黑（规划中）" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE716;" FontSize="18"
+                                  Foreground="{ThemeResource BrandBlueBrush}" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="好友联机" FontWeight="SemiBold" />
+                            <TextBlock Text="无需公网 IP，一键开黑（规划中）" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
                 </Button>
             </Grid>
@@ -180,7 +192,7 @@
         <Border Grid.Column="1"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1" CornerRadius="8" Padding="20">
+                BorderThickness="1" CornerRadius="16" Padding="20">
             <Grid RowSpacing="14">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />

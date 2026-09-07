@@ -5,15 +5,22 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     NavigationCacheMode="Disabled">
 
-    <Grid RowSpacing="12">
+    <Grid MaxWidth="1000" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="启动器日志" FontSize="28" FontWeight="SemiBold" />
+
+        <!-- 页头 -->
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="启动器日志" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="应用运行与启动过程的详细输出"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+
         <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1" CornerRadius="8" Padding="12">
+                BorderThickness="1" CornerRadius="16" Padding="12">
             <ScrollViewer x:Name="LogScroll">
                 <TextBlock x:Name="LogText" FontFamily="Cascadia Code" FontSize="12"
                            IsTextSelectionEnabled="True" TextWrapping="Wrap" />

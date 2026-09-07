@@ -80,7 +80,7 @@
                         <StackPanel x:Name="SectionGame" Spacing="16">
                             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="8" Padding="16">
+                                    BorderThickness="1" CornerRadius="16" Padding="16">
                                 <StackPanel Spacing="12">
                                     <TextBlock Text="游戏目录" FontWeight="SemiBold" />
                                     <TextBox x:Name="DotMcBox" PlaceholderText=".minecraft 目录路径" />
@@ -116,7 +116,7 @@
                         <StackPanel x:Name="SectionJava" Spacing="16" Visibility="Collapsed">
                             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="8" Padding="16">
+                                    BorderThickness="1" CornerRadius="16" Padding="16">
                                 <StackPanel Spacing="12">
                                     <TextBlock Text="Java 运行时" FontWeight="SemiBold" />
                                     <TextBlock Text="留空使用系统 java；亦可下载启动器托管的 Java"

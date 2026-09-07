@@ -15,7 +15,7 @@
         <!-- 标题栏：品牌左 + 系统按钮右（ExtendsContentIntoTitleBar） -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="10">
-                <FontIcon Glyph="&#xE728;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <FontIcon Glyph="&#xE728;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
                 <TextBlock Text="Starcloud" FontWeight="SemiBold" FontSize="14"
                            VerticalAlignment="Center" />
             </StackPanel>
