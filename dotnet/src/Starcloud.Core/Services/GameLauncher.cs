@@ -16,7 +16,11 @@ public sealed record LaunchOptions(
     int MaxMemoryMb,
     string? JavaExecutable,
     List<string> ExtraJvmArgs,
-    bool UseBuiltinJvmArgs);
+    bool UseBuiltinJvmArgs,
+    LaunchCredentials? Credentials = null);
+
+/// <summary>已认证账户凭据（微软账户）；离线账户传 null 走 OfflineUuid 回退</summary>
+public sealed record LaunchCredentials(string Uuid, string AccessToken, string UserType, string? Xuid = null);
 
 public sealed class GameLauncher
 {
@@ -54,6 +58,9 @@ public sealed class GameLauncher
 
         // 参数替换
         var assets = version.Assets ?? version.AssetIndex?.Id ?? "legacy";
+        var cred = options.Credentials;
+        var authUuid = cred?.Uuid ?? OfflineUuid(options.PlayerName).ToString("N");
+        var authToken = cred?.AccessToken ?? "0";
         var vars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["auth_player_name"] = options.PlayerName,
@@ -62,12 +69,12 @@ public sealed class GameLauncher
             ["assets_root"] = Path.Combine(dotMc, "assets"),
             ["game_assets"] = Path.Combine(dotMc, "assets", "virtual", assets),
             ["assets_index_name"] = version.AssetIndex?.Id ?? assets,
-            ["auth_uuid"] = OfflineUuid(options.PlayerName).ToString("N"),
-            ["auth_access_token"] = "0",
-            ["auth_session"] = "token:0:0",
-            ["auth_xuid"] = "0",
+            ["auth_uuid"] = authUuid,
+            ["auth_access_token"] = authToken,
+            ["auth_session"] = $"token:{authToken}:{authUuid}",
+            ["auth_xuid"] = cred?.Xuid ?? "0",
             ["clientid"] = "starcloud",
-            ["user_type"] = "msa",
+            ["user_type"] = cred?.UserType ?? "msa",
             ["user_properties"] = "{}",
             ["version_type"] = version.Type ?? "release",
             ["launcher_name"] = "Starcloud",
@@ -142,9 +149,9 @@ public sealed class GameLauncher
                 gameArgs.Add("--gameDir"); gameArgs.Add(options.GameDir);
                 gameArgs.Add("--assetsDir"); gameArgs.Add(Path.Combine(dotMc, "assets"));
                 gameArgs.Add("--assetIndex"); gameArgs.Add(version.AssetIndex?.Id ?? assets);
-                gameArgs.Add("--uuid"); gameArgs.Add(OfflineUuid(options.PlayerName).ToString("N"));
-                gameArgs.Add("--accessToken"); gameArgs.Add("0");
-                gameArgs.Add("--userType"); gameArgs.Add("msa");
+                gameArgs.Add("--uuid"); gameArgs.Add(authUuid);
+                gameArgs.Add("--accessToken"); gameArgs.Add(authToken);
+                gameArgs.Add("--userType"); gameArgs.Add(cred?.UserType ?? "msa");
                 gameArgs.Add("--versionType"); gameArgs.Add(version.Type ?? "release");
             }
         }

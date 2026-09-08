@@ -135,7 +135,8 @@ public sealed class MicrosoftAuthService
 
     public sealed record DeviceCodeInfo(string UserCode, string DeviceCode, string VerificationUri, int Interval);
 
-    public sealed record LoginResult(string Username, string Uuid, string AccessToken, string? RefreshToken);
+    public sealed record LoginResult(string Username, string Uuid, string AccessToken,
+        string? RefreshToken, string? Xuid = null);
 
     public async Task<DeviceCodeInfo> StartDeviceCodeAsync(CancellationToken ct = default)
     {
@@ -180,6 +181,27 @@ public sealed class MicrosoftAuthService
             ? rt.GetString() : null;
         var result = await AuthenticateWithMicrosoftTokenAsync(accessToken, refreshToken, ct);
         return ("success", "登录成功", result);
+    }
+
+    /// <summary>用 refresh_token 续期并重走认证链；refresh_token 失效返回 null（需重新设备码登录），
+    /// 网络异常原样抛出由调用方决定降级策略。</summary>
+    public async Task<LoginResult?> RefreshAsync(string refreshToken, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = ClientId,
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = refreshToken,
+                ["scope"] = "XboxLive.signin offline_access",
+            }), ct);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        if (doc.RootElement.TryGetProperty("error", out var error)) return null;
+        var accessToken = doc.RootElement.GetProperty("access_token").GetString()!;
+        var newRefresh = doc.RootElement.TryGetProperty("refresh_token", out var rt)
+            ? rt.GetString() : refreshToken;
+        return await AuthenticateWithMicrosoftTokenAsync(accessToken, newRefresh, ct);
     }
 
     private async Task<LoginResult> AuthenticateWithMicrosoftTokenAsync(
@@ -233,6 +255,7 @@ public sealed class MicrosoftAuthService
         var username = profileDoc.RootElement.GetProperty("name").GetString()!;
         var uuid = profileDoc.RootElement.GetProperty("id").GetString()!;
 
-        return new LoginResult(username, uuid, mcToken, refreshToken);
+        // uhs 即该用户的 xuid（十进制字符串），随启动参数 --xuid 传递
+        return new LoginResult(username, uuid, mcToken, refreshToken, uhs);
     }
 }

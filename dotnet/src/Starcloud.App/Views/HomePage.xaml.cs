@@ -212,23 +212,40 @@ public sealed partial class HomePage : Page
         var versionId = (VersionList.SelectedItem as VersionRow)?.Id;
         if (string.IsNullOrEmpty(versionId)) return;
 
-        var playerName = ResolvePlayerName();
-        if (string.IsNullOrWhiteSpace(playerName))
-        {
-            LocalErrorBar.Message = "请输入离线玩家名或选择账户";
-            LocalErrorBar.IsOpen = true;
-            return;
-        }
-
         LaunchBtn.IsEnabled = false;
         GlobalErrorBar.IsOpen = false;
         try
         {
+            string playerName;
+            LaunchCredentials? cred = null;
+            if (_mode == "microsoft")
+            {
+                StatusText.Text = "正在验证 Microsoft 凭据…";
+                StatusText.Visibility = Visibility.Visible;
+                var ms = await ResolveMicrosoftAccountAsync();
+                if (ms is null)
+                {
+                    StatusText.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                (playerName, cred) = ms.Value;
+            }
+            else
+            {
+                playerName = ResolvePlayerName();
+                if (string.IsNullOrWhiteSpace(playerName))
+                {
+                    LocalErrorBar.Message = "请输入离线玩家名或选择账户";
+                    LocalErrorBar.IsOpen = true;
+                    return;
+                }
+            }
+
             var options = new LaunchOptions(
                 versionId, playerName, _s.Settings.DotMinecraft,
                 _s.Settings.DefaultMinMemoryMb, _s.Settings.DefaultMaxMemoryMb,
                 _s.Settings.JavaExecutable, _s.Settings.ExtraJvmArgs,
-                _s.Settings.UseBuiltinJvmArgs);
+                _s.Settings.UseBuiltinJvmArgs, cred);
             _gameProcess = await _s.Launcher.LaunchVersionAsync(
                 _s.Settings.DotMinecraft, versionId, options);
             _gameProcess.Exited += (_, _) => _dq.TryEnqueue(() =>
@@ -239,7 +256,7 @@ public sealed partial class HomePage : Page
             });
             StatusText.Text = "游戏运行中";
             StatusText.Visibility = Visibility.Visible;
-            _s.Settings.LastUsername = playerName;
+            _s.Settings.LastUsername = _mode == "microsoft" ? "ms:" + playerName : playerName;
             _s.Settings.LastVersion = versionId;
             _s.Settings.Save();
         }
@@ -265,6 +282,39 @@ public sealed partial class HomePage : Page
         var fromCombo = _s.Accounts.Accounts.FirstOrDefault(
             a => a.Uuid == (AccountCombo.SelectedValue as string))?.Username;
         return fromCombo ?? PlayerNameBox.Text.Trim();
+    }
+
+    /// <summary>微软模式启动前解析凭据：优先 refresh_token 续期并回写存储；
+    /// 续期失效或网络异常时降级用存量 accessToken（1 小时有效期内）；
+    /// 无可用凭据返回 null（已设置错误提示）。</summary>
+    private async Task<(string Name, LaunchCredentials Cred)?> ResolveMicrosoftAccountAsync()
+    {
+        var uuid = AccountCombo.SelectedValue as string;
+        var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid && a.Type == "microsoft");
+        if (acc is null)
+        {
+            LocalErrorBar.Message = "尚无微软账户，请先到账户页登录";
+            LocalErrorBar.IsOpen = true;
+            return null;
+        }
+        if (!string.IsNullOrEmpty(acc.RefreshToken))
+        {
+            try
+            {
+                var r = await _s.MicrosoftAuth.RefreshAsync(acc.RefreshToken);
+                if (r is not null)
+                {
+                    _s.Accounts.AddOrUpdateMicrosoft(r.Uuid, r.Username, r.AccessToken, r.RefreshToken);
+                    return (r.Username, new LaunchCredentials(r.Uuid, r.AccessToken, "msa", r.Xuid));
+                }
+            }
+            catch { /* 网络异常：降级用存量 accessToken */ }
+        }
+        if (!string.IsNullOrEmpty(acc.AccessToken))
+            return (acc.Username, new LaunchCredentials(acc.Uuid, acc.AccessToken, "msa"));
+        LocalErrorBar.Message = $"{acc.Username} 的 Microsoft 登录已过期，请到账户页重新登录";
+        LocalErrorBar.IsOpen = true;
+        return null;
     }
 
     // ── 入口 ──

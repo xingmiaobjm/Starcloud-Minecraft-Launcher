@@ -25,7 +25,9 @@ if ($ClickName) {
         }
         if (-not $target) { Write-Output "FAIL: element '$nm' not found"; exit 1 }
         try { ($target.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() } catch {
-            try { ($target.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { Write-Output "FAIL: cannot invoke '$nm'"; exit 1 }
+            try { ($target.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch {
+                try { ($target.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)).Toggle() } catch { Write-Output "FAIL: cannot invoke '$nm'"; exit 1 }
+            }
         }
         Start-Sleep -Milliseconds 1200
         Write-Output ("CLICKED: {0}" -f $nm)
