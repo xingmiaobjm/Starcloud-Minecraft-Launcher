@@ -24,7 +24,9 @@ public sealed class AppServices
     public StarcloudIdService StarcloudId { get; }
     public GameDiagnosticsService Diagnostics { get; }
     public ModConflictService ModConflicts { get; }
-    public AiAssistantService Ai { get; }
+    public NovaPermissionStore NovaPermissions { get; }
+    public NovaActionLog NovaLog { get; }
+    public NovaService Nova { get; }
 
     private AppServices()
     {
@@ -45,7 +47,9 @@ public sealed class AppServices
         StarcloudId = new StarcloudIdService();
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         ModConflicts = new ModConflictService();
-        Ai = new AiAssistantService(StarcloudId, Mods, Diagnostics, ModConflicts);
+        NovaPermissions = new NovaPermissionStore();
+        NovaLog = new NovaActionLog();
+        Nova = new NovaService(StarcloudId, Mods, Diagnostics, ModConflicts, NovaPermissions, NovaLog);
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();

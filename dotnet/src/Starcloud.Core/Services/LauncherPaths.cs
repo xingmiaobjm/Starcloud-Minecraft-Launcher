@@ -18,6 +18,12 @@ public static class LauncherPaths
     /// <summary>Starcloud ID 会话（含云 AI 助手 API Key）</summary>
     public static string StarcloudIdFile => Path.Combine(DataDir, "starcloud-id.json");
 
+    /// <summary>Nova 动手许可层三档开关</summary>
+    public static string NovaPermissionsFile => Path.Combine(DataDir, "nova.permissions.json");
+
+    /// <summary>Nova 动手可审计流水</summary>
+    public static string NovaActionsFile => Path.Combine(DataDir, "nova.actions.json");
+
     public static string ManifestCacheFile => Path.Combine(DataDir, "version_manifest_cache.json");
 
     public static string JavaDir => Path.Combine(DataDir, "java");
@@ -73,6 +79,16 @@ public sealed class LauncherSettings
 
     [JsonPropertyName("theme")]
     public string Theme { get; set; } = "system";
+
+    // ── Nova LLM 降级链第 1 级：用户自填 Key（OpenAI 兼容协议，零成本） ──
+    [JsonPropertyName("nova_llm_base_url")]
+    public string? NovaLlmBaseUrl { get; set; } = "";
+
+    [JsonPropertyName("nova_llm_api_key")]
+    public string? NovaLlmApiKey { get; set; } = "";
+
+    [JsonPropertyName("nova_llm_model")]
+    public string? NovaLlmModel { get; set; } = "";
 
     private static readonly JsonSerializerOptions Options = new()
     {

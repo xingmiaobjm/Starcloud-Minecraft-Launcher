@@ -47,7 +47,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon Glyph="&#xE99A;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
                         <TextBlock Text="Starcloud ID" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock Text="登录后自动创建云 AI 助手 API Key" FontSize="12"
+                        <TextBlock Text="登录后自动创建 Nova 云端模型 Key" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" />
                     </StackPanel>

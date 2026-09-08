@@ -41,7 +41,7 @@ public sealed partial class AccountsPage : Page
         }
 
         ScTitleText.Text = $"欢迎回来，{session.DisplayName}";
-        ScSubtitleText.Text = "Starcloud ID 已登录，云 AI 助手 API Key 就绪";
+        ScSubtitleText.Text = "Starcloud ID 已登录，Nova 云端模型已就绪";
         ScLoginPanel.Visibility = Visibility.Collapsed;
         ScUserPanel.Visibility = Visibility.Visible;
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
@@ -80,7 +80,7 @@ public sealed partial class AccountsPage : Page
             await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password, SelectedChannel);
             ScPwdBox.Password = "";
             RefreshStarcloudState();
-            ShowStatus("已登录，云 AI 助手 API Key 已就绪");
+            ShowStatus("已登录，Nova 云端模型 Key 已就绪");
         }
         catch (Exception ex)
         {
@@ -183,7 +183,7 @@ public sealed partial class AccountsPage : Page
         var dlg = new ContentDialog
         {
             Title = "退出登录",
-            Content = "退出后本地会话与云 AI 助手 API Key 将被删除，确定退出吗？",
+            Content = "退出后本地会话与 Nova 云端模型 Key 将被删除，确定退出吗？",
             PrimaryButtonText = "退出",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,

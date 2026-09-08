@@ -37,7 +37,7 @@ public sealed partial class MainWindow : Window
             "saves" => typeof(SavesPage),
             "download" => typeof(DownloadPage),
             "accounts" => typeof(AccountsPage),
-            "ai" => typeof(AiPage),
+            "ai" => typeof(NovaPage),
             "settings" => typeof(SettingsPage),
             "logs" => typeof(LogsPage),
             _ => typeof(HomePage),
