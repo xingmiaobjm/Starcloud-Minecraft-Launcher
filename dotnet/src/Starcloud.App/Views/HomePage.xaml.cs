@@ -257,6 +257,48 @@ public sealed partial class HomePage : Page
                 _s.Settings.JavaExecutable, _s.Settings.ExtraJvmArgs,
                 _s.Settings.UseBuiltinJvmArgs, cred);
 
+            // 启动前预检：缺失/损坏文件全自动补全，进度显示在状态栏，补完直接启动
+            var dotMc = _s.Settings.DotMinecraft;
+            StatusText.Text = "正在检查游戏文件完整性…";
+            StatusText.Visibility = Visibility.Visible;
+            var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
+            if (preflight.NeedsRepair)
+            {
+                if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
+                {
+                    StatusText.Visibility = Visibility.Collapsed;
+                    LocalErrorBar.Message = "版本 JSON 缺失或损坏，无法自动恢复，请到下载页重新安装";
+                    LocalErrorBar.IsOpen = true;
+                    return;
+                }
+                var progress = new Progress<BatchProgress>(p =>
+                    StatusText.Text = $"补全缺失文件 {p.DoneFiles}/{p.TotalFiles}（{p.Percentage}%）…");
+                try
+                {
+                    await _s.Preflight.EnsureReadyAsync(dotMc, versionId, preflight,
+                        _s.Settings, progress);
+                }
+                catch (PreflightException ex)
+                {
+                    var listed = string.Join("\n", ex.FailedFiles.Take(5)
+                        .Select(f => "• " + f.Path));
+                    if (ex.FailedFiles.Count > 5)
+                        listed += $"\n等 {ex.FailedFiles.Count} 个文件";
+                    var dialog = new ContentDialog
+                    {
+                        Title = "补全失败",
+                        Content = listed,
+                        PrimaryButtonText = "仍然启动",
+                        CloseButtonText = "取消",
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = XamlRoot,
+                    };
+                    // 取消则不启动；「仍然启动」带缺失文件继续
+                    if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                        return;
+                }
+            }
+
             _gameProcess = await _s.Launcher.LaunchVersionAsync(
                 _s.Settings.DotMinecraft, versionId, options);
             _gameProcess.Exited += (_, _) => _dq.TryEnqueue(async () =>

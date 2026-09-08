@@ -172,15 +172,21 @@ public sealed class InstallerService
                 "下载本地库", settings.DownloadConcurrency, settings.DownloadMaxRetries, progress, ct);
             foreach (var job in nativesJobs)
             {
-                using var zip = System.IO.Compression.ZipFile.OpenRead(job.Dest);
-                foreach (var entry in zip.Entries)
-                {
-                    if (!entry.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (job.Extract?.Exclude?.Any(e => entry.FullName.Contains(e)) == true) continue;
-                    var target = Path.Combine(nativesDir, Path.GetFileName(entry.FullName));
-                    entry.ExtractToFile(target, overwrite: true);
-                }
+                ExtractNatives(job.Dest, nativesDir, job.Extract);
             }
+        }
+    }
+
+    /// <summary>解压 natives jar 中的 dll 到 natives 目录（受 extract.exclude 过滤）</summary>
+    public static void ExtractNatives(string nativesJarPath, string nativesDir, ExtractSpec? extract)
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(nativesJarPath);
+        foreach (var entry in zip.Entries)
+        {
+            if (!entry.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) continue;
+            if (extract?.Exclude?.Any(e => entry.FullName.Contains(e)) == true) continue;
+            var target = Path.Combine(nativesDir, Path.GetFileName(entry.FullName));
+            entry.ExtractToFile(target, overwrite: true);
         }
     }
 

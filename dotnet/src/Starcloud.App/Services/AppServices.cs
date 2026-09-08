@@ -23,6 +23,7 @@ public sealed class AppServices
     public SaveService Saves { get; }
     public StarcloudIdService StarcloudId { get; }
     public GameDiagnosticsService Diagnostics { get; }
+    public LaunchPreflightService Preflight { get; }
     public ModConflictService ModConflicts { get; }
     public NovaPermissionStore NovaPermissions { get; }
     public NovaActionLog NovaLog { get; }
@@ -49,6 +50,7 @@ public sealed class AppServices
         Saves = new SaveService();
         StarcloudId = new StarcloudIdService();
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
+        Preflight = new LaunchPreflightService(Installer, Download, Manifest);
         ModConflicts = new ModConflictService();
         NovaPermissions = new NovaPermissionStore();
         NovaLog = new NovaActionLog();
