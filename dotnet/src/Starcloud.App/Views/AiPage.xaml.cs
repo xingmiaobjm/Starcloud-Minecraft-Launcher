@@ -204,6 +204,10 @@ public sealed record AiChatMessage(string Role, string Content, string TimeText)
     public HorizontalAlignment Align => Role == "user"
         ? HorizontalAlignment.Right : HorizontalAlignment.Left;
 
+    // 用户气泡右下角收口、AI 气泡左下角收口（Fluent 会话样式）
+    public CornerRadius Corners => Role == "user"
+        ? new CornerRadius(12, 12, 4, 12) : new CornerRadius(12, 12, 12, 4);
+
     public Brush Bubble => Role == "user"
         ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
         : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];

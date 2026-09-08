@@ -29,13 +29,6 @@ public sealed partial class HomePage : Page
 
     private void Initialize()
     {
-        GreetingText.Text = DateTime.Now.Hour switch
-        {
-            < 6 => "夜深了",
-            < 12 => "早上好",
-            < 18 => "下午好",
-            _ => "晚上好",
-        };
         SetMode(_s.Settings.LastUsername is { } u && u.StartsWith("ms:") ? "microsoft" : "offline");
         LoadVersions();
         RefreshAccounts();

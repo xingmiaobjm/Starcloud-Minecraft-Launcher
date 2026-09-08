@@ -91,7 +91,7 @@
 
                             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="8" Padding="16">
+                                    BorderThickness="1" CornerRadius="16" Padding="16">
                                 <StackPanel Spacing="12">
                                     <TextBlock Text="内存分配" FontWeight="SemiBold" />
                                     <Grid ColumnSpacing="12">
@@ -138,7 +138,7 @@
                         <StackPanel x:Name="SectionGeneral" Spacing="16" Visibility="Collapsed">
                             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="8" Padding="16">
+                                    BorderThickness="1" CornerRadius="16" Padding="16">
                                 <StackPanel Spacing="12">
                                     <TextBlock Text="下载与外观" FontWeight="SemiBold" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">

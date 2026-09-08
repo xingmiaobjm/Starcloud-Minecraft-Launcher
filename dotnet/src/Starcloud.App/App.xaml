@@ -8,36 +8,85 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 品牌强调色：亮黄 #FFB900（覆盖系统 accent 及其色阶，供按钮/选中态/滑块使用） -->
-            <Color x:Key="SystemAccentColor">#FFB900</Color>
-            <Color x:Key="SystemAccentColorLight1">#FFC633</Color>
-            <Color x:Key="SystemAccentColorLight2">#FFD466</Color>
-            <Color x:Key="SystemAccentColorLight3">#FFE399</Color>
-            <Color x:Key="SystemAccentColorDark1">#DBA000</Color>
-            <Color x:Key="SystemAccentColorDark2">#B78600</Color>
-            <Color x:Key="SystemAccentColorDark3">#8F6800</Color>
-
             <!-- 大圆角：控件（按钮/输入框）8，卡片 16，弹出层 12 -->
             <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
             <CornerRadius x:Key="CardCornerRadius">16</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
 
-            <!-- 品牌蓝 #B0CCF1：深色主题直接使用；浅色主题加深同色相以保证对比度 -->
-            <!-- 品牌黄 #FFB900 亮度高，浅/深主题下 accent 面上必须用黑字（默认白字对比仅约 1.6:1） -->
+            <!-- 语义色（双主题同值）：危险=重要警告场景，成功=操作达成 -->
+            <SolidColorBrush x:Key="DangerBrush" Color="#FFF44336" />
+            <SolidColorBrush x:Key="SuccessBrush" Color="#FF3DDC84" />
+
+            <!-- 品牌主色刷：浅色=黄 #FFD322，深色=绿 #3DD322（图标/品牌图形用） -->
+            <!-- 品牌主色亮度高（黄/亮绿），accent 面上必须用黑字（默认白字对比不足） -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="BrandBlueBrush" Color="#4C7FC4" />
-                    <SolidColorBrush x:Key="BrandTintBrush" Color="#33B0CCF1" />
-                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E6000000" />
-                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B3000000" />
-                    <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C000000" />
+                    <!-- 主题强调色：#FFD322，悬浮 #FFBC00，按下更深 -->
+                    <Color x:Key="SystemAccentColor">#FFD322</Color>
+                    <Color x:Key="SystemAccentColorLight1">#FFDD4D</Color>
+                    <Color x:Key="SystemAccentColorLight2">#FFE780</Color>
+                    <Color x:Key="SystemAccentColorLight3">#FFF0B3</Color>
+                    <Color x:Key="SystemAccentColorDark1">#FFBC00</Color>
+                    <Color x:Key="SystemAccentColorDark2">#D9A000</Color>
+                    <Color x:Key="SystemAccentColorDark3">#B38500</Color>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FFD322" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#FFBC00" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#E6A800" />
+                    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#99FFD322" />
+                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#B38500" />
+                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#CCB38500" />
+                    <SolidColorBrush x:Key="AccentTextFillColorDisabledBrush" Color="#5CB38500" />
+                    <!-- 文字层级：主 #1A1A1A，次要 #666666 -->
+                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#FF1A1A1A" />
+                    <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#FF666666" />
+                    <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#99666666" />
+                    <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#5C666666" />
+                    <!-- 卡片边框 #E2E2E2 -->
+                    <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#FFE2E2E2" />
+                    <!-- 侧边栏：展开后不透明，浅色为近白实色（覆盖 NavigationView 窗格背景） -->
+                    <SolidColorBrush x:Key="AppPaneBackgroundBrush" Color="#FFF6F6F6" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FFF6F6F6" />
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FFF6F6F6" />
+                    <!-- 语义状态：成功 #3DDC84，危险 #F44336 -->
+                    <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />
+                    <SolidColorBrush x:Key="BrandBlueBrush" Color="#FFD322" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="BrandBlueBrush" Color="#B0CCF1" />
-                    <SolidColorBrush x:Key="BrandTintBrush" Color="#26B0CCF1" />
-                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E6000000" />
-                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B3000000" />
-                    <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C000000" />
+                    <!-- 主题强调色：#3DD322，悬浮 #2FBD6E -->
+                    <Color x:Key="SystemAccentColor">#3DD322</Color>
+                    <Color x:Key="SystemAccentColorLight1">#6BE050</Color>
+                    <Color x:Key="SystemAccentColorLight2">#99E97F</Color>
+                    <Color x:Key="SystemAccentColorLight3">#C6F2AD</Color>
+                    <Color x:Key="SystemAccentColorDark1">#2FBD6E</Color>
+                    <Color x:Key="SystemAccentColorDark2">#27A05C</Color>
+                    <Color x:Key="SystemAccentColorDark3">#1F8349</Color>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#3DD322" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#2FBD6E" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#27A05C" />
+                    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#803DD322" />
+                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#6BE050" />
+                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#CC6BE050" />
+                    <SolidColorBrush x:Key="AccentTextFillColorDisabledBrush" Color="#5C6BE050" />
+                    <!-- 文字层级：主 #F5F5F5，次要 #A0A0A0 -->
+                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#FFF5F5F5" />
+                    <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#FFA0A0A0" />
+                    <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#87A0A0A0" />
+                    <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#57A0A0A0" />
+                    <!-- 侧边栏：展开后不透明，比背景 #111111 略微提亮形成层次 -->
+                    <SolidColorBrush x:Key="AppPaneBackgroundBrush" Color="#FF161616" />
+                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FF161616" />
+                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FF161616" />
+                    <!-- 语义状态：成功 #3DDC84，危险 #F44336 -->
+                    <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
+                    <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />
+                    <SolidColorBrush x:Key="BrandBlueBrush" Color="#3DD322" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

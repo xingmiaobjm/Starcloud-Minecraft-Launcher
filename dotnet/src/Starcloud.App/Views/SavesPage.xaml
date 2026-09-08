@@ -100,7 +100,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
                 <StackPanel x:Name="EmptyHint" Visibility="Collapsed"
-                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+                    <FontIcon Glyph="&#xE8B7;" FontSize="28" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     <TextBlock Text="暂无存档"
                                HorizontalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

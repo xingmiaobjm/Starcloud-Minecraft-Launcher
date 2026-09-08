@@ -95,10 +95,14 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <TextBlock x:Name="EmptyHint" Text="还没有已安装的版本，去「下载」页安装一个吧"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Visibility="Collapsed" />
+                <StackPanel x:Name="EmptyHint" Spacing="6" Visibility="Collapsed"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE81C;" FontSize="28" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock Text="还没有已安装的版本，去「下载」页安装一个吧"
+                               HorizontalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

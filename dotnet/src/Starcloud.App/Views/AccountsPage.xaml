@@ -6,8 +6,8 @@
     xmlns:local="using:Starcloud.App.Views"
     NavigationCacheMode="Disabled">
 
-    <!-- 顶层 Grid 自适应视口：账户列表占剩余高度（ListView 自带滚动），不用外层 ScrollViewer -->
-    <Grid MaxWidth="1000" HorizontalAlignment="Stretch" RowSpacing="16">
+    <!-- LauncherX 式布局：大标题（Starcloud 登录/注册）+ 右上添加账户 + 保存的游戏账户卡流 -->
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -15,136 +15,174 @@
             <RowDefinition Height="*" MinHeight="220" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Spacing="4">
-                <TextBlock Text="账户" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="管理离线账户与微软正版账户"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <!-- 大标题 + 右上主操作 -->
+        <Grid Grid.Row="0" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                <TextBlock x:Name="ScTitleText" Text="登录 Starcloud 账号以使用更多功能"
+                           FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock x:Name="ScSubtitleText" Text="在此登录或注册 Starcloud ID，也可管理用于启动的游戏账户"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
+            <Button Grid.Column="1" Content="添加一个游戏账户" VerticalAlignment="Center"
+                    Style="{StaticResource AccentButtonStyle}" Click="AddAccount_Click" />
+        </Grid>
 
-            <StackPanel Grid.Row="1" Spacing="8">
-                <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" Title="操作失败" />
-                <InfoBar x:Name="MsBar" Severity="Informational" IsOpen="False" IsClosable="True"
-                         Title="微软设备码登录" />
-            </StackPanel>
+        <!-- 状态条 -->
+        <StackPanel Grid.Row="1" Spacing="8">
+            <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" Title="操作失败" />
+            <InfoBar x:Name="StatusInfo" Severity="Success" IsOpen="False" IsClosable="True" Title="完成" />
+        </StackPanel>
 
-            <!-- 添加账户：离线 | 微软 双卡 -->
-            <Grid Grid.Row="2" ColumnSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <Border Grid.Column="0"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="16" Padding="16">
-                    <StackPanel Spacing="12">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE77B;" FontSize="15" />
-                            <TextBlock Text="离线账户" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                        <TextBox x:Name="NameBox" PlaceholderText="玩家名（3-16 位字母数字下划线）" MaxLength="16" />
-                        <Button Content="添加离线账户" HorizontalAlignment="Stretch"
-                                Style="{StaticResource AccentButtonStyle}" Click="AddOffline_Click" />
-                    </StackPanel>
-                </Border>
-
-                <Border Grid.Column="1"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="16" Padding="16">
-                    <StackPanel Spacing="12">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE719;" FontSize="15" />
-                            <TextBlock Text="微软正版登录" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                        <TextBlock Text="使用设备码流程登录，无需输入密码"
-                                   FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   TextWrapping="Wrap" />
-                        <Button Content="使用设备码登录微软账户" HorizontalAlignment="Stretch"
-                                Style="{StaticResource AccentButtonStyle}" Click="MsLogin_Click" />
-                        <TextBlock x:Name="MsCodeText" FontSize="16" FontWeight="SemiBold" Visibility="Collapsed" />
-                        <TextBlock x:Name="MsStatusText" FontSize="12" Visibility="Collapsed"
+        <!-- Starcloud ID 卡：未登录=登录表单，已登录=会话管理 -->
+        <Border Grid.Row="2"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="20">
+            <Grid>
+                <StackPanel x:Name="ScLoginPanel" Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon Glyph="&#xE99A;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
+                        <TextBlock Text="Starcloud ID" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="登录后自动创建云 AI 助手 API Key" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   TextWrapping="Wrap" />
+                                   VerticalAlignment="Center" />
                     </StackPanel>
-                </Border>
-            </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="ScIdBox" PlaceholderText="Starcloud ID（用户名或邮箱）" Width="250" />
+                        <PasswordBox x:Name="ScPwdBox" PlaceholderText="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
+                        <ComboBox x:Name="ScChannelBox" SelectedIndex="0" Width="128" SelectionChanged="ScChannelBox_SelectionChanged">
+                            <ComboBoxItem Content="测试通道" />
+                            <ComboBoxItem Content="云端通道" />
+                        </ComboBox>
+                        <Button x:Name="ScLoginBtn" Content="登录" Style="{StaticResource AccentButtonStyle}"
+                                Click="ScLogin_Click" />
+                        <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
+                                      IsActive="False" VerticalAlignment="Center" />
+                        <HyperlinkButton Content="没有账号？注册" Padding="4,0" VerticalAlignment="Center"
+                                         Click="ScRegister_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="ScErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                </StackPanel>
 
-            <!-- 已保存账户：LauncherX 式卡片（占剩余高度，ListView 自带滚动） -->
-            <Border Grid.Row="3"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16">
-                <Grid RowSpacing="12">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="已保存账户" FontWeight="SemiBold" />
-                    <ListView x:Name="AccountList" Grid.Row="1" SelectionMode="None" Margin="-16">
-                        <ListView.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="288" ItemHeight="132" />
-                            </ItemsPanelTemplate>
-                        </ListView.ItemsPanel>
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="Padding" Value="0" />
-                                <Setter Property="Margin" Value="12,4" />
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="VerticalContentAlignment" Value="Stretch" />
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="local:AccountRow">
-                                <Border CornerRadius="8" Padding="14"
-                                        Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="1">
-                                    <Grid RowSpacing="10">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <Border Width="40" Height="40" CornerRadius="20"
-                                                    Background="{ThemeResource AccentFillColorDefaultBrush}">
-                                                <TextBlock Text="{x:Bind Initial}" FontSize="17" FontWeight="SemiBold"
-                                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            </Border>
-                                            <StackPanel Spacing="4" VerticalAlignment="Center">
-                                                <TextBlock Text="{x:Bind Username}" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <Border CornerRadius="4" Padding="6,1"
-                                                            Background="{ThemeResource ControlFillColorDefaultBrush}">
-                                                        <TextBlock Text="{x:Bind TypeText}" FontSize="10"
-                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                    </Border>
-                                                    <Border CornerRadius="4" Padding="6,1"
-                                                            Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                                            Visibility="{x:Bind DefaultBadgeVisibility}">
-                                                        <TextBlock Text="默认" FontSize="10"
-                                                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                                    </Border>
-                                                </StackPanel>
+                <StackPanel x:Name="ScUserPanel" Spacing="12" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Border Width="40" Height="40" CornerRadius="20"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}">
+                            <TextBlock x:Name="ScAvatarText" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock x:Name="ScNameText" FontWeight="SemiBold" />
+                            <TextBlock x:Name="ScUserSubText" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Border CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}">
+                            <TextBlock x:Name="ScKeyText" FontSize="12" FontFamily="Consolas" />
+                        </Border>
+                        <Button x:Name="ScCopyBtn" Content="复制 Key" Height="30" Padding="12,0" Click="ScCopyKey_Click" />
+                        <Button Content="退出登录" Height="30" Padding="12,0" Click="ScLogout_Click"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 保存的游戏账户（占剩余高度，ListView 自带滚动） -->
+        <Border Grid.Row="3"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="16">
+            <Grid RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="保存的游戏账户" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="默认账户将用于一键启动" />
+                </Grid>
+                <TextBlock x:Name="AccountEmptyText" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="还没有游戏账户，点击右上角「添加一个游戏账户」" />
+                <ListView x:Name="AccountList" Grid.Row="1" SelectionMode="None" Margin="-16" Visibility="Collapsed">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="288" ItemHeight="132" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="12,4" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:AccountRow">
+                            <Border CornerRadius="8" Padding="14"
+                                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <Grid RowSpacing="10">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Border Width="40" Height="40" CornerRadius="20"
+                                                Background="{ThemeResource AccentFillColorDefaultBrush}">
+                                            <TextBlock Text="{x:Bind Initial}" FontSize="17" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Username}" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Border CornerRadius="4" Padding="6,1"
+                                                        Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                                    <TextBlock Text="{x:Bind TypeText}" FontSize="10"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </Border>
+                                                <Border CornerRadius="4" Padding="6,1"
+                                                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                        Visibility="{x:Bind DefaultBadgeVisibility}">
+                                                    <TextBlock Text="默认" FontSize="10"
+                                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                </Border>
                                             </StackPanel>
                                         </StackPanel>
-                                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                                            <Button Content="设为默认" Height="30" Padding="12,0"
-                                                    Tag="{x:Bind Uuid}" Click="SetDefault_Click"
-                                                    Visibility="{x:Bind DefaultBtnVisibility}" />
-                                            <Button Content="删除" Height="30" Padding="12,0"
-                                                    Tag="{x:Bind Uuid}" Click="Remove_Click" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </Grid>
-            </Border>
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                                        <Button Content="设为默认" Height="30" Padding="12,0"
+                                                Tag="{x:Bind Uuid}" Click="SetDefault_Click"
+                                                Visibility="{x:Bind DefaultBtnVisibility}" />
+                                        <Button Content="删除" Height="30" Padding="12,0"
+                                                Tag="{x:Bind Uuid}" Click="Remove_Click" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Border>
     </Grid>
 </Page>

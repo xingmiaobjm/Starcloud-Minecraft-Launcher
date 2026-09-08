@@ -62,6 +62,45 @@ public sealed class StarcloudIdService
             File.Delete(LauncherPaths.StarcloudIdFile);
     }
 
+    /// <summary>
+    /// 注册新的 Starcloud ID。测试通道本地模拟（进程内去重）；云端通道调用 /v1/auth/register。
+    /// </summary>
+    public async Task RegisterAsync(
+        string starcloudId, string password, string channel = TestChannel,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(starcloudId))
+            throw new InvalidOperationException("请输入 Starcloud ID");
+        if (password.Length < 6)
+            throw new InvalidOperationException("密码至少 6 位");
+
+        if (channel == CloudChannel)
+            await CloudRegisterAsync(starcloudId, password, ct);
+        else
+            await TestRegisterAsync(starcloudId, password, ct);
+    }
+
+    // ── 测试通道：本地模拟注册（同进程内同 ID 不可重复注册） ──
+    private static readonly HashSet<string> TestRegisteredIds = new();
+
+    private static async Task TestRegisterAsync(string id, string password, CancellationToken ct)
+    {
+        await Task.Delay(500, ct); // 模拟网络往返
+        if (!TestRegisteredIds.Add(id.ToLowerInvariant()))
+            throw new InvalidOperationException("该 Starcloud ID 已被注册（测试通道）");
+    }
+
+    // ── 云端通道：POST /v1/auth/register ──
+    private static async Task CloudRegisterAsync(string id, string password, CancellationToken ct)
+    {
+        using var http = new HttpClient { BaseAddress = new Uri(CloudBaseUrl) };
+        var resp = await http.PostAsync("/v1/auth/register",
+            new StringContent(JsonSerializer.Serialize(new { id, password }),
+                Encoding.UTF8, "application/json"), ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"注册失败（{(int)resp.StatusCode}）");
+    }
+
     // ── 测试通道：本地模拟「登录 → 后台创建 API Key」 ──
     private static async Task<StarcloudSession> TestLoginAsync(string id, string password, CancellationToken ct)
     {

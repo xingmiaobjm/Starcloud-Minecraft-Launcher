@@ -714,10 +714,14 @@
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                            <TextBlock x:Name="EmptyHint" Text="没有找到相关资源，换个关键词或筛选条件试试"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Visibility="Collapsed" />
+                            <StackPanel x:Name="EmptyHint" Spacing="6" Visibility="Collapsed"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE721;" FontSize="28" HorizontalAlignment="Center"
+                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                <TextBlock Text="没有找到相关资源，换个关键词或筛选条件试试"
+                                           HorizontalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
                         </Grid>
                     </Border>
 

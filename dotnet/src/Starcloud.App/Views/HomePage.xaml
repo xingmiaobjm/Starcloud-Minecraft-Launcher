@@ -17,19 +17,11 @@
         <Grid Grid.Column="0" RowSpacing="16" Margin="0,0,24,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" MinHeight="160" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <StackPanel Grid.Row="0" Spacing="2">
-                <TextBlock x:Name="GreetingText" Text="欢迎回来" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="在右侧选择账户与版本，一键启动游戏"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-
-            <StackPanel Grid.Row="1" Spacing="8">
+            <StackPanel Grid.Row="0" Spacing="8">
                 <InfoBar x:Name="GlobalErrorBar" Severity="Error" IsOpen="False" IsClosable="True"
                          Title="启动出错" />
                 <InfoBar x:Name="LocalErrorBar" Severity="Error" IsOpen="False" IsClosable="True"
@@ -103,7 +95,7 @@
             </StackPanel>
 
             <!-- 版本列表（弹性填充剩余高度） -->
-            <Border Grid.Row="3"
+            <Border Grid.Row="1"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16"
@@ -197,13 +189,14 @@
             </Border>
 
             <!-- 快捷入口 -->
-            <Grid Grid.Row="4" ColumnSpacing="12">
+            <Grid Grid.Row="2" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="TileDownload_Click">
+                <Button Grid.Column="0" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        AutomationProperties.Name="下载版本" Click="TileDownload_Click">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE896;" FontSize="18"
                                   Foreground="{ThemeResource BrandBlueBrush}" />
@@ -214,7 +207,8 @@
                         </StackPanel>
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="1" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="TileMods_Click">
+                <Button Grid.Column="1" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        AutomationProperties.Name="模组资源" Click="TileMods_Click">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE71D;" FontSize="18"
                                   Foreground="{ThemeResource BrandBlueBrush}" />
@@ -225,7 +219,8 @@
                         </StackPanel>
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="2" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="TileMultiplayer_Click">
+                <Button Grid.Column="2" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        AutomationProperties.Name="好友联机" Click="TileMultiplayer_Click">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE716;" FontSize="18"
                                   Foreground="{ThemeResource BrandBlueBrush}" />
@@ -287,7 +282,9 @@
 
                 <!-- 主按钮：PCL 式双行（启动游戏 + 当前版本） -->
                 <Button x:Name="LaunchBtn" Grid.Row="2" HorizontalAlignment="Stretch" Height="64"
-                        CornerRadius="16" Click="LaunchBtn_Click">
+                        Style="{StaticResource AccentButtonStyle}" CornerRadius="12"
+                        AutomationProperties.Name="启动游戏"
+                        Click="LaunchBtn_Click">
                     <StackPanel Spacing="2" HorizontalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                             <FontIcon x:Name="LaunchIcon" Glyph="&#xE768;" FontSize="16" />
@@ -295,7 +292,7 @@
                         </StackPanel>
                         <TextBlock x:Name="LaunchSubText" Text="未选择版本" FontSize="12"
                                    HorizontalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                   Foreground="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
                     </StackPanel>
                 </Button>
 

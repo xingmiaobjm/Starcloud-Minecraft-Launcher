@@ -15,12 +15,18 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="32,28" MinWidth="420" MaxWidth="480">
             <StackPanel Spacing="14">
-                <FontIcon Glyph="&#xE99A;" FontSize="40"
-                          Foreground="{ThemeResource BrandBlueBrush}" HorizontalAlignment="Center" />
-                <TextBlock Text="登录 Starcloud ID" FontSize="22" FontWeight="SemiBold"
+                <Border Width="56" Height="56" CornerRadius="16" HorizontalAlignment="Center"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1">
+                    <FontIcon Glyph="&#xE99A;" FontSize="24"
+                              Foreground="{ThemeResource BrandBlueBrush}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="登录 Starcloud ID" FontSize="20" FontWeight="SemiBold"
                            HorizontalAlignment="Center" />
                 <TextBlock Text="登录后系统会在后台为你的账号创建云 AI 助手 API Key，用于整合包推荐、游戏自动纠错与模组冲突自动处理。"
-                           TextWrapping="Wrap" TextAlignment="Center" FontSize="12"
+                           TextWrapping="Wrap" TextAlignment="Center" FontSize="13"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <TextBox x:Name="IdBox" Header="Starcloud ID" PlaceholderText="用户名或邮箱" />
                 <PasswordBox x:Name="PwdBox" Header="密码" PlaceholderText="测试通道任意内容即可（至少 4 位）" />
@@ -52,7 +58,7 @@
             <Border Grid.Row="0"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="12" Padding="14,10">
+                    BorderThickness="1" CornerRadius="8" Padding="14,10">
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -67,7 +73,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="6"
+                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="4"
                                 Padding="8,4" ToolTipService.ToolTip="云 AI 助手 API Key（登录后由服务端创建）">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock x:Name="KeyText" FontSize="12" FontFamily="Consolas"
@@ -83,10 +89,30 @@
 
             <!-- 快捷能力 -->
             <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                <Button Content="推荐整合包" Tag="推荐整合包" Click="Quick_Click" />
-                <Button Content="游戏体检" Tag="游戏体检" Click="Quick_Click" />
-                <Button Content="检查模组冲突" Tag="检查模组冲突" Click="Quick_Click" />
-                <Button Content="你能做什么" Tag="你能做什么" Click="Quick_Click" />
+                <Button Tag="推荐整合包" AutomationProperties.Name="推荐整合包" Click="Quick_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE7B8;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
+                        <TextBlock Text="推荐整合包" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="游戏体检" AutomationProperties.Name="游戏体检" Click="Quick_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE9D9;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
+                        <TextBlock Text="游戏体检" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="检查模组冲突" AutomationProperties.Name="检查模组冲突" Click="Quick_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE7BA;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
+                        <TextBlock Text="检查模组冲突" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="你能做什么" AutomationProperties.Name="你能做什么" Click="Quick_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE897;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
+                        <TextBlock Text="你能做什么" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
             <!-- 对话气泡 -->
@@ -110,7 +136,8 @@
                     </ListView.ItemsPanel>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:AiChatMessage">
-                            <Border Background="{x:Bind Bubble}" CornerRadius="12" Padding="12,8"
+                            <Border Background="{x:Bind Bubble}" CornerRadius="{x:Bind Corners}"
+                                    Padding="12,9"
                                     MaxWidth="640" HorizontalAlignment="{x:Bind Align}">
                                 <StackPanel Spacing="2">
                                     <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap"
@@ -137,7 +164,8 @@
                 <ProgressRing x:Name="SendProgress" Grid.Column="1" IsActive="False"
                               Width="24" Height="24" VerticalAlignment="Center" />
                 <Button x:Name="SendBtn" Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
-                        Content="发送" Click="Send_Click" VerticalAlignment="Center" />
+                        Content="发送" Padding="20,5" MinWidth="96" Click="Send_Click"
+                        VerticalAlignment="Center" />
             </Grid>
         </Grid>
     </Grid>
