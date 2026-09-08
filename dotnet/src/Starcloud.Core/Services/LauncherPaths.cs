@@ -24,6 +24,12 @@ public static class LauncherPaths
     /// <summary>Nova 动手可审计流水</summary>
     public static string NovaActionsFile => Path.Combine(DataDir, "nova.actions.json");
 
+    /// <summary>Nova 时刻（高光卡片 + 下机战报 + 待处理候选池）</summary>
+    public static string NovaMomentsFile => Path.Combine(DataDir, "nova.moments.json");
+
+    /// <summary>Nova 拉人即玩（邀请令牌记录）</summary>
+    public static string NovaInvitesFile => Path.Combine(DataDir, "nova.invites.json");
+
     public static string ManifestCacheFile => Path.Combine(DataDir, "version_manifest_cache.json");
 
     public static string JavaDir => Path.Combine(DataDir, "java");
@@ -89,6 +95,16 @@ public sealed class LauncherSettings
 
     [JsonPropertyName("nova_llm_model")]
     public string? NovaLlmModel { get; set; } = "";
+
+    // ── Nova 游戏内浮窗（设计：nova-overlay-design.md §3.3；默认关 = 开启即显式授权） ──
+    [JsonPropertyName("nova_overlay_enabled")]
+    public bool NovaOverlayEnabled { get; set; } = false;
+
+    [JsonPropertyName("nova_overlay_x")]
+    public int? NovaOverlayX { get; set; }
+
+    [JsonPropertyName("nova_overlay_y")]
+    public int? NovaOverlayY { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
     {

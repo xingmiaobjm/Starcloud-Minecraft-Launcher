@@ -36,5 +36,14 @@ public partial class App : Application
     {
         MainWindow = new MainWindow();
         MainWindow.Activate();
+
+        // 拉人即玩：starcloud://join?t=… 协议激活（未打包应用经命令行参数进入）
+        var url = args.Arguments?.Trim();
+        if (!string.IsNullOrEmpty(url) &&
+            url.StartsWith("starcloud://join", StringComparison.OrdinalIgnoreCase) &&
+            MainWindow is MainWindow win)
+        {
+            _ = win.HandleJoinUrlAsync(url);
+        }
     }
 }

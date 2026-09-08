@@ -10,6 +10,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 标题栏：品牌左 + 系统按钮右（ExtendsContentIntoTitleBar） -->
@@ -20,6 +22,29 @@
                            VerticalAlignment="Center" />
             </StackPanel>
         </Grid>
+
+        <!-- ① 顶栏 NovaOrb（NOVA_INTEGRATION.md 2.2：全局常驻，点击展开面板；
+             放在 AppTitleBar 之外保证可点击，同时不破坏标题栏拖拽区） -->
+        <Button x:Name="NovaOrb" Grid.Row="0" Width="44" Height="36"
+                HorizontalAlignment="Right" VerticalAlignment="Center"
+                Margin="0,0,140,0" Padding="0" CornerRadius="8"
+                Background="Transparent" BorderThickness="0"
+                AutomationProperties.Name="Nova 助手"
+                ToolTipService.ToolTip="Nova：待命"
+                Click="NovaOrb_Click">
+            <Grid Width="32" Height="32">
+                <Border CornerRadius="8"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" />
+                <FontIcon x:Name="NovaOrbGlyph" Glyph="&#xE99A;" FontSize="15"
+                          Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <!-- 有提案：右上角 amber 小圆点 -->
+                <Ellipse x:Name="NovaOrbDot" Width="8" Height="8" Fill="#F59E0B"
+                         HorizontalAlignment="Right" VerticalAlignment="Top"
+                         Margin="0,3,3,0" Visibility="Collapsed" />
+            </Grid>
+        </Button>
 
         <NavigationView
             x:Name="Nav"
@@ -76,5 +101,131 @@
                 <Frame x:Name="ContentFrame" Background="Transparent" />
             </Grid>
         </NavigationView>
+
+        <!-- ④ 底部对话条（NOVA_INTEGRATION.md 2.2：默认收起，只显示一行提示语） -->
+        <Border Grid.Row="2" x:Name="NovaBar" Margin="12,0,12,6"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="12">
+            <Grid>
+                <!-- 收起态：一行提示 + 展开箭头 -->
+                <Button x:Name="NovaBarCollapsed" MinHeight="44" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch" Padding="0"
+                        Background="Transparent" BorderThickness="0" CornerRadius="12"
+                        AutomationProperties.Name="展开 Nova 对话条"
+                        Click="NovaBarToggle_Click">
+                    <Grid Margin="12,0">
+                        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                            <FontIcon Glyph="&#xE99A;" FontSize="14"
+                                      Foreground="{ThemeResource BrandBlueBrush}" />
+                            <TextBlock Text="有什么我可以帮忙的？" FontSize="13" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <FontIcon Glyph="&#xE70E;" FontSize="12" HorizontalAlignment="Right"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                </Button>
+
+                <!-- 展开态：完整对话（复用 NovaChatView） -->
+                <Grid x:Name="NovaBarExpandedHost" Height="380" Margin="10" RowSpacing="6"
+                      Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Button Grid.Row="0" HorizontalAlignment="Right" Padding="6,2" MinWidth="0"
+                            Background="Transparent" BorderThickness="0"
+                            AutomationProperties.Name="收起 Nova 对话条"
+                            Click="NovaBarToggle_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="收起" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <FontIcon Glyph="&#xE70D;" FontSize="10"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Button>
+                    <local:NovaChatView Grid.Row="1" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ⑤ 状态栏（NOVA_INTEGRATION.md 2.2：实例指示 + Nova 状态指示） -->
+        <Border Grid.Row="3" Height="28" Padding="12,0"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="InstanceText" FontSize="11" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="未选择实例" />
+                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right"
+                            VerticalAlignment="Center">
+                    <Ellipse x:Name="NovaStateDot" Width="6" Height="6" VerticalAlignment="Center"
+                             Fill="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="NovaStateText" FontSize="11" VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Nova: 离线" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ① Nova 面板（顶栏 NovaOrb 下方弹出，380px 毛玻璃） -->
+        <Popup x:Name="NovaPopup" IsLightDismissEnabled="True" AllowFocusOnInteraction="True">
+            <Border x:Name="NovaPanelHost" Width="380" CornerRadius="16" Padding="16"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <Grid RowSpacing="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 标头：头像 + 名字 + 副标题 + 去 Nova 页 -->
+                    <Grid Grid.Row="0" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="32" Height="32" CornerRadius="8"
+                                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1">
+                            <FontIcon Glyph="&#xE99A;" FontSize="15"
+                                      Foreground="{ThemeResource BrandBlueBrush}" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Nova" FontWeight="SemiBold" FontSize="14" />
+                            <TextBlock Text="启动器里的 AI 助手，会干活的那种" FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Padding="6,2" MinWidth="0" VerticalAlignment="Center"
+                                Background="Transparent" BorderThickness="0"
+                                AutomationProperties.Name="打开 Nova 页"
+                                ToolTipService.ToolTip="打开 Nova 页（许可层 / 流水 / LLM 设置）"
+                                Click="NovaPanelSettings_Click">
+                            <FontIcon Glyph="&#xE713;" FontSize="13"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Button>
+                    </Grid>
+
+                    <!-- 未登录：引导去 Nova 页登录 -->
+                    <StackPanel Grid.Row="1" x:Name="NovaPanelLogin" Spacing="10"
+                                VerticalAlignment="Center" Visibility="Collapsed">
+                        <TextBlock Text="Nova 还没上线" FontWeight="SemiBold" />
+                        <TextBlock Text="登录 Starcloud ID 后，我才能帮你找包、修崩溃、调帧数——你说一句就行。"
+                                   FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Button Style="{StaticResource AccentButtonStyle}" Content="去 Nova 页登录"
+                                Click="NovaPanelLogin_Click" />
+                    </StackPanel>
+
+                    <!-- 已登录：对话（复用 NovaChatView） -->
+                    <local:NovaChatView Grid.Row="1" x:Name="NovaPanelChat" />
+                </Grid>
+            </Border>
+        </Popup>
     </Grid>
 </Window>

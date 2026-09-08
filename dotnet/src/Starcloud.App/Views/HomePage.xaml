@@ -141,6 +141,14 @@
                                                 RightTapped="VersionRow_RightTapped">
                                             <Border.ContextFlyout>
                                                 <MenuFlyout>
+                                                    <MenuFlyoutItem Text="问 Nova"
+                                                                    Tag="{x:Bind Id}"
+                                                                    Click="AskNova_Click">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE99A;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutSeparator />
                                                     <MenuFlyoutItem Text="打开游戏目录"
                                                                     Tag="{x:Bind Id}"
                                                                     Click="OpenVersionFolder_Click">

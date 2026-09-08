@@ -26,7 +26,10 @@ public sealed class AppServices
     public ModConflictService ModConflicts { get; }
     public NovaPermissionStore NovaPermissions { get; }
     public NovaActionLog NovaLog { get; }
+    public NovaMomentsService NovaMoments { get; }
+    public NovaInviteService NovaInvites { get; }
     public NovaService Nova { get; }
+    public NovaRuntime NovaRuntime { get; }
 
     private AppServices()
     {
@@ -49,7 +52,12 @@ public sealed class AppServices
         ModConflicts = new ModConflictService();
         NovaPermissions = new NovaPermissionStore();
         NovaLog = new NovaActionLog();
-        Nova = new NovaService(StarcloudId, Mods, Diagnostics, ModConflicts, NovaPermissions, NovaLog);
+        NovaMoments = new NovaMomentsService();
+        NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download);
+        Nova = new NovaService(StarcloudId, Mods, Diagnostics, ModConflicts, NovaPermissions,
+            NovaLog, NovaMoments, NovaInvites, Saves);
+        // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
+        NovaRuntime = new NovaRuntime(this);
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();

@@ -17,7 +17,8 @@ public sealed record LaunchOptions(
     string? JavaExecutable,
     List<string> ExtraJvmArgs,
     bool UseBuiltinJvmArgs,
-    LaunchCredentials? Credentials = null);
+    LaunchCredentials? Credentials = null,
+    string? QuickPlayMultiplayer = null);
 
 /// <summary>已认证账户凭据（微软账户）；离线账户传 null 走 OfflineUuid 回退</summary>
 public sealed record LaunchCredentials(string Uuid, string AccessToken, string UserType, string? Xuid = null);
@@ -86,7 +87,7 @@ public sealed class GameLauncher
             ["resolution_height"] = "720",
             ["quickPlayPath"] = "",
             ["quickPlaySingleplayer"] = "",
-            ["quickPlayMultiplayer"] = "",
+            ["quickPlayMultiplayer"] = options.QuickPlayMultiplayer ?? "",
             ["quickPlayRealms"] = "",
             ["quickPlayBroadBand"] = "",
         };

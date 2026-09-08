@@ -71,6 +71,15 @@
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:LocalVersionRow">
                             <Grid Padding="12,8" ColumnSpacing="12">
+                                <Grid.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="问 Nova" Tag="{x:Bind Id}" Click="AskNova_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE99A;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Grid.ContextFlyout>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />

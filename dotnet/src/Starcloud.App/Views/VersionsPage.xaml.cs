@@ -60,6 +60,16 @@ public sealed partial class VersionsPage : Page
         });
     }
 
+    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开底部对话条承接，不跳页。</summary>
+    private void AskNova_Click(object sender, RoutedEventArgs e)
+    {
+        var id = (sender as FrameworkElement)?.Tag as string;
+        if (string.IsNullOrEmpty(id)) return;
+        _s.NovaRuntime.SetCurrentInstance(id);
+        _s.NovaRuntime.RequestInput($"帮我给 {id} 做一次游戏体检，有隐患直接说");
+        (App.MainWindow as MainWindow)?.OpenNovaBar();
+    }
+
     private async void Delete_Click(object s, RoutedEventArgs e)
     {
         if (s is not Button btn || btn.DataContext is not LocalVersionRow row) return;

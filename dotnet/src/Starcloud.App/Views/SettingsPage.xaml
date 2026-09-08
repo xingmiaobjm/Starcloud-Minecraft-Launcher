@@ -155,6 +155,27 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
+
+                            <!-- Nova 游戏内浮窗（设计：nova-overlay-plan.md T6；默认关 = 显式授权） -->
+                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="16" Padding="16">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="Nova 游戏内浮窗" FontWeight="SemiBold" />
+                                        <TextBlock Text="游戏运行时在屏幕角落显示 Nova 浮窗，Ctrl+N 随时呼出对话；下局游戏启动时生效。"
+                                                   FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="OverlaySwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                  AutomationProperties.Name="Nova 游戏内浮窗开关"
+                                                  Toggled="OverlaySwitch_Toggled" />
+                                </Grid>
+                            </Border>
                         </StackPanel>
 
                     </StackPanel>

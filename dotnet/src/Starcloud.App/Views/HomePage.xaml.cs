@@ -108,6 +108,16 @@ public sealed partial class HomePage : Page
             VersionList.SelectedItem = row;
     }
 
+    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开底部对话条承接，不跳页。</summary>
+    private void AskNova_Click(object sender, RoutedEventArgs e)
+    {
+        var id = (sender as FrameworkElement)?.Tag as string;
+        if (string.IsNullOrEmpty(id)) return;
+        _s.NovaRuntime.SetCurrentInstance(id);
+        _s.NovaRuntime.RequestInput($"帮我给 {id} 做一次游戏体检，有隐患直接说");
+        (App.MainWindow as MainWindow)?.OpenNovaBar();
+    }
+
     private void OpenVersionFolder_Click(object sender, RoutedEventArgs e)
     {
         var id = (sender as FrameworkElement)?.Tag as string;
@@ -246,14 +256,19 @@ public sealed partial class HomePage : Page
                 _s.Settings.DefaultMinMemoryMb, _s.Settings.DefaultMaxMemoryMb,
                 _s.Settings.JavaExecutable, _s.Settings.ExtraJvmArgs,
                 _s.Settings.UseBuiltinJvmArgs, cred);
+
             _gameProcess = await _s.Launcher.LaunchVersionAsync(
                 _s.Settings.DotMinecraft, versionId, options);
-            _gameProcess.Exited += (_, _) => _dq.TryEnqueue(() =>
+            _gameProcess.Exited += (_, _) => _dq.TryEnqueue(async () =>
             {
                 StatusText.Text = "游戏已退出";
                 StatusText.Visibility = Visibility.Visible;
                 UpdateVersionMeta();
+                // Nova 收尾：补扫日志 → 生成战报卡（仅当本局开过观察会话）
+                await _s.NovaRuntime.OnGameExitedAsync();
             });
+            // Nova 时刻：游戏启动即开观察会话（未授权捕捉则静默）；浮窗监测需要 pid
+            _s.NovaRuntime.OnGameLaunched(versionId, _gameProcess.Id);
             StatusText.Text = "游戏运行中";
             StatusText.Visibility = Visibility.Visible;
             _s.Settings.LastUsername = _mode == "microsoft" ? "ms:" + playerName : playerName;

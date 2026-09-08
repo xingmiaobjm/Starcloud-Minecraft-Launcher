@@ -32,6 +32,7 @@ public sealed partial class SettingsPage : Page
                 "dark" => 2,
                 _ => 0,
             };
+            OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             _loaded = true;
             await DetectJavaAsync();
         };
@@ -95,6 +96,15 @@ public sealed partial class SettingsPage : Page
         if (!_loaded) return;
         var tag = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         ApplyTheme(tag);
+    }
+
+    // Nova 游戏内浮窗：切换即落盘（下局游戏启动生效，不追溯当前会话——克制）
+    private void OverlaySwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.NovaOverlayEnabled = OverlaySwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
     }
 
     private static void ApplyTheme(string theme)

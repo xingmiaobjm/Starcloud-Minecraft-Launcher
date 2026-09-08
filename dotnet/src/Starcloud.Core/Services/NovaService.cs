@@ -49,9 +49,15 @@ public sealed class NovaService
     private readonly ModConflictService _conflicts;
     private readonly NovaPermissionStore _permissions;
     private readonly NovaActionLog _log;
+    private readonly NovaMomentsService _moments;
+    private readonly NovaInviteService _invites;
+    private readonly SaveService _saves;
 
     /// <summary>最近一次体检结果（用于「修复 <版本号>」的指代解析）</summary>
     private DiagReport? _lastDiag;
+
+    /// <summary>当前实例上下文（VersionsPage/HomePage 选中时同步；回退 settings.LastVersion）</summary>
+    private string? _currentInstance;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -62,7 +68,8 @@ public sealed class NovaService
     public NovaService(
         StarcloudIdService id, ModrinthService mods,
         GameDiagnosticsService diag, ModConflictService conflicts,
-        NovaPermissionStore permissions, NovaActionLog log)
+        NovaPermissionStore permissions, NovaActionLog log,
+        NovaMomentsService moments, NovaInviteService invites, SaveService saves)
     {
         _id = id;
         _mods = mods;
@@ -70,7 +77,17 @@ public sealed class NovaService
         _conflicts = conflicts;
         _permissions = permissions;
         _log = log;
+        _moments = moments;
+        _invites = invites;
+        _saves = saves;
     }
+
+    /// <summary>同步当前实例上下文（供「体检 / 找整合包 / 搬家」等能力指代使用）</summary>
+    public void SetCurrentInstance(string? versionId) => _currentInstance = versionId;
+
+    /// <summary>当前实例：UI 上下文优先，回退最近启动版本</summary>
+    private string? CurrentInstance(LauncherSettings settings) =>
+        _currentInstance ?? settings.LastVersion;
 
     /// <summary>发送一句话给 Nova；能力指令走本地引擎（具体不空谈），其余走 LLM 降级链。</summary>
     public async Task<NovaReply> ChatAsync(
@@ -112,6 +129,19 @@ public sealed class NovaService
     {
         var lower = input.ToLowerInvariant();
 
+        // starcloud://join 邀请链接（出现在任何消息里都优先处理）
+        var joinIdx = input.IndexOf(NovaInviteService.JoinScheme, StringComparison.OrdinalIgnoreCase);
+        if (joinIdx < 0)
+            joinIdx = input.IndexOf("starcloud://join", StringComparison.OrdinalIgnoreCase);
+        if (joinIdx >= 0)
+        {
+            var url = input[joinIdx..].Split(' ', '\n', '\t')[0].Trim();
+            return NovaInviteService.TryParseJoinUrl(url, out var token) && token is not null
+                ? await PlanJoinAsync(token, settings, ct)
+                : new NovaReply("这个邀请链接不完整或已损坏——让好友重新复制一次完整的 starcloud://join 链接再发我。",
+                    null, false);
+        }
+
         // 注意顺序：「处理冲突」优先于泛化的「检查/修复」关键词
         if (lower.Contains("冲突"))
         {
@@ -131,6 +161,29 @@ public sealed class NovaService
             lower.Contains("检查版本") || lower.Contains("坏了") || lower.Contains("损坏"))
             return new NovaReply(await DiagnoseTextAsync(settings, ct), null, false);
 
+        if (lower.Contains("帧") || lower.Contains("fps") || lower.Contains("卡顿") ||
+            lower.Contains("流畅"))
+            return new NovaReply(FpsCheckText(settings), null, false);
+
+        if (lower.Contains("搬家") || lower.Contains("移动存档") ||
+            (lower.Contains("存档") && (lower.Contains("搬") || lower.Contains("移"))))
+            return await PlanSaveMoveAsync(input, settings, ct);
+
+        if (lower.Contains("战报") || lower.Contains("战绩") || lower.Contains("上局"))
+        {
+            var report = _moments.LastReport;
+            return new NovaReply(
+                report is null
+                    ? "还没有战报——启动一局游戏，下机时我自动汇总这局的高光与翻车瞬间。"
+                    : _moments.BuildReportText(report),
+                null, false);
+        }
+
+        if (lower.Contains("拉人") || lower.Contains("邀请") ||
+            (lower.Contains("好友") && (lower.Contains("玩") || lower.Contains("联机") || lower.Contains("一起"))) ||
+            lower.Contains("联机") || lower.Contains("开黑"))
+            return new NovaReply(InviteGuideText(), null, false);
+
         if (lower.Contains("开箱即玩") || lower.Contains("小白") || lower.Contains("傻瓜") ||
             lower.Contains("优化配置") || lower.Contains("推荐配置") || lower.Contains("帮我调"))
             return PlanSmoothStart(settings);
@@ -140,7 +193,7 @@ public sealed class NovaService
 
         if (lower.Contains("时刻") || lower.Contains("捕捉") || lower.Contains("剪辑") ||
             lower.Contains("分享") || lower.Contains("录像"))
-            return new NovaReply(MomentsText(), null, false);
+            return new NovaReply(MomentsOverviewText(), null, false);
 
         if (lower.Contains("你好") || lower.Contains("您好") || lower.Contains("在吗") ||
             lower.Contains("hi") || lower.Contains("hello") || lower.Contains("帮助") ||
@@ -418,17 +471,223 @@ public sealed class NovaService
         return string.Join(' ', s.Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim();
     }
 
-    // ── Nova 时刻 / 许可层说明（阶段三「主动」：视觉通路未上线，能力规划中） ──
-    private static string MomentsText()
+    // ── Nova 时刻概览（阶段三「主动」：观察已上线，帧剪辑待视觉通路） ──
+    private string MomentsOverviewText()
     {
         var (capT, capB) = NovaPermissionStore.Describe(NovaPermissionStore.Capture);
         var (clipT, clipB) = NovaPermissionStore.Describe(NovaPermissionStore.Clip);
         var (shT, shB) = NovaPermissionStore.Describe(NovaPermissionStore.Share);
-        return "「Nova 时刻」是下机后的一页游戏纪念卡：我自动挑出的高光瞬间，剪成秒级片段配解说。\n" +
-               "它属于第三阶段「主动」能力，视觉通路（帧采集 + 高光判定）还在开发中（规划中，非示意数据）。\n" +
-               "动手许可层的三档开关你可以先授权，能力上线后立即生效：\n" +
-               $"• {capT}：{capB}\n• {clipT}：{clipB}\n• {shT}：{shB}\n" +
-               "默认全部关闭——没开 = 我一个字也不看你的屏幕；开启会记入可审计流水。";
+
+        var sb = new StringBuilder();
+        sb.AppendLine(_moments.IsSessionActive
+            ? $"我正在观察 {_moments.SessionVersion} 的游戏日志（从 {_moments.SessionStart:HH:mm} 开始），" +
+              "达成进度/完成挑战/翻车瞬间都会被我注意到。"
+            : "当前没有进行中的游戏会话；游戏启动后我自动开始观察。");
+        sb.AppendLine("帧剪辑（视觉通路）还在开发中，现在记录的是文字时刻卡——坐标、时间、事件都真实可查。");
+
+        var pending = _moments.Candidates.Where(c => c.State == "proposed").ToList();
+        if (pending.Count > 0)
+        {
+            sb.AppendLine($"我有 {pending.Count} 个候选瞬间等你点头（在 Nova 面板处理）：");
+            foreach (var c in pending.Take(3))
+                sb.Append($"• {c.TimeText} {c.Caption}\n");
+        }
+        else if (_moments.Moments.Count > 0)
+        {
+            sb.AppendLine($"已收藏 {_moments.Moments.Count} 个时刻；说「战报」看最近一局的汇总。");
+        }
+
+        sb.Append("动手许可层三档开关（默认全关，开启 = 显式授权）：\n" +
+                  $"• {capT}：{capB}\n• {clipT}：{clipB}\n• {shT}：{shB}");
+        return sb.ToString();
+    }
+
+    // ── 拉人即玩（阶段二 · 动手）：收到链接 → 确认清单 → 一键装好进服 ──
+    private async Task<NovaReply> PlanJoinAsync(
+        NovaInviteToken token, LauncherSettings settings, CancellationToken ct)
+    {
+        var plan = await _invites.BuildJoinPlanAsync(token, settings, ct);
+        var mods = token.Mods.Count > 0 ? $"，{token.Mods.Count} 个模组自动同步" : "";
+        var server = string.IsNullOrWhiteSpace(token.Server) ? "" : $"\n服务器 {token.Server}（连接码 {token.Code}）";
+        return new NovaReply(
+            $"收到「{token.Name}」的邀请：{token.Loader} {token.Mc}{mods}.{server}\n" +
+            "确认清单如下，点头我就开装，装好直接进服：",
+            plan, false);
+    }
+
+    private static string InviteGuideText() =>
+        "拉人即玩：在「版本」页右键你的实例 →「生成邀请」，复制 starcloud://join 链接发给好友。\n" +
+        "好友把链接发给我（贴进对话即可），我自动装好同款环境并进服。\n" +
+        "• 陶瓦联机（EasyTier 组网）无需公网 IP，连接码形如 U/XXXX-XXXX-XXXX-XXXX\n" +
+        "• 非 Modrinth 来源的模组无法自动同步，邀请里会明确标注\n" +
+        "• Forge/NeoForge 自动安装未接入，受邀方会先装好原版与模组再引导手动装加载器";
+
+    // ── 帧数体检（阶段一 · 顾问：配置侧具体诊断，不臆造游戏内帧数） ──
+    private static string FpsCheckText(LauncherSettings settings)
+    {
+        var physMb = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1024 * 1024);
+        var max = settings.DefaultMaxMemoryMb;
+        var recommended = (int)Math.Clamp((long)physMb / 2, 2048, 8192);
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"配置体检（物理内存 {physMb / 1024} GB，当前最大内存 {max} MB）：");
+        if (max < 2048)
+            sb.AppendLine($"• 最大内存 {max} MB 偏小——现代版本带模组建议 {recommended} MB");
+        else if (max > physMb / 2)
+            sb.AppendLine($"• 最大内存 {max} MB 超过物理内存一半——过大反而加剧 GC 停顿，建议 {recommended} MB");
+        else
+            sb.AppendLine($"• 最大内存 {max} MB 合理");
+        sb.AppendLine(settings.UseBuiltinJvmArgs
+            ? "• G1GC 低停顿参数已启用"
+            : "• 内置 G1GC 参数未启用——开启后 GC 停顿显著减少（回收停顿从秒级压到 50ms 内）");
+        if (settings.VersionIsolated)
+            sb.AppendLine("• 版本隔离已开启，多实例互不污染");
+        sb.Append("诚实说明：我看不见你游戏内的实时帧数（视觉通路未上线），以上是配置侧诊断。\n" +
+                  "带光影时先试关光影对比；回复「开箱即玩」我给你确认清单一键调优。");
+        return sb.ToString();
+    }
+
+    // ── 存档搬家（阶段二 · 动手：先备份 zip，再移动；全局 saves ↔ 版本隔离 saves） ──
+    private sealed record SaveLocation(string FolderName, string LevelName, string Location, string FullPath);
+
+    private async Task<NovaReply> PlanSaveMoveAsync(string input, LauncherSettings settings, CancellationToken ct)
+    {
+        var dotMc = settings.DotMinecraft;
+        var saves = CollectSaves(dotMc);
+        if (saves.Count == 0)
+            return new NovaReply("没有找到任何存档（全局 saves 和各版本隔离 saves 都扫过了）。", null, false);
+
+        // 解析「搬家 <存档> 到 <目标>」
+        var rest = input.Replace("搬家", " ").Replace("移动存档", " ").Replace("移动", " ").Trim();
+        var toIdx = rest.IndexOf(" 到 ", StringComparison.Ordinal);
+        if (toIdx < 0) toIdx = rest.IndexOf("到", StringComparison.Ordinal);
+        if (toIdx < 0) toIdx = rest.IndexOf("→", StringComparison.Ordinal);
+        var name = (toIdx >= 0 ? rest[..toIdx] : rest).Trim('「', '」', '"', ' ');
+        var target = toIdx >= 0 ? rest[(toIdx + 1)..].Trim('「', '」', '"', ' ') : "";
+
+        if (name.Length == 0)
+        {
+            var sb = new StringBuilder($"共 {saves.Count} 个存档：");
+            foreach (var s in saves.Take(8))
+                sb.Append($"\n• {s.LevelName}（{FormatSize(s)}，位于 {s.Location}）");
+            sb.Append("\n回复「搬家 存档名 到 实例名」（或「到 全局」），我先备份再搬。");
+            return new NovaReply(sb.ToString(), null, false);
+        }
+
+        var hit = saves.FirstOrDefault(s => s.FolderName.Contains(name, StringComparison.OrdinalIgnoreCase) ||
+                                            s.LevelName.Contains(name, StringComparison.OrdinalIgnoreCase))
+                  ?? saves.FirstOrDefault(s => name.Contains(s.LevelName, StringComparison.OrdinalIgnoreCase));
+        if (hit is null)
+            return new NovaReply($"没有找到存档「{name}」。可用：{string.Join("、", saves.Take(6).Select(s => s.LevelName))}。",
+                null, false);
+
+        // 解析目标：空=列出可选目标；「全局」；实例 id 前缀匹配
+        if (target.Length == 0)
+        {
+            var versions = Directory.Exists(Path.Combine(dotMc, "versions"))
+                ? Directory.EnumerateDirectories(Path.Combine(dotMc, "versions")).Select(Path.GetFileName).ToList()
+                : [];
+            return new NovaReply(
+                $"把「{hit.LevelName}」搬到哪？回复「搬家 {name} 到 实例名」，或「到 全局」。\n" +
+                $"可用实例：{string.Join("、", versions.Take(8))}", null, false);
+        }
+
+        string dstDir;
+        string dstText;
+        if (target.Contains("全局") || target.Equals("global", StringComparison.OrdinalIgnoreCase))
+        {
+            dstDir = Path.Combine(dotMc, "saves");
+            dstText = "全局 saves";
+        }
+        else
+        {
+            var verDir = Path.Combine(dotMc, "versions");
+            var matched = Directory.Exists(verDir)
+                ? Directory.EnumerateDirectories(verDir)
+                    .FirstOrDefault(d => Path.GetFileName(d).StartsWith(target, StringComparison.OrdinalIgnoreCase))
+                : null;
+            if (matched is null)
+                return new NovaReply($"没有找到实例「{target}」。先确认版本页里的实例名。", null, false);
+            dstDir = Path.Combine(matched, "saves");
+            dstText = $"实例 {Path.GetFileName(matched)} 的隔离存档";
+        }
+
+        var dstPath = Path.Combine(dstDir, hit.FolderName);
+        if (string.Equals(hit.FullPath, dstPath, StringComparison.OrdinalIgnoreCase))
+            return new NovaReply($"「{hit.LevelName}」已经在 {dstText} 里了，不用搬。", null, false);
+
+        var targetDir = dstDir;
+        var finalPath = dstPath;
+        var locText = dstText;
+        var plan = new NovaPlan(Guid.NewGuid().ToString("N")[..12],
+            $"存档搬家：{hit.LevelName} → {locText}",
+            new List<NovaActionItem>
+            {
+                new($"备份 {hit.LevelName}", $"压缩到 backups/{hit.FolderName}-<时间>.zip（出问题随时还原）"),
+                new("移动存档目录", $"{hit.Location} → {locText}（目标已存在同名目录则中止）"),
+            },
+            _ => ExecuteSaveMoveAsync(hit.FullPath, targetDir, finalPath, dotMc, hit.FolderName));
+        await Task.CompletedTask;
+        return new NovaReply($"「{hit.LevelName}」（{FormatSize(hit)}）要搬到 {locText}，确认后我动手：", plan, false);
+    }
+
+    private async Task<string> ExecuteSaveMoveAsync(
+        string srcPath, string dstDir, string dstPath, string dotMc, string folderName)
+    {
+        // 1. 备份 zip（防翻车，移动前必做）
+        var backupDir = Path.Combine(dotMc, "backups");
+        Directory.CreateDirectory(backupDir);
+        var stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        var safeName = string.Concat(folderName.Split(Path.GetInvalidFileNameChars()));
+        var zipPath = Path.Combine(backupDir, $"{safeName}-{stamp}.zip");
+        await Task.Run(() => System.IO.Compression.ZipFile.CreateFromDirectory(srcPath, zipPath));
+
+        // 2. 移动（同名目录存在则中止——不覆盖用户数据）
+        Directory.CreateDirectory(dstDir);
+        if (Directory.Exists(dstPath))
+            throw new InvalidOperationException($"目标已存在同名存档目录：{dstPath}（未移动，备份在 {zipPath}）");
+        Directory.Move(srcPath, dstPath);
+        return $"已搬家：{folderName} → {dstPath}\n备份：{zipPath}";
+    }
+
+    private List<SaveLocation> CollectSaves(string dotMc)
+    {
+        var result = new List<SaveLocation>();
+        var global = Path.Combine(dotMc, "saves");
+        if (Directory.Exists(global))
+            result.AddRange(ListSaveDirs(global, "全局 saves"));
+        var versionsDir = Path.Combine(dotMc, "versions");
+        if (Directory.Exists(versionsDir))
+        {
+            foreach (var ver in Directory.EnumerateDirectories(versionsDir))
+            {
+                var saves = Path.Combine(ver, "saves");
+                if (Directory.Exists(saves))
+                    result.AddRange(ListSaveDirs(saves, $"实例 {Path.GetFileName(ver)}"));
+            }
+        }
+        return result;
+    }
+
+    private static List<SaveLocation> ListSaveDirs(string savesDir, string location) =>
+        Directory.EnumerateDirectories(savesDir)
+            .Where(d => File.Exists(Path.Combine(d, "level.dat")))
+            .Select(d => new SaveLocation(Path.GetFileName(d), Path.GetFileName(d), location, d))
+            .ToList();
+
+    private static string FormatSize(SaveLocation s)
+    {
+        try
+        {
+            long size = 0;
+            foreach (var f in Directory.EnumerateFiles(s.FullPath, "*", SearchOption.AllDirectories))
+                size += new FileInfo(f).Length;
+            return size > 1024 * 1024 * 1024 ? $"{size / 1024.0 / 1024 / 1024:F1} GB" : $"{size / 1024.0 / 1024:F0} MB";
+        }
+        catch
+        {
+            return "大小未知";
+        }
     }
 
     private static string HelpText() =>

@@ -17,6 +17,12 @@
             <SolidColorBrush x:Key="DangerBrush" Color="#FFF44336" />
             <SolidColorBrush x:Key="SuccessBrush" Color="#FF3DDC84" />
 
+            <!-- Nova 品牌色（nebula 紫，仅 Nova 专属视觉使用；状态色见状态栏规格） -->
+            <SolidColorBrush x:Key="NovaStateIdleBrush" Color="#FF71717A" />
+            <SolidColorBrush x:Key="NovaStateThinkingBrush" Color="#FF7C3AED" />
+            <SolidColorBrush x:Key="NovaStatePlanBrush" Color="#FFF59E0B" />
+            <SolidColorBrush x:Key="NovaStateObservingBrush" Color="#FF10B981" />
+
             <!-- 品牌主色刷：浅色=黄 #FFD322，深色=绿 #3DD322（图标/品牌图形用） -->
             <!-- 品牌主色亮度高（黄/亮绿），accent 面上必须用黑字（默认白字对比不足） -->
             <ResourceDictionary.ThemeDictionaries>
@@ -84,6 +90,8 @@
                     <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
                     <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />
                     <SolidColorBrush x:Key="BrandBlueBrush" Color="#3DD322" />
+                    <!-- Nova 头像/Orb：深色星云紫亮调 #A78BFA -->
+                    <SolidColorBrush x:Key="NovaOrbBrush" Color="#FFA78BFA" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />

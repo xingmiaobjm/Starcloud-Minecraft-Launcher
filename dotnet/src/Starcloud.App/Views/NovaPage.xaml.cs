@@ -1,12 +1,10 @@
-// Nova 页（按 NOVA_DESIGN.md v1.0 重建）：
-// 对话即执行（能力指令 → 确认清单 → 点头执行 → 记入动手流水）+
-// 右栏：能力阶段条 / 动手许可层三档开关（开启先弹确认）/ 可审计流水 / LLM 降级链设置。
+// Nova 页（NOVA_DESIGN.md v1.0）：Nova 的「大本营」——登录 / 能力阶段条 / 动手许可层
+// 三档开关（开启先弹确认）/ 可审计流水 / LLM 降级链设置。
+// 对话区复用 NovaChatView（与顶栏面板 / 底部对话条共用 NovaRuntime 同一份消息流），
+// 本页不再持有会话状态；登录 / 退出通过 NovaRuntime.NotifyLoginChanged 同步全局。
 
-using System.Collections.ObjectModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -15,22 +13,23 @@ namespace Starcloud.App.Views;
 public sealed partial class NovaPage : Page
 {
     private readonly AppServices _s = AppServices.Instance;
-    private readonly ObservableCollection<NovaChatMessage> _messages = [];
-    private readonly List<NovaChatTurn> _history = [];
-    private bool _busy;
     private bool _toggling; // 代码设置开关状态时抑制 Toggled 确认弹窗
 
     public NovaPage()
     {
         InitializeComponent();
-        ChatList.ItemsSource = _messages;
-        Loaded += (_, _) =>
-        {
-            UpdateAuthState();
-            if (_s.StarcloudId.IsLoggedIn)
-                AddAssistant(GreetingText());
-        };
+        Loaded += OnLoaded;
+        Unloaded += (_, _) => _s.NovaRuntime.LogChanged -= OnLogChanged;
     }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        // 确认执行 / 取消 / 授权开关都会写流水 → 右栏跟着刷新
+        _s.NovaRuntime.LogChanged += OnLogChanged;
+        UpdateAuthState();
+    }
+
+    private void OnLogChanged() => DispatcherQueue.TryEnqueue(RefreshLog);
 
     private void UpdateAuthState()
     {
@@ -55,7 +54,7 @@ public sealed partial class NovaPage : Page
         RefreshLog();
     }
 
-    // ── 登录 / 退出 ──
+    // ── 登录 / 退出（登录态变化 → NovaRuntime 清空全局消息流并重新问候） ──
     private async void Login_Click(object sender, RoutedEventArgs e)
     {
         var id = IdBox.Text.Trim();
@@ -70,9 +69,7 @@ public sealed partial class NovaPage : Page
         {
             await _s.StarcloudId.LoginAsync(id, PwdBox.Password, channel);
             UpdateAuthState();
-            _messages.Clear();
-            _history.Clear();
-            AddAssistant(GreetingText());
+            _s.NovaRuntime.NotifyLoginChanged();
         }
         catch (Exception ex)
         {
@@ -106,99 +103,8 @@ public sealed partial class NovaPage : Page
         };
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
         _s.StarcloudId.Logout();
-        _messages.Clear();
-        _history.Clear();
+        _s.NovaRuntime.NotifyLoginChanged();
         UpdateAuthState();
-    }
-
-    // ── 对话 ──
-    private async void Send_Click(object sender, RoutedEventArgs e) => await SendAsync();
-
-    private void InputBox_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == Windows.System.VirtualKey.Enter)
-        {
-            e.Handled = true;
-            _ = SendAsync();
-        }
-    }
-
-    private void Quick_Click(object sender, RoutedEventArgs e)
-    {
-        if (_busy) return;
-        InputBox.Text = (sender as Button)?.Tag?.ToString() ?? "";
-        _ = SendAsync();
-    }
-
-    private async Task SendAsync()
-    {
-        var input = InputBox.Text.Trim();
-        if (input.Length == 0 || _busy || _s.StarcloudId.Current is null) return;
-
-        _busy = true;
-        SendBtn.IsEnabled = false;
-        SendProgress.IsActive = true;
-        InputBox.Text = "";
-        AddUser(input);
-        _history.Add(new NovaChatTurn("user", input));
-        try
-        {
-            var reply = await _s.Nova.ChatAsync(input, _s.Settings, _history);
-            var msg = new NovaChatMessage("assistant", reply.Text, Now());
-            if (reply.Plan is not null) msg = msg with { Plan = reply.Plan };
-            _messages.Add(msg);
-            ChatList.ScrollIntoView(msg);
-            _history.Add(new NovaChatTurn("assistant", reply.Text));
-            if (_history.Count > 20) _history.RemoveRange(0, _history.Count - 20);
-        }
-        catch (Exception ex)
-        {
-            AddAssistant($"出错了：{ex.Message}");
-        }
-        finally
-        {
-            _busy = false;
-            SendBtn.IsEnabled = true;
-            SendProgress.IsActive = false;
-            InputBox.Focus(FocusState.Programmatic);
-        }
-    }
-
-    // ── 确认清单：点头才动手，执行记流水 ──
-    private async void PlanConfirm_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not NovaChatMessage { Plan: { } plan } msg ||
-            msg.PlanState != "pending") return;
-        try
-        {
-            var result = await _s.NovaLog.ExecuteConfirmedAsync(plan);
-            ReplaceMessage(msg, msg with { PlanState = "done", ResultText = result });
-        }
-        catch (Exception ex)
-        {
-            ReplaceMessage(msg, msg with { PlanState = "failed", ResultText = ex.Message });
-        }
-        finally
-        {
-            RefreshLog();
-        }
-    }
-
-    private void PlanCancel_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not NovaChatMessage { Plan: { } plan } msg ||
-            msg.PlanState != "pending") return;
-        _s.NovaLog.LogCancelled(plan);
-        ReplaceMessage(msg, msg with { PlanState = "cancelled" });
-        RefreshLog();
-    }
-
-    private void ReplaceMessage(NovaChatMessage oldMsg, NovaChatMessage newMsg)
-    {
-        var idx = _messages.IndexOf(oldMsg);
-        if (idx < 0) return;
-        _messages[idx] = newMsg;
-        ChatList.ScrollIntoView(newMsg);
     }
 
     // ── 动手许可层：开启 = 显式授权（确认弹窗 + 记入流水） ──
@@ -270,69 +176,6 @@ public sealed partial class NovaPage : Page
         timer.Start();
     }
 
-    // ── 消息辅助 ──
-    private void AddUser(string text) =>
-        _messages.Add(new NovaChatMessage("user", text, Now()));
-
-    private void AddAssistant(string text)
-    {
-        var msg = new NovaChatMessage("assistant", text, Now());
-        _messages.Add(msg);
-        ChatList.ScrollIntoView(msg);
-    }
-
-    private string GreetingText()
-    {
-        var s = _s.StarcloudId.Current!;
-        return $"你好，{s.DisplayName}！我是 Nova——你说一句人话，我打理启动器里的脏活累活；所有落盘动作先给确认清单，点头才执行。\n" +
-               "试试：崩了帮我看看 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找个整合包";
-    }
-
-    private static string Now() => DateTime.Now.ToString("HH:mm");
-
     private static string MaskKey(string key) =>
         key.Length <= 14 ? key : $"{key[..10]}…{key[^4..]}";
-}
-
-/// <summary>
-/// 对话消息模型（Bubble/TextBrush/Align 按 Role 一次性求值）；
-/// Plan 非空 = 确认清单卡，PlanState 跟踪 pending/done/cancelled/failed。
-/// </summary>
-public sealed record NovaChatMessage(
-    string Role, string Content, string TimeText,
-    NovaPlan? Plan = null, string PlanState = "pending", string ResultText = "")
-{
-    public HorizontalAlignment Align => Role == "user"
-        ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-
-    // 用户气泡右下角收口、AI 气泡左下角收口（Fluent 会话样式）
-    public CornerRadius Corners => Role == "user"
-        ? new CornerRadius(12, 12, 4, 12) : new CornerRadius(12, 12, 12, 4);
-
-    public Brush Bubble => Role == "user"
-        ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
-        : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
-
-    public Brush TextBrush => Role == "user"
-        ? (Brush)Application.Current.Resources["TextOnAccentFillColorPrimaryBrush"]
-        : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
-
-    public Visibility TextVisible => Plan is null ? Visibility.Visible : Visibility.Collapsed;
-
-    public Visibility HasPlanVisible => Plan is null ? Visibility.Collapsed : Visibility.Visible;
-
-    public Visibility PlanButtonsVisible =>
-        Plan is not null && PlanState == "pending" ? Visibility.Visible : Visibility.Collapsed;
-
-    public Visibility PlanStateVisible =>
-        Plan is not null && PlanState != "pending" ? Visibility.Visible : Visibility.Collapsed;
-
-    public string PlanStateText => PlanState switch
-    {
-        "done" => "✔ 已确认执行（已记入动手流水）" +
-                  (string.IsNullOrEmpty(ResultText) ? "" : $"\n{ResultText}"),
-        "cancelled" => "已取消，未做任何改动",
-        "failed" => $"执行失败（已记入动手流水）：{ResultText}",
-        _ => "",
-    };
 }

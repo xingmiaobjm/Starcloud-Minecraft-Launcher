@@ -7,64 +7,6 @@
     xmlns:core="using:Starcloud.Core.Services"
     NavigationCacheMode="Disabled">
 
-    <Page.Resources>
-        <!-- 对话消息模板：文本气泡 + 动手确认清单卡（Plan 非空时展示） -->
-        <DataTemplate x:Key="MessageTemplate" x:DataType="local:NovaChatMessage">
-            <StackPanel MaxWidth="720" HorizontalAlignment="{x:Bind Align}" Margin="0,2">
-                <!-- 普通文本气泡 -->
-                <Border Background="{x:Bind Bubble}" CornerRadius="{x:Bind Corners}" Padding="12,9"
-                        Visibility="{x:Bind TextVisible}">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap"
-                                   Foreground="{x:Bind TextBrush}" />
-                        <TextBlock Text="{x:Bind TimeText}" FontSize="11" Opacity="0.65"
-                                   Foreground="{x:Bind TextBrush}"
-                                   HorizontalAlignment="{x:Bind Align}" />
-                    </StackPanel>
-                </Border>
-
-                <!-- 确认清单卡：动手前列给用户，点头才执行 -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="12" Padding="14,12"
-                        Visibility="{x:Bind HasPlanVisible}">
-                    <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE73E;" FontSize="14"
-                                      Foreground="{ThemeResource BrandBlueBrush}" />
-                            <TextBlock Text="{x:Bind Content}" FontWeight="SemiBold"
-                                       TextWrapping="Wrap" VerticalAlignment="Center" />
-                        </StackPanel>
-                        <ItemsControl ItemsSource="{x:Bind Plan.Items}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="core:NovaActionItem">
-                                    <StackPanel Margin="0,4,0,0" Spacing="1">
-                                        <TextBlock Text="{x:Bind Title}" FontSize="13"
-                                                   FontWeight="SemiBold" />
-                                        <TextBlock Text="{x:Bind Detail}" FontSize="12"
-                                                   TextWrapping="Wrap" Opacity="0.75"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0"
-                                    Visibility="{x:Bind PlanButtonsVisible}">
-                            <Button Style="{StaticResource AccentButtonStyle}" Content="确认执行"
-                                    AutomationProperties.Name="确认执行" Click="PlanConfirm_Click" />
-                            <Button Content="取消" AutomationProperties.Name="取消执行"
-                                    Click="PlanCancel_Click" />
-                        </StackPanel>
-                        <TextBlock Text="{x:Bind PlanStateText}" FontSize="12"
-                                   Visibility="{x:Bind PlanStateVisible}" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{x:Bind TimeText}" FontSize="11" Opacity="0.65" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </DataTemplate>
-    </Page.Resources>
-
     <Grid MaxWidth="1240" HorizontalAlignment="Stretch">
 
         <!-- ═══ 未登录：Starcloud ID 登录卡片 ═══ -->
@@ -104,20 +46,18 @@
             </StackPanel>
         </Border>
 
-        <!-- ═══ 已登录：对话主区 + 右栏（阶段条 / 许可层 / 流水 / LLM） ═══ -->
+        <!-- ═══ 已登录：会话头 + 对话（复用 NovaChatView）+ 右栏设置 ═══ -->
         <Grid x:Name="ChatPanel" Visibility="Collapsed" ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="300" />
             </Grid.ColumnDefinitions>
 
-            <!-- ── 左：对话列 ── -->
+            <!-- ── 左：会话头 + 复用对话组件（与顶栏面板 / 底部对话条共用同一份消息流） ── -->
             <Grid Grid.Column="0" RowSpacing="12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- 会话头 -->
@@ -143,65 +83,7 @@
                     </Grid>
                 </Border>
 
-                <!-- 快捷能力（阶段一顾问 + 阶段二动手） -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                    <Button Tag="崩了" AutomationProperties.Name="崩溃自愈" Click="Quick_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE946;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
-                            <TextBlock Text="崩溃自愈" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Tag="游戏体检" AutomationProperties.Name="游戏体检" Click="Quick_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE9D9;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
-                            <TextBlock Text="游戏体检" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Tag="检查模组冲突" AutomationProperties.Name="兼容侦探" Click="Quick_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE7BA;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
-                            <TextBlock Text="兼容侦探" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Tag="开箱即玩" AutomationProperties.Name="开箱即玩" Click="Quick_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE9F5;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
-                            <TextBlock Text="开箱即玩" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Tag="你能做什么" AutomationProperties.Name="你能做什么" Click="Quick_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE897;" FontSize="14" Foreground="{ThemeResource BrandBlueBrush}" />
-                            <TextBlock Text="你能做什么" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-
-                <!-- 对话流 -->
-                <Border Grid.Row="2"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="16" Padding="8">
-                    <ListView x:Name="ChatList" SelectionMode="None" Padding="4"
-                              ItemTemplate="{StaticResource MessageTemplate}" />
-                </Border>
-
-                <!-- 输入行 -->
-                <Grid Grid.Row="3" ColumnSpacing="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="InputBox" VerticalAlignment="Center"
-                             PlaceholderText="你说一句人话，我来打理脏活累活"
-                             KeyDown="InputBox_KeyDown" />
-                    <ProgressRing x:Name="SendProgress" Grid.Column="1" IsActive="False"
-                                  Width="24" Height="24" VerticalAlignment="Center" />
-                    <Button x:Name="SendBtn" Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
-                            Content="发送" Padding="20,5" MinWidth="96" Click="Send_Click"
-                            VerticalAlignment="Center" />
-                </Grid>
+                <local:NovaChatView Grid.Row="1" />
             </Grid>
 
             <!-- ── 右：能力阶段条 / 动手许可层 / 可审计流水 / LLM 降级链 ── -->
