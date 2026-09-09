@@ -7,6 +7,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -20,10 +22,27 @@ public sealed partial class HomePage : Page
     private string _mode = "offline";
     private Process? _gameProcess;
 
+    // ── 启动页状态机（设计：docs/superpowers/specs/2026-09-09-launch-overlay-design.md §3.2） ──
+    private enum LaunchStage
+    {
+        Idle, VerifyingCredentials, CheckingFiles, RepairingFiles,
+        StartingProcess, WaitingWindow, Running, Exited, Failed
+    }
+
+    private LaunchStage _stage;
+    private bool _cancelRequested;  // 取消标记：未拉起→阶段边界退出；已拉起→Exited 回调收层
+    private double _climbTo = 100;  // 氛围进度爬升上限（到区间顶即停）
+    private long _runningStart;     // 进程拉起时刻（算本局时长）
+    private long _windowDeadline;   // 窗口检测超时时刻
+    private readonly DispatcherTimer _stageTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };  // 氛围进度爬升
+    private readonly DispatcherTimer _windowTimer = new() { Interval = TimeSpan.FromMilliseconds(500) }; // 游戏窗口出现轮询
+
     public HomePage()
     {
         InitializeComponent();
         _dq = DispatcherQueue.GetForCurrentThread();
+        _stageTimer.Tick += (_, _) => StageTimer_Tick();
+        _windowTimer.Tick += (_, _) => WindowTimer_Tick();
         Loaded += (_, _) => Initialize();
     }
 
@@ -210,9 +229,212 @@ public sealed partial class HomePage : Page
 
     private void PlayerName_TextChanged(object s, TextChangedEventArgs e) => RefreshNameFromSelection();
 
+    // ── 启动页状态机：ApplyStage 集中驱动（launch-overlay-design.md §3.2 表） ──
+
+    /// <summary>统一驱动标题 / 步骤文字 / 进度条 / 按钮可见性 / 错误行，避免散落赋值。</summary>
+    private void ApplyStage(LaunchStage stage)
+    {
+        _stage = stage;
+        _stageTimer.Stop();
+        LaunchErrorText.Visibility = stage == LaunchStage.Failed ? Visibility.Visible : Visibility.Collapsed;
+
+        switch (stage)
+        {
+            case LaunchStage.VerifyingCredentials:
+                SetStageUi("正在启动", "验证 Microsoft 凭据…", 0, 10);
+                break;
+            case LaunchStage.CheckingFiles:
+                SetStageUi("正在启动", "检查游戏文件完整性…", 10, 25);
+                break;
+            case LaunchStage.RepairingFiles:
+                // 真进度阶段：Progress 回调映射 25→75，这里不爬升
+                SetStageUi("正在启动", "补全缺失文件…", 25, null);
+                break;
+            case LaunchStage.StartingProcess:
+                SetStageUi("正在启动", "构建启动命令…", 75, 85);
+                break;
+            case LaunchStage.WaitingWindow:
+                SetStageUi("已启动游戏", "等待游戏窗口出现…", 85, null);
+                LaunchProgress.IsIndeterminate = true; // 不确定态闪烁
+                _windowDeadline = Environment.TickCount64 + 120_000;
+                _windowTimer.Start();
+                break;
+            case LaunchStage.Running:
+                _windowTimer.Stop();
+                LaunchStageTitle.Text = "已启动游戏";
+                LaunchStageTitle.Foreground = null;
+                LaunchStageStepText.Text = "游戏运行中";
+                LaunchProgress.IsIndeterminate = false;
+                LaunchProgress.Value = 100;
+                break;
+            case LaunchStage.Exited:
+                _windowTimer.Stop();
+                LaunchStageTitle.Text = "游戏已退出";
+                LaunchStageTitle.Foreground = null;
+                var sec = Math.Max(0, (Environment.TickCount64 - _runningStart) / 1000);
+                LaunchStageStepText.Text = sec >= 60
+                    ? $"本局时长 {sec / 60} 分 {sec % 60} 秒" : $"本局时长 {sec} 秒";
+                LaunchProgress.IsIndeterminate = false;
+                LaunchProgress.Value = 0;
+                break;
+            case LaunchStage.Failed:
+                _windowTimer.Stop();
+                LaunchStageTitle.Text = "启动失败";
+                LaunchStageTitle.Foreground = ThemeBrush("SystemFillColorCriticalBrush");
+                LaunchProgress.IsIndeterminate = false;
+                LaunchProgress.Value = 0;
+                break;
+            default: // Idle
+                LaunchStageTitle.Text = "正在启动";
+                LaunchStageTitle.Foreground = null;
+                LaunchProgress.IsIndeterminate = false;
+                LaunchProgress.Value = 0;
+                break;
+        }
+
+        // 按钮：启动中只留「取消」；Running/Exited/Failed 只留「返回主页」
+        var launching = stage is >= LaunchStage.VerifyingCredentials and <= LaunchStage.WaitingWindow;
+        LaunchCancelBtn.Visibility = launching ? Visibility.Visible : Visibility.Collapsed;
+        LaunchBackBtn.Visibility = !launching && stage != LaunchStage.Idle
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>统一设置标题/步骤/进度；climbTo 非空时从 from 起爬升到区间顶（250ms +0.5%）。</summary>
+    private void SetStageUi(string title, string step, double from, double? climbTo)
+    {
+        LaunchStageTitle.Text = title;
+        LaunchStageTitle.Foreground = null;
+        LaunchStageStepText.Text = step;
+        LaunchProgress.IsIndeterminate = false;
+        LaunchProgress.Value = from;
+        _climbTo = climbTo ?? double.MaxValue;
+        if (climbTo > from) _stageTimer.Start();
+    }
+
+    private void StageTimer_Tick()
+    {
+        // 氛围进度：区间内每 250ms +0.5%，到顶即停（不承诺精确，PCL2 同款）
+        LaunchProgress.Value = Math.Min(_climbTo, LaunchProgress.Value + 0.5);
+        if (LaunchProgress.Value >= _climbTo) _stageTimer.Stop();
+    }
+
+    private void WindowTimer_Tick()
+    {
+        if (_stage != LaunchStage.WaitingWindow) { _windowTimer.Stop(); return; }
+        if (Environment.TickCount64 >= _windowDeadline)
+        {
+            ApplyStage(LaunchStage.Running); // 超时兜底：不阻塞用户（可能检测失效）
+            return;
+        }
+        try
+        {
+            _gameProcess?.Refresh();
+            if (_gameProcess is { HasExited: false } p && p.MainWindowHandle != IntPtr.Zero)
+                ApplyStage(LaunchStage.Running);
+        }
+        catch { /* 句柄异常继续轮询，超时兜底 */ }
+    }
+
+    /// <summary>进入启动页（spec §3.4）：赋版本/登录方式 → 静态贴士 → 淡入 → 进入凭据阶段。</summary>
+    private void ShowOverlay(string versionId, bool isMicrosoft)
+    {
+        _cancelRequested = false;
+        LaunchCancelBtn.Content = "取消";
+        LaunchCancelBtn.IsEnabled = true;
+        LaunchVersionText.Text = versionId;
+        LaunchLoginModeText.Text = isMicrosoft ? "正版登录" : "离线登录";
+        LaunchTipText.Text = LaunchTips.Next();
+        LaunchErrorText.Text = "";
+        LaunchOverlay.Opacity = 0;
+        LaunchOverlay.Visibility = Visibility.Visible;
+
+        // 150ms 淡入（克制，spec §3.6）
+        var fadeIn = new Storyboard();
+        var anim = new DoubleAnimation { From = 0, To = 1, Duration = new Duration(TimeSpan.FromMilliseconds(150)) };
+        Storyboard.SetTarget(anim, LaunchOverlay);
+        Storyboard.SetTargetProperty(anim, "Opacity");
+        fadeIn.Children.Add(anim);
+        fadeIn.Begin();
+
+        ApplyStage(LaunchStage.VerifyingCredentials);
+
+        // Nova 动态贴士（克制版，spec §3.5）：已登录 Starcloud ID 且 30% 概率；
+        // 结果入队尾，下一次启动才显示；失败/超时静默，不碰 UI
+        if (_s.StarcloudId.Current is not null && Random.Shared.Next(10) < 3)
+            _ = FetchNovaTipAsync(versionId);
+    }
+
+    /// <summary>收起启动页回主页（spec §3.4）：状态机回 Idle，可选右栏状态文字。
+    /// 不清 _cancelRequested：取消杀进程后 Exited 回调仍需感知（标记由 ShowOverlay 复位）。</summary>
+    private void HideOverlay(string? statusText)
+    {
+        ApplyStage(LaunchStage.Idle);
+        LaunchOverlay.Visibility = Visibility.Collapsed;
+        if (statusText is not null)
+        {
+            StatusText.Text = statusText;
+            StatusText.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>Nova 生成一条动态贴士入队尾（下一次启动显示；8 秒超时，失败静默，spec §3.5）。</summary>
+    private async Task FetchNovaTipAsync(string versionId)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(8_000);
+            var reply = await _s.Nova.ChatAsync(
+                $"用一句话（≤40字）生成一条面向「{versionId}」玩家的启动小贴士，不要解释。",
+                _s.Settings, null, cts.Token);
+            LaunchTips.Enqueue(reply.Text);
+        }
+        catch { /* 静默：动态贴士失败无任何 UI 提示 */ }
+    }
+
+    // ── 启动页按钮：取消 / 返回主页（spec §3.4） ──
+    private void LaunchCancelBtn_Click(object sender, RoutedEventArgs e)
+    {
+        _cancelRequested = true;
+        LaunchCancelBtn.Content = "正在取消…";
+        LaunchCancelBtn.IsEnabled = false;
+        if (_stage is LaunchStage.WaitingWindow or LaunchStage.Running)
+        {
+            // 已拉起：杀进程，Exited 回调感知取消标记 → 直接收层回主页
+            try { _gameProcess?.Kill(true); } catch { /* 已退出等情况忽略 */ }
+        }
+        // 未拉起：等当前 await 完成后的阶段边界检查退出（LaunchBtn_Click）
+    }
+
+    private void LaunchBackBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_stage == LaunchStage.Running)
+        {
+            // 游戏仍在运行：只收层，主页复用「停止游戏」第二击路径（不杀进程）
+            HideOverlay("游戏运行中");
+            UpdateVersionMeta();
+        }
+        else
+        {
+            HideOverlay(null);
+        }
+    }
+
+    /// <summary>覆盖层显示期间导航离开：按取消语义处理（spec §3.4）。</summary>
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        base.OnNavigatedFrom(e);
+        if (LaunchOverlay.Visibility != Visibility.Visible) return;
+        _stageTimer.Stop();
+        _windowTimer.Stop();
+        if (_stage is LaunchStage.WaitingWindow or LaunchStage.Running)
+            return; // 已拉起：不杀游戏只放弃视图，Exited 回调收尾
+        _cancelRequested = true; // 未拉起：让后台启动流程在阶段边界自行退出
+    }
+
     // ── 启动 / 停止 ──
     private async void LaunchBtn_Click(object s, RoutedEventArgs e)
     {
+        // 第二击「停止游戏」：杀当前进程，右栏状态由 Exited 回调收尾
         if (_gameProcess is { HasExited: false })
         {
             try { _gameProcess.Kill(true); } catch { /* ignore */ }
@@ -222,33 +444,34 @@ public sealed partial class HomePage : Page
         var versionId = (VersionList.SelectedItem as VersionRow)?.Id;
         if (string.IsNullOrEmpty(versionId)) return;
 
+        // 前置校验（spec §3.4）：玩家名不合法在进覆盖层前拦截
+        string? offlineName = null;
+        if (_mode != "microsoft")
+        {
+            offlineName = ResolvePlayerName();
+            if (string.IsNullOrWhiteSpace(offlineName))
+            {
+                LocalErrorBar.Message = "请输入离线玩家名或选择账户";
+                LocalErrorBar.IsOpen = true;
+                return;
+            }
+        }
+
         LaunchBtn.IsEnabled = false;
         GlobalErrorBar.IsOpen = false;
+        ShowOverlay(versionId, _mode == "microsoft");
         try
         {
             string playerName;
             LaunchCredentials? cred = null;
             if (_mode == "microsoft")
             {
-                StatusText.Text = "正在验证 Microsoft 凭据…";
-                StatusText.Visibility = Visibility.Visible;
-                var ms = await ResolveMicrosoftAccountAsync();
-                if (ms is null)
-                {
-                    StatusText.Visibility = Visibility.Collapsed;
-                    return;
-                }
-                (playerName, cred) = ms.Value;
+                (playerName, cred) = await ResolveMicrosoftAccountAsync();
+                if (_cancelRequested) { HideOverlay("已取消启动"); return; }
             }
             else
             {
-                playerName = ResolvePlayerName();
-                if (string.IsNullOrWhiteSpace(playerName))
-                {
-                    LocalErrorBar.Message = "请输入离线玩家名或选择账户";
-                    LocalErrorBar.IsOpen = true;
-                    return;
-                }
+                playerName = offlineName!;
             }
 
             var options = new LaunchOptions(
@@ -257,22 +480,27 @@ public sealed partial class HomePage : Page
                 _s.Settings.JavaExecutable, _s.Settings.ExtraJvmArgs,
                 _s.Settings.UseBuiltinJvmArgs, cred);
 
-            // 启动前预检：缺失/损坏文件全自动补全，进度显示在状态栏，补完直接启动
+            // 启动前预检：缺失/损坏文件全自动补全，进度显示在启动页，补完直接启动
             var dotMc = _s.Settings.DotMinecraft;
-            StatusText.Text = "正在检查游戏文件完整性…";
-            StatusText.Visibility = Visibility.Visible;
+            ApplyStage(LaunchStage.CheckingFiles);
             var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
+            if (_cancelRequested) { HideOverlay("已取消启动"); return; }
             if (preflight.NeedsRepair)
             {
                 if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
                 {
-                    StatusText.Visibility = Visibility.Collapsed;
+                    HideOverlay(null);
                     LocalErrorBar.Message = "版本 JSON 缺失或损坏，无法自动恢复，请到下载页重新安装";
                     LocalErrorBar.IsOpen = true;
                     return;
                 }
+                ApplyStage(LaunchStage.RepairingFiles);
+                // 唯一真进度：BatchProgress 线性映射到 25→75%（spec §3.2）
                 var progress = new Progress<BatchProgress>(p =>
-                    StatusText.Text = $"补全缺失文件 {p.DoneFiles}/{p.TotalFiles}（{p.Percentage}%）…");
+                {
+                    LaunchProgress.Value = 25 + p.Percentage * 0.5;
+                    LaunchStageStepText.Text = $"补全缺失文件 {p.DoneFiles}/{p.TotalFiles}（{p.Percentage}%）…";
+                });
                 try
                 {
                     await _s.Preflight.EnsureReadyAsync(dotMc, versionId, preflight,
@@ -293,34 +521,64 @@ public sealed partial class HomePage : Page
                         DefaultButton = ContentDialogButton.Close,
                         XamlRoot = XamlRoot,
                     };
-                    // 取消则不启动；「仍然启动」带缺失文件继续
+                    // 取消则不启动（覆盖层一并收起）；「仍然启动」带缺失文件继续
                     if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                    {
+                        HideOverlay(null);
                         return;
+                    }
                 }
+                if (_cancelRequested) { HideOverlay("已取消启动"); return; }
             }
 
+            ApplyStage(LaunchStage.StartingProcess);
             _gameProcess = await _s.Launcher.LaunchVersionAsync(
                 _s.Settings.DotMinecraft, versionId, options);
             _gameProcess.Exited += (_, _) => _dq.TryEnqueue(async () =>
             {
-                StatusText.Text = "游戏已退出";
-                StatusText.Visibility = Visibility.Visible;
+                if (_cancelRequested)
+                    HideOverlay("已取消启动");        // 取消路径：直接收层回主页（spec §3.4）
+                else if (LaunchOverlay.Visibility == Visibility.Visible)
+                    ApplyStage(LaunchStage.Exited);   // 覆盖层显示：停在启动页展示本局时长
+                else
+                {
+                    StatusText.Text = "游戏已退出";   // 已收层：右栏状态（返回主页/停止游戏后退出）
+                    StatusText.Visibility = Visibility.Visible;
+                }
                 UpdateVersionMeta();
                 // Nova 收尾：补扫日志 → 生成战报卡（仅当本局开过观察会话）
                 await _s.NovaRuntime.OnGameExitedAsync();
             });
+            if (_cancelRequested)
+            {
+                // 极短窗口内取消：杀掉刚拉起的进程回主页，Exited 回调续收尾
+                try { _gameProcess.Kill(true); } catch { /* ignore */ }
+                HideOverlay("已取消启动");
+                return;
+            }
+            _runningStart = Environment.TickCount64;
+            ApplyStage(LaunchStage.WaitingWindow); // 窗口出现由 _windowTimer 轮询（§3.3）
+
             // Nova 时刻：游戏启动即开观察会话（未授权捕捉则静默）；浮窗监测需要 pid
             _s.NovaRuntime.OnGameLaunched(versionId, _gameProcess.Id);
-            StatusText.Text = "游戏运行中";
-            StatusText.Visibility = Visibility.Visible;
             _s.Settings.LastUsername = _mode == "microsoft" ? "ms:" + playerName : playerName;
             _s.Settings.LastVersion = versionId;
             _s.Settings.Save();
         }
         catch (Exception ex)
         {
-            LocalErrorBar.Message = ex.Message;
-            LocalErrorBar.IsOpen = true;
+            if (_cancelRequested) { HideOverlay("已取消启动"); return; }
+            // 启动期间的异常显示在启动页（spec §3.4），不再弹 LocalErrorBar
+            if (LaunchOverlay.Visibility == Visibility.Visible)
+            {
+                LaunchErrorText.Text = ex.Message;
+                ApplyStage(LaunchStage.Failed);
+            }
+            else
+            {
+                LocalErrorBar.Message = ex.Message;
+                LocalErrorBar.IsOpen = true;
+            }
         }
         finally
         {
@@ -343,17 +601,13 @@ public sealed partial class HomePage : Page
 
     /// <summary>微软模式启动前解析凭据：优先 refresh_token 续期并回写存储；
     /// 续期失效或网络异常时降级用存量 accessToken（1 小时有效期内）；
-    /// 无可用凭据返回 null（已设置错误提示）。</summary>
-    private async Task<(string Name, LaunchCredentials Cred)?> ResolveMicrosoftAccountAsync()
+    /// 无可用凭据时抛出（由启动页 Failed 态展示，spec §3.4）。</summary>
+    private async Task<(string Name, LaunchCredentials Cred)> ResolveMicrosoftAccountAsync()
     {
         var uuid = AccountCombo.SelectedValue as string;
         var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid && a.Type == "microsoft");
         if (acc is null)
-        {
-            LocalErrorBar.Message = "尚无微软账户，请先到账户页登录";
-            LocalErrorBar.IsOpen = true;
-            return null;
-        }
+            throw new InvalidOperationException("尚无微软账户，请先到账户页登录");
         if (!string.IsNullOrEmpty(acc.RefreshToken))
         {
             try
@@ -369,9 +623,7 @@ public sealed partial class HomePage : Page
         }
         if (!string.IsNullOrEmpty(acc.AccessToken))
             return (acc.Username, new LaunchCredentials(acc.Uuid, acc.AccessToken, "msa"));
-        LocalErrorBar.Message = $"{acc.Username} 的 Microsoft 登录已过期，请到账户页重新登录";
-        LocalErrorBar.IsOpen = true;
-        return null;
+        throw new InvalidOperationException($"{acc.Username} 的 Microsoft 登录已过期，请到账户页重新登录");
     }
 
     // ── 入口 ──

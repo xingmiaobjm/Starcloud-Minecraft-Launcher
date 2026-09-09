@@ -7,11 +7,13 @@
     NavigationCacheMode="Disabled">
 
     <!-- 不用 ScrollViewer：整体填满视口，卡片与窗口同高（PCL2 式） -->
-    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="360" />
-        </Grid.ColumnDefinitions>
+    <!-- 根节点两层：HomeContent（主页两列）+ LaunchOverlay（启动页覆盖层，见文件尾） -->
+    <Grid>
+        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="360" />
+            </Grid.ColumnDefinitions>
 
         <!-- ═══ 左列：欢迎 + 版本列表(弹性) + 快捷入口 ═══ -->
         <Grid Grid.Column="0" RowSpacing="16" Margin="0,0,24,0">
@@ -285,6 +287,7 @@
                     <TextBox x:Name="PlayerNameBox" PlaceholderText="输入玩家名" Width="220"
                              MaxLength="16" Visibility="Collapsed" TextChanged="PlayerName_TextChanged" />
                     <ComboBox x:Name="AccountCombo" Width="220" HorizontalAlignment="Center"
+                              SelectedValuePath="Value"
                               SelectionChanged="AccountCombo_SelectionChanged" />
                 </StackPanel>
 
@@ -322,5 +325,87 @@
                 </Grid>
             </Grid>
         </Border>
+        </Grid>
+
+        <!-- ═══ 启动页覆盖层：点启动后盖住两列内容（PCL2 式，设计：launch-overlay-design.md §3.1） ═══ -->
+        <Grid x:Name="LaunchOverlay" Visibility="Collapsed"
+              Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <StackPanel MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Spacing="14">
+                <!-- 像素镐图标：品牌色对角渐变（浅黄→深绿，两主题通用） -->
+                <Path Width="48" Height="48" HorizontalAlignment="Center"
+                      Data="M16,4 H32 V8 H36 V12 H40 V20 H36 V24 H32 V20 H28 V16 H24 V40 H20 V44 H16 V16 H12 V24 H8 V20 H12 V12 H16 Z"
+                      Fill="{ThemeResource AccentFillColorDefaultBrush}" />
+
+                <TextBlock x:Name="LaunchStageTitle" Text="正在启动" FontSize="24"
+                           FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock x:Name="LaunchVersionText" FontSize="13" HorizontalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextTrimming="CharacterEllipsis" />
+
+                <ProgressBar x:Name="LaunchProgress" Height="4" CornerRadius="2"
+                             Minimum="0" Maximum="100"
+                             Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+
+                <!-- 当前步骤 / 登录方式 -->
+                <Grid ColumnSpacing="8" Width="340" HorizontalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="当前步骤" FontSize="13" Opacity="0.7"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                    <TextBlock x:Name="LaunchStageStepText" Grid.Column="1" FontSize="13"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Row="1" Text="登录方式" FontSize="13" Opacity="0.7"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                    <TextBlock x:Name="LaunchLoginModeText" Grid.Row="1" Grid.Column="1"
+                               FontSize="13" VerticalAlignment="Center" />
+                </Grid>
+
+                <!-- 你知道吗（小贴士：静态池 + Nova 动态，见 LaunchTips.cs） -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="12,10"
+                        Width="340" HorizontalAlignment="Center">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Rectangle RadiusX="2" RadiusY="2"
+                                   Fill="{ThemeResource AccentFillColorDefaultBrush}" />
+                        <TextBlock x:Name="LaunchTipText" Grid.Column="1" FontSize="12"
+                                   TextWrapping="Wrap" LineHeight="18"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                </Border>
+
+                <TextBlock x:Name="LaunchErrorText" FontSize="12" TextWrapping="Wrap"
+                           MaxLines="2" TextTrimming="CharacterEllipsis" TextAlignment="Center"
+                           Visibility="Collapsed" HorizontalAlignment="Center"
+                           Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+
+                <!-- 取消（启动中）/ 返回主页（运行中、已退出、失败） -->
+                <Grid ColumnSpacing="12" Width="340" HorizontalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="LaunchCancelBtn" Content="取消" HorizontalAlignment="Stretch"
+                            Click="LaunchCancelBtn_Click" />
+                    <Button x:Name="LaunchBackBtn" Grid.Column="1" Content="返回主页"
+                            HorizontalAlignment="Stretch" Visibility="Collapsed"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="LaunchBackBtn_Click" />
+                </Grid>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>
