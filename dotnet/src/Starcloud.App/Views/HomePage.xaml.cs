@@ -478,7 +478,7 @@ public sealed partial class HomePage : Page
                 versionId, playerName, _s.Settings.DotMinecraft,
                 _s.Settings.DefaultMinMemoryMb, _s.Settings.DefaultMaxMemoryMb,
                 _s.Settings.JavaExecutable, _s.Settings.ExtraJvmArgs,
-                _s.Settings.UseBuiltinJvmArgs, cred);
+                _s.Settings.UseBuiltinJvmArgs, cred, null, _s.Settings.Language);
 
             // 启动前预检：缺失/损坏文件全自动补全，进度显示在启动页，补完直接启动
             var dotMc = _s.Settings.DotMinecraft;

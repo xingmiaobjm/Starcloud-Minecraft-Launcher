@@ -18,7 +18,8 @@ public sealed record LaunchOptions(
     List<string> ExtraJvmArgs,
     bool UseBuiltinJvmArgs,
     LaunchCredentials? Credentials = null,
-    string? QuickPlayMultiplayer = null);
+    string? QuickPlayMultiplayer = null,
+    string Language = "zh_CN");
 
 /// <summary>已认证账户凭据（微软账户）；离线账户传 null 走 OfflineUuid 回退</summary>
 public sealed record LaunchCredentials(string Uuid, string AccessToken, string UserType, string? Xuid = null);
@@ -234,7 +235,9 @@ public sealed class GameLauncher
             WorkingDirectory = workingDirectory,
             CreateNoWindow = true,
         };
-        return Process.Start(psi) ?? throw new InvalidOperationException("游戏进程启动失败");
+        var p = Process.Start(psi) ?? throw new InvalidOperationException("游戏进程启动失败");
+        p.EnableRaisingEvents = true; // 不开则 Exited 事件永不触发（手动关游戏后 UI 状态卡死）
+        return p;
     }
 
     /// <summary>便捷：加载版本并启动（供 UI 一次调用）</summary>
@@ -245,6 +248,16 @@ public sealed class GameLauncher
         var cmd = await BuildCommandLineAsync(version, options, ct);
         var gameDir = options.GameDir;
         Directory.CreateDirectory(gameDir);
+        EnsureFirstRunLanguage(gameDir, options.Language);
         return Launch(cmd, gameDir);
+    }
+
+    /// <summary>首次开启（无 options.txt）时按启动器语言写入游戏语言；失败静默不阻塞启动</summary>
+    private static void EnsureFirstRunLanguage(string gameDir, string language)
+    {
+        var path = Path.Combine(gameDir, "options.txt");
+        if (File.Exists(path)) return;
+        try { File.WriteAllText(path, $"lang:{language.Replace('-', '_')}\n"); }
+        catch { /* 非阻塞：写不进去就交给游戏默认语言 */ }
     }
 }

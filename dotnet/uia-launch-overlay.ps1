@@ -168,12 +168,30 @@ if ($Cancel) {
     }
     if (-not $ok) { Write-Output "FAIL: overlay not collapsed / StatusText missing"; exit 1 }
     Write-Output "BACK OK: overlay collapsed, StatusText=游戏运行中"
-}
 
-# 清理：只杀本次新拉起的 java（应用保留给手工观察）
-$newJava = @(Get-Process -Name java -ErrorAction SilentlyContinue | Where-Object { $javaBefore -notcontains $_.Id })
-foreach ($j in $newJava) { try { $j.Kill() } catch { } }
-if ($newJava.Count -gt 0) { Write-Output ("CLEANUP: killed {0} java process(es)" -f $newJava.Count) }
+    # 首次启动语言：options.txt 应存在且 lang=启动器语言
+    $settings = Get-Content "$env:APPDATA\starcloud-launcher\launcher.settings.json" -Raw | ConvertFrom-Json
+    $optPath = Join-Path $settings.dot_minecraft "options.txt"
+    if (Test-Path $optPath) {
+        $lang = (Get-Content $optPath | Where-Object { $_ -like "lang:*" } | Select-Object -First 1)
+        Write-Output ("OPTIONS LANG: {0} (launcher={1})" -f $lang, $settings.language)
+    } else {
+        Write-Output "FAIL: options.txt not created"; exit 1
+    }
+
+    # 退出事件：杀掉游戏进程后状态应流转「游戏已退出」（EnableRaisingEvents 修复验证）
+    $newJava = @(Get-Process -Name java -ErrorAction SilentlyContinue | Where-Object { $javaBefore -notcontains $_.Id })
+    foreach ($j in $newJava) { try { $j.Kill() } catch { } }
+    Write-Output ("CLEANUP: killed {0} java process(es)" -f $newJava.Count)
+    $exitOk = $false
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Find-ByName $win "游戏已退出" ([System.Windows.Automation.ControlType]::Text)) { $exitOk = $true; break }
+        Start-Sleep -Milliseconds 800
+    }
+    if (-not $exitOk) { Write-Output "FAIL: exit event never reflected (still 游戏运行中?)"; exit 1 }
+    Write-Output "EXIT EVENT OK (游戏已退出)"
+}
 
 Write-Output "PASS"
 exit 0
