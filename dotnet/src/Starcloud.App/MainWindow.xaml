@@ -33,8 +33,25 @@
                 ToolTipService.ToolTip="Nova：待命"
                 Click="NovaOrb_Click">
             <Grid Width="32" Height="32">
+                <Grid.Resources>
+                    <ResourceDictionary>
+                        <ResourceDictionary.ThemeDictionaries>
+                            <ResourceDictionary x:Key="Dark">
+                                <AcrylicBrush x:Key="NovaOrbAcrylicBrush" TintColor="#202020"
+                                              TintOpacity="0.55" TintLuminosityOpacity="0.85"
+                                              FallbackColor="#202020" />
+                            </ResourceDictionary>
+                            <ResourceDictionary x:Key="Light">
+                                <AcrylicBrush x:Key="NovaOrbAcrylicBrush" TintColor="#F3F3F3"
+                                              TintOpacity="0.55" TintLuminosityOpacity="0.85"
+                                              FallbackColor="#F3F3F3" />
+                            </ResourceDictionary>
+                        </ResourceDictionary.ThemeDictionaries>
+                    </ResourceDictionary>
+                </Grid.Resources>
+                <!-- 高模糊毛玻璃（in-app acrylic）：模糊背后页面内容，避免下层文字穿透重影 -->
                 <Border CornerRadius="8"
-                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        Background="{ThemeResource NovaOrbAcrylicBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" />
                 <FontIcon x:Name="NovaOrbGlyph" Glyph="&#xE99A;" FontSize="15"

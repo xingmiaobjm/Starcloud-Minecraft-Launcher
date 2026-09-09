@@ -706,14 +706,15 @@ public sealed class NovaService
 
     private static string TrimForEcho(string s) => s.Length <= 24 ? s : s[..24] + "…";
 
-    // ── LLM 降级链 · 第 1 级：用户自填 Key（OpenAI 兼容协议，零成本） ──
+    // ── LLM 降级链 · 第 1 级：用户自填 Key（OpenAI 兼容协议，零成本，多模型档案取当前） ──
     private static async Task<string?> UserLlmChatAsync(
         LauncherSettings settings, string message,
         IReadOnlyList<NovaChatTurn>? history, CancellationToken ct)
     {
-        var baseUrl = settings.NovaLlmBaseUrl?.Trim().TrimEnd('/');
-        var apiKey = settings.NovaLlmApiKey?.Trim();
-        var model = settings.NovaLlmModel?.Trim();
+        var profile = settings.ActiveLlmProfile();
+        var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
+        var apiKey = profile?.ApiKey?.Trim();
+        var model = profile?.Model?.Trim();
         if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model))
             return null; // 未配置 → 静默降级到下一级
 

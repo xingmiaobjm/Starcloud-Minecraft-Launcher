@@ -1,7 +1,6 @@
-// Nova 页（NOVA_DESIGN.md v1.0）：Nova 的「大本营」——登录 / 能力阶段条 / 动手许可层
-// 三档开关（开启先弹确认）/ 可审计流水 / LLM 降级链设置。
-// 对话区复用 NovaChatView（与顶栏面板 / 底部对话条共用 NovaRuntime 同一份消息流），
-// 本页不再持有会话状态；登录 / 退出通过 NovaRuntime.NotifyLoginChanged 同步全局。
+// Nova 设置页（原聊天区已移除——对话入口在顶栏 NovaOrb 面板 / 底部 NovaBar，共用 NovaRuntime 消息流）：
+// 账户（登录 / 退出）/ 模型设置（第三方 LLM 添加 + 多模型档案切换）/ 游戏内辅助浮窗 /
+// 游戏记录记忆（战报 / 时刻统计）/ 动手许可层（开启先弹确认）/ 可审计流水 / 能力路线。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -24,37 +23,35 @@ public sealed partial class NovaPage : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // 确认执行 / 取消 / 授权开关都会写流水 → 右栏跟着刷新
+        // 确认执行 / 取消 / 授权开关都会写流水 → 流水卡片跟着刷新
         _s.NovaRuntime.LogChanged += OnLogChanged;
-        UpdateAuthState();
-    }
-
-    private void OnLogChanged() => DispatcherQueue.TryEnqueue(RefreshLog);
-
-    private void UpdateAuthState()
-    {
-        var session = _s.StarcloudId.Current;
-        LoginPanel.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
-        ChatPanel.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
-        if (session is not { } s) return;
-        UserSub.Text = $"{s.UserId} · {(s.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")} · Key {MaskKey(s.ApiKey)}";
+        UpdateAccountState();
 
         // 许可层开关回显（默认关闭；代码设置期间抑制 Toggled）
         _toggling = true;
         CaptureSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Capture);
         ClipSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Clip);
         ShareSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Share);
+        OverlaySwitch.IsOn = _s.Settings.NovaOverlayEnabled;
         _toggling = false;
 
-        // LLM 降级链第 1 级回显
-        LlmBaseUrlBox.Text = _s.Settings.NovaLlmBaseUrl ?? "";
-        LlmKeyBox.Password = _s.Settings.NovaLlmApiKey ?? "";
-        LlmModelBox.Text = _s.Settings.NovaLlmModel ?? "";
-
+        RefreshProfiles();
+        RefreshMemory();
         RefreshLog();
     }
 
-    // ── 登录 / 退出（登录态变化 → NovaRuntime 清空全局消息流并重新问候） ──
+    private void OnLogChanged() => DispatcherQueue.TryEnqueue(RefreshLog);
+
+    // ── 账户：登录表单 / 已登录信息切换（登录态变化 → NovaRuntime 清空全局消息流并重新问候） ──
+    private void UpdateAccountState()
+    {
+        var session = _s.StarcloudId.Current;
+        LoginForm.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
+        AccountInfo.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
+        if (session is not { } s) return;
+        UserSub.Text = $"{s.UserId} · {(s.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")} · Key {MaskKey(s.ApiKey)}";
+    }
+
     private async void Login_Click(object sender, RoutedEventArgs e)
     {
         var id = IdBox.Text.Trim();
@@ -68,7 +65,7 @@ public sealed partial class NovaPage : Page
         try
         {
             await _s.StarcloudId.LoginAsync(id, PwdBox.Password, channel);
-            UpdateAuthState();
+            UpdateAccountState();
             _s.NovaRuntime.NotifyLoginChanged();
         }
         catch (Exception ex)
@@ -104,7 +101,114 @@ public sealed partial class NovaPage : Page
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
         _s.StarcloudId.Logout();
         _s.NovaRuntime.NotifyLoginChanged();
-        UpdateAuthState();
+        UpdateAccountState();
+    }
+
+    // ── 模型设置：第三方 LLM 添加 + 多模型档案（添加 / 切换 / 删除） ──
+    private void RefreshProfiles()
+    {
+        var activeId = _s.Settings.ActiveLlmProfile()?.Id;
+        ProfileList.ItemsSource = _s.Settings.NovaLlmProfiles
+            .Select(p => new NovaLlmProfileRow(
+                p.Id,
+                string.IsNullOrWhiteSpace(p.Name) ? p.Model : p.Name,
+                $"{p.BaseUrl} · {p.Model} · Key {MaskKey(p.ApiKey)}",
+                p.Id == activeId))
+            .ToList();
+        ProfileEmptyText.Visibility = _s.Settings.NovaLlmProfiles.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void LlmAdd_Click(object sender, RoutedEventArgs e)
+    {
+        var baseUrl = LlmBaseUrlBox.Text.Trim();
+        var key = LlmKeyBox.Password.Trim();
+        var model = LlmModelBox.Text.Trim();
+        if (baseUrl.Length == 0 || key.Length == 0 || model.Length == 0)
+        {
+            ShowLlmHint("Base URL、API Key、模型名都要填上才能接入");
+            return;
+        }
+
+        var profile = new NovaLlmProfile
+        {
+            Name = ProfileNameBox.Text.Trim(),
+            BaseUrl = baseUrl,
+            ApiKey = key,
+            Model = model,
+        };
+        var first = _s.Settings.NovaLlmProfiles.Count == 0;
+        _s.Settings.NovaLlmProfiles.Add(profile);
+        if (first) _s.Settings.NovaLlmActiveId = profile.Id; // 第一个自动启用
+        _s.Settings.Save();
+
+        ProfileNameBox.Text = "";
+        LlmBaseUrlBox.Text = "";
+        LlmKeyBox.Password = "";
+        LlmModelBox.Text = "";
+        ShowLlmHint(first ? "已添加并启用（当前使用）" : "已添加，点「设为当前」启用");
+        RefreshProfiles();
+    }
+
+    private void ProfileActivate_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string id }) return;
+        _s.Settings.NovaLlmActiveId = id;
+        _s.Settings.Save();
+        ShowLlmHint("已切换当前模型");
+        RefreshProfiles();
+    }
+
+    private async void ProfileDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string id }) return;
+        var dlg = new ContentDialog
+        {
+            Title = "删除模型",
+            Content = "删除后该模型的 API Key 也会从本机移除，确定吗？",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var profile = _s.Settings.NovaLlmProfiles.FirstOrDefault(p => p.Id == id);
+        if (profile is null) return;
+        _s.Settings.NovaLlmProfiles.Remove(profile);
+        if (_s.Settings.NovaLlmActiveId == id)
+            _s.Settings.NovaLlmActiveId = _s.Settings.NovaLlmProfiles.FirstOrDefault()?.Id;
+        _s.Settings.Save();
+        ShowLlmHint("已删除");
+        RefreshProfiles();
+    }
+
+    private void ShowLlmHint(string text)
+    {
+        LlmSaveHint.Text = text;
+        LlmSaveHint.Visibility = Visibility.Visible;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += (_, _) => { LlmSaveHint.Visibility = Visibility.Collapsed; timer.Stop(); };
+        timer.Start();
+    }
+
+    // ── 游戏内辅助浮窗（nova_overlay_enabled：默认关 = 开启即显式授权） ──
+    private void Overlay_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_toggling) return;
+        _s.Settings.NovaOverlayEnabled = OverlaySwitch.IsOn;
+        _s.Settings.Save();
+    }
+
+    // ── 游戏记录记忆：战报 / 时刻统计 ──
+    private void RefreshMemory()
+    {
+        MemoryStatsText.Text =
+            $"已记录对局 {_s.NovaMoments.Reports.Count} 场 · 收藏时刻 {_s.NovaMoments.Moments.Count} 个";
+        var last = _s.NovaMoments.LastReport;
+        MemoryReportText.Text = last is null
+            ? "暂无战报。打完一局后 Nova 会自动生成「这盘干了啥」。"
+            : _s.NovaMoments.BuildReportText(last);
     }
 
     // ── 动手许可层：开启 = 显式授权（确认弹窗 + 记入流水） ──
@@ -163,19 +267,23 @@ public sealed partial class NovaPage : Page
         RefreshLog();
     }
 
-    // ── LLM 降级链第 1 级：用户自填 Key ──
-    private void LlmSave_Click(object sender, RoutedEventArgs e)
-    {
-        _s.Settings.NovaLlmBaseUrl = LlmBaseUrlBox.Text.Trim();
-        _s.Settings.NovaLlmApiKey = LlmKeyBox.Password.Trim();
-        _s.Settings.NovaLlmModel = LlmModelBox.Text.Trim();
-        _s.Settings.Save();
-        LlmSaveHint.Visibility = Visibility.Visible;
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        timer.Tick += (_, _) => { LlmSaveHint.Visibility = Visibility.Collapsed; timer.Stop(); };
-        timer.Start();
-    }
-
     private static string MaskKey(string key) =>
         key.Length <= 14 ? key : $"{key[..10]}…{key[^4..]}";
+}
+
+/// <summary>模型档案列表行视图模型（NovaPage ProfileList 的 x:Bind 数据源）</summary>
+public sealed class NovaLlmProfileRow
+{
+    public string Id { get; }
+    public string Name { get; }
+    public string Detail { get; }
+    public Visibility ActiveVisibility { get; }
+
+    public NovaLlmProfileRow(string id, string name, string detail, bool isActive)
+    {
+        Id = id;
+        Name = name;
+        Detail = detail;
+        ActiveVisibility = isActive ? Visibility.Visible : Visibility.Collapsed;
+    }
 }

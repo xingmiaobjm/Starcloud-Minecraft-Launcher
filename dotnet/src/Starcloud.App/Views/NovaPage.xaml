@@ -7,228 +7,289 @@
     xmlns:core="using:Starcloud.Core.Services"
     NavigationCacheMode="Disabled">
 
-    <Grid MaxWidth="1240" HorizontalAlignment="Stretch">
+    <!-- Nova 设置页：账户 / 模型设置（第三方 LLM · 多模型）/ 游戏内辅助 / 游戏记录记忆 /
+         动手许可层 / 动手流水 / 能力路线。
+         对话入口在顶栏 NovaOrb 面板与底部 NovaBar（共用 NovaRuntime 同一份消息流），本页只管设置。 -->
+    <Grid MaxWidth="920" HorizontalAlignment="Stretch">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+            <StackPanel Spacing="12">
 
-        <!-- ═══ 未登录：Starcloud ID 登录卡片 ═══ -->
-        <Border x:Name="LoginPanel"
-                HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1" CornerRadius="16" Padding="32,28" MinWidth="420" MaxWidth="480">
-            <StackPanel Spacing="14">
-                <Border Width="56" Height="56" CornerRadius="16" HorizontalAlignment="Center"
-                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                <TextBlock Text="Nova 设置" FontSize="24" FontWeight="SemiBold" Margin="2,0,0,2" />
+
+                <!-- ═══ 账户：登录 Starcloud ID（云端模型与在线能力） ═══ -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1">
-                    <FontIcon Glyph="&#xE99A;" FontSize="24"
-                              Foreground="{ThemeResource BrandBlueBrush}"
-                              HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
-                <TextBlock Text="Nova · 被允许动手的 AI 助手" FontSize="20" FontWeight="SemiBold"
-                           HorizontalAlignment="Center" />
-                <TextBlock Text="你说一句人话，它打理启动器里的脏活累活；所有落盘动作先列确认清单，点头才执行。&#x0A;登录 Starcloud ID 后可接入云端模型与在线能力。"
-                           TextWrapping="Wrap" TextAlignment="Center" FontSize="13"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBox x:Name="IdBox" Header="Starcloud ID" PlaceholderText="用户名或邮箱" />
-                <PasswordBox x:Name="PwdBox" Header="密码" PlaceholderText="测试通道任意内容即可（至少 4 位）" />
-                <ComboBox x:Name="ChannelBox" Header="通道" SelectedIndex="0"
-                          HorizontalAlignment="Stretch" SelectionChanged="ChannelBox_SelectionChanged">
-                    <ComboBoxItem Content="测试通道（本地模拟，无需真实账号）" />
-                    <ComboBoxItem Content="云端通道（服务未部署，仅协议预留）" />
-                </ComboBox>
-                <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" Content="登录"
-                        HorizontalAlignment="Stretch" Click="Login_Click" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                    <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24" />
-                    <TextBlock x:Name="LoginError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                               TextWrapping="Wrap" Visibility="Collapsed" VerticalAlignment="Center" />
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <!-- ═══ 已登录：会话头 + 对话（复用 NovaChatView）+ 右栏设置 ═══ -->
-        <Grid x:Name="ChatPanel" Visibility="Collapsed" ColumnSpacing="16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="300" />
-            </Grid.ColumnDefinitions>
-
-            <!-- ── 左：会话头 + 复用对话组件（与顶栏面板 / 底部对话条共用同一份消息流） ── -->
-            <Grid Grid.Column="0" RowSpacing="12">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <!-- 会话头 -->
-                <Border Grid.Row="0"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,10">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE99A;" FontSize="24"
-                                  Foreground="{ThemeResource BrandBlueBrush}" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="Nova" FontWeight="SemiBold" />
-                            <TextBlock x:Name="UserSub" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="10">
+                        <!-- 已登录：账户信息 + 退出 -->
+                        <Grid x:Name="AccountInfo" ColumnSpacing="12" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE99A;" FontSize="24"
+                                      Foreground="{ThemeResource BrandBlueBrush}" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="Nova 账户" FontWeight="SemiBold" />
+                                <TextBlock x:Name="UserSub" FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Content="退出登录" Click="Logout_Click"
+                                    VerticalAlignment="Center" />
+                        </Grid>
+                        <!-- 未登录：登录表单 -->
+                        <StackPanel x:Name="LoginForm" Spacing="10">
+                            <TextBlock Text="登录 Starcloud ID，接入云端模型与在线能力"
+                                       FontWeight="SemiBold" FontSize="13" />
+                            <TextBox x:Name="IdBox" Header="Starcloud ID" PlaceholderText="用户名或邮箱" />
+                            <PasswordBox x:Name="PwdBox" Header="密码" PlaceholderText="测试通道任意内容即可（至少 4 位）" />
+                            <ComboBox x:Name="ChannelBox" Header="通道" SelectedIndex="0"
+                                      HorizontalAlignment="Stretch" SelectionChanged="ChannelBox_SelectionChanged">
+                                <ComboBoxItem Content="测试通道（本地模拟，无需真实账号）" />
+                                <ComboBoxItem Content="云端通道（服务未部署，仅协议预留）" />
+                            </ComboBox>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" Content="登录"
+                                        MinWidth="160" Click="Login_Click" />
+                                <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24"
+                                              VerticalAlignment="Center" />
+                                <TextBlock x:Name="LoginError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                           TextWrapping="Wrap" Visibility="Collapsed" VerticalAlignment="Center" />
+                            </StackPanel>
                         </StackPanel>
-                        <Button Grid.Column="2" Content="退出登录" Click="Logout_Click"
-                                VerticalAlignment="Center" />
-                    </Grid>
+                    </StackPanel>
                 </Border>
 
-                <local:NovaChatView Grid.Row="1" />
-            </Grid>
+                <!-- ═══ 模型设置：第三方 LLM 添加 + 多模型支持 ═══ -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="模型设置" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="接入第三方 LLM（OpenAI 兼容）：你的 Key 优先用 → StarCloud 云端额度 → 本地模板兜底，永不卡死。&#x0A;可添加多个模型，随时点「设为当前」切换。Key 只存本机（launcher.settings.json）。"
+                                   FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
-            <!-- ── 右：能力阶段条 / 动手许可层 / 可审计流水 / LLM 降级链 ── -->
-            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel Spacing="12">
-
-                    <!-- 能力阶段条（信任递进：每一步只在点头之后） -->
-                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="8" Padding="14,12">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="能力阶段" FontWeight="SemiBold" FontSize="13" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="①" Opacity="0.8" />
-                                <TextBlock Text="顾问 · 只给建议" FontSize="12" VerticalAlignment="Center" />
-                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                        CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
-                                    <TextBlock Text="已解锁" FontSize="10" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                </Border>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="②" Opacity="0.8" />
-                                <TextBlock Text="动手 · 确认后执行" FontSize="12" VerticalAlignment="Center" />
-                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                        CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
-                                    <TextBlock Text="已解锁" FontSize="10" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                </Border>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="8" Opacity="0.55">
-                                <TextBlock Text="③" Opacity="0.8" />
-                                <TextBlock Text="主动 · Nova 时刻" FontSize="12" VerticalAlignment="Center" />
-                                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                        CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
-                                    <TextBlock Text="规划中" FontSize="10" />
-                                </Border>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="8" Opacity="0.55">
-                                <TextBlock Text="④" Opacity="0.8" />
-                                <TextBlock Text="在场 · 游戏内浮窗" FontSize="12" VerticalAlignment="Center" />
-                                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                        CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
-                                    <TextBlock Text="规划中" FontSize="10" />
-                                </Border>
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 动手许可层：三档开关默认全关，开启 = 显式授权（先弹确认） -->
-                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="8" Padding="14,12">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="动手许可层" FontWeight="SemiBold" FontSize="13" />
-                            <TextBlock Text="默认全部关闭。没开 = Nova 一个字也不看你的屏幕；开启会弹确认并记入流水。"
-                                       FontSize="11" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <ToggleSwitch x:Name="CaptureSwitch" Tag="capture"
-                                          OnContent="捕捉" OffContent="捕捉"
-                                          Toggled="Permission_Toggled" Margin="0,2,0,0" />
-                            <TextBlock Text="只观察游戏画面并暂存高光片段，不碰非游戏窗口"
-                                       FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Margin="0,-6,0,4" />
-                            <ToggleSwitch x:Name="ClipSwitch" Tag="clip"
-                                          OnContent="剪辑" OffContent="剪辑"
-                                          Toggled="Permission_Toggled" Margin="0,0,0,0" />
-                            <TextBlock Text="把片段剪成 5~15s 短视频/GIF，剪完先预览，不直接发"
-                                       FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Margin="0,-6,0,4" />
-                            <ToggleSwitch x:Name="ShareSwitch" Tag="share"
-                                          OnContent="分享" OffContent="分享"
-                                          Toggled="Permission_Toggled" />
-                            <TextBlock Text="生成分享卡发到预设群/好友，每条先弹确认，确认才发"
-                                       FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Margin="0,-6,0,0" />
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 可审计流水：谁动了、动了什么、何时 -->
-                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="8" Padding="14,12">
-                        <StackPanel Spacing="8">
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="动手流水" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="清空" FontSize="12" Padding="10,2" MinWidth="0"
-                                        AutomationProperties.Name="清空流水" Click="ClearLog_Click" />
-                            </Grid>
-                            <TextBlock x:Name="LogEmptyText" Text="暂无记录。Nova 每次动手（含开关授权）都会记在这里。"
-                                       FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <ListView x:Name="LogList" SelectionMode="None">
-                                <ListView.ItemContainerStyle>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        <Setter Property="MinHeight" Value="0" />
-                                        <Setter Property="Padding" Value="0" />
-                                        <Setter Property="Margin" Value="0,2" />
-                                    </Style>
-                                </ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="core:NovaActionEntry">
-                                        <StackPanel Spacing="1" Opacity="0.9">
-                                            <TextBlock Text="{x:Bind Title}" FontSize="12" TextWrapping="Wrap" FontWeight="SemiBold" />
-                                            <TextBlock FontSize="11" Opacity="0.7"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
-                                                <Run Text="{x:Bind State}" /><Run Text=" · " /><Run Text="{x:Bind TimeText}" />
-                                            </TextBlock>
+                        <!-- 已添加的模型档案 -->
+                        <ListView x:Name="ProfileList" SelectionMode="None">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,2" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="local:NovaLlmProfileRow">
+                                    <Grid ColumnSpacing="8" Padding="10,8" CornerRadius="6"
+                                          Background="{ThemeResource LayerFillColorDefaultBrush}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{x:Bind Name}" FontSize="12" FontWeight="SemiBold" />
+                                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                        CornerRadius="4" Padding="6,1"
+                                                        Visibility="{x:Bind ActiveVisibility}">
+                                                    <TextBlock Text="当前使用" FontSize="10"
+                                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind Detail}" FontSize="11" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </StackPanel>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </StackPanel>
-                    </Border>
+                                        <Button Grid.Column="1" Content="设为当前" FontSize="12" Padding="10,4"
+                                                VerticalAlignment="Center" Tag="{x:Bind Id}"
+                                                Visibility="{x:Bind ActiveVisibility}"
+                                                Click="ProfileActivate_Click" />
+                                        <Button Grid.Column="2" Content="删除" FontSize="12" Padding="10,4"
+                                                VerticalAlignment="Center" Tag="{x:Bind Id}"
+                                                Click="ProfileDelete_Click" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock x:Name="ProfileEmptyText" Text="还没有添加模型。在下面填入你的 Key 即可接入。"
+                                   FontSize="11" Opacity="0.7"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
-                    <!-- LLM 降级链：用户自填 Key → StarCloud 云端 → 本地模板兜底 -->
-                    <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                        <Expander.Header>
-                            <TextBlock Text="LLM 降级链" FontWeight="SemiBold" FontSize="13" />
-                        </Expander.Header>
-                        <StackPanel Spacing="8" Padding="0,4">
-                            <TextBlock Text="优先用你自己的 Key（OpenAI 兼容，零成本）→ StarCloud 云端额度 → 本地模板兜底，永不卡死。"
-                                       FontSize="11" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBox x:Name="LlmBaseUrlBox" Header="Base URL（OpenAI 兼容）"
-                                     PlaceholderText="例如 https://api.deepseek.com/v1" />
-                            <PasswordBox x:Name="LlmKeyBox" Header="API Key" PlaceholderText="sk-…" />
-                            <TextBox x:Name="LlmModelBox" Header="模型名" PlaceholderText="例如 deepseek-chat" />
-                            <Button x:Name="LlmSaveBtn" Content="保存 LLM 设置" Click="LlmSave_Click"
-                                    HorizontalAlignment="Stretch" />
+                        <!-- 添加模型表单 -->
+                        <TextBlock Text="添加模型" FontSize="12" FontWeight="SemiBold" Margin="0,4,0,0" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ProfileNameBox" Grid.Column="0" Header="备注名"
+                                     PlaceholderText="例如 DeepSeek（可留空）" />
+                            <TextBox x:Name="LlmModelBox" Grid.Column="1" Header="模型名"
+                                     PlaceholderText="例如 deepseek-chat" />
+                        </Grid>
+                        <TextBox x:Name="LlmBaseUrlBox" Header="Base URL（OpenAI 兼容）"
+                                 PlaceholderText="例如 https://api.deepseek.com/v1" />
+                        <PasswordBox x:Name="LlmKeyBox" Header="API Key" PlaceholderText="sk-…" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="LlmSaveBtn" Style="{StaticResource AccentButtonStyle}"
+                                    Content="添加模型" MinWidth="160" Click="LlmAdd_Click" />
                             <TextBlock x:Name="LlmSaveHint" FontSize="11"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Visibility="Collapsed" Text="已保存" />
+                                       Visibility="Collapsed" VerticalAlignment="Center" Text="已保存" />
                         </StackPanel>
-                    </Expander>
-                </StackPanel>
-            </ScrollViewer>
-        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 游戏内辅助：浮窗查询资料 ═══ -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="4">
+                        <ToggleSwitch x:Name="OverlaySwitch" Header="游戏内辅助浮窗"
+                                      AutomationProperties.Name="游戏内辅助浮窗"
+                                      Toggled="Overlay_Toggled" Margin="0,0,0,0" />
+                        <TextBlock Text="开启后启动游戏时自动弹出 Nova 浮窗，游戏里直接问资料（合成表、进度、Wiki 等），不用切窗口。浮窗与顶栏 Nova 共用同一份对话。"
+                                   FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Margin="0,-4,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 游戏记录记忆：战报 / 时刻统计 ═══ -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="游戏记录记忆" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="Nova 从游戏日志里观察进度 / 挑战 / 翻车，下机后自动生成「这盘干了啥」战报，记住你的高光时刻。"
+                                   FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="MemoryStatsText" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock x:Name="MemoryReportText" FontSize="11" TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 动手许可层：三档开关默认全关，开启 = 显式授权（先弹确认） ═══ -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="动手许可层" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="默认全部关闭。没开 = Nova 一个字也不看你的屏幕；开启会弹确认并记入流水。"
+                                   FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <ToggleSwitch x:Name="CaptureSwitch" Tag="capture"
+                                      OnContent="捕捉" OffContent="捕捉"
+                                      Toggled="Permission_Toggled" Margin="0,2,0,0" />
+                        <TextBlock Text="只观察游戏画面并暂存高光片段，不碰非游戏窗口"
+                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Margin="0,-6,0,4" />
+                        <ToggleSwitch x:Name="ClipSwitch" Tag="clip"
+                                      OnContent="剪辑" OffContent="剪辑"
+                                      Toggled="Permission_Toggled" Margin="0,0,0,0" />
+                        <TextBlock Text="把片段剪成 5~15s 短视频/GIF，剪完先预览，不直接发"
+                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Margin="0,-6,0,4" />
+                        <ToggleSwitch x:Name="ShareSwitch" Tag="share"
+                                      OnContent="分享" OffContent="分享"
+                                      Toggled="Permission_Toggled" />
+                        <TextBlock Text="生成分享卡发到预设群/好友，每条先弹确认，确认才发"
+                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Margin="0,-6,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 动手流水：谁动了、动了什么、何时 ═══ -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="动手流水" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="清空" FontSize="12" Padding="10,2" MinWidth="0"
+                                    AutomationProperties.Name="清空流水" Click="ClearLog_Click" />
+                        </Grid>
+                        <TextBlock x:Name="LogEmptyText" Text="暂无记录。Nova 每次动手（含开关授权）都会记在这里。"
+                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <ListView x:Name="LogList" SelectionMode="None">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,2" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="core:NovaActionEntry">
+                                    <StackPanel Spacing="1" Opacity="0.9">
+                                        <TextBlock Text="{x:Bind Title}" FontSize="12" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                        <TextBlock FontSize="11" Opacity="0.7"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
+                                            <Run Text="{x:Bind State}" /><Run Text=" · " /><Run Text="{x:Bind TimeText}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 能力路线（信息展示） ═══ -->
+                <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <Expander.Header>
+                        <TextBlock Text="能力路线" FontWeight="SemiBold" FontSize="13" />
+                    </Expander.Header>
+                    <StackPanel Spacing="6" Padding="0,4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="①" Opacity="0.8" />
+                            <TextBlock Text="顾问 · 只给建议" FontSize="12" VerticalAlignment="Center" />
+                            <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
+                                <TextBlock Text="已解锁" FontSize="10" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="②" Opacity="0.8" />
+                            <TextBlock Text="动手 · 确认后执行" FontSize="12" VerticalAlignment="Center" />
+                            <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
+                                <TextBlock Text="已解锁" FontSize="10" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="③" Opacity="0.8" />
+                            <TextBlock Text="主动 · Nova 时刻" FontSize="12" VerticalAlignment="Center" />
+                            <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
+                                <TextBlock Text="已解锁" FontSize="10" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Opacity="0.55">
+                            <TextBlock Text="④" Opacity="0.8" />
+                            <TextBlock Text="在场 · 游戏内浮窗" FontSize="12" VerticalAlignment="Center" />
+                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    CornerRadius="4" Padding="6,1" Margin="4,0,0,0">
+                                <TextBlock Text="灰度中" FontSize="10" />
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Page>

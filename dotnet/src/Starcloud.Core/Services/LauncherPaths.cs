@@ -44,6 +44,25 @@ public static class LauncherPaths
     }
 }
 
+/// <summary>Nova 第三方 LLM 模型档案（OpenAI 兼容，支持多模型随时切换）</summary>
+public sealed class NovaLlmProfile
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("base_url")]
+    public string BaseUrl { get; set; } = "";
+
+    [JsonPropertyName("api_key")]
+    public string ApiKey { get; set; } = "";
+
+    [JsonPropertyName("model")]
+    public string Model { get; set; } = "";
+}
+
 public sealed class LauncherSettings
 {
     [JsonPropertyName("dot_minecraft")]
@@ -87,6 +106,7 @@ public sealed class LauncherSettings
     public string Theme { get; set; } = "system";
 
     // ── Nova LLM 降级链第 1 级：用户自填 Key（OpenAI 兼容协议，零成本） ──
+    // 旧版单模型三字段仅保留用于迁移读取；新设置用 nova_llm_profiles 多模型档案。
     [JsonPropertyName("nova_llm_base_url")]
     public string? NovaLlmBaseUrl { get; set; } = "";
 
@@ -95,6 +115,18 @@ public sealed class LauncherSettings
 
     [JsonPropertyName("nova_llm_model")]
     public string? NovaLlmModel { get; set; } = "";
+
+    // ── Nova 多模型档案（第三方 LLM 添加；ActiveId 为空时取第一个） ──
+    [JsonPropertyName("nova_llm_profiles")]
+    public List<NovaLlmProfile> NovaLlmProfiles { get; set; } = [];
+
+    [JsonPropertyName("nova_llm_active_id")]
+    public string? NovaLlmActiveId { get; set; }
+
+    /// <summary>当前生效的自建模型档案（未选中 → 第一个；空 → null，静默降级到云端）</summary>
+    public NovaLlmProfile? ActiveLlmProfile() =>
+        NovaLlmProfiles.FirstOrDefault(p => p.Id == NovaLlmActiveId)
+        ?? NovaLlmProfiles.FirstOrDefault();
 
     // ── Nova 游戏内浮窗（设计：nova-overlay-design.md §3.3；默认关 = 开启即显式授权） ──
     [JsonPropertyName("nova_overlay_enabled")]
@@ -118,13 +150,28 @@ public sealed class LauncherSettings
         if (!File.Exists(LauncherPaths.SettingsFile)) return new LauncherSettings();
         try
         {
-            return JsonSerializer.Deserialize<LauncherSettings>(
+            var s = JsonSerializer.Deserialize<LauncherSettings>(
                 File.ReadAllText(LauncherPaths.SettingsFile), Options) ?? new LauncherSettings();
+            s.MigrateLegacyLlm();
+            return s;
         }
         catch
         {
             return new LauncherSettings();
         }
+    }
+
+    /// <summary>旧版单模型三字段 → 多模型档案（幂等：仅档案列表为空且旧字段齐全时迁移）</summary>
+    private void MigrateLegacyLlm()
+    {
+        if (NovaLlmProfiles.Count > 0) return;
+        var baseUrl = NovaLlmBaseUrl?.Trim();
+        var apiKey = NovaLlmApiKey?.Trim();
+        var model = NovaLlmModel?.Trim();
+        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model)) return;
+        var p = new NovaLlmProfile { Name = "默认模型", BaseUrl = baseUrl, ApiKey = apiKey, Model = model };
+        NovaLlmProfiles.Add(p);
+        NovaLlmActiveId = p.Id;
     }
 
     public void Save()

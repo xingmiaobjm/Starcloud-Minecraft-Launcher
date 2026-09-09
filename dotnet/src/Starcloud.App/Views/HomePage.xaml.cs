@@ -540,11 +540,7 @@ public sealed partial class HomePage : Page
                     HideOverlay("已取消启动");        // 取消路径：直接收层回主页（spec §3.4）
                 else if (LaunchOverlay.Visibility == Visibility.Visible)
                     ApplyStage(LaunchStage.Exited);   // 覆盖层显示：停在启动页展示本局时长
-                else
-                {
-                    StatusText.Text = "游戏已退出";   // 已收层：右栏状态（返回主页/停止游戏后退出）
-                    StatusText.Visibility = Visibility.Visible;
-                }
+                // else：已收层回主页，不打扰（不再显示「游戏已退出」状态文字）
                 UpdateVersionMeta();
                 // Nova 收尾：补扫日志 → 生成战报卡（仅当本局开过观察会话）
                 await _s.NovaRuntime.OnGameExitedAsync();
