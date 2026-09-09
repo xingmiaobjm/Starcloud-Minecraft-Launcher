@@ -95,6 +95,7 @@ public sealed class VersionArguments
 }
 
 /// <summary>参数项：纯字符串，或带规则的对象（value 可为数组）</summary>
+[JsonConverter(typeof(ArgumentItemConverter))]
 public sealed class ArgumentItem
 {
     [JsonPropertyName("value")]
@@ -105,6 +106,44 @@ public sealed class ArgumentItem
 
     [JsonIgnore]
     public bool IsObject => Value.ValueKind is JsonValueKind.String or JsonValueKind.Array;
+}
+
+/// <summary>版本 JSON 的参数是字符串/对象混排数组，字符串项转为 {value: 字符串}</summary>
+public sealed class ArgumentItemConverter : JsonConverter<ArgumentItem>
+{
+    public override ArgumentItem? Read(ref Utf8JsonReader reader, Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+            return new ArgumentItem { Value = JsonSerializer.SerializeToElement(reader.GetString()) };
+
+        var item = new ArgumentItem();
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var el = doc.RootElement;
+        if (el.ValueKind == JsonValueKind.Object)
+        {
+            if (el.TryGetProperty("value", out var v))
+                item.Value = v.Clone();
+            if (el.TryGetProperty("rules", out var r))
+                item.Rules = r.Deserialize<List<OsRule>>(options);
+        }
+        return item;
+    }
+
+    public override void Write(Utf8JsonWriter writer, ArgumentItem value, JsonSerializerOptions options)
+    {
+        if (value.Rules is null)
+        {
+            value.Value.WriteTo(writer);
+            return;
+        }
+        writer.WriteStartObject();
+        writer.WritePropertyName("value");
+        value.Value.WriteTo(writer);
+        writer.WritePropertyName("rules");
+        JsonSerializer.Serialize(writer, value.Rules, options);
+        writer.WriteEndObject();
+    }
 }
 
 public sealed class OsRule

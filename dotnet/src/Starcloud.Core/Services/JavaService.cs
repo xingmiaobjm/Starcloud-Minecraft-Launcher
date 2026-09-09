@@ -14,8 +14,9 @@ public sealed class JavaService
 
     public JavaService(DownloadService downloader) => _downloader = downloader;
 
-    /// <summary>列出可用 Java：启动器已下载 + 系统 PATH/JAVA_HOME 检测</summary>
-    public async Task<List<JavaRuntime>> ListRuntimesAsync(CancellationToken ct = default)
+    /// <summary>列出可用 Java：启动器已下载 + 官方启动器运行时 + 系统 PATH/JAVA_HOME 检测</summary>
+    public async Task<List<JavaRuntime>> ListRuntimesAsync(CancellationToken ct = default,
+        string? officialRuntimeDir = null)
     {
         var result = new List<JavaRuntime>();
         LauncherPaths.EnsureDataDir();
@@ -30,6 +31,21 @@ public sealed class JavaService
                 var major = Path.GetFileName(dir);
                 var version = await GetJavaVersionStringAsync(exe, ct) ?? $"Java {major}";
                 result.Add(new JavaRuntime(exe, int.TryParse(major, out var m) ? m : 0, version, true, "launcher"));
+            }
+        }
+
+        // 官方启动器运行时（.minecraft\runtime\java-runtime-* 等）
+        if (officialRuntimeDir is not null && Directory.Exists(officialRuntimeDir))
+        {
+            foreach (var dir in Directory.EnumerateDirectories(officialRuntimeDir))
+            {
+                var exe = Path.Combine(dir, "bin", "java.exe");
+                if (!File.Exists(exe)) continue;
+                var version = await GetJavaVersionStringAsync(exe, ct);
+                if (version is null) continue;
+                var major = ParseMajorVersion(version);
+                if (major <= 0) continue;
+                result.Add(new JavaRuntime(exe, major, version, true, "official"));
             }
         }
 

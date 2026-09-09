@@ -43,7 +43,7 @@ public sealed class AppServices
         Java = new JavaService(Download);
         Forge = new ForgeInstallerService(Download, Java);
         Mods = new ModrinthService(Download);
-        Launcher = new GameLauncher(Installer);
+        Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
         MrPack = new MrPackInstallerService(Download);

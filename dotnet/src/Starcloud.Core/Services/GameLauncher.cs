@@ -26,8 +26,13 @@ public sealed record LaunchCredentials(string Uuid, string AccessToken, string U
 public sealed class GameLauncher
 {
     private readonly InstallerService _installer;
+    private readonly JavaService? _java;
 
-    public GameLauncher(InstallerService installer) => _installer = installer;
+    public GameLauncher(InstallerService installer, JavaService? java = null)
+    {
+        _installer = installer;
+        _java = java;
+    }
 
     /// <summary>离线 UUID：Java UUID.nameUUIDFromBytes("OfflinePlayer:"+name)（MD5 v3）</summary>
     public static Guid OfflineUuid(string playerName)
@@ -47,7 +52,7 @@ public sealed class GameLauncher
         var versionDir = _installer.VersionDir(dotMc, versionId);
         var nativesDir = Path.Combine(versionDir, "natives");
 
-        // 类路径：windows 内的库（规则过滤）
+        // 类路径：windows 内的库（规则过滤；NeoForge 版本 JSON 有重复库条目，需保序去重）
         var classpathEntries = version.Libraries
             .Where(l => InstallerService.RulesAllow(l.Rules))
             .Where(l => l.Downloads?.Artifact is { Url: not "" })
@@ -55,7 +60,8 @@ public sealed class GameLauncher
             .ToList();
         var ownJar = _installer.VersionJarPath(dotMc, versionId);
         classpathEntries.Add(ownJar);
-        var classpath = string.Join(";", classpathEntries.Where(File.Exists));
+        var classpath = string.Join(";",
+            classpathEntries.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase));
 
         // 参数替换
         var assets = version.Assets ?? version.AssetIndex?.Id ?? "legacy";
@@ -83,6 +89,7 @@ public sealed class GameLauncher
             ["natives_directory"] = nativesDir,
             ["library_directory"] = Path.Combine(dotMc, "libraries"),
             ["classpath_separator"] = ";",
+            ["classpath"] = classpath,
             ["resolution_width"] = "1280",
             ["resolution_height"] = "720",
             ["quickPlayPath"] = "",
@@ -157,12 +164,32 @@ public sealed class GameLauncher
             }
         }
 
-        var java = string.IsNullOrWhiteSpace(options.JavaExecutable) ? "java" : options.JavaExecutable!;
-        var parts = new List<string> { java };
+        var java = string.IsNullOrWhiteSpace(options.JavaExecutable)
+            ? await ResolveJavaAsync(version, dotMc, ct)
+            : options.JavaExecutable!;
+        var parts = new List<string> { QuoteIfNeeded(java) };
         parts.AddRange(jvmArgs.Select(QuoteIfNeeded));
         parts.Add(version.MainClass);
         parts.AddRange(gameArgs.Select(QuoteIfNeeded));
         return string.Join(' ', parts);
+    }
+
+    /// <summary>设置未指定 Java 时：按版本要求的 Java 主版本选运行时（精确匹配优先，其次最小超集），缺则自动下载</summary>
+    private async Task<string> ResolveJavaAsync(MinecraftVersion version, string dotMc, CancellationToken ct)
+    {
+        if (_java is null)
+            throw new InvalidOperationException(
+                "未找到可用的 Java。请在设置页指定 java.exe 路径");
+        var required = version.JavaVersion?.MajorVersion ?? 8;
+        var runtimes = await _java.ListRuntimesAsync(ct, Path.Combine(dotMc, "runtime"));
+        var fit = runtimes
+            .Where(r => r.MajorVersion >= required)
+            .OrderByDescending(r => r.MajorVersion == required)
+            .ThenBy(r => r.MajorVersion)
+            .FirstOrDefault();
+        if (fit is not null) return fit.Executable;
+        // 系统与启动器都没有合适版本：自动下载（与 Forge 安装器同款兜底）
+        return await _java.DownloadRuntimeAsync(required, null, ct);
     }
 
     private static bool RulesAllowValue(ArgumentItem item)

@@ -197,8 +197,12 @@ public sealed class InstallerService
         var allowed = false;
         foreach (var rule in rules)
         {
+            // 带 features 的规则：启动器未启用任何 feature，不匹配（杜绝 --demo 等试玩参数）
+            if (rule.Features is { Count: > 0 }) continue;
             var matches = rule.Os is null || rule.Os.Name is null ||
                           rule.Os.Name.Equals("windows", StringComparison.OrdinalIgnoreCase);
+            // 32 位专用规则在 64 位进程上不匹配（如 -Xss1M）
+            if (matches && rule.Os?.Arch == "x86" && Environment.Is64BitProcess) matches = false;
             if (!matches) continue;
             if (rule.Action == "allow") allowed = true;
             else if (rule.Action == "deny") allowed = false;
