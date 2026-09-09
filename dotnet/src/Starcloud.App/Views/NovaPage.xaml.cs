@@ -105,6 +105,30 @@ public sealed partial class NovaPage : Page
     }
 
     // ── 模型设置：第三方 LLM 添加 + 多模型档案（添加 / 切换 / 删除） ──
+    // 服务商预设模板：选预设自动带出接入地址与模型列表，只需填 Key 选模型（主流 OpenAI 兼容端点）
+    private sealed record NovaLlmPreset(string Name, string BaseUrl, bool KeyRequired, string[] Models);
+
+    private static readonly NovaLlmPreset[] LlmPresets =
+    [
+        new("DeepSeek", "https://api.deepseek.com/v1", true,
+            ["deepseek-chat", "deepseek-reasoner"]),
+        new("OpenAI", "https://api.openai.com/v1", true,
+            ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"]),
+        new("通义千问 Qwen（阿里云百炼）", "https://dashscope.aliyuncs.com/compatible-mode/v1", true,
+            ["qwen-plus", "qwen-turbo", "qwen-max", "qwq-plus"]),
+        new("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", true,
+            ["glm-4-plus", "glm-4-air", "glm-4-flash", "glm-4.5"]),
+        new("Moonshot Kimi", "https://api.moonshot.cn/v1", true,
+            ["kimi-k2-0905-preview", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"]),
+        new("OpenRouter", "https://openrouter.ai/api/v1", true,
+            ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4", "google/gemini-2.5-flash", "deepseek/deepseek-chat"]),
+        new("硅基流动 SiliconFlow", "https://api.siliconflow.cn/v1", true,
+            ["deepseek-ai/DeepSeek-V3.1", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-72B-Instruct"]),
+        new("Ollama（本机，无需 Key）", "http://127.0.0.1:11434/v1", false,
+            ["qwen3", "llama3.1", "deepseek-r1"]),
+        new("自定义（手填接入地址）", "", true, []),
+    ];
+
     private void RefreshProfiles()
     {
         var activeId = _s.Settings.ActiveLlmProfile()?.Id;
@@ -119,16 +143,58 @@ public sealed partial class NovaPage : Page
             ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    // 「新增模型」展开预设表单（默认选第一个预设 DeepSeek，自动带出地址与模型列表）
+    private void LlmAddOpen_Click(object sender, RoutedEventArgs e)
+    {
+        LlmAddPanel.Visibility = Visibility.Visible;
+        LlmAddOpenBtn.Visibility = Visibility.Collapsed;
+        if (LlmPresetBox.Items.Count == 0)
+        {
+            foreach (var p in LlmPresets) LlmPresetBox.Items.Add(p.Name);
+            LlmPresetBox.SelectedIndex = 0;
+        }
+    }
+
+    // 选预设 → 自动带出备注名 / 接入地址 / 模型下拉（可手输，自定义时改为手填地址）
+    private void LlmPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var idx = LlmPresetBox.SelectedIndex;
+        if (idx < 0 || idx >= LlmPresets.Length) return;
+        var preset = LlmPresets[idx];
+        var custom = preset.BaseUrl.Length == 0;
+
+        ProfileNameBox.Text = custom ? "" : PresetShortName(preset.Name);
+        PresetUrlText.Text = $"接入地址：{preset.BaseUrl}";
+        PresetUrlText.Visibility = custom ? Visibility.Collapsed : Visibility.Visible;
+        LlmBaseUrlBox.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+        if (custom) LlmBaseUrlBox.Text = "";
+        LlmKeyBox.PlaceholderText = preset.KeyRequired ? "sk-…" : "本机 Ollama 无需 Key，留空即可";
+
+        LlmModelBox.Items.Clear();
+        foreach (var m in preset.Models) LlmModelBox.Items.Add(m);
+        LlmModelBox.Text = preset.Models.Length > 0 ? preset.Models[0] : "";
+        LlmModelBox.PlaceholderText = preset.Models.Length > 0
+            ? "从列表选择或手输模型名"
+            : "填写模型名，例如 my-model";
+    }
+
     private void LlmAdd_Click(object sender, RoutedEventArgs e)
     {
-        var baseUrl = LlmBaseUrlBox.Text.Trim();
+        var idx = LlmPresetBox.SelectedIndex;
+        var preset = idx >= 0 && idx < LlmPresets.Length ? LlmPresets[idx] : null;
+        var baseUrl = (preset is { BaseUrl.Length: > 0 } ? preset.BaseUrl : LlmBaseUrlBox.Text)
+            .Trim().TrimEnd('/');
         var key = LlmKeyBox.Password.Trim();
         var model = LlmModelBox.Text.Trim();
-        if (baseUrl.Length == 0 || key.Length == 0 || model.Length == 0)
+
+        if (baseUrl.Length == 0) { ShowLlmHint("请填写接入地址（Base URL）"); return; }
+        if (model.Length == 0) { ShowLlmHint("请选择或填写模型名"); return; }
+        if (key.Length == 0 && preset is { KeyRequired: true })
         {
-            ShowLlmHint("Base URL、API Key、模型名都要填上才能接入");
+            ShowLlmHint("请填入该服务商的 API Key");
             return;
         }
+        if (key.Length == 0) key = "local-ollama"; // Ollama 本机无需 Key，占位保证链路一致
 
         var profile = new NovaLlmProfile
         {
@@ -142,12 +208,25 @@ public sealed partial class NovaPage : Page
         if (first) _s.Settings.NovaLlmActiveId = profile.Id; // 第一个自动启用
         _s.Settings.Save();
 
-        ProfileNameBox.Text = "";
-        LlmBaseUrlBox.Text = "";
+        LlmAddPanel.Visibility = Visibility.Collapsed;
+        LlmAddOpenBtn.Visibility = Visibility.Visible;
         LlmKeyBox.Password = "";
-        LlmModelBox.Text = "";
-        ShowLlmHint(first ? "已添加并启用（当前使用）" : "已添加，点「设为当前」启用");
+        ShowLlmHint(first ? "已添加并启用（当前使用）" : $"已添加「{(profile.Name.Length > 0 ? profile.Name : profile.Model)}」，点「设为当前」启用");
         RefreshProfiles();
+    }
+
+    private void LlmAddCancel_Click(object sender, RoutedEventArgs e)
+    {
+        LlmAddPanel.Visibility = Visibility.Collapsed;
+        LlmAddOpenBtn.Visibility = Visibility.Visible;
+        LlmKeyBox.Password = "";
+    }
+
+    // 备注名取服务商名第一段：「通义千问 Qwen（阿里云百炼）」→「通义千问」
+    private static string PresetShortName(string name)
+    {
+        var cut = name.IndexOfAny([' ', '（']);
+        return cut > 0 ? name[..cut] : name;
     }
 
     private void ProfileActivate_Click(object sender, RoutedEventArgs e)

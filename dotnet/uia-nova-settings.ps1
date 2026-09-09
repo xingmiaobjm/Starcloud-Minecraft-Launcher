@@ -66,10 +66,11 @@ if (-not $marker) { Write-Output 'FAIL: Nova settings header not found'; exit 1 
 $model = Find-ByName $win '模型设置' ([System.Windows.Automation.ControlType]::Text)
 $overlay = Find-ByName $win '游戏内辅助浮窗' $null
 $memory = Find-ByName $win '游戏记录记忆' ([System.Windows.Automation.ControlType]::Text)
+$addBtn = Find-ByName $win '新增模型' ([System.Windows.Automation.ControlType]::Button)
 
 Start-Sleep -Milliseconds 800
 $alive = Get-Process -Name 'Starcloud.App' -ErrorAction SilentlyContinue
 if (-not $alive) { Write-Output 'FAIL: app crashed after navigating to Nova page'; exit 1 }
 
-Write-Output ("PASS: Nova settings page rendered; markers model={0} overlay={1} memory={2}" -f ($null -ne $model), ($null -ne $overlay), ($null -ne $memory))
+Write-Output ("PASS: Nova settings page rendered; markers model={0} overlay={1} memory={2} addBtn={3}" -f ($null -ne $model), ($null -ne $overlay), ($null -ne $memory), ($null -ne $addBtn))
 Get-Process -Name 'Starcloud.App' -ErrorAction SilentlyContinue | Stop-Process -Force
