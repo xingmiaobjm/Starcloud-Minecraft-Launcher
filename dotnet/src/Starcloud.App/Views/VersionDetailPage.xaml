@@ -5,8 +5,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     NavigationCacheMode="Disabled">
 
-    <ScrollViewer HorizontalScrollMode="Disabled" VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="1000" HorizontalAlignment="Stretch" Spacing="16" Padding="0,4,0,24">
+    <Grid MaxWidth="1000" HorizontalAlignment="Stretch">
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch"
+                      VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" Padding="0,4,0,24">
 
             <!-- 头部：返回 / 图标 / 标题徽章 / 换图标 / 启动 -->
             <StackPanel Spacing="12">
@@ -355,5 +357,6 @@
                 </StackPanel>
             </Border>
         </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </Grid>
 </Page>
