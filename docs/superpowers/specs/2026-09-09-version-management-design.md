@@ -86,6 +86,7 @@ isolated 模式下 GameRoot 即版本自身目录（PCL 风格）：内容目录
 | memory_min_mb | 仅版本 | 内置默认 1024 |
 | server_address / extra_jvm_args / extra_game_args / env_vars / pre_launch_command / post_launch_command / language_override | 仅版本 | 关闭 / 不执行 / 不生效 |
 | icon_path / category / note | 仅版本（元数据，不参与启动） | 空 |
+| last_played_at | 仅版本（元数据，启动成功后由启动器写入） | null |
 
 ## 4. 启动链路改造（GameLauncher）
 
@@ -151,7 +152,7 @@ isolated 模式下 GameRoot 即版本自身目录（PCL 风格）：内容目录
 2. **内存 min / max（NumberBox）**
    - 步进 512，范围 512–131072 MB
    - 约束 min ≤ max：违例 → 两者红框 + 红字「最小值不能大于最大值」，不写入
-   - max 未覆盖显示全局当前值；min 无全局层显示默认 1024，灰字「默认 1024」
+   - min / max 未覆盖均显示全局当前值（对应现有全局最小 / 最大内存设置）
 
 3. **Java（ComboBox + 浏览）**
    - 下拉项：跟随全局（置顶，选中即清除覆盖）+ JavaService 已扫描 JDK
