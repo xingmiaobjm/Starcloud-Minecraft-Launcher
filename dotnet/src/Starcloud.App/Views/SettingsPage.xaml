@@ -5,6 +5,37 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     NavigationCacheMode="Disabled">
 
+    <Page.Resources>
+        <!-- PCL 风格：白卡片 + 1px 描边 + 圆角 -->
+        <Style x:Key="PclCard" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16" />
+        </Style>
+        <!-- PCL 风格：13px 加粗蓝色小节标题 -->
+        <Style x:Key="PclSectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+        </Style>
+        <!-- PCL 风格：标签左固定 86px -->
+        <Style x:Key="PclLabel" TargetType="TextBlock">
+            <Setter Property="Width" Value="86" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- PCL 风格：3px 蓝色左竖线 + 浅色底信息条 -->
+        <Style x:Key="PclInfoBar" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource AccentFillColorTertiaryBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="3,0,0,0" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+    </Page.Resources>
+
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -14,7 +45,7 @@
         <!-- 页头 -->
         <StackPanel Grid.Row="0" Spacing="4">
             <TextBlock Text="设置" FontSize="28" FontWeight="SemiBold" />
-            <TextBlock Text="游戏目录、内存、Java 与通用选项"
+            <TextBlock Text="游戏目录、内存、Java、下载与通用选项"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </StackPanel>
 
@@ -51,6 +82,12 @@
                             <TextBlock Text="Java" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
+                    <ListViewItem Tag="download">
+                        <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
+                            <FontIcon Glyph="&#xE896;" FontSize="14" />
+                            <TextBlock Text="下载与资源" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ListViewItem>
                     <ListViewItem Tag="general">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
                             <FontIcon Glyph="&#xE713;" FontSize="14" />
@@ -78,44 +115,84 @@
 
                         <!-- ══ 游戏 ══ -->
                         <StackPanel x:Name="SectionGame" Spacing="16">
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="16">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="游戏目录" FontWeight="SemiBold" />
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="游戏目录" Style="{StaticResource PclSectionTitle}" />
                                     <TextBox x:Name="DotMcBox" PlaceholderText=".minecraft 目录路径" />
                                     <TextBlock Text="版本、资源与库文件将安装到该目录"
                                                FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
                             </Border>
 
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="16">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="内存分配" FontWeight="SemiBold" />
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="内存分配" Style="{StaticResource PclSectionTitle}" />
+                                    <TextBlock Text="最大内存（整数 GB）" FontSize="12" />
                                     <Grid ColumnSpacing="12">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Spacing="4">
-                                            <TextBlock Text="最小内存 (MB)" FontSize="12" />
-                                            <NumberBox x:Name="MinMemBox" Minimum="256" Maximum="24576" SpinButtonPlacementMode="Compact" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Spacing="4">
-                                            <TextBlock Text="最大内存 (MB)" FontSize="12" />
-                                            <NumberBox x:Name="MaxMemBox" Minimum="512" Maximum="24576" SpinButtonPlacementMode="Compact" />
-                                        </StackPanel>
+                                        <Slider x:Name="MaxMemorySlider" Grid.Column="0"
+                                                Minimum="1" Maximum="16" StepFrequency="1"
+                                                SnapsTo="StepValues" TickFrequency="1"
+                                                ValueChanged="MaxMemorySlider_ValueChanged" />
+                                        <TextBlock x:Name="MaxMemoryText" Grid.Column="1" Width="72"
+                                                   VerticalAlignment="Center" TextAlignment="Right"
+                                                   FontWeight="SemiBold" />
                                     </Grid>
+                                    <TextBlock x:Name="MemoryAutoHint" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
                             </Border>
 
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="16">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="版本隔离（默认）" FontWeight="SemiBold" />
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="默认窗口" Style="{StaticResource PclSectionTitle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="窗口尺寸" Style="{StaticResource PclLabel}" />
+                                        <NumberBox x:Name="DefaultWidthBox" Minimum="320" Maximum="7680"
+                                                   SpinButtonPlacementMode="Compact" Width="120" />
+                                        <TextBlock Text="×" VerticalAlignment="Center" />
+                                        <NumberBox x:Name="DefaultHeightBox" Minimum="240" Maximum="4320"
+                                                   SpinButtonPlacementMode="Compact" Width="120" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="全屏启动" Style="{StaticResource PclLabel}" />
+                                        <ToggleSwitch x:Name="DefaultFullscreenSwitch" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="启动参数" Style="{StaticResource PclSectionTitle}" />
+                                    <TextBlock Text="额外 JVM 参数（每行一条）" FontSize="12" />
+                                    <TextBox x:Name="ExtraJvmArgsBox" AcceptsReturn="True" TextWrapping="Wrap"
+                                             Height="72" PlaceholderText="-Xss1M" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="内置 JVM 参数" Style="{StaticResource PclLabel}" />
+                                        <ToggleSwitch x:Name="UseBuiltinJvmSwitch" />
+                                        <TextBlock Text="关闭后将不再自动附加官方推荐 JVM 参数"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="全局环境变量" Style="{StaticResource PclSectionTitle}" />
+                                    <TextBlock Text="对所有版本生效；版本级同名变量会覆盖此处。"
+                                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel x:Name="GlobalEnvPanel" Spacing="8" />
+                                    <Button Content="添加环境变量" Click="GlobalEnvAdd_Click" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="版本隔离（默认）" Style="{StaticResource PclSectionTitle}" />
                                     <TextBlock Text="新版本的默认隔离方式。独立目录仅隔离 mods/存档/配置/资源包/光影 5 类内容，库与资源文件仍共享；单个版本可在其详情页覆盖此设置。"
                                                FontSize="12" TextWrapping="Wrap"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -130,39 +207,81 @@
 
                         <!-- ══ Java ══ -->
                         <StackPanel x:Name="SectionJava" Spacing="16" Visibility="Collapsed">
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="16">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Java 运行时" FontWeight="SemiBold" />
-                                    <TextBlock Text="留空使用系统 java；亦可下载启动器托管的 Java"
-                                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <TextBox x:Name="JavaBox" PlaceholderText="java.exe 完整路径（可选）" />
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Java 运行时" Style="{StaticResource PclSectionTitle}" />
+                                    <RadioButtons x:Name="JavaModeRadio" SelectionChanged="JavaMode_SelectionChanged">
+                                        <RadioButton Content="自动选择（按版本推荐）" />
+                                        <RadioButton Content="手动指定" />
+                                    </RadioButtons>
+                                    <Border Style="{StaticResource PclInfoBar}">
+                                        <TextBlock x:Name="JavaWillUseText" FontSize="12" TextWrapping="Wrap" />
+                                    </Border>
+                                    <TextBox x:Name="JavaBox" PlaceholderText="java.exe 完整路径"
+                                             TextChanged="JavaBox_TextChanged" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Button Content="检测系统 Java" Click="DetectJava_Click" />
+                                        <Button Content="浏览 java.exe…" Click="BrowseJava_Click" />
                                         <Button Content="下载 Java 21（Temurin）" Click="DownloadJava_Click" />
                                         <Button Content="下载 Java 8（Temurin）" Click="DownloadJava8_Click" />
                                     </StackPanel>
                                     <ProgressBar x:Name="JavaProgress" Visibility="Collapsed" />
+                                    <TextBlock Text="已检测到的 Java 运行时" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <TextBlock x:Name="JavaListText" FontSize="12" TextWrapping="Wrap"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
 
-                        <!-- ══ 通用 ══ -->
-                        <StackPanel x:Name="SectionGeneral" Spacing="16" Visibility="Collapsed">
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="16">
+                        <!-- ══ 下载与资源 ══ -->
+                        <StackPanel x:Name="SectionDownload" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="12">
-                                    <TextBlock Text="下载与外观" FontWeight="SemiBold" />
+                                    <TextBlock Text="下载" Style="{StaticResource PclSectionTitle}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="下载并发数" Width="120" VerticalAlignment="Center" />
-                                        <NumberBox x:Name="ConcurrencyBox" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
+                                        <TextBlock Text="下载并发数" Style="{StaticResource PclLabel}" />
+                                        <NumberBox x:Name="ConcurrencyBox" Minimum="1" Maximum="64"
+                                                   SpinButtonPlacementMode="Compact" />
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="外观" Width="120" VerticalAlignment="Center" />
+                                        <TextBlock Text="失败重试次数" Style="{StaticResource PclLabel}" />
+                                        <NumberBox x:Name="RetriesBox" Minimum="0" Maximum="10"
+                                                   SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="资源列表缓存" Style="{StaticResource PclSectionTitle}" />
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="启用资源列表拉取缓存" />
+                                            <TextBlock Text="打开资源页时先用缓存瞬时展示，后台拉到新内容后自动替换。关闭后完全不读不写缓存。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="ResourceCacheSwitch" Grid.Column="1"
+                                                      VerticalAlignment="Center"
+                                                      AutomationProperties.Name="资源列表缓存开关" />
+                                    </Grid>
+                                    <Button Content="清空缓存" Click="ClearCache_Click" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ══ 通用 ══ -->
+                        <StackPanel x:Name="SectionGeneral" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="主题外观" Style="{StaticResource PclSectionTitle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="外观" Style="{StaticResource PclLabel}" />
                                         <ComboBox x:Name="ThemeCombo" Width="160" SelectionChanged="Theme_Changed">
                                             <ComboBoxItem Content="跟随系统" Tag="system" />
                                             <ComboBoxItem Content="浅色" Tag="light" />
@@ -173,9 +292,7 @@
                             </Border>
 
                             <!-- Nova 游戏内浮窗（设计：nova-overlay-plan.md T6；默认关 = 显式授权） -->
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="16">
+                            <Border Style="{StaticResource PclCard}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />

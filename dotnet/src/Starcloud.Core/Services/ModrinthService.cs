@@ -10,8 +10,16 @@ public sealed class ModrinthService
     public const string ApiBase = "https://api.modrinth.com/v2";
 
     private readonly DownloadService _downloader;
+    private readonly ResourceCacheService? _cache;
 
-    public ModrinthService(DownloadService downloader) => _downloader = downloader;
+    public ModrinthService(DownloadService downloader, ResourceCacheService? cache = null)
+    {
+        _downloader = downloader;
+        _cache = cache;
+    }
+
+    /// <summary>上次搜索是否命中磁盘缓存（供下载页显示「缓存」角标）</summary>
+    public bool LastSearchFromCache { get; private set; }
 
     private List<ModrinthCategory>? _categoriesCache;
 
@@ -32,8 +40,23 @@ public sealed class ModrinthService
     public async Task<ModrinthSearchResult> SearchAsync(
         string query, string projectType, string? loader, string? gameVersion,
         int offset = 0, int limit = 20, string index = "relevance",
-        string? category = null, CancellationToken ct = default)
+        string? category = null, CancellationToken ct = default, bool forceRefresh = false)
     {
+        // 仅缓存默认列表（首页 / 无关键词 / 无分类 / 按相关度 / offset=0）
+        var cacheable = _cache is not null && offset == 0 && string.IsNullOrEmpty(query)
+                        && category is null && index == "relevance";
+        var cacheKey = cacheable
+            ? $"modrinth.search.{projectType}.{loader ?? "any"}.{gameVersion ?? "any"}"
+            : null;
+
+        if (!forceRefresh && cacheKey is not null
+            && _cache!.TryRead<ModrinthSearchResult>(cacheKey, out var cached)
+            && cached is not null)
+        {
+            LastSearchFromCache = true;
+            return cached;
+        }
+
         // facets 外层数组为 AND，内层数组为 OR
         var facets = new List<IReadOnlyList<string>> { new[] { $"project_type:{projectType}" } };
         if (!string.IsNullOrWhiteSpace(loader)) facets.Add([$"categories:{loader}"]);
@@ -44,7 +67,10 @@ public sealed class ModrinthService
                   $"&query={Uri.EscapeDataString(query ?? "")}" +
                   $"&facets={Uri.EscapeDataString(JsonSerializer.Serialize(facets))}";
         var json = await _downloader.GetStringAsync(url, ct);
-        return JsonSerializer.Deserialize<ModrinthSearchResult>(json) ?? new();
+        var result = JsonSerializer.Deserialize<ModrinthSearchResult>(json) ?? new();
+        LastSearchFromCache = false;
+        if (cacheKey is not null) _cache!.Write(cacheKey, result);
+        return result;
     }
 
     /// <summary>查询项目兼容指定加载器/游戏版本的文件（按发布时间倒序）</summary>

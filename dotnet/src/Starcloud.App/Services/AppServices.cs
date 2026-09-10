@@ -10,6 +10,7 @@ public sealed class AppServices
 
     public LauncherSettings Settings { get; private set; }
     public DownloadService Download { get; }
+    public ResourceCacheService ResourceCache { get; }
     public ManifestService Manifest { get; }
     public InstallerService Installer { get; }
     public FabricService Fabric { get; }
@@ -39,12 +40,13 @@ public sealed class AppServices
         LauncherPaths.EnsureDataDir();
         Settings = LauncherSettings.Load();
         Download = new DownloadService();
-        Manifest = new ManifestService(Download);
+        ResourceCache = new ResourceCacheService(() => Settings);
+        Manifest = new ManifestService(Download, ResourceCache);
         Installer = new InstallerService(Download);
         Fabric = new FabricService(Download);
         Java = new JavaService(Download);
         Forge = new ForgeInstallerService(Download, Java);
-        Mods = new ModrinthService(Download);
+        Mods = new ModrinthService(Download, ResourceCache);
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();

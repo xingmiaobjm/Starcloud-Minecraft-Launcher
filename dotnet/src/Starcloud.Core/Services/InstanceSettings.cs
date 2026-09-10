@@ -67,6 +67,19 @@ public sealed class VersionProfile
     /// <summary>上次成功启动时间（启动器写入）</summary>
     [JsonPropertyName("last_played_at")]
     public DateTime? LastPlayedAt { get; set; }
+
+    // ── 三态档位（设计 §3.2）：null 等价 "global"；显式值 global|manual|auto ──
+    /// <summary>内存档位：global（跟随全局设置）/ manual（自定义）/ auto（自动配置）</summary>
+    [JsonPropertyName("memory_mode")]
+    public string? MemoryMode { get; set; }
+
+    /// <summary>Java 档位：global / manual / auto</summary>
+    [JsonPropertyName("java_mode")]
+    public string? JavaMode { get; set; }
+
+    /// <summary>窗口档位：global / manual / auto</summary>
+    [JsonPropertyName("window_mode")]
+    public string? WindowMode { get; set; }
 }
 
 /// <summary>version-settings.json 存取（&lt;dotMc&gt;/starcloud/version-settings.json）</summary>
@@ -197,20 +210,55 @@ public static class InstanceLayout
     public static string GameRoot(string dotMc, string versionId, bool isolated) =>
         isolated ? Path.Combine(dotMc, "versions", versionId) : dotMc;
 
+    /// <summary>档位推断：显式档位优先；否则有旧值按 manual，无旧值按 global（旧数据零迁移）</summary>
+    private static string Mode(string? explicitMode, bool hasLegacyValue)
+        => explicitMode ?? (hasLegacyValue ? "manual" : "global");
+
     /// <summary>层叠合并：全局 + 版本覆盖 → EffectiveLaunch</summary>
     public static EffectiveLaunch Resolve(
         string dotMc, string versionId, VersionProfile profile, LauncherSettings settings)
     {
         var isolated = IsIsolated(profile, settings);
+
+        // 内存档位：global / manual / auto（最小固定 512）
+        var (minMem, maxMem) = Mode(profile.MemoryMode, profile.MemoryMaxMb is not null) switch
+        {
+            "auto" => (512, SystemMemory.AutoMaxMb()),
+            "manual" => (profile.MemoryMinMb ?? 512,
+                         profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb),
+            _ => (settings.DefaultMinMemoryMb, settings.DefaultMaxMemoryMb),
+        };
+
+        // Java 档位：auto ⇒ 置空，强制走版本 JSON 推荐
+        var java = Mode(profile.JavaMode, profile.JavaPath is not null) switch
+        {
+            "auto" => null,
+            "manual" => profile.JavaPath,
+            _ => settings.JavaExecutable,
+        };
+
+        // 窗口档位：global / manual / auto（auto = 854×480 窗口化）
+        var (winW, winH, fullscreen) = Mode(profile.WindowMode, profile.WindowWidth is not null) switch
+        {
+            "auto" => ((int?)854, (int?)480, (bool?)false),
+            "manual" => (profile.WindowWidth, profile.WindowHeight, profile.Fullscreen),
+            _ => (settings.DefaultWindowWidth, settings.DefaultWindowHeight,
+                  (bool?)settings.DefaultFullscreen),
+        };
+
+        // 环境变量：全局为底，版本级覆盖
+        var env = new Dictionary<string, string>(settings.GlobalEnvVars);
+        foreach (var kv in profile.EnvVars) env[kv.Key] = kv.Value;
+
         return new EffectiveLaunch(
             GameRoot(dotMc, versionId, isolated),
             isolated,
-            profile.MemoryMinMb ?? settings.DefaultMinMemoryMb,
-            profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb,
-            profile.JavaPath ?? settings.JavaExecutable,
-            profile.WindowWidth,
-            profile.WindowHeight,
-            profile.Fullscreen,
+            minMem,
+            maxMem,
+            java,
+            winW,
+            winH,
+            fullscreen,
             profile.ServerAddress,
             settings.Language,
             profile.LanguageOverride,
@@ -218,7 +266,7 @@ public static class InstanceLayout
             profile.ExtraGameArgs,
             profile.PreLaunchCommand,
             profile.PostLaunchCommand,
-            profile.EnvVars.Count > 0 ? profile.EnvVars : null);
+            env.Count > 0 ? env : null);
     }
 
     /// <summary>迁移 5 个内容目录（隔离切换）；源存在且非空才移动；失败回滚已移动项后 rethrow</summary>

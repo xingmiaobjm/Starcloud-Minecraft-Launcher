@@ -143,6 +143,21 @@ public sealed partial class DownloadPage : Page
             var manifest = await _s.Manifest.GetManifestAsync(false);
             _versions = manifest.Versions;
             ApplyVersionFilter();
+            VersionCacheBadge.Visibility =
+                _s.Manifest.LastLoadFromCache ? Visibility.Visible : Visibility.Collapsed;
+
+            // 命中缓存 → 后台直连网络拉新内容并替换；失败保留缓存内容、不弹错
+            if (_s.Manifest.LastLoadFromCache)
+            {
+                try
+                {
+                    var fresh = await _s.Manifest.GetManifestAsync(true);
+                    _versions = fresh.Versions;
+                    ApplyVersionFilter();
+                    VersionCacheBadge.Visibility = Visibility.Collapsed;
+                }
+                catch { /* 保留缓存内容 */ }
+            }
         }
         catch (Exception ex)
         {
@@ -685,7 +700,7 @@ public sealed partial class DownloadPage : Page
     }
 
     // ── 社区搜索 ──
-    private async Task SearchAsync(bool reset)
+    private async Task SearchAsync(bool reset, bool forceRefresh = false)
     {
         if (!_communityInit) return;
         if (reset) _offset = 0;
@@ -705,10 +720,11 @@ public sealed partial class DownloadPage : Page
         var index = (SortCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "relevance";
 
         SetBusy(true);
+        if (!forceRefresh) CacheBadge.Visibility = Visibility.Collapsed;
         try
         {
             var result = await _s.Mods.SearchAsync(query, section, loader, gameVersion,
-                _offset, PageSize, index, category, ct);
+                _offset, PageSize, index, category, ct, forceRefresh);
             _total = result.TotalHits;
             var verb = SectionInfo.Verb;
             var rows = result.Hits.Select(h => new ModRow
@@ -728,12 +744,26 @@ public sealed partial class DownloadPage : Page
             ResultCountText.Text = _total > 0 ? $"共 {FormatCount(_total)} 个结果" : "";
             PrevBtn.IsEnabled = _offset > 0 && rows.Count > 0;
             NextBtn.IsEnabled = _offset + rows.Count < _total && rows.Count > 0;
+
+            var fromCache = _s.Mods.LastSearchFromCache;
+            CacheBadge.Visibility = fromCache ? Visibility.Visible : Visibility.Collapsed;
+
+            // 命中缓存 → 后台直连网络拉新内容并替换；失败保留缓存内容、不弹错
+            if (fromCache && !forceRefresh)
+            {
+                SetBusy(false);
+                await SearchAsync(reset: false, forceRefresh: true);
+                return;
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            ErrorBar.Message = $"搜索失败：{ex.Message}";
-            ErrorBar.IsOpen = true;
+            if (!forceRefresh)
+            {
+                ErrorBar.Message = $"搜索失败：{ex.Message}";
+                ErrorBar.IsOpen = true;
+            }
         }
         finally
         {

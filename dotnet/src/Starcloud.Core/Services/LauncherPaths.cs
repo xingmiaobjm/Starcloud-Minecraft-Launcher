@@ -32,6 +32,9 @@ public static class LauncherPaths
 
     public static string ManifestCacheFile => Path.Combine(DataDir, "version_manifest_cache.json");
 
+    /// <summary>资源列表磁盘缓存目录（一 key 一文件）</summary>
+    public static string CacheDir => Path.Combine(DataDir, "cache");
+
     public static string JavaDir => Path.Combine(DataDir, "java");
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
@@ -41,6 +44,7 @@ public static class LauncherPaths
         Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(JavaDir);
         Directory.CreateDirectory(LogsDir);
+        Directory.CreateDirectory(CacheDir);
     }
 }
 
@@ -137,6 +141,24 @@ public sealed class LauncherSettings
 
     [JsonPropertyName("nova_overlay_y")]
     public int? NovaOverlayY { get; set; }
+
+    // ── 资源列表缓存开关（设计：resource-cache-multi-java-global-settings-design.md §3.1） ──
+    [JsonPropertyName("resource_cache_enabled")]
+    public bool ResourceCacheEnabled { get; set; } = true;
+
+    // ── 全局默认窗口（版本设置「跟随全局设置」档位取此处） ──
+    [JsonPropertyName("default_window_width")]
+    public int? DefaultWindowWidth { get; set; } = 854;
+
+    [JsonPropertyName("default_window_height")]
+    public int? DefaultWindowHeight { get; set; } = 480;
+
+    [JsonPropertyName("default_fullscreen")]
+    public bool DefaultFullscreen { get; set; } = false;
+
+    // ── 全局环境变量（版本级 EnvVars 之外的公共环境变量） ──
+    [JsonPropertyName("global_env_vars")]
+    public Dictionary<string, string> GlobalEnvVars { get; set; } = new();
 
     private static readonly JsonSerializerOptions Options = new()
     {

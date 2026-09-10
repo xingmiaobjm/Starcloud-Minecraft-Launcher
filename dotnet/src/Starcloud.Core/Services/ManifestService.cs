@@ -11,25 +11,42 @@ public sealed class ManifestService
     private const string ManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     private readonly DownloadService _downloader;
+    private readonly ResourceCacheService? _cache;
 
     public bool LastLoadFromCache { get; private set; }
 
-    public ManifestService(DownloadService downloader) => _downloader = downloader;
+    public ManifestService(DownloadService downloader, ResourceCacheService? cache = null)
+    {
+        _downloader = downloader;
+        _cache = cache;
+    }
 
     /// <summary>读取版本清单：优先缓存（快速展示），后台再刷新由调用方触发。</summary>
     public async Task<MinecraftManifest> GetManifestAsync(bool forceRefresh, CancellationToken ct = default)
     {
         LauncherPaths.EnsureDataDir();
+
+        // 旧 version_manifest_cache.json 迁移到统一缓存（一次）
+        _cache?.MigrateLegacyManifest();
+
+        if (!forceRefresh && _cache is not null
+            && _cache.TryRead<MinecraftManifest>("manifest.vanilla", out var cached)
+            && cached is { Versions.Count: > 0 })
+        {
+            LastLoadFromCache = true;
+            return cached;
+        }
+
         if (!forceRefresh && File.Exists(LauncherPaths.ManifestCacheFile))
         {
             try
             {
-                var cached = JsonSerializer.Deserialize<MinecraftManifest>(
+                var legacy = JsonSerializer.Deserialize<MinecraftManifest>(
                     File.ReadAllText(LauncherPaths.ManifestCacheFile));
-                if (cached is { Versions.Count: > 0 })
+                if (legacy is { Versions.Count: > 0 })
                 {
                     LastLoadFromCache = true;
-                    return cached;
+                    return legacy;
                 }
             }
             catch
@@ -42,6 +59,7 @@ public sealed class ManifestService
         var manifest = JsonSerializer.Deserialize<MinecraftManifest>(json)
                        ?? throw new InvalidOperationException("版本清单解析失败");
         File.WriteAllText(LauncherPaths.ManifestCacheFile, json);
+        _cache?.Write("manifest.vanilla", manifest);
         LastLoadFromCache = false;
         return manifest;
     }

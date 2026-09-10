@@ -122,26 +122,29 @@ public sealed partial class VersionDetailPage : Page
         IsolationRadio.IsEnabled = !running;
         UpdateGameRootPreview();
 
-        // 内存（未覆盖显示全局值；只有用户改动过才写覆盖）
+        // 内存档位（显式档位优先；旧数据有覆盖值按「自定义」推断）
         _memDirty = false;
-        MinMemBox.Value = profile.MemoryMinMb ?? settings.DefaultMinMemoryMb;
+        var memMode = profile.MemoryMode ?? (profile.MemoryMaxMb is not null ? "manual" : "global");
+        MemoryModeRadio.SelectedIndex = memMode switch { "auto" => 1, "manual" => 2, _ => 0 };
         MaxMemBox.Value = profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb;
-        MemoryReset.Visibility = profile.MemoryMinMb is null && profile.MemoryMaxMb is null
-            ? Visibility.Collapsed : Visibility.Visible;
 
-        // Java
+        // Java 档位
         _javaOverride = profile.JavaPath;
+        var javaMode = profile.JavaMode ?? (profile.JavaPath is not null ? "manual" : "global");
+        JavaModeRadio.SelectedIndex = javaMode switch { "auto" => 1, "manual" => 2, _ => 0 };
         PopulateJavaCombo();
-        JavaReset.Visibility = profile.JavaPath is null ? Visibility.Collapsed : Visibility.Visible;
 
-        // 窗口宽高与全屏
+        // 窗口档位与全屏
         _winDirty = false;
         _fullscreenOverride = profile.Fullscreen;
-        WidthBox.Value = profile.WindowWidth ?? 1280;
-        HeightBox.Value = profile.WindowHeight ?? 720;
+        var winMode = profile.WindowMode ?? (profile.WindowWidth is not null ? "manual" : "global");
+        WindowModeRadio.SelectedIndex = winMode switch { "auto" => 1, "manual" => 2, _ => 0 };
+        WidthBox.Value = profile.WindowWidth ?? settings.DefaultWindowWidth ?? 1280;
+        HeightBox.Value = profile.WindowHeight ?? settings.DefaultWindowHeight ?? 720;
         FullscreenRadio.SelectedIndex = profile.Fullscreen switch { true => 1, false => 2, _ => 0 };
-        WindowReset.Visibility = profile.WindowWidth is null && profile.WindowHeight is null
-            && profile.Fullscreen is null ? Visibility.Collapsed : Visibility.Visible;
+
+        UpdateModeVisibility();
+        RefreshMemoryBar();
 
         // 连服 / 命令 / 额外参数
         ServerBox.Text = profile.ServerAddress ?? "";
@@ -563,46 +566,77 @@ public sealed partial class VersionDetailPage : Page
             InstanceLayout.GameRoot(_s.Settings.DotMinecraft, _versionId, isolated);
     }
 
+    // ── 档位可见性 ──
+
+    /// <summary>按三个档位单选控制子控件可见性（「恢复跟随」仅在非全局档位出现）。</summary>
+    private void UpdateModeVisibility()
+    {
+        var memMode = MemoryModeRadio.SelectedIndex;
+        MaxMemBox.Visibility = memMode == 2 ? Visibility.Visible : Visibility.Collapsed;
+        AutoMemText.Visibility = memMode == 1 ? Visibility.Visible : Visibility.Collapsed;
+        MemoryReset.Visibility = memMode == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (memMode == 1)
+            AutoMemText.Text = $"自动：按物理内存分配约 {Gb(SystemMemory.AutoMaxMb())}。";
+
+        var javaMode = JavaModeRadio.SelectedIndex;
+        JavaManualPanel.Visibility = javaMode == 2 ? Visibility.Visible : Visibility.Collapsed;
+        JavaReset.Visibility = javaMode == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        var winMode = WindowModeRadio.SelectedIndex;
+        WindowManualPanel.Visibility = winMode == 2 ? Visibility.Visible : Visibility.Collapsed;
+        WindowReset.Visibility = winMode == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>内存占用条：物理内存快照一次（不轮询），画出「已使用 / 总量」与「本版本分配」。</summary>
+    private void RefreshMemoryBar()
+    {
+        const double barWidth = 260;
+        var (totalMb, usedMb) = SystemMemory.Snapshot();
+        var allocMb = MemoryModeRadio.SelectedIndex switch
+        {
+            1 => SystemMemory.AutoMaxMb(),
+            2 => double.IsNaN(MaxMemBox.Value) ? _s.Settings.DefaultMaxMemoryMb : (int)MaxMemBox.Value,
+            _ => _s.Settings.DefaultMaxMemoryMb,
+        };
+        var scale = totalMb > 0 ? barWidth / totalMb : 0;
+        MemoryUsedBar.Width = Math.Clamp(usedMb * scale, 0, barWidth);
+        MemoryAllocBar.Width = Math.Clamp(allocMb * scale, 0, barWidth);
+        MemoryUsageText.Text = $"已使用 {Gb(usedMb)} / 总 {Gb(totalMb)}　·　本版本分配 {Gb(allocMb)}";
+    }
+
+    private static string Gb(long mb) => $"{mb / 1024.0:0.#} GB";
+
     // ── 内存 ──
+
+    private void MemoryMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (MemoryModeRadio.SelectedIndex == 2) _memDirty = true;
+        UpdateModeVisibility();
+        RefreshMemoryBar();
+        ValidateMemory();
+        ScheduleSave();
+    }
 
     private void Memory_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (_loading) return;
         _memDirty = true;
-        MemoryReset.Visibility = Visibility.Visible;
         ValidateMemory();
+        RefreshMemoryBar();
         ScheduleSave();
     }
 
-    private void MemoryReset_Click(object sender, RoutedEventArgs e)
-    {
-        var settings = _s.Settings;
-        _memDirty = false;
-        _loading = true;
-        MinMemBox.Value = settings.DefaultMinMemoryMb;
-        MaxMemBox.Value = settings.DefaultMaxMemoryMb;
-        _loading = false;
-        MemoryReset.Visibility = Visibility.Collapsed;
-        var profile = _store.Get(_versionId);
-        profile.MemoryMinMb = null;
-        profile.MemoryMaxMb = null;
-        _store.Set(_versionId, profile);
-        _store.Save();
-        ValidateMemory();
-    }
+    private void MemoryReset_Click(object sender, RoutedEventArgs e) => MemoryModeRadio.SelectedIndex = 0;
 
     private bool ValidateMemory()
     {
-        var min = MinMemBox.Value;
         var max = MaxMemBox.Value;
-        var empty = double.IsNaN(min) || double.IsNaN(max);
-        var inverted = !empty && min > max;
-        var bad = empty || inverted;
-        MinMemBox.BorderBrush = bad ? ErrorBrush() : null;
+        var bad = MemoryModeRadio.SelectedIndex == 2
+            && (double.IsNaN(max) || max < 512 || max > 131072);
         MaxMemBox.BorderBrush = bad ? ErrorBrush() : null;
         MemErrorText.Visibility = bad ? Visibility.Visible : Visibility.Collapsed;
-        if (bad)
-            MemErrorText.Text = empty ? "请填写 512–131072 之间的数值。" : "最小值不能大于最大值。";
+        if (bad) MemErrorText.Text = "请填写 512–131072 之间的数值。";
         return !bad;
     }
 
@@ -625,11 +659,18 @@ public sealed partial class VersionDetailPage : Page
         UpdateJavaHint();
     }
 
-    /// <summary>重建 Java 下拉：置顶「跟随全局」+ 已扫描运行时 +（必要时）自定义项。</summary>
+    private void JavaMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        UpdateModeVisibility();
+        UpdateJavaHint();
+        ScheduleSave();
+    }
+
+    /// <summary>重建 Java 下拉：已扫描运行时 +（必要时）自定义项。</summary>
     private void PopulateJavaCombo()
     {
         JavaCombo.Items.Clear();
-        JavaCombo.Items.Add(new ComboBoxItem { Content = "跟随全局", Tag = null });
         foreach (var rt in _runtimes)
             JavaCombo.Items.Add(new ComboBoxItem
             {
@@ -640,9 +681,9 @@ public sealed partial class VersionDetailPage : Page
             && !_runtimes.Any(r => string.Equals(r.Executable, _javaOverride, StringComparison.OrdinalIgnoreCase)))
             JavaCombo.Items.Add(new ComboBoxItem { Content = $"自定义 · {_javaOverride}", Tag = _javaOverride });
 
-        JavaCombo.SelectedIndex = 0;
+        JavaCombo.SelectedIndex = -1;
         if (_javaOverride is null) return;
-        for (var i = 1; i < JavaCombo.Items.Count; i++)
+        for (var i = 0; i < JavaCombo.Items.Count; i++)
         {
             if (JavaCombo.Items[i] is ComboBoxItem item
                 && string.Equals(item.Tag as string, _javaOverride, StringComparison.OrdinalIgnoreCase))
@@ -653,30 +694,25 @@ public sealed partial class VersionDetailPage : Page
         }
     }
 
-    private void UpdateJavaHint() =>
-        JavaHintText.Text = _javaOverride is null
-            ? $"当前跟随全局：{_s.Settings.JavaExecutable ?? "自动匹配可用 Java"}"
-            : "已为这个版本指定 Java。";
+    private void UpdateJavaHint() => JavaHintText.Text = JavaModeRadio.SelectedIndex switch
+    {
+        1 => "自动：按该版本 JSON 推荐的主版本匹配本机 Java。",
+        2 => _javaOverride is null
+            ? "自定义：尚未选择，将按版本推荐自动匹配。"
+            : $"已为这个版本指定 Java：{_javaOverride}",
+        _ => $"当前跟随全局：{_s.Settings.JavaExecutable ?? "自动匹配可用 Java"}",
+    };
 
     private void JavaCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
         _javaOverride = (JavaCombo.SelectedItem as ComboBoxItem)?.Tag as string;
-        JavaReset.Visibility = _javaOverride is null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateModeVisibility();
         UpdateJavaHint();
         ScheduleSave();
     }
 
-    private void JavaReset_Click(object sender, RoutedEventArgs e)
-    {
-        _javaOverride = null;
-        _loading = true;
-        JavaCombo.SelectedIndex = 0;
-        _loading = false;
-        JavaReset.Visibility = Visibility.Collapsed;
-        UpdateJavaHint();
-        ScheduleSave();
-    }
+    private void JavaReset_Click(object sender, RoutedEventArgs e) => JavaModeRadio.SelectedIndex = 0;
 
     private async void JavaBrowse_Click(object sender, RoutedEventArgs e)
     {
@@ -708,7 +744,8 @@ public sealed partial class VersionDetailPage : Page
             _loading = true;
             PopulateJavaCombo();
             _loading = false;
-            JavaReset.Visibility = Visibility.Visible;
+            JavaModeRadio.SelectedIndex = 2;   // 浏览选择即视为「自定义」档位
+            UpdateModeVisibility();
             UpdateJavaHint();
             FlushSave();
         }
@@ -724,11 +761,19 @@ public sealed partial class VersionDetailPage : Page
 
     // ── 窗口 ──
 
+    private void WindowMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (WindowModeRadio.SelectedIndex == 2) _winDirty = true;
+        UpdateModeVisibility();
+        ValidateWindow();
+        ScheduleSave();
+    }
+
     private void Window_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (_loading) return;
         _winDirty = true;
-        WindowReset.Visibility = Visibility.Visible;
         ValidateWindow();
         ScheduleSave();
     }
@@ -742,29 +787,10 @@ public sealed partial class VersionDetailPage : Page
             2 => false,
             _ => (bool?)null,
         };
-        WindowReset.Visibility = _winDirty || _fullscreenOverride is not null
-            ? Visibility.Visible : Visibility.Collapsed;
         ScheduleSave();
     }
 
-    private void WindowReset_Click(object sender, RoutedEventArgs e)
-    {
-        _winDirty = false;
-        _fullscreenOverride = null;
-        _loading = true;
-        WidthBox.Value = 1280;
-        HeightBox.Value = 720;
-        FullscreenRadio.SelectedIndex = 0;
-        _loading = false;
-        WindowReset.Visibility = Visibility.Collapsed;
-        var profile = _store.Get(_versionId);
-        profile.WindowWidth = null;
-        profile.WindowHeight = null;
-        profile.Fullscreen = null;
-        _store.Set(_versionId, profile);
-        _store.Save();
-        ValidateWindow();
-    }
+    private void WindowReset_Click(object sender, RoutedEventArgs e) => WindowModeRadio.SelectedIndex = 0;
 
     private bool ValidateWindow()
     {
@@ -773,14 +799,18 @@ public sealed partial class VersionDetailPage : Page
         var oneMissing = double.IsNaN(w) ^ double.IsNaN(h);
         var outOfRange = (!double.IsNaN(w) && (w < 200 || w > 32767))
                       || (!double.IsNaN(h) && (h < 200 || h > 32767));
-        var bad = oneMissing || outOfRange;
+        var bad = WindowModeRadio.SelectedIndex == 2 && (oneMissing || outOfRange);
         WidthBox.BorderBrush = bad ? ErrorBrush() : null;
         HeightBox.BorderBrush = bad ? ErrorBrush() : null;
         WindowHintText.Text = bad
             ? "宽高需同时填写 200–32767 之间的数值。"
-            : GameLauncher.ModernWindowArgs(_versionId)
-                ? "窗口尺寸通过 --width/--height 传入；未改动时使用游戏默认大小。"
-                : "此版本可能不支持窗口参数（需要 1.13 及以上）。";
+            : WindowModeRadio.SelectedIndex switch
+            {
+                1 => "自动：854 × 480 窗口化启动。",
+                _ => GameLauncher.ModernWindowArgs(_versionId)
+                    ? "窗口尺寸通过 --width/--height 传入；未改动时使用游戏默认大小。"
+                    : "此版本可能不支持窗口参数（需要 1.13 及以上）。",
+            };
         return !bad;
     }
 
@@ -1019,20 +1049,46 @@ public sealed partial class VersionDetailPage : Page
 
         // 三态字段（null = 跟随全局）
         profile.Isolation = _isolationOverride;
-        profile.JavaPath = _javaOverride;
-        profile.Fullscreen = _fullscreenOverride;
         profile.LanguageOverride = _langOverride;
 
-        // 内存 / 窗口：仅用户改动过才写覆盖
-        if (_memDirty && ValidateMemory())
+        // 内存 / Java / 窗口档位（null = 跟随全局设置）
+        profile.MemoryMode = MemoryModeRadio.SelectedIndex switch { 1 => "auto", 2 => "manual", _ => null };
+        profile.JavaMode = JavaModeRadio.SelectedIndex switch { 1 => "auto", 2 => "manual", _ => null };
+        profile.WindowMode = WindowModeRadio.SelectedIndex switch { 1 => "auto", 2 => "manual", _ => null };
+
+        // 内存：仅「自定义」写覆盖值（最小固定 512）
+        if (profile.MemoryMode == "manual")
         {
-            profile.MemoryMinMb = (int)MinMemBox.Value;
-            profile.MemoryMaxMb = (int)MaxMemBox.Value;
+            if (_memDirty && ValidateMemory())
+            {
+                profile.MemoryMinMb = 512;
+                profile.MemoryMaxMb = (int)MaxMemBox.Value;
+            }
         }
-        if (_winDirty && ValidateWindow())
+        else
         {
-            profile.WindowWidth = double.IsNaN(WidthBox.Value) ? null : (int)WidthBox.Value;
-            profile.WindowHeight = double.IsNaN(HeightBox.Value) ? null : (int)HeightBox.Value;
+            profile.MemoryMinMb = null;
+            profile.MemoryMaxMb = null;
+        }
+
+        // Java：仅「自定义」写指定路径（自动档由 Resolve 置空 → 走版本推荐）
+        profile.JavaPath = profile.JavaMode == "manual" ? _javaOverride : null;
+
+        // 窗口：仅「自定义」写覆盖值
+        if (profile.WindowMode == "manual")
+        {
+            profile.Fullscreen = _fullscreenOverride;
+            if (_winDirty && ValidateWindow())
+            {
+                profile.WindowWidth = (int)WidthBox.Value;
+                profile.WindowHeight = (int)HeightBox.Value;
+            }
+        }
+        else
+        {
+            profile.WindowWidth = null;
+            profile.WindowHeight = null;
+            profile.Fullscreen = null;
         }
 
         // 连服（非法不写入）

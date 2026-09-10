@@ -160,21 +160,40 @@
                     <!-- 内存 -->
                     <StackPanel Spacing="6">
                         <Grid>
-                            <TextBlock Text="内存（MB）" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="内存分配" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <HyperlinkButton x:Name="MemoryReset" Content="恢复跟随"
                                              HorizontalAlignment="Right" Click="MemoryReset_Click"
                                              AutomationProperties.Name="内存恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <NumberBox x:Name="MinMemBox" AutomationProperties.Name="最小内存"
-                                       Header="最小" Width="180" Minimum="512" Maximum="131072"
-                                       SmallChange="512" SpinButtonPlacementMode="Compact"
-                                       ValueChanged="Memory_ValueChanged" />
-                            <NumberBox x:Name="MaxMemBox" AutomationProperties.Name="最大内存"
-                                       Header="最大" Width="180" Minimum="512" Maximum="131072"
-                                       SmallChange="512" SpinButtonPlacementMode="Compact"
-                                       ValueChanged="Memory_ValueChanged" />
+                        <RadioButtons x:Name="MemoryModeRadio" AutomationProperties.Name="内存分配档位"
+                                      SelectionChanged="MemoryMode_SelectionChanged">
+                            <RadioButton Content="跟随全局设置" />
+                            <RadioButton Content="自动配置" />
+                            <RadioButton Content="自定义" />
+                        </RadioButtons>
+                        <TextBlock x:Name="AutoMemText" FontSize="12" TextWrapping="Wrap"
+                                   Visibility="Collapsed"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <NumberBox x:Name="MaxMemBox" AutomationProperties.Name="最大内存"
+                                   Header="最大内存（MB）" Width="180" Minimum="512" Maximum="131072"
+                                   SmallChange="512" SpinButtonPlacementMode="Compact"
+                                   Visibility="Collapsed"
+                                   ValueChanged="Memory_ValueChanged" />
+                        <!-- 内存占用条：底槽 + 本版本分配（浅）+ 已使用（深） -->
+                        <StackPanel Spacing="4">
+                            <Grid Height="7" HorizontalAlignment="Left" Width="260">
+                                <Border CornerRadius="3.5"
+                                        Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+                                <Border x:Name="MemoryAllocBar" Width="0" HorizontalAlignment="Left"
+                                        CornerRadius="3.5"
+                                        Background="{ThemeResource AccentFillColorTertiaryBrush}" />
+                                <Border x:Name="MemoryUsedBar" Width="0" HorizontalAlignment="Left"
+                                        CornerRadius="3.5"
+                                        Background="{ThemeResource AccentFillColorDefaultBrush}" />
+                            </Grid>
+                            <TextBlock x:Name="MemoryUsageText" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                         <TextBlock x:Name="MemErrorText" FontSize="12" TextWrapping="Wrap"
                                    Visibility="Collapsed"
@@ -190,9 +209,17 @@
                                              AutomationProperties.Name="Java 恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
+                        <RadioButtons x:Name="JavaModeRadio" AutomationProperties.Name="Java 运行时候选档位"
+                                      SelectionChanged="JavaMode_SelectionChanged">
+                            <RadioButton Content="跟随全局设置" />
+                            <RadioButton Content="自动配置（按版本推荐）" />
+                            <RadioButton Content="自定义" />
+                        </RadioButtons>
+                        <StackPanel x:Name="JavaManualPanel" Orientation="Horizontal" Spacing="8"
+                                    Visibility="Collapsed">
                             <ComboBox x:Name="JavaCombo" AutomationProperties.Name="Java 运行时"
-                                      Width="440" SelectionChanged="JavaCombo_SelectionChanged" />
+                                      Width="440" PlaceholderText="未选择（将自动匹配）"
+                                      SelectionChanged="JavaCombo_SelectionChanged" />
                             <Button x:Name="JavaBrowseBtn" Content="浏览…" Click="JavaBrowse_Click"
                                     AutomationProperties.Name="浏览 Java 可执行文件" />
                         </StackPanel>
@@ -209,24 +236,32 @@
                                              AutomationProperties.Name="窗口恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <NumberBox x:Name="WidthBox" AutomationProperties.Name="窗口宽度"
-                                       Header="宽" Width="180" Minimum="200" Maximum="32767"
-                                       SmallChange="10" SpinButtonPlacementMode="Compact"
-                                       ValueChanged="Window_ValueChanged" />
-                            <NumberBox x:Name="HeightBox" AutomationProperties.Name="窗口高度"
-                                       Header="高" Width="180" Minimum="200" Maximum="32767"
-                                       SmallChange="10" SpinButtonPlacementMode="Compact"
-                                       ValueChanged="Window_ValueChanged" />
-                        </StackPanel>
+                        <RadioButtons x:Name="WindowModeRadio" AutomationProperties.Name="窗口尺寸档位"
+                                      SelectionChanged="WindowMode_SelectionChanged">
+                            <RadioButton Content="跟随全局设置" />
+                            <RadioButton Content="自动配置（854 × 480 窗口化）" />
+                            <RadioButton Content="自定义" />
+                        </RadioButtons>
                         <TextBlock x:Name="WindowHintText" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <RadioButtons x:Name="FullscreenRadio" AutomationProperties.Name="全屏"
-                                      SelectionChanged="FullscreenRadio_SelectionChanged">
-                            <RadioButton Content="跟随全局默认" />
-                            <RadioButton Content="开启全屏" />
-                            <RadioButton Content="关闭全屏" />
-                        </RadioButtons>
+                        <StackPanel x:Name="WindowManualPanel" Spacing="6" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <NumberBox x:Name="WidthBox" AutomationProperties.Name="窗口宽度"
+                                           Header="宽" Width="180" Minimum="200" Maximum="32767"
+                                           SmallChange="10" SpinButtonPlacementMode="Compact"
+                                           ValueChanged="Window_ValueChanged" />
+                                <NumberBox x:Name="HeightBox" AutomationProperties.Name="窗口高度"
+                                           Header="高" Width="180" Minimum="200" Maximum="32767"
+                                           SmallChange="10" SpinButtonPlacementMode="Compact"
+                                           ValueChanged="Window_ValueChanged" />
+                            </StackPanel>
+                            <RadioButtons x:Name="FullscreenRadio" AutomationProperties.Name="全屏"
+                                          SelectionChanged="FullscreenRadio_SelectionChanged">
+                                <RadioButton Content="跟随全局默认" />
+                                <RadioButton Content="开启全屏" />
+                                <RadioButton Content="关闭全屏" />
+                            </RadioButtons>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- 自动连服 -->

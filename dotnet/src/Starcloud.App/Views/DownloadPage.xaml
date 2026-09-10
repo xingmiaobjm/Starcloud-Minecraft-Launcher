@@ -113,6 +113,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="TypeCombo" MinWidth="140"
                                       SelectionChanged="TypeCombo_SelectionChanged">
@@ -122,6 +123,12 @@
                             </ComboBox>
                             <TextBox x:Name="SearchBox" Grid.Column="1" PlaceholderText="搜索版本 ID…"
                                      TextChanged="SearchBox_TextChanged" />
+                            <Border x:Name="VersionCacheBadge" Grid.Column="2" Visibility="Collapsed"
+                                    CornerRadius="9" Padding="8,2" VerticalAlignment="Center"
+                                    Background="{ThemeResource AccentFillColorTertiaryBrush}">
+                                <TextBlock Text="缓存" FontSize="11"
+                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
                         </Grid>
                         <Border Grid.Row="1"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -731,8 +738,16 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="ResultCountText" Grid.Column="0" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock x:Name="ResultCountText" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Border x:Name="CacheBadge" Visibility="Collapsed" CornerRadius="9" Padding="8,2"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource AccentFillColorTertiaryBrush}">
+                                <TextBlock Text="缓存" FontSize="11"
+                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
+                        </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                             <Button x:Name="PrevBtn" Content="上一页" Click="PrevBtn_Click" />
                             <Button x:Name="NextBtn" Content="下一页" Click="NextBtn_Click" />
