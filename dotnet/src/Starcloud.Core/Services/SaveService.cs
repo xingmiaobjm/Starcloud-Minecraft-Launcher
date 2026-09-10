@@ -5,22 +5,23 @@ using System.Text;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>单个世界的信息（level.dat 解析结果）</summary>
+/// <summary>单个世界的信息（level.dat 解析结果 + 所属版本归属）</summary>
 public sealed record SaveInfo(
     string FolderName,
     string LevelName,
     DateTime? LastPlayed,
     long SizeBytes,
-    string? IconPath);
+    string? IconPath,
+    string VersionId,   // 所属版本 Id；"" 表示共享根
+    bool Isolated,      // 所属版本是否隔离
+    string GameRoot);   // 存档所在实例根（打开文件夹 / 备份 / 删除均以此为基准）
 
 public sealed class SaveService
 {
-    private string SavesDir(string dotMinecraft) => Path.Combine(dotMinecraft, "saves");
-
-    /// <summary>列出 saves 下的世界（level.dat 存在的目录）</summary>
-    public List<SaveInfo> ListSaves(string dotMinecraft)
+    /// <summary>列出实例根 saves 下的世界（level.dat 存在的目录）</summary>
+    public List<SaveInfo> ListSaves(string gameRoot, string versionId, bool isolated)
     {
-        var dir = SavesDir(dotMinecraft);
+        var dir = Path.Combine(gameRoot, "saves");
         var result = new List<SaveInfo>();
         if (!Directory.Exists(dir)) return result;
 
@@ -53,7 +54,10 @@ public sealed class SaveService
                 string.IsNullOrWhiteSpace(levelName) ? Path.GetFileName(folder) : levelName,
                 lastPlayed,
                 GetDirSize(folder),
-                File.Exists(icon) ? icon : null));
+                File.Exists(icon) ? icon : null,
+                versionId,
+                isolated,
+                gameRoot));
         }
 
         // 最近游玩在前，无时间戳的排后
@@ -61,26 +65,25 @@ public sealed class SaveService
         return result;
     }
 
-    /// <summary>备份世界到 {dotMinecraft}/backups/&lt;名&gt;-&lt;时间戳&gt;.zip，返回 zip 路径</summary>
-    public string Backup(string dotMinecraft, string folderName)
+    /// <summary>备份世界到 backupsDir/&lt;名&gt;-&lt;时间戳&gt;.zip，返回 zip 路径</summary>
+    public string Backup(string gameRoot, string backupsDir, string folderName)
     {
-        var src = Path.Combine(SavesDir(dotMinecraft), folderName);
+        var src = Path.Combine(gameRoot, "saves", folderName);
         if (!Directory.Exists(src))
             throw new DirectoryNotFoundException($"存档目录不存在：{folderName}");
 
-        var backupDir = Path.Combine(dotMinecraft, "backups");
-        Directory.CreateDirectory(backupDir);
+        Directory.CreateDirectory(backupsDir);
         var stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
         var safeName = string.Concat(folderName.Split(Path.GetInvalidFileNameChars()));
-        var zipPath = Path.Combine(backupDir, $"{safeName}-{stamp}.zip");
+        var zipPath = Path.Combine(backupsDir, $"{safeName}-{stamp}.zip");
         ZipFile.CreateFromDirectory(src, zipPath, CompressionLevel.Optimal, includeBaseDirectory: false);
         return zipPath;
     }
 
     /// <summary>删除世界目录</summary>
-    public void Delete(string dotMinecraft, string folderName)
+    public void Delete(string gameRoot, string folderName)
     {
-        var dir = Path.Combine(SavesDir(dotMinecraft), folderName);
+        var dir = Path.Combine(gameRoot, "saves", folderName);
         if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 

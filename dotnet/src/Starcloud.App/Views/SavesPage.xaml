@@ -11,6 +11,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -25,19 +26,32 @@
         <InfoBar x:Name="OkBar" Grid.Row="1" Severity="Success" IsOpen="False" IsClosable="True" />
         <InfoBar x:Name="ErrorBar" Grid.Row="1" Severity="Error" IsOpen="False" IsClosable="True" />
 
+        <!-- 跨版本运行态 -->
+        <InfoBar x:Name="RunBar" Grid.Row="2" Severity="Informational" IsOpen="False" IsClosable="False"
+                 Title="正在运行" Message="">
+            <InfoBar.ActionButton>
+                <Button Content="停止游戏" Click="StopGame_Click" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+
         <!-- 工具条 -->
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <Grid Grid.Row="3" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="BackupBtn" Style="{StaticResource AccentButtonStyle}"
-                        Content="备份所选世界" IsEnabled="False" Click="Backup_Click" />
+                <Button x:Name="LaunchOtherBtn" Style="{StaticResource AccentButtonStyle}"
+                        Content="用其他版本启动" IsEnabled="False" Click="LaunchOther_Click" />
+                <Button x:Name="CopyOtherBtn" Content="复制到其他版本" IsEnabled="False" Click="CopyOther_Click" />
+                <Button x:Name="BackupBtn" Content="备份所选世界" IsEnabled="False" Click="Backup_Click" />
                 <Button x:Name="DeleteBtn" Content="删除" IsEnabled="False" Click="Delete_Click" />
                 <Button x:Name="OpenFolderBtn" Content="打开世界文件夹" IsEnabled="False" Click="OpenFolder_Click" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <AutoSuggestBox x:Name="SearchBox" Width="200" PlaceholderText="搜索世界 / 版本"
+                                QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
+                <ComboBox x:Name="VersionFilter" MinWidth="150" SelectionChanged="VersionFilter_SelectionChanged" />
                 <Button Content="打开存档目录" Click="OpenSavesDir_Click" />
                 <Button Padding="6" MinWidth="32" Background="Transparent" BorderThickness="0"
                         Click="Refresh_Click" ToolTipService.ToolTip="刷新">
@@ -47,7 +61,7 @@
         </Grid>
 
         <!-- 世界列表 -->
-        <Border Grid.Row="3"
+        <Border Grid.Row="4"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">
@@ -82,8 +96,28 @@
                                         </Grid>
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                        <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis" />
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Border Grid.Column="1" CornerRadius="4" Padding="8,2"
+                                                    VerticalAlignment="Center"
+                                                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                <TextBlock Text="{x:Bind VersionLabel}" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Border>
+                                            <Border Grid.Column="2" CornerRadius="4" Padding="8,2"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{x:Bind IsolatedVisibility}"
+                                                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                <TextBlock Text="隔离" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Border>
+                                        </Grid>
                                         <TextBlock Text="{x:Bind FolderName}" FontSize="12"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                    TextTrimming="CharacterEllipsis" />
@@ -103,10 +137,10 @@
                             HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
                     <FontIcon Glyph="&#xE8B7;" FontSize="28" HorizontalAlignment="Center"
                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    <TextBlock Text="暂无存档"
+                    <TextBlock x:Name="EmptyTitle" Text="暂无存档"
                                HorizontalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock Text="启动游戏创建世界后，可在此进行备份与管理"
+                    <TextBlock x:Name="EmptySubText" Text="启动游戏创建世界后，可在此进行备份与管理"
                                FontSize="12" HorizontalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                 </StackPanel>

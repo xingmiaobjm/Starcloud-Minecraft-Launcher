@@ -162,13 +162,13 @@ public sealed partial class VersionsPage : Page
         await InstanceActions.ShowJsonAsync(Content.XamlRoot, _s.Settings.DotMinecraft, row.Id);
     }
 
-    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开底部对话条承接，不跳页。</summary>
+    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开 Nova 面板承接，不跳页。</summary>
     private void AskNova_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is not { } row) return;
         _s.NovaRuntime.SetCurrentInstance(row.Id);
         _s.NovaRuntime.RequestInput($"帮我给 {row.Id} 做一次游戏体检，有隐患直接说");
-        (App.MainWindow as MainWindow)?.OpenNovaBar();
+        (App.MainWindow as MainWindow)?.OpenNovaPanel();
     }
 
     private async void Delete_Click(object s, RoutedEventArgs e)

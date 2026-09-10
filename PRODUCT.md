@@ -4,7 +4,7 @@
 
 ## Platform
 
-Windows 桌面应用（WinUI 3 / Windows App SDK 1.6，仅 Windows，x64）。
+Windows 桌面应用（WinUI 3 / Windows App SDK 1.8，仅 Windows，x64）。
 2026-09-06 起由 Tauri 2（WebView）全面迁移至 .NET 原生栈；无移动端目标。
 
 ## Stack

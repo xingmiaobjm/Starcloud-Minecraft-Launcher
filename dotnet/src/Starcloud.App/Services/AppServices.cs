@@ -21,6 +21,8 @@ public sealed class AppServices
     public ForgeInstallerService Forge { get; }
     public MrPackInstallerService MrPack { get; }
     public SaveService Saves { get; }
+    public SaveLibraryService SaveLibrary { get; }
+    public LaunchAccountService LaunchAccount { get; }
     public StarcloudIdService StarcloudId { get; }
     public GameDiagnosticsService Diagnostics { get; }
     public LaunchPreflightService Preflight { get; }
@@ -48,6 +50,8 @@ public sealed class AppServices
         MicrosoftAuth = new MicrosoftAuthService();
         MrPack = new MrPackInstallerService(Download);
         Saves = new SaveService();
+        SaveLibrary = new SaveLibraryService(Manifest, Saves);
+        LaunchAccount = new LaunchAccountService(Accounts, MicrosoftAuth, () => Settings);
         StarcloudId = new StarcloudIdService();
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         Preflight = new LaunchPreflightService(Installer, Download, Manifest);

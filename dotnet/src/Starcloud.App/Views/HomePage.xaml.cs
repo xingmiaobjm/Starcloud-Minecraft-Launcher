@@ -19,7 +19,6 @@ public sealed partial class HomePage : Page
     private readonly AppServices _s = AppServices.Instance;
     private readonly DispatcherQueue _dq;
     private List<VersionRow> _rows = [];
-    private string _mode = "offline";
     private Process? _gameProcess;
     private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
 
@@ -84,7 +83,7 @@ public sealed partial class HomePage : Page
 
     private void SetMode(string mode)
     {
-        _mode = mode;
+        _s.LaunchAccount.Mode = mode;
         ModeMsBtn.IsChecked = mode == "microsoft";
         ModeOfflineBtn.IsChecked = mode == "offline";
         RefreshAccounts();
@@ -155,14 +154,14 @@ public sealed partial class HomePage : Page
             VersionList.SelectedItem = row;
     }
 
-    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开底部对话条承接，不跳页。</summary>
+    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开 Nova 面板承接，不跳页。</summary>
     private void AskNova_Click(object sender, RoutedEventArgs e)
     {
         var id = (sender as FrameworkElement)?.Tag as string;
         if (string.IsNullOrEmpty(id)) return;
         _s.NovaRuntime.SetCurrentInstance(id);
         _s.NovaRuntime.RequestInput($"帮我给 {id} 做一次游戏体检，有隐患直接说");
-        (App.MainWindow as MainWindow)?.OpenNovaBar();
+        (App.MainWindow as MainWindow)?.OpenNovaPanel();
     }
 
     private void OpenVersionFolder_Click(object sender, RoutedEventArgs e)
@@ -216,10 +215,10 @@ public sealed partial class HomePage : Page
     {
         var msAccounts = _s.Accounts.Accounts.Where(a => a.Type == "microsoft").ToList();
         var offlineAccounts = _s.Accounts.Accounts.Where(a => a.Type == "offline").ToList();
-        var list = _mode == "microsoft" ? msAccounts : offlineAccounts;
+        var list = _s.LaunchAccount.Mode == "microsoft" ? msAccounts : offlineAccounts;
 
         var def = _s.Accounts.Default;
-        var showInput = _mode == "offline" && list.Count == 0;
+        var showInput = _s.LaunchAccount.Mode == "offline" && list.Count == 0;
         PlayerNameBox.Visibility = showInput ? Visibility.Visible : Visibility.Collapsed;
         AccountCombo.Visibility = list.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -233,7 +232,7 @@ public sealed partial class HomePage : Page
         }
         else
         {
-            AccountNameText.Text = _mode == "microsoft" ? "尚无正版账户" : "输入玩家名";
+            AccountNameText.Text = _s.LaunchAccount.Mode == "microsoft" ? "尚无正版账户" : "输入玩家名";
             AvatarText.Text = "?";
         }
         RefreshNameFromSelection();
@@ -252,10 +251,15 @@ public sealed partial class HomePage : Page
     {
         if (AccountCombo.SelectedValue is string uuid)
             _s.Accounts.SetDefault(uuid);
+        _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
         RefreshNameFromSelection();
     }
 
-    private void PlayerName_TextChanged(object s, TextChangedEventArgs e) => RefreshNameFromSelection();
+    private void PlayerName_TextChanged(object s, TextChangedEventArgs e)
+    {
+        _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
+        RefreshNameFromSelection();
+    }
 
     // ── 启动页状态机：ApplyStage 集中驱动（launch-overlay-design.md §3.2 表） ──
 
@@ -479,11 +483,10 @@ public sealed partial class HomePage : Page
     private async Task StartLaunchAsync(string versionId)
     {
         // 前置校验（spec §3.4）：玩家名不合法在进覆盖层前拦截
-        string? offlineName = null;
-        if (_mode != "microsoft")
+        if (_s.LaunchAccount.Mode != "microsoft")
         {
-            offlineName = ResolvePlayerName();
-            if (string.IsNullOrWhiteSpace(offlineName))
+            _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
+            if (_s.Accounts.Default is null && string.IsNullOrWhiteSpace(_s.LaunchAccount.OfflineName))
             {
                 LocalErrorBar.Message = "请输入离线玩家名或选择账户";
                 LocalErrorBar.IsOpen = true;
@@ -493,20 +496,13 @@ public sealed partial class HomePage : Page
 
         LaunchBtn.IsEnabled = false;
         GlobalErrorBar.IsOpen = false;
-        ShowOverlay(versionId, _mode == "microsoft");
+        ShowOverlay(versionId, _s.LaunchAccount.Mode == "microsoft");
         try
         {
-            string playerName;
-            LaunchCredentials? cred = null;
-            if (_mode == "microsoft")
-            {
-                (playerName, cred) = await ResolveMicrosoftAccountAsync();
-                if (_cancelRequested) { HideOverlay("已取消启动"); return; }
-            }
-            else
-            {
-                playerName = offlineName!;
-            }
+            var player = await _s.LaunchAccount.ResolveAsync();
+            var playerName = player.Name;
+            var cred = player.Credentials;
+            if (_cancelRequested) { HideOverlay("已取消启动"); return; }
 
             // 层叠合并（版本管理设计）：全局设置 + 版本档案覆盖 → 生效启动参数
             var dotMc = _s.Settings.DotMinecraft;
@@ -627,7 +623,7 @@ public sealed partial class HomePage : Page
             _s.NovaRuntime.OnGameLaunched(versionId, _gameProcess.Id);
             App.RunningVersionId = versionId;
             store.TouchPlayed(versionId); // 记录版本档案「上次启动」
-            _s.Settings.LastUsername = _mode == "microsoft" ? "ms:" + playerName : playerName;
+            _s.Settings.LastUsername = _s.LaunchAccount.Mode == "microsoft" ? "ms:" + playerName : playerName;
             _s.Settings.LastVersion = versionId;
             _s.Settings.Save();
         }
@@ -651,45 +647,6 @@ public sealed partial class HomePage : Page
             LaunchBtn.IsEnabled = true;
             UpdateVersionMeta();
         }
-    }
-
-    private string ResolvePlayerName()
-    {
-        if (_mode == "microsoft")
-        {
-            var uuid = AccountCombo.SelectedValue as string;
-            return _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)?.Username ?? "";
-        }
-        var fromCombo = _s.Accounts.Accounts.FirstOrDefault(
-            a => a.Uuid == (AccountCombo.SelectedValue as string))?.Username;
-        return fromCombo ?? PlayerNameBox.Text.Trim();
-    }
-
-    /// <summary>微软模式启动前解析凭据：优先 refresh_token 续期并回写存储；
-    /// 续期失效或网络异常时降级用存量 accessToken（1 小时有效期内）；
-    /// 无可用凭据时抛出（由启动页 Failed 态展示，spec §3.4）。</summary>
-    private async Task<(string Name, LaunchCredentials Cred)> ResolveMicrosoftAccountAsync()
-    {
-        var uuid = AccountCombo.SelectedValue as string;
-        var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid && a.Type == "microsoft");
-        if (acc is null)
-            throw new InvalidOperationException("尚无微软账户，请先到账户页登录");
-        if (!string.IsNullOrEmpty(acc.RefreshToken))
-        {
-            try
-            {
-                var r = await _s.MicrosoftAuth.RefreshAsync(acc.RefreshToken);
-                if (r is not null)
-                {
-                    _s.Accounts.AddOrUpdateMicrosoft(r.Uuid, r.Username, r.AccessToken, r.RefreshToken);
-                    return (r.Username, new LaunchCredentials(r.Uuid, r.AccessToken, "msa", r.Xuid));
-                }
-            }
-            catch { /* 网络异常：降级用存量 accessToken */ }
-        }
-        if (!string.IsNullOrEmpty(acc.AccessToken))
-            return (acc.Username, new LaunchCredentials(acc.Uuid, acc.AccessToken, "msa"));
-        throw new InvalidOperationException($"{acc.Username} 的 Microsoft 登录已过期，请到账户页重新登录");
     }
 
     // ── 入口 ──

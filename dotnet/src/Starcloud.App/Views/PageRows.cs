@@ -41,12 +41,14 @@ public sealed record LocalVersionRow(string Id, string KindText, string SizeText
     public Visibility CategoryVisibility => string.IsNullOrEmpty(Category) ? Visibility.Collapsed : Visibility.Visible;
 }
 
-/// <summary>存档页世界条目</summary>
+/// <summary>存档页世界条目（含所属版本归属）</summary>
 public sealed record SaveRow(string FolderName, string Name, string? IconPath,
-    string LastPlayedText, string SizeText)
+    string LastPlayedText, string SizeText,
+    string VersionLabel, string VersionId, bool Isolated, string GameRoot, string SearchKey)
 {
     public bool HasIcon => IconPath is not null;
     public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
+    public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
 }
 
 /// <summary>社区资源搜索结果行视图模型</summary>
