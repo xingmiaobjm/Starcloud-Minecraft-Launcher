@@ -49,6 +49,7 @@ dotnet/AppPackages/
 # 本地工具状态与素材库
 /.agents/
 /.impeccable/
+/.superpowers/
 /.trae/
 /skills-lock.json
 /package.json
