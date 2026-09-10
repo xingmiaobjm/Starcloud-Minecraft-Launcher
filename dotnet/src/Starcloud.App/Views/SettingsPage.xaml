@@ -110,6 +110,22 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
+
+                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="16" Padding="16">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="版本隔离（默认）" FontWeight="SemiBold" />
+                                    <TextBlock Text="新版本的默认隔离方式。独立目录仅隔离 mods/存档/配置/资源包/光影 5 类内容，库与资源文件仍共享；单个版本可在其详情页覆盖此设置。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <RadioButtons x:Name="IsolationDefaultRadio"
+                                                  AutomationProperties.Name="默认版本隔离方式">
+                                        <RadioButton Content="独立目录（推荐）" />
+                                        <RadioButton Content="共享目录" />
+                                    </RadioButtons>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ══ Java ══ -->

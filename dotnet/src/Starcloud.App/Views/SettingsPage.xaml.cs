@@ -33,6 +33,7 @@ public sealed partial class SettingsPage : Page
                 _ => 0,
             };
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
+            IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
             _loaded = true;
             await DetectJavaAsync();
         };
@@ -130,6 +131,7 @@ public sealed partial class SettingsPage : Page
         s0.JavaExecutable = string.IsNullOrWhiteSpace(JavaBox.Text) ? null : JavaBox.Text.Trim();
         s0.DownloadConcurrency = (int)ConcurrencyBox.Value;
         s0.Theme = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        s0.VersionIsolated = IsolationDefaultRadio.SelectedIndex == 0;
         if (s0.DefaultMinMemoryMb >= s0.DefaultMaxMemoryMb)
             s0.DefaultMinMemoryMb = s0.DefaultMaxMemoryMb / 4;
         s0.Save();
