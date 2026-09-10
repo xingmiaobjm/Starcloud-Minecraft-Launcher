@@ -6,6 +6,62 @@
     xmlns:local="using:Starcloud.App.Views"
     NavigationCacheMode="Disabled">
 
+    <Page.Resources>
+        <!-- 行菜单：右键与「…」按钮共用（Opening 时从 Target.DataContext 取行数据） -->
+        <MenuFlyout x:Key="RowMenu" Opening="RowMenu_Opening">
+            <MenuFlyoutItem Text="启动" Click="Launch_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE768;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="版本详情" Click="Detail_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8A9;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="打开目录" Click="OpenVersionDir_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE838;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Text="重命名" Click="Rename_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8AC;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="复制版本" Click="Copy_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8C9;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="查看 JSON" Click="ViewJson_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE943;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="导出整合包" IsEnabled="False">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8C1;" />
+                </MenuFlyoutItem.Icon>
+                <ToolTipService.ToolTip>
+                    <ToolTip Content="C 阶段提供" />
+                </ToolTipService.ToolTip>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Text="问 Nova" Click="AskNova_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE99A;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="删除" Click="Delete_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE74D;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+        </MenuFlyout>
+    </Page.Resources>
+
     <Grid MaxWidth="1000" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -38,6 +94,12 @@
                 </StackPanel>
             </Border>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <TextBox x:Name="SearchBox" PlaceholderText="搜索版本 / 类别"
+                         Width="180" AutomationProperties.Name="搜索版本"
+                         TextChanged="SearchBox_TextChanged" />
+                <ComboBox x:Name="CategoryFilter" Width="130" SelectedIndex="0"
+                          AutomationProperties.Name="按类别筛选"
+                          SelectionChanged="CategoryFilter_SelectionChanged" />
                 <Button Click="Refresh_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE72C;" FontSize="14" />
@@ -59,43 +121,80 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="4">
             <Grid>
-                <ListView x:Name="VersionListView" SelectionMode="Single">
+                <ListView x:Name="VersionListView" SelectionMode="Single"
+                          IsItemClickEnabled="True" ItemClick="VersionList_ItemClick">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            <Setter Property="MinHeight" Value="56" />
+                            <Setter Property="MinHeight" Value="64" />
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="0,1" />
                         </Style>
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:LocalVersionRow">
-                            <Grid Padding="12,8" ColumnSpacing="12">
-                                <Grid.ContextFlyout>
-                                    <MenuFlyout>
-                                        <MenuFlyoutItem Text="问 Nova" Tag="{x:Bind Id}" Click="AskNova_Click">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE99A;" />
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                    </MenuFlyout>
-                                </Grid.ContextFlyout>
+                            <Grid Padding="12,8" ColumnSpacing="12"
+                                  ContextFlyout="{StaticResource RowMenu}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{x:Bind KindText}" FontSize="11"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Border Width="40" Height="40" CornerRadius="6"
+                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                        <Grid>
+                                            <Image Source="{x:Bind IconPath}" Width="40" Height="40"
+                                                   Stretch="UniformToFill"
+                                                   Visibility="{x:Bind HasIconIconVisibility}" />
+                                            <FontIcon Glyph="&#xE7E8;" FontSize="18"
+                                                      Visibility="{x:Bind IconFallbackVisibility}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center" MaxWidth="420">
+                                        <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{x:Bind KindText}" FontSize="11"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <Border Padding="6,1" CornerRadius="4"
+                                                    Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                                                    Visibility="{x:Bind CategoryVisibility}">
+                                                <TextBlock Text="{x:Bind Category}" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Border>
+                                            <Border Padding="6,1" CornerRadius="4"
+                                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                    Visibility="{x:Bind IsolatedVisibility}">
+                                                <TextBlock Text="独立" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Border>
+                                        </StackPanel>
+                                    </StackPanel>
                                 </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{x:Bind SizeText}" FontSize="11"
-                                           VerticalAlignment="Center"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center"
+                                            HorizontalAlignment="Right">
+                                    <TextBlock Text="{x:Bind LastPlayedText}" FontSize="11"
+                                               HorizontalAlignment="Right"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Text="{x:Bind SizeText}" FontSize="11"
+                                               HorizontalAlignment="Right"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                </StackPanel>
                                 <Button Grid.Column="2" VerticalAlignment="Center" Padding="6"
+                                        Background="Transparent" BorderThickness="0"
+                                        Flyout="{StaticResource RowMenu}"
+                                        AutomationProperties.Name="更多操作"
+                                        ToolTipService.ToolTip="更多操作">
+                                    <FontIcon Glyph="&#xE712;" FontSize="14"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Button>
+                                <!-- 删除保留独立快键（沿用旧交互） -->
+                                <Button Grid.Column="3" VerticalAlignment="Center" Padding="6"
                                         Background="Transparent" BorderThickness="0" Click="Delete_Click"
+                                        AutomationProperties.Name="删除该版本"
                                         ToolTipService.ToolTip="删除该版本">
                                     <FontIcon Glyph="&#xE74D;" FontSize="14"
                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -108,7 +207,8 @@
                             HorizontalAlignment="Center" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE81C;" FontSize="28" HorizontalAlignment="Center"
                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    <TextBlock Text="还没有已安装的版本，去「下载」页安装一个吧"
+                    <TextBlock x:Name="EmptyText"
+                               Text="还没有已安装的版本，去「下载」页安装一个吧"
                                HorizontalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>

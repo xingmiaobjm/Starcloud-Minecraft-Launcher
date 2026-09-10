@@ -109,6 +109,15 @@ public sealed class JavaService
         if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 
+    /// <summary>校验任意 java.exe（版本设置「浏览」用）：版本字符串可解析即返回运行时，否则 null</summary>
+    public static async Task<JavaRuntime?> ProbeAsync(string exe, CancellationToken ct = default)
+    {
+        var version = await GetJavaVersionStringAsync(exe, ct);
+        if (version is null) return null;
+        var major = ParseMajorVersion(version);
+        return major <= 0 ? null : new JavaRuntime(exe, major, version, true, "custom");
+    }
+
     private static async Task<string?> GetJavaVersionStringAsync(string exe, CancellationToken ct)
     {
         try

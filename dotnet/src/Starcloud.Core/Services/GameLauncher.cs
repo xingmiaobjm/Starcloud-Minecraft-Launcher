@@ -11,7 +11,8 @@ namespace Starcloud.Core.Services;
 public sealed record LaunchOptions(
     string VersionId,
     string PlayerName,
-    string GameDir,
+    string GameDir,      // GameRoot：独立 = versions/<id>/，共享 = .minecraft（游戏工作目录）
+    string SharedDir,    // 共享根 .minecraft：libraries/assets/natives/runtime 等永远共享
     int MinMemoryMb,
     int MaxMemoryMb,
     string? JavaExecutable,
@@ -19,7 +20,14 @@ public sealed record LaunchOptions(
     bool UseBuiltinJvmArgs,
     LaunchCredentials? Credentials = null,
     string? QuickPlayMultiplayer = null,
-    string Language = "zh_CN");
+    string Language = "zh_CN",
+    string? LanguageOverride = null,
+    int? WindowWidth = null,
+    int? WindowHeight = null,
+    bool? Fullscreen = null,
+    IReadOnlyDictionary<string, string>? EnvVars = null,
+    string? PreLaunchCommand = null,
+    string? PostLaunchCommand = null);
 
 /// <summary>已认证账户凭据（微软账户）；离线账户传 null 走 OfflineUuid 回退</summary>
 public sealed record LaunchCredentials(string Uuid, string AccessToken, string UserType, string? Xuid = null);
@@ -48,7 +56,7 @@ public sealed class GameLauncher
     public async Task<string> BuildCommandLineAsync(MinecraftVersion version, LaunchOptions options,
         CancellationToken ct = default)
     {
-        var dotMc = options.GameDir;
+        var dotMc = options.SharedDir; // 共享根：libraries/assets/natives/classpath/jar 全走共享
         var versionId = version.Id;
         var versionDir = _installer.VersionDir(dotMc, versionId);
         var nativesDir = Path.Combine(versionDir, "natives");
@@ -91,8 +99,8 @@ public sealed class GameLauncher
             ["library_directory"] = Path.Combine(dotMc, "libraries"),
             ["classpath_separator"] = ";",
             ["classpath"] = classpath,
-            ["resolution_width"] = "1280",
-            ["resolution_height"] = "720",
+            ["resolution_width"] = (options.WindowWidth ?? 1280).ToString(),
+            ["resolution_height"] = (options.WindowHeight ?? 720).ToString(),
             ["quickPlayPath"] = "",
             ["quickPlaySingleplayer"] = "",
             ["quickPlayMultiplayer"] = options.QuickPlayMultiplayer ?? "",
@@ -165,6 +173,18 @@ public sealed class GameLauncher
             }
         }
 
+        // 窗口尺寸/全屏（≥1.13 支持 --width/--height/--fullscreen；旧版注入无效参数可能崩溃）
+        if (ModernWindowArgs(versionId))
+        {
+            if (options.WindowWidth is int w && options.WindowHeight is int h)
+            {
+                gameArgs.Add("--width"); gameArgs.Add(w.ToString());
+                gameArgs.Add("--height"); gameArgs.Add(h.ToString());
+            }
+            if (options.Fullscreen == true)
+                gameArgs.Add("--fullscreen");
+        }
+
         var java = string.IsNullOrWhiteSpace(options.JavaExecutable)
             ? await ResolveJavaAsync(version, dotMc, ct)
             : options.JavaExecutable!;
@@ -224,8 +244,16 @@ public sealed class GameLauncher
     private static string QuoteIfNeeded(string arg) =>
         arg.Contains(' ') ? '"' + arg + '"' : arg;
 
+    /// <summary>版本是否支持现代窗口参数（--width/--height/--fullscreen）：≥1.13 或无法解析（快照/特殊命名视为现代）</summary>
+    public static bool ModernWindowArgs(string versionId)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(versionId, @"^1\.(\d+)");
+        return !m.Success || int.TryParse(m.Groups[1].Value, out var minor) && minor >= 13;
+    }
+
     /// <summary>启动游戏进程；返回进程（退出由调用方监控 Exited 事件）</summary>
-    public Process Launch(string commandLine, string workingDirectory)
+    public Process Launch(string commandLine, string workingDirectory,
+        IReadOnlyDictionary<string, string>? envVars = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -235,6 +263,10 @@ public sealed class GameLauncher
             WorkingDirectory = workingDirectory,
             CreateNoWindow = true,
         };
+        if (envVars is not null)
+        {
+            foreach (var (k, v) in envVars) psi.Environment[k] = v;
+        }
         var p = Process.Start(psi) ?? throw new InvalidOperationException("游戏进程启动失败");
         p.EnableRaisingEvents = true; // 不开则 Exited 事件永不触发（手动关游戏后 UI 状态卡死）
         return p;
@@ -246,10 +278,12 @@ public sealed class GameLauncher
     {
         var version = await _installer.LoadVersionAsync(dotMinecraft, versionId, ct);
         var cmd = await BuildCommandLineAsync(version, options, ct);
-        var gameDir = options.GameDir;
-        Directory.CreateDirectory(gameDir);
-        EnsureFirstRunLanguage(gameDir, options.Language);
-        return Launch(cmd, gameDir);
+        Directory.CreateDirectory(options.GameDir);
+        var lang = options.LanguageOverride ?? options.Language;
+        EnsureFirstRunLanguage(options.GameDir, lang);
+        if (options.LanguageOverride is not null)
+            PatchLanguage(options.GameDir, options.LanguageOverride);
+        return Launch(cmd, options.GameDir, options.EnvVars);
     }
 
     /// <summary>首次开启（无 options.txt）时按启动器语言写入游戏语言；失败静默不阻塞启动</summary>
@@ -259,5 +293,99 @@ public sealed class GameLauncher
         if (File.Exists(path)) return;
         try { File.WriteAllText(path, $"lang:{language.Replace('-', '_')}\n"); }
         catch { /* 非阻塞：写不进去就交给游戏默认语言 */ }
+    }
+
+    /// <summary>语言覆盖：改写 GameRoot 下 options.txt 的 lang: 行（不存在则创建；失败静默）</summary>
+    private static void PatchLanguage(string gameDir, string language)
+    {
+        var path = Path.Combine(gameDir, "options.txt");
+        try
+        {
+            var line = $"lang:{language.Replace('-', '_')}";
+            if (!File.Exists(path))
+            {
+                File.WriteAllText(path, line + "\n");
+                return;
+            }
+            var lines = File.ReadAllLines(path).ToList();
+            var idx = lines.FindIndex(l => l.StartsWith("lang:", StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0) lines[idx] = line; else lines.Add(line);
+            File.WriteAllLines(path, lines);
+        }
+        catch { /* 非阻塞：语言覆盖失败交给游戏默认语言 */ }
+    }
+
+    /// <summary>执行启动前命令（$GAME_DIR 替换为 GameRoot）；未配置返回 (0, "")；整段捕获输出</summary>
+    public Task<(int ExitCode, string Output)> RunPreLaunchAsync(LaunchOptions options)
+    {
+        var command = options.PreLaunchCommand?.Trim();
+        if (string.IsNullOrEmpty(command)) return Task.FromResult((0, ""));
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c " + ExpandGameDir(command, options.GameDir),
+            UseShellExecute = false,
+            WorkingDirectory = options.GameDir,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        if (options.EnvVars is not null)
+        {
+            foreach (var (k, v) in options.EnvVars) psi.Environment[k] = v;
+        }
+        return RunCaptureAsync(psi);
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunCaptureAsync(ProcessStartInfo psi)
+    {
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("命令进程启动失败");
+        var outTask = p.StandardOutput.ReadToEndAsync();
+        var errTask = p.StandardError.ReadToEndAsync();
+        await Task.WhenAll(outTask, errTask);
+        await p.WaitForExitAsync(CancellationToken.None);
+        return (p.ExitCode, (outTask.Result + errTask.Result).Trim());
+    }
+
+    /// <summary>执行启动后命令（游戏退出后由调用方触发）；任何异常只追加日志不抛出</summary>
+    public void RunPostLaunch(LaunchOptions options)
+    {
+        var command = options.PostLaunchCommand?.Trim();
+        if (string.IsNullOrEmpty(command)) return;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/c " + ExpandGameDir(command, options.GameDir),
+                UseShellExecute = false,
+                WorkingDirectory = options.GameDir,
+                CreateNoWindow = true,
+            };
+            if (options.EnvVars is not null)
+            {
+                foreach (var (k, v) in options.EnvVars) psi.Environment[k] = v;
+            }
+            using var p = Process.Start(psi);
+            p?.WaitForExit();
+        }
+        catch (Exception ex)
+        {
+            AppendPostLaunchLog($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {options.VersionId}: {ex}\n");
+        }
+    }
+
+    /// <summary>$GAME_DIR 占位替换（大小写不敏感）</summary>
+    private static string ExpandGameDir(string command, string gameDir) =>
+        command.Replace("$GAME_DIR", gameDir, StringComparison.OrdinalIgnoreCase);
+
+    private static void AppendPostLaunchLog(string text)
+    {
+        try
+        {
+            Directory.CreateDirectory(LauncherPaths.LogsDir);
+            File.AppendAllText(Path.Combine(LauncherPaths.LogsDir, "game-postlaunch.log"), text);
+        }
+        catch { /* 日志写入失败忽略 */ }
     }
 }

@@ -295,7 +295,7 @@ public sealed class NovaInviteService
             ? new LaunchCredentials(account.Uuid, account.AccessToken, "msa")
             : null;
         var quickPlay = SupportsQuickPlay(token.Mc) ? token.Server : null;
-        var options = new LaunchOptions(targetId, player, dotMc,
+        var options = new LaunchOptions(targetId, player, dotMc, dotMc,
             settings.DefaultMinMemoryMb, settings.DefaultMaxMemoryMb,
             javaExe, settings.ExtraJvmArgs, settings.UseBuiltinJvmArgs, cred, quickPlay);
         await _launcher.LaunchVersionAsync(dotMc, targetId, options, ct);

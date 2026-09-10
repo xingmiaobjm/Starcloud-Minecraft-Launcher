@@ -74,6 +74,10 @@ public sealed partial class MainWindow : Window
             Nav.SelectedItem = target;
     }
 
+    /// <summary>版本详情子页：直接 Frame 导航（不占用侧栏选中项，返回即回来源页）。</summary>
+    public void NavigateToVersionDetail(string versionId) =>
+        ContentFrame.Navigate(typeof(VersionDetailPage), versionId);
+
     // ── Nova 内嵌（NOVA_INTEGRATION.md 五入口：① 顶栏 Orb / ④ 底部对话条 / ⑤ 状态栏） ──
 
     /// <summary>① NovaOrb：顶栏下方 8px 弹出 380px 毛玻璃面板，再点收回。</summary>

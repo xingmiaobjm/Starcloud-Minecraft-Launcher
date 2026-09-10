@@ -9,6 +9,12 @@ public partial class App : Application
 {
     public static Window? MainWindow { get; private set; }
 
+    // 跨页启动请求：版本列表页详情页"启动"后导航回主页消费
+    public static string? PendingLaunchVersionId;
+
+    // 当前运行中的版本 id（游戏进程存活期间非空）
+    public static string? RunningVersionId;
+
     public App()
     {
         InitializeComponent();

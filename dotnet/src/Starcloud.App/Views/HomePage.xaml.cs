@@ -21,6 +21,7 @@ public sealed partial class HomePage : Page
     private List<VersionRow> _rows = [];
     private string _mode = "offline";
     private Process? _gameProcess;
+    private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
 
     // ── 启动页状态机（设计：docs/superpowers/specs/2026-09-09-launch-overlay-design.md §3.2） ──
     private enum LaunchStage
@@ -52,6 +53,33 @@ public sealed partial class HomePage : Page
         LoadVersions();
         RefreshAccounts();
         RefreshGuide();
+        ConsumePendingLaunch();
+    }
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        _pendingLaunchId = App.PendingLaunchVersionId;
+        App.PendingLaunchVersionId = null;
+        if (_rows.Count > 0) ConsumePendingLaunch(); // 缓存实例回到主页立即消费；新实例等 Loaded
+    }
+
+    /// <summary>消费版本列表页的跨页启动请求（T4 起从详情页/列表页发起）。</summary>
+    private void ConsumePendingLaunch()
+    {
+        var id = _pendingLaunchId;
+        _pendingLaunchId = null;
+        if (id is null) return;
+        var row = _rows.FirstOrDefault(r => r.Id == id);
+        if (row is null)
+        {
+            LocalErrorBar.Message = $"版本 {id} 不存在，可能已被删除";
+            LocalErrorBar.IsOpen = true;
+            return;
+        }
+        VersionList.SelectedItem = row;
+        if (_gameProcess is { HasExited: false }) return; // 已有游戏在运行，不叠加启动
+        _ = StartLaunchAsync(id);
     }
 
     private void SetMode(string mode)
@@ -432,7 +460,7 @@ public sealed partial class HomePage : Page
     }
 
     // ── 启动 / 停止 ──
-    private async void LaunchBtn_Click(object s, RoutedEventArgs e)
+    private void LaunchBtn_Click(object s, RoutedEventArgs e)
     {
         // 第二击「停止游戏」：杀当前进程，右栏状态由 Exited 回调收尾
         if (_gameProcess is { HasExited: false })
@@ -444,6 +472,12 @@ public sealed partial class HomePage : Page
         var versionId = (VersionList.SelectedItem as VersionRow)?.Id;
         if (string.IsNullOrEmpty(versionId)) return;
 
+        _ = StartLaunchAsync(versionId);
+    }
+
+    /// <summary>统一启动入口：主页按钮与版本列表页「启动」均走此流程。</summary>
+    private async Task StartLaunchAsync(string versionId)
+    {
         // 前置校验（spec §3.4）：玩家名不合法在进覆盖层前拦截
         string? offlineName = null;
         if (_mode != "microsoft")
@@ -474,14 +508,19 @@ public sealed partial class HomePage : Page
                 playerName = offlineName!;
             }
 
+            // 层叠合并（版本管理设计）：全局设置 + 版本档案覆盖 → 生效启动参数
+            var dotMc = _s.Settings.DotMinecraft;
+            var store = new InstanceSettingsStore(dotMc);
+            var eff = InstanceLayout.Resolve(dotMc, versionId, store.Get(versionId), _s.Settings);
             var options = new LaunchOptions(
-                versionId, playerName, _s.Settings.DotMinecraft,
-                _s.Settings.DefaultMinMemoryMb, _s.Settings.DefaultMaxMemoryMb,
-                _s.Settings.JavaExecutable, _s.Settings.ExtraJvmArgs,
-                _s.Settings.UseBuiltinJvmArgs, cred, null, _s.Settings.Language);
+                versionId, playerName, eff.GameRoot, dotMc,
+                eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs,
+                _s.Settings.UseBuiltinJvmArgs, cred,
+                eff.ServerAddress, eff.Language, eff.LanguageOverride,
+                eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars,
+                eff.PreCmd, eff.PostCmd);
 
             // 启动前预检：缺失/损坏文件全自动补全，进度显示在启动页，补完直接启动
-            var dotMc = _s.Settings.DotMinecraft;
             ApplyStage(LaunchStage.CheckingFiles);
             var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
             if (_cancelRequested) { HideOverlay("已取消启动"); return; }
@@ -532,16 +571,45 @@ public sealed partial class HomePage : Page
             }
 
             ApplyStage(LaunchStage.StartingProcess);
+
+            // 版本级启动前命令：非零退出码时询问是否继续（仍可强制启动）
+            if (!string.IsNullOrWhiteSpace(options.PreLaunchCommand))
+            {
+                var pre = await _s.Launcher.RunPreLaunchAsync(options);
+                if (pre.ExitCode != 0)
+                {
+                    var tail = pre.Output.Length > 600 ? "…" + pre.Output[^600..] : pre.Output;
+                    var dialog = new ContentDialog
+                    {
+                        Title = "启动前命令失败",
+                        Content = $"退出码 {pre.ExitCode}\n{tail}",
+                        PrimaryButtonText = "仍然启动",
+                        CloseButtonText = "取消",
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = XamlRoot,
+                    };
+                    if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                    {
+                        HideOverlay(null);
+                        return;
+                    }
+                }
+                if (_cancelRequested) { HideOverlay("已取消启动"); return; }
+            }
+
             _gameProcess = await _s.Launcher.LaunchVersionAsync(
-                _s.Settings.DotMinecraft, versionId, options);
+                dotMc, versionId, options);
             _gameProcess.Exited += (_, _) => _dq.TryEnqueue(async () =>
             {
+                App.RunningVersionId = null;
                 if (_cancelRequested)
                     HideOverlay("已取消启动");        // 取消路径：直接收层回主页（spec §3.4）
                 else if (LaunchOverlay.Visibility == Visibility.Visible)
                     ApplyStage(LaunchStage.Exited);   // 覆盖层显示：停在启动页展示本局时长
                 // else：已收层回主页，不打扰（不再显示「游戏已退出」状态文字）
                 UpdateVersionMeta();
+                try { _s.Launcher.RunPostLaunch(options); }
+                catch { /* 收尾命令失败不影响退出流程 */ }
                 // Nova 收尾：补扫日志 → 生成战报卡（仅当本局开过观察会话）
                 await _s.NovaRuntime.OnGameExitedAsync();
             });
@@ -557,6 +625,8 @@ public sealed partial class HomePage : Page
 
             // Nova 时刻：游戏启动即开观察会话（未授权捕捉则静默）；浮窗监测需要 pid
             _s.NovaRuntime.OnGameLaunched(versionId, _gameProcess.Id);
+            App.RunningVersionId = versionId;
+            store.TouchPlayed(versionId); // 记录版本档案「上次启动」
             _s.Settings.LastUsername = _mode == "microsoft" ? "ms:" + playerName : playerName;
             _s.Settings.LastVersion = versionId;
             _s.Settings.Save();
