@@ -59,7 +59,8 @@ public static string LibraryIndexFile => Path.Combine(LibraryDir, "library.json"
 ```
 
 `EnsureDataDir()` 追加 `Directory.CreateDirectory(LibraryDir)`。
-子目录 `mods/ resourcepacks/ shaderpacks/ datapacks/ modpacks/` 由 `ContentLibraryService` 按需创建。
+子目录 `mods/ resourcepacks/ shaderpacks/ datapacks/ modpacks/` 与临时目录 `.tmp/`（下载暂存，
+入库后即清空）由 `ContentLibraryService` 按需创建。
 
 ### 3.2 资源条目与索引
 
@@ -128,7 +129,10 @@ public sealed class ContentLibraryService
     public string DirFor(string kind);                        // library/<folder>
 
     // ── 入库 ──
-    /// <summary>把已落盘的临时文件收进库（算 sha1、去重、写索引），返回最终条目</summary>
+    /// <summary>
+    /// 把下载到 library/.tmp/ 的临时文件收进库：算 sha1 → 查重 → 命中则删临时文件并返回已有条目，
+    /// 未命中则改名进 library/&lt;folder&gt;/ 并写索引。返回最终条目。
+    /// </summary>
     public Task<LibraryEntry> AdoptAsync(string kind, string sourcePath, LibraryAdoptInfo info,
                                          CancellationToken ct = default);
     /// <summary>扫描库目录重建索引（索引损坏或外部手工放入资源后的修复入口）</summary>
@@ -280,8 +284,9 @@ public async Task<Dictionary<string, ModrinthVersion>> GetVersionsByHashesAsync(
    - kind == "modpack"  → 跳过（走 6.1e）
    - 其余              → PickVersionsAsync（多选版本 + 暂不装载）
    - 用户取消 → return
-3. 下载到 library/<folder>/<filename>（DownloadService 校验 sha1）
-4. AdoptAsync 入库（带 Modrinth 元数据：title/icon/author/projectId/versionId/versionNumber/gameVersions/loaders）
+3. 下载到 `library/.tmp/<guid>.part`（`DownloadService` 校验 sha1），再用 `AdoptAsync` 收进库
+   （算 sha1 → 去重 → 改名进 `library/<folder>/` + 写索引）
+4. 拿到入库后的 `LibraryEntry`（含最终文件名与 Sha1）
 5. 对每个目标版本 InstallToVersionAsync（或数据包 InstallToSaveAsync）
 6. OkBar 摘要：「<文件名> 已入库，已装载到 N 个版本」（N=0 时「已入库（未装载）」）
 7. 依赖检查（仅 kind == "mod" 且有目标版本）：CheckDependenciesAsync
