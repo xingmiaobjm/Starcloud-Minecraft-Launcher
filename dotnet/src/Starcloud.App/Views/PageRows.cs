@@ -4,6 +4,7 @@ using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Starcloud.App.Views;
 
@@ -33,6 +34,7 @@ public sealed record LocalVersionRow(string Id, string KindText, string SizeText
     string? IconPath, string Category, bool Isolated, string LastPlayedText, string SearchKey)
 {
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
+    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
     public Visibility HasIconIconVisibility => HasIcon ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IconFallbackVisibility => HasIcon ? Visibility.Collapsed : Visibility.Visible;
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
@@ -44,6 +46,7 @@ public sealed record SaveRow(string FolderName, string Name, string? IconPath,
     string LastPlayedText, string SizeText)
 {
     public bool HasIcon => IconPath is not null;
+    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
 }
 
 /// <summary>社区资源搜索结果行视图模型</summary>
@@ -97,6 +100,23 @@ public static class VersionRowHelpers
         var path = Path.IsPathRooted(iconPath) ? iconPath
             : Path.Combine(dotMc, "starcloud", "icons", iconPath);
         return File.Exists(path) ? path : null;
+    }
+
+    /// <summary>
+    /// 本地图片路径 → ImageSource。x:Bind 绑定 Image.Source 时，本地绝对路径无法被隐式转换
+    /// （XamlBindingHelper.ConvertValue 会抛 ArgumentException 导致整页崩溃），故显式构造。
+    /// </summary>
+    public static ImageSource? ResolveIconSource(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        try
+        {
+            return new BitmapImage(new Uri(path));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>上次启动时间：「今天 14:32 / 昨天 20:01 / 3 天前 / 从未启动」。</summary>

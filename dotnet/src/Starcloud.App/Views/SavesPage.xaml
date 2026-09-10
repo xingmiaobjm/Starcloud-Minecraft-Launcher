@@ -77,7 +77,7 @@
                                         <Grid>
                                             <FontIcon Glyph="&#xE8B7;" FontSize="22"
                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                            <Image x:Name="WorldIcon" Source="{x:Bind IconPath}" x:Load="{x:Bind HasIcon}"
+                                            <Image x:Name="WorldIcon" Source="{x:Bind Icon}" x:Load="{x:Bind HasIcon}"
                                                    Stretch="UniformToFill" />
                                         </Grid>
                                     </Border>
