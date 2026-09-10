@@ -6,7 +6,7 @@
     xmlns:local="using:Starcloud.App.Views"
     NavigationCacheMode="Disabled">
 
-    <Grid MaxWidth="1000" HorizontalAlignment="Stretch" RowSpacing="16">
+    <Grid MaxWidth="1000" HorizontalAlignment="Left" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />

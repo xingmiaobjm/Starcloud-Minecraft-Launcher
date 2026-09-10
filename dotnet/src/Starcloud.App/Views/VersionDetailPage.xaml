@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     NavigationCacheMode="Disabled">
 
-    <Grid MaxWidth="1000" HorizontalAlignment="Stretch">
+    <Grid MaxWidth="1000" HorizontalAlignment="Left">
         <ScrollViewer HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch"
                       VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16" Padding="0,4,0,24">

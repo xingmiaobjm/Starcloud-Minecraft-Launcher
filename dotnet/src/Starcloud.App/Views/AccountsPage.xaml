@@ -7,7 +7,7 @@
     NavigationCacheMode="Disabled">
 
     <!-- LauncherX 式布局：大标题（Starcloud 登录/注册）+ 右上添加账户 + 保存的游戏账户卡流 -->
-    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+    <Grid MaxWidth="1280" HorizontalAlignment="Left" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />

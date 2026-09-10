@@ -9,7 +9,7 @@
     <!-- 不用 ScrollViewer：整体填满视口，卡片与窗口同高（PCL2 式） -->
     <!-- 根节点两层：HomeContent（主页两列）+ LaunchOverlay（启动页覆盖层，见文件尾） -->
     <Grid>
-        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch">
+        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Left">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="360" />
