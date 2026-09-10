@@ -1,18 +1,18 @@
 # Starcloud Minecraft Launcher
 
-现代化 Minecraft Java 版启动器，采用 **C# / .NET 8 核心库 + WinUI 3 原生界面**：Mica 背景材质、NavigationView 侧栏导航、Fluent 控件体系，视觉与 Windows 11 系统应用一致。
+现代化 Minecraft Java 版启动器，采用 **C# / .NET 8 核心库 + WinUI 3 原生界面**：自定义亚克力背景、NavigationView 侧栏导航、Fluent 控件体系，视觉与 Windows 11 系统应用一致。
 
 > 2026-09 起，项目主实现已全面从 Rust + Tauri + Web 前端迁移至 .NET + WinUI 3（`dotnet/`）。旧实现（`src/`、`src-tauri/`、`ui/`）保留在仓库中作为参考，不再随新版本演进。
 
 ## 功能特性
 
 - **版本管理**：获取 Mojang 官方版本清单（本地缓存，秒开），一键安装原版——客户端 jar / 库文件 / 资源文件 / natives 解压，全程 SHA1 校验
-- **ModLoader**：为已安装的原版一键安装 Fabric（`meta.fabricmc.net` profile 与原版 JSON 合并，`inheritsFrom` 继承链完整支持）
+- **ModLoader**：为已安装的原版一键安装 Fabric（`meta.fabricmc.net` profile 与原版 JSON 合并，`inheritsFrom` 继承链完整支持）、Forge / NeoForge（官方安装器）
 - **启动**：新旧两代参数格式兼容（`minecraftArguments` / `arguments.game|jvm`）、内置 G1GC 优化参数、离线 UUID 按 Mojang 规则生成（MD5 v3）
 - **账户**：微软官方设备码登录（OAuth 2.0 device code，XBL → XSTS → Minecraft API 完整链路）+ 离线账户，按 UUID 去重管理
 - **Java 管理**：自动检测系统 Java（PATH / JAVA_HOME），一键下载 Adoptium Temurin JDK 8 / 21
 - **设置**：游戏目录、内存分配、下载并发、主题（跟随系统 / 浅色 / 深色）即时生效
-- **界面**：WinUI 3 原生渲染——Mica 背景、ExtendsContentIntoTitleBar 自绘标题栏、NavigationView 常驻侧栏、PCL2 式首页左卡布局
+- **界面**：WinUI 3 原生渲染——自定义亚克力背景、ExtendsContentIntoTitleBar 自绘标题栏、NavigationView 侧栏导航（默认收拢为图标条）、PCL2 式首页双栏布局（左版本列表 / 右 360px 账户与启动卡）、顶栏 Nova 助手面板与个人中心入口
 
 ## 构建
 
@@ -55,9 +55,9 @@ dotnet/src/Starcloud.App/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Starcloud.
 │       │       ├── JavaService.cs         # Java 检测 + Adoptium 下载
 │       │       └── FabricService.cs       # Fabric loader 版本查询
 │       └── Starcloud.App/         # WinUI 3 桌面应用
-│           ├── MainWindow.xaml(.cs)       # Mica 窗口 + NavigationView 壳
+│           ├── MainWindow.xaml(.cs)       # 亚克力窗口 + NavigationView 壳
 │           ├── Services/AppServices.cs    # 服务单例容器
-│           └── Views/                     # 首页/下载/模组/账户/设置/日志 六页
+│           └── Views/                     # 首页/版本/版本详情/存档/下载/账户/Nova/设置/日志 等页面
 ├── src/                           # [旧] Rust 核心库（参考，不再演进）
 ├── src-tauri/                     # [旧] Tauri 2 桌面壳（参考，不再演进）
 ├── ui/                            # [旧] Preact 前端（参考，不再演进）

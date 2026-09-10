@@ -8,37 +8,46 @@
 
 把启动器做成「Windows 11 的第 17 个系统应用」——但不再自绘模拟，而是直接使用
 **WinUI 3（Windows App SDK 1.8）** 渲染：与 Microsoft Store、Windows 11 设置同引擎、
-同控件库、同动效系统。Mica、圆角、强调色、焦点环、开关与滑块的全部交互
+同控件库、同动效系统。亚克力材质、圆角、强调色、焦点环、开关与滑块的全部交互
 细节由框架原生提供，应用层零 CSS。
 
 拒绝深色电竞风、霓虹、大面积毛玻璃；拒绝 WebView 假原生。
 
 ## 2. 窗口与材质（MainWindow.xaml / MainWindow.xaml.cs）
 
-- **Mica 背景**：`SystemBackdrop = new MicaBackdrop()`——桌面壁纸衍生的分层表面，
-  深浅色自动跟随系统
+- **亚克力背景**：`SystemBackdrop = new TransparentAcrylicBackdrop()`（`MainWindow.xaml.cs`
+  自定义 `SystemBackdrop`，底层 `DesktopAcrylicController`）——比系统默认 Mica 更通透，
+  深浅色各一套配方（深色 Tint `#141414` / TintOpacity 0.45 / LuminosityOpacity 0.30；
+  浅色 `#FCFCFC` / 0.25 / 0.18），随根元素 `ActualThemeChanged` 自动切换
 - **标题栏延伸**：`ExtendsContentIntoTitleBar = true` + `SetTitleBar(AppTitleBar)`——
   48px 高品牌区（FontIcon 星标 + "Starcloud" SemiBold），右上角系统最小化/最大化/关闭按钮
 - **主题**：不强制 RequestedTheme，WinUI 默认 `Default`（跟随系统亮/暗），
-  全部颜色引用 `ThemeResource`（如 `AccentTextFillColorPrimaryBrush`）
-- **强调色**：Windows 系统强调色唯一 accent（系统设置 → 个性化 → 颜色），
-  由 XAML 主题资源直接下发，应用不自定义色板
+  全部颜色引用 `ThemeResource`（如 `AccentTextFillColorPrimaryBrush`）；
+  设置页可对根元素显式指定 `RequestedTheme` 固定亮/暗
+- **强调色**：不跟随系统 accent，由 `App.xaml` 主题字典整体覆盖 `SystemAccentColor`
+  与 `AccentFillColor*` / `AccentTextFillColor*`——浅色主题品牌色 **`#FFD322`（黄）**，
+  深色主题 **`#3DD322`（绿）**；配套覆盖 `TextFillColor*` / `CardStrokeColorDefaultBrush`
+  与 NavigationView 窗格背景，品牌色亮度高故 accent 面上强制黑字
+  （`TextOnAccentFillColorPrimaryBrush` = `#E61A1A1A`）
 
 ## 3. 导航壳（NavigationView）
 
-- `PaneDisplayMode="Left"`、`IsPaneOpen="True"`、`OpenPaneLength="232"`——
-  **常驻展开的 Store 式侧栏**，激活项自带 Fluent pill 指示器（3px 圆头强调色条）
-- 顶部导航：首页（Home）/ 下载 / 模组资源 / 账户 / 设置
+- `PaneDisplayMode="LeftCompact"`、`IsPaneOpen="False"`、`OpenPaneLength="232"`——
+  默认收起为左侧图标条，点击汉堡按钮或选中项后临时展开；激活项自带 Fluent pill 指示器
+  （3px 圆头强调色条）
+- 顶部导航：首页（Home）/ 版本 / 存档 / 下载 / 账户 / Nova / 设置
 - 底部 Footer：启动器日志（仅一类工具性入口沉底，与 Microsoft Store 下载列表同位）
-- 无返回按钮、无内嵌设置项（设置是独立页面）
-- 内容区 `Grid Padding="24,12,24,24"` + `Frame`，页面间导航由 `ContentFrame.Navigate` 完成
+- 无返回按钮、无内嵌设置项（设置是独立页面）；`IsTitleBarAutoPaddingEnabled="False"`
+- 内容区 `Grid Padding="32,12,24,24"` + `Frame`，页面间导航由 `ContentFrame.Navigate` 完成
 
 ## 4. 字体与图标
 
 - 字体：Segoe UI Variable（XAML 默认字体栈），中文回退 Microsoft YaHei UI——由系统处理，无需声明
 - 字阶沿用 WinUI Type Ramp：Caption 12 / Body 14 / Body Strong / Subtitle 20 / Title 28
 - 图标：**Segoe Fluent Icons 字体**（`FontIcon` Glyph），与系统应用完全一致；
-  常用字形：首页 E728 / 下载 E896 / 模组 E71D / 账户 E77B / 设置 E713 / 日志 E9F5
+  导航字形：首页 E728 / 版本 E81C / 存档 E8B7 / 下载 E896 / 账户 E77B / Nova E99A /
+  设置 E713 / 日志 E9F5；另 模组 E71D（下载页分类与主页模组入口）、
+  顶栏品牌星标 E728（`BrandBlueBrush` 着色）
 - 应用图标：`Assets/AppIcon.ico`（`AppWindow.SetIcon`）
 
 ## 5. 控件体系
@@ -54,17 +63,21 @@
 | 下载进度 | `ProgressBar`（不确定态用 `ProgressRing`） |
 | 路径选择 | `TextBox` + `Button`（文件/文件夹对话框） |
 | 提示与错误 | `InfoBar` |
+| 浮窗一句话提醒 | `TeachingTip`（8s 自动收起） |
 | 二次确认 | `ContentDialog`（危险操作必须） |
 | 列表 | `ListView`（版本/账户/Java） |
-| 文本区（日志） | `TextBox`（IsReadOnly + 等宽 Cascadia Code） |
+| 文本区（日志） | `ScrollViewer` + `TextBlock`（Cascadia Code 12，`IsTextSelectionEnabled`） |
 
 ## 6. 布局
 
-- **首页：PCL2 式左卡布局**——左列固定宽度启动面板（账户区 → 版本选择 →
-  强调色主按钮「启动游戏」），右列为内容辅助区；这是与 Microsoft Store
+- **首页：PCL2 式双栏**——左列为弹性版本列表（欢迎 → 启动自检 → 版本列表 → 快捷入口），
+  右列为固定 360px 的账户与启动卡（账户区 → 版本选择 → 强调色主按钮「启动游戏」），
+  两列与窗口同高（首页根容器不用 ScrollViewer）；这是与 Microsoft Store
   「左导航 + 内容」骨架对齐的主工作区
 - 其余页面：单列内容 + 页头（Title 28 标题 + 描述），设置页为
   分组卡片 + 左标签右控件的行式布局
+- **版心**：全部页面根容器统一 `MaxWidth="1280"` 居中铺满——宽窗口下所有页面的
+  左边缘落在同一竖线上，窄窗口下贴边自适应
 - 窗口缩放：XAML 布局自适应，NavigationView 在窄宽度自动收窄为图标模式
 
 ## 7. 动效
@@ -83,3 +96,21 @@
 - 加载失败 ≠ 空列表：InfoBar 报错并提供重试按钮
 - 键盘可达：WinUI 控件天然完整支持 Tab / 方向键 / Enter / Esc 与焦点环
 - 文案简体中文；界面禁 emoji
+
+## 9. 顶栏右侧入口与 Nova 内嵌（MainWindow.xaml）
+
+标题栏 48px 行右侧并列两个 44×36 的按钮（`Margin="0,0,140,0"` 让位系统 caption 按钮），
+均 `Background="Transparent" BorderThickness="0"`，靠内层图形表达：
+
+- **NovaOrb**：内层 32×32 圆角 8 的**实心卡片色**底（`CardBackgroundFillColorDefaultBrush`
+  + `CardStrokeColorDefaultBrush` 1px），中央 E99A 字形按状态着色——
+  待命 `TextFillColorSecondaryBrush` / 思考 `#7C3AED` / 有提案 `#F59E0B` /
+  观察 `#3DD322` / 离线 `TextFillColorDisabledBrush`；`HasPlan` 态右上角叠加 8px 琥珀圆点
+- **Nova 面板**：点击 Orb 后 380px 圆角 16 卡片（`LayerFillColorDefaultBrush`）
+  水平贴齐 Orb 实际位置（最小留 12px，不越右边界），纵向顶栏下 8px；
+  面板内容随登录态切换（离线＝引导登录，已登录＝完整对话，复用 `NovaChatView`）
+- **AccountButton（个人中心）**：内层 32×32 圆形（`CardBackgroundFillColorSecondaryBrush`），
+  已登录显示昵称首字（SemiBold 13），未登录显示 E77B 人形字形；
+  悬浮 ToolTip 为卡片式，展示昵称 / Starcloud ID / 登录态与通道，点击跳账户页
+- **浮窗提醒**：`NovaToastTip`（`TeachingTip`，`Target=NovaOrb`，Bottom 放置）承接
+  Nova 的一句话提醒，8s 后自动收起

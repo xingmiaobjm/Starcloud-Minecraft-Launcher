@@ -10,7 +10,7 @@ Windows 桌面应用（WinUI 3 / Windows App SDK 1.8，仅 Windows，x64）。
 ## Stack
 
 **.NET 8 + WinUI 3**：`Starcloud.Core`（纯 C# 类库：清单/下载/安装/启动/账户/Java/Fabric）+
-`Starcloud.App`（WinUI 3 前台：Mica、NavigationView、Windows App SDK 1.8.260804001，
+`Starcloud.App`（WinUI 3 前台：亚克力背景、NavigationView、Windows App SDK 1.8.260804001，
 SelfContained 发布）。解决方案 `dotnet/Starcloud.slnx`。已存在，非新建。
 旧实现（Tauri 2 Rust 后端 `src-tauri/`、Preact 前端 `ui/`）保留仅作参考，不再维护。
 
@@ -32,15 +32,23 @@ Starcloud Minecraft Launcher 是一个现代化 Minecraft 启动器：解析官�
 自包含的版本管理 + Mod 加载器安装 + Java 托管一体化启动器：官方版本元数据由
 launcher 自身解析（非依赖第三方下载器），微软 OAuth 设备码登录全程在 launcher 内完成
 （官方启动器 client_id），Java 运行时由 Adoptium API 一键托管下载。
-用户可见主张：原生 Windows 11 体验（Mica + Fluent），无需额外安装任何东西，
+用户可见主张：原生 Windows 11 体验（亚克力 + Fluent），无需额外安装任何东西，
 一站式完成 Java、游戏安装、加载器与账户配置。
 
 ## Operating Context
 
-- 原生窗口：Mica 背景 + ExtendsContentIntoTitleBar 自定义标题栏（系统 caption 按钮）
-- 导航：常驻左侧 NavigationView（首页/下载/模组资源/账户/设置，底部日志）
-- 核心工作流：首页左卡选版本/账户 → 启动（进度条 + InfoBar 状态）→ 日志页排查
-- 版本管理：官方清单列表安装（缓存优先秒开）；Fabric profile 合并继承安装
+- 原生窗口：自定义亚克力背景（`TransparentAcrylicBackdrop`）+ ExtendsContentIntoTitleBar
+  自定义标题栏（系统 caption 按钮）
+- 导航：左侧 NavigationView，默认收拢为图标条、点击临时展开至 232px
+  （首页/版本/存档/下载/账户/Nova/设置；底部启动器日志）
+- 顶栏右侧：Nova Orb（点开 380px 助手面板）+ 个人中心入口（悬浮卡显示昵称/ID/登录态）
+- 状态栏：底部 28px 一行实例指示，运行中显示当前实例
+- 核心工作流：首页左列版本列表 + 右侧账户/启动卡 → 启动（进度条 + InfoBar 状态）→ 日志页排查
+- 版本管理：官方清单列表安装（缓存优先秒开）；Fabric profile 合并继承安装，
+  Forge / NeoForge 官方安装器接入；
+  版本详情子页管理隔离设置、Mod、存档与导出
+- 存档：跨版本聚合展示（含共享目录与各隔离版本存档），标注所属版本，
+  可一键复制到其他版本启动并在结束后回传成果
 - 账户：微软设备码登录（启动器内轮询）、离线账户（MD5 v3 UUID）、默认账户切换
 - Java：系统检测（PATH/JAVA_HOME）+ Temurin 21/8 一键托管下载
 - 配置存于 `%APPDATA%/starcloud-launcher/`（launcher.settings.json / accounts.json，
@@ -49,7 +57,8 @@ launcher 自身解析（非依赖第三方下载器），微软 OAuth 设备码�
 ## Capabilities and Constraints
 
 - 功能：原版版本安装/删除、Fabric 安装、微软设备码登录、离线账户、游戏启动、
-  设置（游戏目录/内存/Java/下载并发/主题）、启动器日志
+  存档跨版本管理与复制启动、Nova 助手（Starcloud ID 登录、多服务商模型接入、
+  游戏记录记忆、动手许可层与流水）、设置（游戏目录/内存/Java/下载并发/主题）、启动器日志
 - 约束：仅 Windows x64；微软令牌不自动刷新（过期需重新设备码登录）；
   启动器与核心逻辑同进程直接调用（无 IPC）；离线账户使用占位 access token
 - 未决：Forge / Quilt / OptiFine 未接入；插件系统与陶瓦联机（Terracotta）为
@@ -59,10 +68,13 @@ launcher 自身解析（非依赖第三方下载器），微软 OAuth 设备码�
 
 - 名称：Starcloud；项目曾从 "furry" 重命名为 "starcloud"，重构禁止回退旧名
 - 用户明确绑定的视觉方向（2026-09-06）：**WinUI 3 原生 Fluent**——
-  Mica 分层背景、NavigationView 常驻侧栏（pill 指示器）、系统强调色唯一 accent、
-  Segoe Fluent Icons 字体图标、框架原生圆角与动效；拒绝深色电竞风、拒绝霓虹、
-  拒绝 WebView 假原生
-- 首页为 PCL2 式左卡布局（用户 2026-09-06 指定：卡片移到左侧）
+  分层背景材质、NavigationView 侧栏（pill 指示器）、Segoe Fluent Icons 字体图标、
+  框架原生圆角与动效；拒绝深色电竞风、拒绝霓虹、拒绝 WebView 假原生
+- accent 与材质（2026-09-10 据实现校准）：原「系统强调色唯一 accent + Mica 背景」
+  已改为品牌色覆盖（浅色主题黄 `#FFD322` / 深色主题绿 `#3DD322`）与
+  自定义亚克力背景 `TransparentAcrylicBackdrop`；详见 DESIGN.md §2
+- 首页为 PCL2 式双栏布局：左＝弹性版本列表，右＝固定 360px 账户/启动卡
+  （2026-09-10 据实现校准；2026-09-06 曾指定「卡片移到左侧」）
 - 主题跟随系统亮/暗自动切换，设置中可固定浅色/深色
 - 界面文案简体中文；禁 emoji；图标用 Segoe Fluent Icons（非第三方库）
 - 人性化承诺：错误文案中文（InfoBar 就地呈现）、删除类操作必须二次确认
@@ -81,9 +93,9 @@ launcher 自身解析（非依赖第三方下载器），微软 OAuth 设备码�
 1. 主任务优先：选版本→启动的路径永不被打断，30 秒内可完成
 2. 任务状态永远可见：安装/启动进度、运行状态、错误恢复路径在固定位置呈现
 3. 一致性高于表达：全部使用 WinUI 原生控件，同一操作全应用同形；品牌活在精确细节而非装饰
-4. 真原生：由 Windows App SDK 渲染——Mica、强调色、焦点环、动效皆为系统级，
+4. 真原生：由 Windows App SDK 渲染——分层材质、强调色、焦点环、动效皆为框架级，
    而非 Web 模拟
-5. 克制单色：Mica 中性表面 + 系统强调色唯一 accent，状态色仅作状态信号（InfoBar）
+5. 克制单色：中性材质表面 + 单一品牌 accent，状态色仅作状态信号（InfoBar）
 
 ## Accessibility & Inclusion
 

@@ -9,7 +9,7 @@
 ```
 ┌─────────────────────────────────────────────┐
 │  Starcloud.App（WinUI 3 前台，net8.0-windows） │
-│  MainWindow + Views/*（6 页面）               │
+│  MainWindow + Views/*（9 页面 + 子视图）      │
 │  AppServices 单例容器                         │
 └──────────────────┬──────────────────────────┘
                    │ 直接方法调用（无 IPC）
@@ -21,7 +21,7 @@
 
 - **无进程间通信**：UI 与核心逻辑在同一进程，通过 C# 接口（`IProgress<T>`、
   `async/await`、`CancellationToken`）交互——这是相对旧 Tauri 架构最大的简化。
-- **解决方案**：`dotnet/Starcloud.slnx`（.NET 10 SDK 生成的 XML 解决方案格式）。
+- **解决方案**：`dotnet/Starcloud.slnx`（.NET 8 SDK 生成的 XML 解决方案格式）。
 
 ## 2. 项目结构
 
@@ -32,28 +32,38 @@ dotnet/
     ├── Starcloud.Core/               # 纯 C# 类库（无 UI 依赖）
     │   ├── Models/
     │   │   └── Minecraft.cs          # Mojang JSON 数据模型（清单/版本/资产/参数）
-    │   └── Services/
-    │       ├── LauncherPaths.cs      # 数据目录 + LauncherSettings 持久化
-    │       ├── DownloadService.cs    # 并发下载引擎 + Adoptium API
-    │       ├── ManifestService.cs    # 版本清单获取/缓存/已安装扫描
-    │       ├── InstallerService.cs   # 原版/Fabric 安装 + 版本合并 + 规则判定
-    │       ├── GameLauncher.cs       # 启动命令行构建 + 进程启动
-    │       ├── AccountService.cs     # AccountStore + MicrosoftAuthService
-    │       ├── JavaService.cs        # Java 检测 + Adoptium 下载解压
-    │       └── FabricService.cs      # Fabric loader 版本查询
+    │   └── Services/                 # 26 个服务，按域分组
+    │       ├── 路径/设置：LauncherPaths、InstanceSettings（版本隔离布局 + 生效启动配置）
+    │       ├── 下载/清单：DownloadService、ManifestService、LoaderBuildCache
+    │       ├── 安装：InstallerService、ForgeInstallerService、MrPackInstallerService
+    │       ├── 启动：GameLauncher、LaunchAccountService、LaunchPreflightService
+    │       ├── 账户：AccountService、StarcloudIdService
+    │       ├── Java/ModLoader：JavaService、FabricService
+    │       ├── 内容管理：ModrinthService、ModConflictService、SaveService、
+    │       │             SaveLibraryService、PendingWorldStore、GameDiagnosticsService
+    │       └── Nova：NovaService、NovaPermissions、NovaMoments、NovaInviteService、
+    │                 NovaFpsWatcher
     └── Starcloud.App/                # WinUI 3 前台（WindowsPackageType=None）
         ├── App.xaml / App.xaml.cs
-        ├── MainWindow.xaml(.cs)      # Mica + NavigationView 壳
+        ├── MainWindow.xaml(.cs)      # 亚克力 + NavigationView 壳
         ├── Services/
         │   └── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
         └── Views/
-            ├── HomePage.xaml(.cs)    # PCL2 式左卡启动面板
-            ├── DownloadPage.xaml(.cs)# 版本列表 + 安装进度
-            ├── ModPage.xaml(.cs)     # Fabric 安装
-            ├── AccountsPage.xaml(.cs)# 离线/微软账户
-            ├── SettingsPage.xaml(.cs)# 设置（路径/内存/Java/并发/主题）
-            ├── LogsPage.xaml(.cs)    # 启动器日志
-            └── ComboItem.cs          # ComboBox 项共享 record
+            ├── HomePage.xaml(.cs)          # 首页：版本列表 + 账户/启动卡
+            ├── VersionsPage.xaml(.cs)      # 版本管理列表
+            ├── VersionDetailPage.xaml(.cs) # 版本详情（隔离设置/Mod/存档/导出）
+            ├── SavesPage.xaml(.cs)         # 存档跨版本聚合 + 复制启动
+            ├── DownloadPage.xaml(.cs)      # 版本列表 + 安装进度
+            ├── AccountsPage.xaml(.cs)      # 离线/微软/Starcloud ID 账户
+            ├── NovaPage.xaml(.cs)          # Nova 助手页
+            ├── NovaChatView.xaml(.cs)      # Nova 对话视图（页面内嵌与浮窗共用）
+            ├── NovaOverlayWindow.xaml(.cs) # Nova 浮窗窗口
+            ├── SettingsPage.xaml(.cs)      # 设置（路径/内存/Java/并发/主题）
+            ├── LogsPage.xaml(.cs)          # 启动器日志
+            ├── PageRows.cs                 # 列表行共享 record
+            ├── ComboItem.cs                # ComboBox 项共享 record
+            ├── InstanceActions.cs          # 版本操作共享逻辑
+            └── LaunchTips.cs               # 启动提示共享逻辑
 ```
 
 ## 3. 核心服务（Starcloud.Core）
@@ -75,7 +85,7 @@ dotnet/
 
 - **AppServices**：`static Instance` 单例容器，构造时按依赖顺序实例化全部服务；
   设置修改后调用 `SaveSettings()` / `ReloadSettings()`。
-- **MainWindow**：Mica 背景 + `ExtendsContentIntoTitleBar`；
+- **MainWindow**：自定义亚克力背景（`TransparentAcrylicBackdrop`）+ `ExtendsContentIntoTitleBar`；
   `Nav_SelectionChanged` 将 NavigationView tag 路由到对应页面类型。
 - **页面 ↔ 服务交互**：页面直接调用 `AppServices.Instance.*`；
   长任务通过 `IProgress<BatchProgress>` 更新进度条，`CancellationToken` 支持取消。
@@ -93,7 +103,7 @@ dotnet/
   └─ natives zip 解压 .dll（尊重 extract.exclude）到 versions/<id>/natives/
 ```
 
-### 5.2 安装 Fabric（ModPage）
+### 5.2 安装 Fabric（DownloadPage）
 
 ```
 选择 MC 版本 → FabricService.ListLoadersAsync 查 loader
@@ -161,5 +171,5 @@ JavaService.ListRuntimesAsync（启动器下载的 + 系统 PATH/JAVA_HOME）
 - 仅 Windows（WinUI 3 约束）；x64。
 - 离线账户 auth_access_token 固定为占位值（离线模式约定）；微软令牌不做自动刷新，
   过期需重新设备码登录。
-- Forge / Quilt / OptiFine 未接入（Fabric 已完整支持）。
+- Quilt / OptiFine 未接入（原版、Fabric、Forge、NeoForge 已支持）。
 - 插件系统、Terracotta 联机为旧 Tauri 架构特性，.NET 版暂未实现。
