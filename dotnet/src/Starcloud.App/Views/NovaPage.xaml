@@ -10,16 +10,21 @@
     <!-- Nova 设置页：账户 / 模型设置（第三方 LLM · 多模型）/ 游戏内辅助 / 游戏记录记忆 /
          动手许可层 / 动手流水 / 能力路线。
          对话入口在顶栏 NovaOrb 面板与底部 NovaBar（共用 NovaRuntime 同一份消息流），本页只管设置。 -->
-    <Grid MaxWidth="920" HorizontalAlignment="Stretch">
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
-            <StackPanel Spacing="12">
+            <StackPanel Spacing="16">
 
-                <TextBlock Text="Nova 设置" FontSize="24" FontWeight="SemiBold" Margin="2,0,0,2" />
+                <!-- 页头 -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Nova 设置" FontSize="28" FontWeight="SemiBold" />
+                    <TextBlock Text="账户、模型与 Nova 能力选项"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
 
                 <!-- ═══ 账户：登录 Starcloud ID（云端模型与在线能力） ═══ -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                        BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="10">
                         <!-- 已登录：账户信息 + 退出 -->
                         <Grid x:Name="AccountInfo" ColumnSpacing="12" Visibility="Collapsed">
@@ -64,7 +69,7 @@
                 <!-- ═══ 模型设置：第三方 LLM 添加 + 多模型支持 ═══ -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                        BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="8">
                         <TextBlock Text="模型设置" FontWeight="SemiBold" FontSize="13" />
                         <TextBlock Text="接入第三方 LLM（OpenAI 兼容）：选服务商预设 → 填 Key → 选模型，三步接好。&#x0A;可添加多个模型，随时点「设为当前」切换。你的 Key 优先用 → StarCloud 云端额度 → 本地模板兜底，永不卡死。Key 只存本机（launcher.settings.json）。"
@@ -166,7 +171,7 @@
                 <!-- ═══ 游戏内辅助：浮窗查询资料 ═══ -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                        BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="4">
                         <ToggleSwitch x:Name="OverlaySwitch" Header="游戏内辅助浮窗"
                                       AutomationProperties.Name="游戏内辅助浮窗"
@@ -181,7 +186,7 @@
                 <!-- ═══ 游戏记录记忆：战报 / 时刻统计 ═══ -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                        BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="6">
                         <TextBlock Text="游戏记录记忆" FontWeight="SemiBold" FontSize="13" />
                         <TextBlock Text="Nova 从游戏日志里观察进度 / 挑战 / 翻车，下机后自动生成「这盘干了啥」战报，记住你的高光时刻。"
@@ -197,7 +202,7 @@
                 <!-- ═══ 动手许可层：三档开关默认全关，开启 = 显式授权（先弹确认） ═══ -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                        BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="6">
                         <TextBlock Text="动手许可层" FontWeight="SemiBold" FontSize="13" />
                         <TextBlock Text="默认全部关闭。没开 = Nova 一个字也不看你的屏幕；开启会弹确认并记入流水。"
@@ -230,7 +235,7 @@
                 <!-- ═══ 动手流水：谁动了、动了什么、何时 ═══ -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                        BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="8">
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>

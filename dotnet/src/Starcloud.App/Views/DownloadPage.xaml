@@ -6,7 +6,7 @@
     xmlns:local="using:Starcloud.App.Views"
     NavigationCacheMode="Disabled">
 
-    <Grid MaxWidth="1080" HorizontalAlignment="Left" RowSpacing="16">
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -243,7 +243,7 @@
                             <Border Grid.Column="2" VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="8" Padding="14,7">
+                                    BorderThickness="1" CornerRadius="8" Padding="16,8">
                                 <StackPanel Spacing="1">
                                     <TextBlock x:Name="DetailTitle" FontSize="18" FontWeight="SemiBold" />
                                     <TextBlock x:Name="DetailMeta" FontSize="11"
@@ -553,7 +553,7 @@
                     <Border Grid.Row="0"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="16" Padding="16,14">
+                            BorderThickness="1" CornerRadius="16" Padding="16">
                         <StackPanel Spacing="12">
                             <TextBlock x:Name="SearchTitle" Text="搜索 Mod" FontSize="16" FontWeight="SemiBold" />
                             <Grid ColumnSpacing="24" RowSpacing="12">

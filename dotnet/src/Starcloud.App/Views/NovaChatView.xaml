@@ -27,7 +27,7 @@
                 <!-- 确认清单卡：动手前列给用户，点头才执行 -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="12" Padding="14,12"
+                        BorderThickness="1" CornerRadius="12" Padding="16,12"
                         Visibility="{x:Bind HasPlanVisible}">
                     <StackPanel Spacing="8">
                         <StackPanel Orientation="Horizontal" Spacing="8">

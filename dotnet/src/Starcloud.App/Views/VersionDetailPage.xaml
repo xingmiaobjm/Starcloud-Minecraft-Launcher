@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     NavigationCacheMode="Disabled">
 
-    <Grid MaxWidth="1000" HorizontalAlignment="Left">
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
         <ScrollViewer HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch"
                       VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16" Padding="0,4,0,24">
@@ -14,7 +14,7 @@
             <StackPanel Spacing="12">
                 <Button Click="Back_Click" AutomationProperties.Name="返回版本列表"
                         Background="Transparent" BorderThickness="0" Padding="8,4"
-                        HorizontalAlignment="Left">
+                        Margin="-8,0,0,0" HorizontalAlignment="Left">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon Glyph="&#xE72B;" FontSize="14" />
                         <TextBlock Text="返回版本列表" />

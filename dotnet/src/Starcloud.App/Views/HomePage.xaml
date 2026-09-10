@@ -9,7 +9,7 @@
     <!-- 不用 ScrollViewer：整体填满视口，卡片与窗口同高（PCL2 式） -->
     <!-- 根节点两层：HomeContent（主页两列）+ LaunchOverlay（启动页覆盖层，见文件尾） -->
     <Grid>
-        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Left">
+        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="360" />
@@ -205,7 +205,7 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Button Grid.Column="0" Padding="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                         AutomationProperties.Name="下载版本" Click="TileDownload_Click">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE896;" FontSize="18"
@@ -217,7 +217,7 @@
                         </StackPanel>
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="1" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Button Grid.Column="1" Padding="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                         AutomationProperties.Name="模组资源" Click="TileMods_Click">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE71D;" FontSize="18"
@@ -229,7 +229,7 @@
                         </StackPanel>
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="2" Padding="14" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Button Grid.Column="2" Padding="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                         AutomationProperties.Name="好友联机" Click="TileMultiplayer_Click">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE716;" FontSize="18"
