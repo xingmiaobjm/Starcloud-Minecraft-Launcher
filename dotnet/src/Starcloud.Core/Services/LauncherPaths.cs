@@ -183,6 +183,52 @@ public sealed class LauncherSettings
     [JsonPropertyName("show_game_log_on_launch")]
     public bool ShowGameLogOnLaunch { get; set; } = false;
 
+    // ── 自定义背景与外观（设计：custom-background-theme-design.md §4.1） ──
+    /// <summary>背景来源：none（仅毛玻璃）/ builtin（内置壁纸）/ file（本地图片）</summary>
+    [JsonPropertyName("background_mode")]
+    public string BackgroundMode { get; set; } = "none";
+
+    /// <summary>内置壁纸 id（background_mode = builtin 时生效）</summary>
+    [JsonPropertyName("background_builtin_id")]
+    public string? BackgroundBuiltinId { get; set; }
+
+    /// <summary>本地背景图绝对路径（background_mode = file 时生效）</summary>
+    [JsonPropertyName("background_image_path")]
+    public string? BackgroundImagePath { get; set; }
+
+    /// <summary>背景图不透明度（0.2–1.0）</summary>
+    [JsonPropertyName("background_image_opacity")]
+    public double BackgroundImageOpacity { get; set; } = 0.7;
+
+    /// <summary>背景图模糊半径（0–64 px）</summary>
+    [JsonPropertyName("background_blur_radius")]
+    public double BackgroundBlurRadius { get; set; } = 24;
+
+    /// <summary>毛玻璃遮罩不透明度（0–1）；null 或 follow_theme = true 时跟随主题默认值</summary>
+    [JsonPropertyName("background_mask_opacity")]
+    public double? BackgroundMaskOpacity { get; set; }
+
+    /// <summary>毛玻璃遮罩强度是否跟随主题（深 0.45 / 浅 0.25）</summary>
+    [JsonPropertyName("background_follow_theme")]
+    public bool BackgroundFollowTheme { get; set; } = true;
+
+    /// <summary>背景字段范围钳制（每次加载/保存前调用，避免脏数据导致 UI 越界）</summary>
+    public void ClampBackgroundValues()
+    {
+        if (BackgroundMode is not ("none" or "builtin" or "file")) BackgroundMode = "none";
+        BackgroundImageOpacity = Math.Clamp(BackgroundImageOpacity, 0.2, 1.0);
+        BackgroundBlurRadius = Math.Clamp(BackgroundBlurRadius, 0, 64);
+        if (BackgroundMaskOpacity is { } m) BackgroundMaskOpacity = Math.Clamp(m, 0, 1);
+    }
+
+    /// <summary>本地背景图实际生效路径；未配置 / 文件不存在 → null（builtin 由 App 侧解析）。</summary>
+    public string? ResolvedBackgroundPath()
+    {
+        if (BackgroundMode != "file") return null;
+        var p = BackgroundImagePath;
+        return !string.IsNullOrWhiteSpace(p) && File.Exists(p) ? p : null;
+    }
+
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
@@ -198,6 +244,7 @@ public sealed class LauncherSettings
             var s = JsonSerializer.Deserialize<LauncherSettings>(
                 File.ReadAllText(LauncherPaths.SettingsFile), Options) ?? new LauncherSettings();
             s.MigrateLegacyLlm();
+            s.ClampBackgroundValues();
             return s;
         }
         catch
@@ -222,6 +269,7 @@ public sealed class LauncherSettings
     public void Save()
     {
         LauncherPaths.EnsureDataDir();
+        ClampBackgroundValues();
         File.WriteAllText(LauncherPaths.SettingsFile, JsonSerializer.Serialize(this, Options));
     }
 }

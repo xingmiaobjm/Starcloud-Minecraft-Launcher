@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 using Windows.Storage.Pickers;
@@ -21,6 +22,8 @@ public sealed partial class SettingsPage : Page
     private static readonly Regex EnvNameRegex = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private sealed record EnvRow(StackPanel Container, TextBox Name, TextBox Value);
     private readonly List<EnvRow> _globalEnvRows = [];
+
+    private DispatcherQueueTimer? _bgSaveTimer;
 
     public SettingsPage()
     {
@@ -79,6 +82,32 @@ public sealed partial class SettingsPage : Page
             };
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
+
+            // 背景与外观（D1）
+            BackgroundModeCombo.SelectedIndex = s.BackgroundMode switch
+            {
+                "builtin" => 1,
+                "file" => 2,
+                _ => 0,
+            };
+            BuildWallpaperList();
+            SelectBuiltinWallpaper(s.BackgroundBuiltinId);
+            BgBlurSlider.Value = Math.Clamp(s.BackgroundBlurRadius, BgBlurSlider.Minimum, BgBlurSlider.Maximum);
+            BgOpacitySlider.Value = Math.Clamp(s.BackgroundImageOpacity, BgOpacitySlider.Minimum, BgOpacitySlider.Maximum);
+            BgBlurText.Text = $"{(int)Math.Round(BgBlurSlider.Value)} px";
+            BgOpacityText.Text = $"{BgOpacitySlider.Value:P0}";
+            MaskFollowThemeCheck.IsOn = s.BackgroundFollowTheme;
+            MaskOpacitySlider.Value = Math.Clamp(AppearanceService.ResolveMaskOpacity(s, ActualTheme), 0, 1);
+            MaskOpacitySlider.IsEnabled = !s.BackgroundFollowTheme;
+            ImagePathText.Text = s.BackgroundImagePath ?? "";
+            // 本地图片已失效（文件被删/移动）→ 静默回落「关闭」，不弹错误
+            if (s.BackgroundMode == "file" && s.ResolvedBackgroundPath() is null)
+            {
+                s.BackgroundMode = "none";
+                BackgroundModeCombo.SelectedIndex = 0;
+                ImagePathText.Text = "";
+            }
+            UpdateBackgroundPanels();
 
             _loaded = true;
             await DetectJavaAsync();
@@ -335,7 +364,8 @@ public sealed partial class SettingsPage : Page
     {
         if (!_loaded) return;
         var tag = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
-        ApplyTheme(tag);
+        _s.Settings.Theme = tag;   // 内存生效，落盘仍由「保存设置」负责（不改现有行为）
+        MainWindow.RefreshAppearance();
     }
 
     // Nova 游戏内浮窗：切换即落盘（下局游戏启动生效，不追溯当前会话——克制）
@@ -347,17 +377,165 @@ public sealed partial class SettingsPage : Page
         SavedBar.IsOpen = true;
     }
 
-    private static void ApplyTheme(string theme)
+    // ── 通用：背景与外观（D1，设计 §8） ──
+
+    /// <summary>按 AppearanceService.Wallpapers 生成壁纸缩略图（代码构建，避免 DataTemplate 类型解析）。</summary>
+    private void BuildWallpaperList()
     {
-        if (App.MainWindow?.Content is FrameworkElement root)
+        BuiltinWallpaperGrid.Items.Clear();
+        foreach (var w in AppearanceService.Wallpapers)
         {
-            root.RequestedTheme = theme switch
+            var path = Path.Combine(AppearanceService.WallpaperDirectory, w.FileName);
+            var thumb = new Image
             {
-                "light" => ElementTheme.Light,
-                "dark" => ElementTheme.Dark,
-                _ => ElementTheme.Default,
+                Width = 128,
+                Height = 72,
+                Stretch = Stretch.UniformToFill,
+                Source = File.Exists(path) ? new BitmapImage(new Uri(path)) : null,
             };
+            var caption = new TextBlock
+            {
+                Text = w.Name,
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            var cell = new StackPanel { Spacing = 4, Children = { thumb, caption } };
+            cell.Tag = w.Id;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(cell, $"内置壁纸：{w.Name}");
+            BuiltinWallpaperGrid.Items.Add(cell);
         }
+    }
+
+    /// <summary>选中指定内置壁纸（id 非法时回落到第一张）。</summary>
+    private void SelectBuiltinWallpaper(string? id)
+    {
+        var effective = AppearanceService.FindWallpaper(id)?.Id ?? AppearanceService.Wallpapers[0].Id;
+        foreach (var item in BuiltinWallpaperGrid.Items)
+        {
+            if (item is FrameworkElement fe && (fe.Tag as string) == effective)
+            {
+                BuiltinWallpaperGrid.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    /// <summary>按当前模式联动两张子面板与「清除」按钮可用性。</summary>
+    private void UpdateBackgroundPanels()
+    {
+        var mode = _s.Settings.BackgroundMode;
+        BuiltinWallpaperPanel.Visibility = mode == "builtin" ? Visibility.Visible : Visibility.Collapsed;
+        LocalImagePanel.Visibility = mode == "file" ? Visibility.Visible : Visibility.Collapsed;
+        ClearImageBtn.IsEnabled = !string.IsNullOrWhiteSpace(_s.Settings.BackgroundImagePath);
+    }
+
+    private void BackgroundMode_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        var tag = (BackgroundModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "none";
+        var st = _s.Settings;
+        st.BackgroundMode = tag;
+        // 首次切到内置壁纸但尚未选过 → 默认第一张，避免「选中内置却没有背景」
+        if (tag == "builtin" && AppearanceService.FindWallpaper(st.BackgroundBuiltinId) is null)
+        {
+            st.BackgroundBuiltinId = AppearanceService.Wallpapers[0].Id;
+            SelectBuiltinWallpaper(st.BackgroundBuiltinId);
+        }
+        UpdateBackgroundPanels();
+        PersistBackground();
+    }
+
+    private void BuiltinWallpaper_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        if (BuiltinWallpaperGrid.SelectedItem is not FrameworkElement fe || fe.Tag is not string id) return;
+        var st = _s.Settings;
+        if (st.BackgroundMode == "builtin" && st.BackgroundBuiltinId == id)
+        {
+            UpdateBackgroundPanels();
+            return;
+        }
+        st.BackgroundBuiltinId = id;
+        st.BackgroundMode = "builtin";
+        if (BackgroundModeCombo.SelectedIndex != 1) BackgroundModeCombo.SelectedIndex = 1;
+        UpdateBackgroundPanels();
+        PersistBackground();
+    }
+
+    private async void PickImage_Click(object s, RoutedEventArgs e)
+    {
+        if (App.MainWindow is null) return;
+        var picker = new FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        foreach (var ext in new[] { ".jpg", ".jpeg", ".png", ".bmp", ".webp" })
+            picker.FileTypeFilter.Add(ext);
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+        var st = _s.Settings;
+        st.BackgroundImagePath = file.Path;
+        st.BackgroundMode = "file";
+        if (BackgroundModeCombo.SelectedIndex != 2) BackgroundModeCombo.SelectedIndex = 2;
+        ImagePathText.Text = file.Path;
+        UpdateBackgroundPanels();
+        PersistBackground();
+    }
+
+    private void ClearImage_Click(object s, RoutedEventArgs e)
+    {
+        var st = _s.Settings;
+        st.BackgroundImagePath = null;
+        st.BackgroundMode = "none";
+        BackgroundModeCombo.SelectedIndex = 0;
+        ImagePathText.Text = "";
+        UpdateBackgroundPanels();
+        PersistBackground();
+    }
+
+    private void BackgroundSlider_Changed(object s, RangeBaseValueChangedEventArgs e)
+    {
+        if (BgBlurText is null || BgOpacityText is null) return;
+        BgBlurText.Text = $"{(int)Math.Round(BgBlurSlider.Value)} px";
+        BgOpacityText.Text = $"{BgOpacitySlider.Value:P0}";
+        if (!_loaded) return;
+        var st = _s.Settings;
+        st.BackgroundBlurRadius = BgBlurSlider.Value;
+        st.BackgroundImageOpacity = BgOpacitySlider.Value;
+        st.BackgroundMaskOpacity = MaskFollowThemeCheck.IsOn ? null : MaskOpacitySlider.Value;
+        MainWindow.RefreshAppearance();
+        QueueBackgroundSave();
+    }
+
+    private void MaskFollowTheme_Toggled(object s, RoutedEventArgs e)
+    {
+        MaskOpacitySlider.IsEnabled = !MaskFollowThemeCheck.IsOn;
+        if (!_loaded) return;
+        var st = _s.Settings;
+        st.BackgroundFollowTheme = MaskFollowThemeCheck.IsOn;
+        st.BackgroundMaskOpacity = MaskFollowThemeCheck.IsOn ? null : MaskOpacitySlider.Value;
+        MainWindow.RefreshAppearance();
+        PersistBackground();
+    }
+
+    /// <summary>背景与外观项即改即存。</summary>
+    private void PersistBackground()
+    {
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
+    /// <summary>滑块拖动期间节流落盘（400ms 无变更后写一次），预览仍逐帧生效。</summary>
+    private void QueueBackgroundSave()
+    {
+        if (_bgSaveTimer is null)
+        {
+            _bgSaveTimer = _dq.CreateTimer();
+            _bgSaveTimer.Interval = TimeSpan.FromMilliseconds(400);
+            _bgSaveTimer.IsRepeating = false;
+            _bgSaveTimer.Tick += (_, _) => PersistBackground();
+        }
+        _bgSaveTimer.Stop();
+        _bgSaveTimer.Start();
     }
 
     private void Save_Click(object s, RoutedEventArgs e)
@@ -398,6 +576,7 @@ public sealed partial class SettingsPage : Page
         s0.VersionIsolated = IsolationDefaultRadio.SelectedIndex == 0;
 
         s0.Save();
+        MainWindow.RefreshAppearance();
         SavedBar.Title = "已保存";
         SavedBar.IsOpen = true;
     }

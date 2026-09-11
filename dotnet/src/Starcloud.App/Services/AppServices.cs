@@ -40,6 +40,9 @@ public sealed class AppServices
     public NovaService Nova { get; }
     public NovaRuntime NovaRuntime { get; }
 
+    /// <summary>外观应用中心（主题 / 内置壁纸 / 毛玻璃遮罩）</summary>
+    public AppearanceService Appearance { get; }
+
     private AppServices()
     {
         LauncherPaths.EnsureDataDir();
@@ -76,6 +79,7 @@ public sealed class AppServices
             NovaLog, NovaMoments, NovaInvites, Saves);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
+        Appearance = new AppearanceService();
         LauncherLog.Write("app", $"启动器就绪，数据目录 {LauncherPaths.DataDir}");
     }
 

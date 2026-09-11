@@ -318,6 +318,84 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- 背景与外观（设计：custom-background-theme-design.md §8） -->
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="背景与外观" Style="{StaticResource PclSectionTitle}" />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="背景" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="BackgroundModeCombo" Width="160"
+                                                  AutomationProperties.Name="背景类型"
+                                                  SelectionChanged="BackgroundMode_Changed">
+                                            <ComboBoxItem Content="关闭（纯毛玻璃）" Tag="none" />
+                                            <ComboBoxItem Content="内置壁纸" Tag="builtin" />
+                                            <ComboBoxItem Content="本地图片" Tag="file" />
+                                        </ComboBox>
+                                    </StackPanel>
+
+                                    <!-- 内置壁纸：缩略图由代码按 AppearanceService.Wallpapers 生成 -->
+                                    <StackPanel x:Name="BuiltinWallpaperPanel" Spacing="6" Visibility="Collapsed">
+                                        <GridView x:Name="BuiltinWallpaperGrid"
+                                                  SelectionMode="Single" IsItemClickEnabled="False"
+                                                  ScrollViewer.HorizontalScrollMode="Disabled"
+                                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                                  AutomationProperties.Name="内置壁纸列表"
+                                                  SelectionChanged="BuiltinWallpaper_SelectionChanged" />
+                                    </StackPanel>
+
+                                    <!-- 本地图片 -->
+                                    <StackPanel x:Name="LocalImagePanel" Spacing="6" Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="图片文件" Style="{StaticResource PclLabel}" />
+                                            <Button x:Name="PickImageBtn" Content="选择图片…"
+                                                    AutomationProperties.Name="选择本地背景图片"
+                                                    Click="PickImage_Click" />
+                                            <Button x:Name="ClearImageBtn" Content="清除"
+                                                    AutomationProperties.Name="清除本地背景图片"
+                                                    Click="ClearImage_Click" />
+                                        </StackPanel>
+                                        <TextBlock x:Name="ImagePathText" FontSize="12" Margin="94,0,0,0"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="模糊强度" Style="{StaticResource PclLabel}" />
+                                        <Slider x:Name="BgBlurSlider" Width="240" Minimum="0" Maximum="64"
+                                                StepFrequency="1"
+                                                AutomationProperties.Name="背景模糊强度"
+                                                ValueChanged="BackgroundSlider_Changed" />
+                                        <TextBlock x:Name="BgBlurText" VerticalAlignment="Center" FontSize="12"
+                                                   Width="56"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="不透明度" Style="{StaticResource PclLabel}" />
+                                        <Slider x:Name="BgOpacitySlider" Width="240" Minimum="0.2" Maximum="1"
+                                                StepFrequency="0.05"
+                                                AutomationProperties.Name="背景图片不透明度"
+                                                ValueChanged="BackgroundSlider_Changed" />
+                                        <TextBlock x:Name="BgOpacityText" VerticalAlignment="Center" FontSize="12"
+                                                   Width="56"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="毛玻璃强度" Style="{StaticResource PclLabel}" />
+                                        <Slider x:Name="MaskOpacitySlider" Width="240" Minimum="0" Maximum="1"
+                                                StepFrequency="0.05"
+                                                AutomationProperties.Name="毛玻璃遮罩强度"
+                                                ValueChanged="BackgroundSlider_Changed" />
+                                        <ToggleSwitch x:Name="MaskFollowThemeCheck" IsOn="True"
+                                                      OnContent="跟随主题" OffContent="跟随主题"
+                                                      AutomationProperties.Name="毛玻璃强度跟随主题"
+                                                      Toggled="MaskFollowTheme_Toggled" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Nova 游戏内浮窗（设计：nova-overlay-plan.md T6；默认关 = 显式授权） -->
                             <Border Style="{StaticResource PclCard}">
                                 <Grid ColumnSpacing="12">

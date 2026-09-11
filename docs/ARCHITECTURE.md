@@ -45,9 +45,11 @@ dotnet/
     │                 NovaFpsWatcher
     └── Starcloud.App/                # WinUI 3 前台（WindowsPackageType=None）
         ├── App.xaml / App.xaml.cs
-        ├── MainWindow.xaml(.cs)      # 亚克力 + NavigationView 壳
+        ├── MainWindow.xaml(.cs)      # 亚克力 + 自定义背景层 + NavigationView 壳
+        ├── Assets/Wallpapers/        # 内置壁纸（6 张 jpg，随输出目录发布）
         ├── Services/
-        │   └── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
+        │   ├── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
+        │   └── AppearanceService.cs  # 主题应用 + 内置壁纸清单 + 毛玻璃遮罩解析
         └── Views/
             ├── HomePage.xaml(.cs)          # 首页：版本列表 + 账户/启动卡
             ├── VersionsPage.xaml(.cs)      # 版本管理列表
@@ -58,8 +60,9 @@ dotnet/
             ├── NovaPage.xaml(.cs)          # Nova 助手页
             ├── NovaChatView.xaml(.cs)      # Nova 对话视图（页面内嵌与浮窗共用）
             ├── NovaOverlayWindow.xaml(.cs) # Nova 浮窗窗口
-            ├── SettingsPage.xaml(.cs)      # 设置（路径/内存/Java/并发/主题）
+            ├── SettingsPage.xaml(.cs)      # 设置（路径/内存/Java/并发/主题/背景）
             ├── LogsPage.xaml(.cs)          # 启动器日志
+            ├── WindowBackgroundHost.cs     # 背景图 / 模糊层 / 毛玻璃遮罩三层
             ├── PageRows.cs                 # 列表行共享 record
             ├── ComboItem.cs                # ComboBox 项共享 record
             ├── InstanceActions.cs          # 版本操作共享逻辑
@@ -87,6 +90,12 @@ dotnet/
   设置修改后调用 `SaveSettings()` / `ReloadSettings()`。
 - **MainWindow**：自定义亚克力背景（`TransparentAcrylicBackdrop`）+ `ExtendsContentIntoTitleBar`；
   `Nav_SelectionChanged` 将 NavigationView tag 路由到对应页面类型。
+- **外观层（D 组）**：`AppearanceService` 负责把设置翻译成行为（主题应用、内置壁纸清单与
+  遮罩不透明度解析），`WindowBackgroundHost` 负责窗口级背景渲染——在亚克力之上叠
+  「清晰图 / 模糊层 / 毛玻璃遮罩」三层。模糊用 composition 的 `GaussianBlurEffect`
+  作用于图片表面（`Microsoft.Graphics.Win2D` 1.4.0，`Microsoft.Graphics.Canvas.Effects`
+  命名空间），组合器不可用时静默退化为清晰图。设置页改动通过
+  `MainWindow.RefreshAppearance()` 即时预览。
 - **页面 ↔ 服务交互**：页面直接调用 `AppServices.Instance.*`；
   长任务通过 `IProgress<BatchProgress>` 更新进度条，`CancellationToken` 支持取消。
 

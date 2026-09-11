@@ -16,6 +16,9 @@ namespace Starcloud.App;
 
 public sealed partial class MainWindow : Window
 {
+    // 自定义背景宿主（D1）：背景图 / 模糊层 / 毛玻璃遮罩三层
+    private readonly WindowBackgroundHost _background;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -46,6 +49,24 @@ public sealed partial class MainWindow : Window
 
         Nav.SelectedItem = Nav.MenuItems[0];
         ContentFrame.Navigate(typeof(HomePage));
+
+        // 外观（D1）：主题在启动时即生效（修历史 bug：设置页回填时 _loaded=false 导致主题被忽略）
+        _background = new WindowBackgroundHost(BackgroundLayer, BackgroundImage, BackgroundBlurHost, BackgroundMask);
+        var root = (FrameworkElement)Content;
+        AppServices.Instance.Appearance.ApplyTheme(AppServices.Instance.Settings.Theme, root);
+        _background.Apply(AppServices.Instance.Settings, root.ActualTheme);
+        root.SizeChanged += (_, _) => _background.Resize(root.ActualWidth, root.ActualHeight);
+    }
+
+    /// <summary>外观变更即时生效入口（设置页在主题 / 背景改动后调用）。</summary>
+    public static void RefreshAppearance()
+    {
+        if (App.MainWindow is not MainWindow w) return;
+        var s = AppServices.Instance.Settings;
+        var root = (FrameworkElement)w.Content;
+        AppServices.Instance.Appearance.ApplyTheme(s.Theme, root);
+        w._background.Apply(s, root.ActualTheme);
+        w._background.Resize(root.ActualWidth, root.ActualHeight);
     }
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

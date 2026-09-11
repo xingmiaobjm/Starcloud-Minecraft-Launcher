@@ -13,6 +13,14 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- 自定义背景（D1）：亚克力之下、内容之上的三层——清晰图 / 模糊层 / 毛玻璃遮罩 -->
+        <Grid x:Name="BackgroundLayer" Grid.RowSpan="3"
+              IsHitTestVisible="False" Visibility="Collapsed">
+            <Image x:Name="BackgroundImage" Stretch="UniformToFill" Opacity="0.7" />
+            <Border x:Name="BackgroundBlurHost" />
+            <Border x:Name="BackgroundMask" />
+        </Grid>
+
         <!-- 标题栏：品牌左 + 系统按钮右（ExtendsContentIntoTitleBar） -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="10">

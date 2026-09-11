@@ -19,12 +19,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Starcloud.Core\Starcloud.Core.csproj" />
+  </ItemGroup>
+
+  <!-- 内置壁纸（D1 自定义背景）：随输出目录发布，按 AppContext.BaseDirectory 解析 -->
+  <ItemGroup>
+    <Content Include="Assets\Wallpapers\*.jpg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
