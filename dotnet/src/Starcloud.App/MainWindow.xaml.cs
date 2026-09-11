@@ -48,7 +48,7 @@ public sealed partial class MainWindow : Window
         Activated += (_, _) => RefreshAccountButton();
 
         Nav.SelectedItem = Nav.MenuItems[0];
-        ContentFrame.Navigate(typeof(HomePage));
+        ContentFrame.Navigate(typeof(HomePage), null, MotionService.TransitionFor(AppServices.Instance.Motion.Enabled));
 
         // 外观（D1）：主题在启动时即生效（修历史 bug：设置页回填时 _loaded=false 导致主题被忽略）
         _background = new WindowBackgroundHost(BackgroundLayer, BackgroundImage, BackgroundBlurHost, BackgroundMask);
@@ -85,7 +85,7 @@ public sealed partial class MainWindow : Window
             _ => typeof(HomePage),
         };
         if (ContentFrame.CurrentSourcePageType != page)
-            ContentFrame.Navigate(page);
+            ContentFrame.Navigate(page, null, MotionService.TransitionFor(AppServices.Instance.Motion.Enabled));
         // 选择完成后自动收起侧栏，保持内容区宽畅
         Nav.IsPaneOpen = false;
     }
@@ -102,7 +102,8 @@ public sealed partial class MainWindow : Window
 
     /// <summary>版本详情子页：直接 Frame 导航（不占用侧栏选中项，返回即回来源页）。</summary>
     public void NavigateToVersionDetail(string versionId) =>
-        ContentFrame.Navigate(typeof(VersionDetailPage), versionId);
+        ContentFrame.Navigate(typeof(VersionDetailPage), versionId,
+            MotionService.TransitionFor(AppServices.Instance.Motion.Enabled, drillIn: true));
 
     // ── Nova 内嵌（NOVA_INTEGRATION.md 五入口：① 顶栏 Orb） ──
 

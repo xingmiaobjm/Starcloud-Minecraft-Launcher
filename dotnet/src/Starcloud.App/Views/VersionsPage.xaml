@@ -148,6 +148,7 @@
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:LocalVersionRow">
                             <Grid Padding="12,8" ColumnSpacing="12"
+                                  local:CardHoverBehavior.IsEnabled="True"
                                   ContextFlyout="{StaticResource RowMenu}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -156,7 +157,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="40" Height="40" CornerRadius="6"
+                                    <Border Width="40" Height="40" CornerRadius="8"
                                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                         <Grid>
                                             <Image Source="{x:Bind Icon}" Width="40" Height="40"
@@ -217,15 +218,10 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <StackPanel x:Name="EmptyHint" Spacing="6" Visibility="Collapsed"
-                            HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE81C;" FontSize="28" HorizontalAlignment="Center"
-                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    <TextBlock x:Name="EmptyText"
-                               Text="还没有已安装的版本，去「下载」页安装一个吧"
-                               HorizontalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
+                <local:EmptyStateView x:Name="EmptyHint" Visibility="Collapsed"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      Glyph="&#xE81C;"
+                                      Title="还没有已安装的版本，去「下载」页安装一个吧" />
             </Grid>
         </Border>
     </Grid>

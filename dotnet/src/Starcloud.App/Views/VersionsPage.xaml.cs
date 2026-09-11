@@ -64,7 +64,7 @@ public sealed partial class VersionsPage : Page
         var list = query.ToList();
         VersionListView.ItemsSource = list;
         EmptyHint.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyText.Text = _all.Count == 0
+        EmptyHint.Title = _all.Count == 0
             ? "还没有已安装的版本，去「下载」页安装一个吧"
             : "没有匹配的版本，试试调整搜索或筛选";
     }

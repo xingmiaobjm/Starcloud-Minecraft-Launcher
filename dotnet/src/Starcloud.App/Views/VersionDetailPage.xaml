@@ -27,7 +27,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Border Width="56" Height="56" CornerRadius="10"
+                    <Border Width="56" Height="56" CornerRadius="8"
                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                         <Grid>
                             <Image x:Name="IconImage" Width="56" Height="56"
@@ -37,7 +37,7 @@
                         </Grid>
                     </Border>
                     <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
-                        <TextBlock x:Name="TitleText" FontSize="24" FontWeight="SemiBold"
+                        <TextBlock x:Name="TitleText" FontSize="28" FontWeight="SemiBold"
                                    TextTrimming="CharacterEllipsis" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock x:Name="KindText" FontSize="12" VerticalAlignment="Center"
@@ -197,13 +197,13 @@
                         <!-- 内存占用条：底槽 + 本版本分配（浅）+ 已使用（深） -->
                         <StackPanel Spacing="4">
                             <Grid Height="7" HorizontalAlignment="Left" Width="260">
-                                <Border CornerRadius="3.5"
+                                <Border CornerRadius="4"
                                         Background="{ThemeResource CardStrokeColorDefaultBrush}" />
                                 <Border x:Name="MemoryAllocBar" Width="0" HorizontalAlignment="Left"
-                                        CornerRadius="3.5"
+                                        CornerRadius="4"
                                         Background="{ThemeResource AccentFillColorTertiaryBrush}" />
                                 <Border x:Name="MemoryUsedBar" Width="0" HorizontalAlignment="Left"
-                                        CornerRadius="3.5"
+                                        CornerRadius="4"
                                         Background="{ThemeResource AccentFillColorDefaultBrush}" />
                             </Grid>
                             <TextBlock x:Name="MemoryUsageText" FontSize="12" TextWrapping="Wrap"

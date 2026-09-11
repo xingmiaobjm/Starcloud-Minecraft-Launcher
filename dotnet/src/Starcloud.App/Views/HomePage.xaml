@@ -140,6 +140,7 @@
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:VersionRow">
                                         <Border CornerRadius="4" Padding="10,7"
+                                                local:CardHoverBehavior.IsEnabled="True"
                                                 RightTapped="VersionRow_RightTapped">
                                             <Border.ContextFlyout>
                                                 <MenuFlyout>
@@ -183,16 +184,12 @@
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                            <StackPanel x:Name="EmptyVersionHint" Visibility="Collapsed"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        Spacing="4">
-                                <TextBlock Text="暂无已安装版本"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           HorizontalAlignment="Center" />
-                                <HyperlinkButton Content="前往下载页安装" Padding="0"
-                                                 HorizontalAlignment="Center"
-                                                 Click="PickVersion_Click" />
-                            </StackPanel>
+                            <local:EmptyStateView x:Name="EmptyVersionHint" Visibility="Collapsed"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Glyph="&#xE81C;"
+                                                  Title="暂无已安装版本"
+                                                  ActionText="前往下载页安装"
+                                                  ActionClick="PickVersion_Click" />
                         </Grid>
                     </Border>
                 </Grid>

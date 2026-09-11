@@ -117,9 +117,12 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Text="默认账户将用于一键启动" />
                 </Grid>
-                <TextBlock x:Name="AccountEmptyText" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Text="还没有游戏账户，点击右上角「添加一个游戏账户」" />
+                <local:EmptyStateView x:Name="AccountEmptyText" Grid.Row="1"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      Glyph="&#xE77B;"
+                                      Title="还没有游戏账户"
+                                      ActionText="添加账户"
+                                      ActionClick="AddAccount_Click" />
                 <ListView x:Name="AccountList" Grid.Row="1" SelectionMode="None" Margin="-16" Visibility="Collapsed">
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -137,6 +140,7 @@
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:AccountRow">
                             <Border CornerRadius="8" Padding="16"
+                                    local:CardHoverBehavior.IsEnabled="True"
                                     Background="{ThemeResource LayerFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1">

@@ -92,14 +92,14 @@ public sealed partial class SavesPage : Page
 
         if (_rows.Count == 0)
         {
-            EmptyTitle.Text = "暂无存档";
-            EmptySubText.Text = "启动游戏创建世界后，可在此进行备份与管理";
+            EmptyHint.Title = "暂无存档";
+            EmptyHint.Subtitle = "启动游戏创建世界后，可在此进行备份与管理";
             EmptyHint.Visibility = Visibility.Visible;
         }
         else if (filtered.Count == 0)
         {
-            EmptyTitle.Text = "没有匹配的存档";
-            EmptySubText.Text = "试试换个关键词或版本筛选";
+            EmptyHint.Title = "没有匹配的存档";
+            EmptyHint.Subtitle = "试试换个关键词或版本筛选";
             EmptyHint.Visibility = Visibility.Visible;
         }
         else

@@ -88,7 +88,8 @@
                             </ListView.ItemContainerStyle>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="local:NovaLlmProfileRow">
-                                    <Grid ColumnSpacing="8" Padding="10,8" CornerRadius="6"
+                                    <Grid ColumnSpacing="8" Padding="10,8" CornerRadius="8"
+                                          local:CardHoverBehavior.IsEnabled="True"
                                           Background="{ThemeResource LayerFillColorDefaultBrush}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -119,9 +120,10 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <TextBlock x:Name="ProfileEmptyText" Text="还没有添加模型。点「新增模型」选个服务商即可接入。"
-                                   FontSize="11" Opacity="0.7"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <local:EmptyStateView x:Name="ProfileEmptyText"
+                                              HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              Glyph="&#xE99A;"
+                                              Title="还没有添加模型" />
 
                         <!-- 新增模型：预设模板流程（选服务商 → 填 Key → 选模型） -->
                         <Button x:Name="LlmAddOpenBtn" Content="新增模型"
@@ -131,7 +133,7 @@
 
                         <!-- 添加面板（点「新增模型」展开；预设自动带出地址与模型列表） -->
                         <StackPanel x:Name="LlmAddPanel" Spacing="8" Padding="12,10"
-                                    CornerRadius="6" Visibility="Collapsed"
+                                    CornerRadius="8" Visibility="Collapsed"
                                     Background="{ThemeResource LayerFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1">
@@ -246,9 +248,11 @@
                             <Button Grid.Column="1" Content="清空" FontSize="12" Padding="10,2" MinWidth="0"
                                     AutomationProperties.Name="清空流水" Click="ClearLog_Click" />
                         </Grid>
-                        <TextBlock x:Name="LogEmptyText" Text="暂无记录。Nova 每次动手（含开关授权）都会记在这里。"
-                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <local:EmptyStateView x:Name="LogEmptyText"
+                                              HorizontalAlignment="Left"
+                                              Glyph="&#xE81C;"
+                                              Title="暂无记录"
+                                              Subtitle="Nova 每次动手（含开关授权）都会记在这里" />
                         <ListView x:Name="LogList" SelectionMode="None">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">

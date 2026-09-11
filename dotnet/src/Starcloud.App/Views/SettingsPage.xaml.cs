@@ -80,6 +80,12 @@ public sealed partial class SettingsPage : Page
                 "dark" => 2,
                 _ => 0,
             };
+            MotionCombo.SelectedIndex = s.UiAnimations switch
+            {
+                "on" => 1,
+                "off" => 2,
+                _ => 0,
+            };
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
 
@@ -368,6 +374,16 @@ public sealed partial class SettingsPage : Page
         MainWindow.RefreshAppearance();
     }
 
+    // 界面动效：切换即落盘（转场在下次导航生效，悬浮反馈在下次进页生效）
+    private void Motion_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.UiAnimations =
+            (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
     // Nova 游戏内浮窗：切换即落盘（下局游戏启动生效，不追溯当前会话——克制）
     private void OverlaySwitch_Toggled(object sender, RoutedEventArgs e)
     {
@@ -573,6 +589,7 @@ public sealed partial class SettingsPage : Page
 
         // 通用
         s0.Theme = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        s0.UiAnimations = (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         s0.VersionIsolated = IsolationDefaultRadio.SelectedIndex == 0;
 
         s0.Save();

@@ -212,6 +212,11 @@ public sealed class LauncherSettings
     [JsonPropertyName("background_follow_theme")]
     public bool BackgroundFollowTheme { get; set; } = true;
 
+    // ── 界面动效（设计：ui-polish-motion-design.md §4） ──
+    /// <summary>界面动效：system（跟随系统）/ on（始终开启）/ off（关闭）</summary>
+    [JsonPropertyName("ui_animations")]
+    public string UiAnimations { get; set; } = "system";
+
     /// <summary>背景字段范围钳制（每次加载/保存前调用，避免脏数据导致 UI 越界）</summary>
     public void ClampBackgroundValues()
     {
@@ -219,6 +224,7 @@ public sealed class LauncherSettings
         BackgroundImageOpacity = Math.Clamp(BackgroundImageOpacity, 0.2, 1.0);
         BackgroundBlurRadius = Math.Clamp(BackgroundBlurRadius, 0, 64);
         if (BackgroundMaskOpacity is { } m) BackgroundMaskOpacity = Math.Clamp(m, 0, 1);
+        if (UiAnimations is not ("system" or "on" or "off")) UiAnimations = "system";
     }
 
     /// <summary>本地背景图实际生效路径；未配置 / 文件不存在 → null（builtin 由 App 侧解析）。</summary>

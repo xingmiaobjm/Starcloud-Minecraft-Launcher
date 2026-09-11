@@ -49,8 +49,11 @@ dotnet/
         ├── Assets/Wallpapers/        # 内置壁纸（6 张 jpg，随输出目录发布）
         ├── Services/
         │   ├── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
-        │   └── AppearanceService.cs  # 主题应用 + 内置壁纸清单 + 毛玻璃遮罩解析
+        │   ├── AppearanceService.cs  # 主题应用 + 内置壁纸清单 + 毛玻璃遮罩解析
+        │   └── MotionService.cs      # 界面动效总开关（跟随系统 / 始终开启 / 关闭）
         └── Views/
+            ├── CardHoverBehavior.cs        # 卡片悬浮/按压反馈附加属性（Composition Scale）
+            ├── EmptyStateView.xaml(.cs)    # 统一空状态（图标 + 标题 + 副标题 + 可选按钮）
             ├── HomePage.xaml(.cs)          # 首页：版本列表 + 账户/启动卡
             ├── VersionsPage.xaml(.cs)      # 版本管理列表
             ├── VersionDetailPage.xaml(.cs) # 版本详情（隔离设置/Mod/存档/导出）
@@ -96,6 +99,13 @@ dotnet/
   作用于图片表面（`Microsoft.Graphics.Win2D` 1.4.0，`Microsoft.Graphics.Canvas.Effects`
   命名空间），组合器不可用时静默退化为清晰图。设置页改动通过
   `MainWindow.RefreshAppearance()` 即时预览。
+- **动效层（D 组）**：`MotionService` 是唯一开关来源，`Enabled` 由设置 `ui_animations`
+  （`system` 读 `UISettings.AnimationsEnabled` / `on` / `off`）解析；任意探测失败按「有动效」处理。
+  页面转场通过 `MotionService.TransitionFor(enabled, drillIn)` 显式传给 `Frame.Navigate`
+  （关闭时 `SuppressNavigationTransitionInfo`）。卡片反馈由附加属性 `CardHoverBehavior.IsEnabled`
+  挂载（全局样式 `ScHoverCard`），用 Composition **显式**动画驱动 `Scale`（`Visual.Translation`
+  在 WinAppSDK 1.8 投影中不可用，故不做上浮）；动效关闭时不接线、零开销。
+  空状态统一由 `EmptyStateView` 承载（`Glyph` / `Title` / `Subtitle` / `ActionText` + `ActionClick`）。
 - **页面 ↔ 服务交互**：页面直接调用 `AppServices.Instance.*`；
   长任务通过 `IProgress<BatchProgress>` 更新进度条，`CancellationToken` 支持取消。
 

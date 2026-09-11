@@ -1,7 +1,8 @@
 <Application
     x:Class="Starcloud.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Starcloud.App.Views">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -12,6 +13,16 @@
             <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
             <CornerRadius x:Key="CardCornerRadius">16</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
+
+            <!-- 悬浮卡片：白卡片外观 + 悬浮轻微放大 / 按下轻微缩小（D2，动效可关闭） -->
+            <Style x:Key="ScHoverCard" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="16" />
+                <Setter Property="local:CardHoverBehavior.IsEnabled" Value="True" />
+            </Style>
 
             <!-- 语义色（双主题同值）：危险=重要警告场景，成功=操作达成 -->
             <SolidColorBrush x:Key="DangerBrush" Color="#FFF44336" />

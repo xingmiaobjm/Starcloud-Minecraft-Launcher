@@ -132,7 +132,7 @@
                             <TextBox x:Name="SearchBox" Grid.Column="1" PlaceholderText="搜索版本 ID…"
                                      TextChanged="SearchBox_TextChanged" />
                             <Border x:Name="VersionCacheBadge" Grid.Column="2" Visibility="Collapsed"
-                                    CornerRadius="9" Padding="8,2" VerticalAlignment="Center"
+                                    CornerRadius="4" Padding="8,2" VerticalAlignment="Center"
                                     Background="{ThemeResource AccentFillColorTertiaryBrush}">
                                 <TextBlock Text="缓存" FontSize="11"
                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
@@ -729,14 +729,10 @@
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                            <StackPanel x:Name="EmptyHint" Spacing="6" Visibility="Collapsed"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE721;" FontSize="28" HorizontalAlignment="Center"
-                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                <TextBlock Text="没有找到相关资源，换个关键词或筛选条件试试"
-                                           HorizontalAlignment="Center"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            </StackPanel>
+                            <local:EmptyStateView x:Name="EmptyHint" Visibility="Collapsed"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Glyph="&#xE721;"
+                                                  Title="没有找到相关资源，换个关键词或筛选条件试试" />
                         </Grid>
                     </Border>
 
@@ -749,7 +745,7 @@
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <TextBlock x:Name="ResultCountText" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <Border x:Name="CacheBadge" Visibility="Collapsed" CornerRadius="9" Padding="8,2"
+                            <Border x:Name="CacheBadge" Visibility="Collapsed" CornerRadius="4" Padding="8,2"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource AccentFillColorTertiaryBrush}">
                                 <TextBlock Text="缓存" FontSize="11"
