@@ -19,13 +19,26 @@ public sealed partial class HomePage : Page
     private readonly AppServices _s = AppServices.Instance;
     private readonly DispatcherQueue _dq;
     private List<VersionRow> _rows = [];
-    private Process? _gameProcess;
+    private GameSession? _gameProcess;
     private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
+
+    // ── 启动可靠性（设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md） ──
+    private LaunchOptions? _activeOptions;      // 本局启动参数（退出收尾命令复用）
+    private Func<Task>? _relaunch;              // 启动闭包：占会话锁 + 预检 + 拉起（自动重试复用）
+    private GameSessionHandle? _sessionHandle;  // 防双开会话锁（退出/失败/取消都要释放）
+    private bool _crashDialogOpen;              // 崩溃弹窗重入保护
+    private int _retryCount;                    // 本局已自动重试次数（ShowOverlay 归零）
+    private long _launchStartedAt;              // 进程拉起时刻（判「启动即崩」）
+
+    private const int LogMaxLines = 200;                                            // 实时日志展示上限
+    private readonly List<string> _logFlushBuffer = [];                             // 输出行缓冲（UI 线程定时刷新）
+    private int _logPending;                                                        // 待刷新行数（免无谓刷新）
+    private readonly DispatcherTimer _logTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
 
     // ── 启动页状态机（设计：docs/superpowers/specs/2026-09-09-launch-overlay-design.md §3.2） ──
     private enum LaunchStage
     {
-        Idle, VerifyingCredentials, CheckingFiles, RepairingFiles,
+        Idle, VerifyingCredentials, EnvChecking, Retrying, CheckingFiles, RepairingFiles,
         StartingProcess, WaitingWindow, Running, Exited, Failed
     }
 
@@ -43,6 +56,7 @@ public sealed partial class HomePage : Page
         _dq = DispatcherQueue.GetForCurrentThread();
         _stageTimer.Tick += (_, _) => StageTimer_Tick();
         _windowTimer.Tick += (_, _) => WindowTimer_Tick();
+        _logTimer.Tick += (_, _) => FlushLogBuffer();
         Loaded += (_, _) => Initialize();
     }
 
@@ -275,6 +289,12 @@ public sealed partial class HomePage : Page
             case LaunchStage.VerifyingCredentials:
                 SetStageUi("正在启动", "验证 Microsoft 凭据…", 0, 10);
                 break;
+            case LaunchStage.EnvChecking:
+                SetStageUi("正在启动", "检查运行环境…", 0, 10);
+                break;
+            case LaunchStage.Retrying:
+                SetStageUi("正在重试", "启动失败，正在重试…", 0, 25);
+                break;
             case LaunchStage.CheckingFiles:
                 SetStageUi("正在启动", "检查游戏文件完整性…", 10, 25);
                 break;
@@ -377,6 +397,11 @@ public sealed partial class HomePage : Page
         LaunchLoginModeText.Text = isMicrosoft ? "正版登录" : "离线登录";
         LaunchTipText.Text = LaunchTips.Next();
         LaunchErrorText.Text = "";
+        _retryCount = 0;
+        _crashDialogOpen = false;
+        ClearLogBuffer();
+        LaunchLogToggle.IsChecked = _s.Settings.ShowGameLogOnLaunch; // 触发 LaunchLogToggle_Changed 同步可见性
+        _logTimer.Start();
         LaunchOverlay.Opacity = 0;
         LaunchOverlay.Visibility = Visibility.Visible;
 
@@ -400,12 +425,80 @@ public sealed partial class HomePage : Page
     /// 不清 _cancelRequested：取消杀进程后 Exited 回调仍需感知（标记由 ShowOverlay 复位）。</summary>
     private void HideOverlay(string? statusText)
     {
+        _logTimer.Stop();
         ApplyStage(LaunchStage.Idle);
         LaunchOverlay.Visibility = Visibility.Collapsed;
         if (statusText is not null)
         {
             StatusText.Text = statusText;
             StatusText.Visibility = Visibility.Visible;
+        }
+    }
+
+    // ── 实时游戏日志（spec §5）：后台线程只塞缓冲，UI 线程 100ms 批量刷新（上限 200 行） ──
+
+    private void OnGameOutputLine(string line)
+    {
+        lock (_logFlushBuffer)
+        {
+            _logFlushBuffer.Add(line);
+            if (_logFlushBuffer.Count > LogMaxLines)
+                _logFlushBuffer.RemoveRange(0, _logFlushBuffer.Count - LogMaxLines);
+            _logPending++;
+        }
+    }
+
+    private void FlushLogBuffer()
+    {
+        string[] lines;
+        lock (_logFlushBuffer)
+        {
+            if (_logPending == 0) return;
+            _logPending = 0;
+            lines = [.. _logFlushBuffer];
+        }
+        LaunchLogText.Text = string.Join('\n', lines);
+        if (LaunchLogText.Visibility == Visibility.Visible)
+        {
+            LaunchLogText.SelectionStart = LaunchLogText.Text.Length;
+            LaunchLogText.SelectionLength = 0;
+        }
+    }
+
+    private void ClearLogBuffer()
+    {
+        lock (_logFlushBuffer)
+        {
+            _logFlushBuffer.Clear();
+            _logPending = 0;
+        }
+        LaunchLogText.Text = "";
+    }
+
+    private void LaunchLogToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        var show = LaunchLogToggle.IsChecked == true;
+        LaunchLogToggle.Content = show ? "隐藏日志" : "显示日志";
+        LaunchLogText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        LaunchLogOpenBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show) FlushLogBuffer();
+    }
+
+    /// <summary>打开本局日志文件；尚未生成时打开日志目录</summary>
+    private void LaunchLogOpen_Click(object sender, RoutedEventArgs e)
+    {
+        var path = _gameProcess?.LogFile;
+        try
+        {
+            if (path is not null && File.Exists(path))
+                Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+            else
+                Process.Start(new ProcessStartInfo { FileName = LauncherPaths.GameLogsDir, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            LocalErrorBar.Message = $"打开日志失败：{ex.Message}";
+            LocalErrorBar.IsOpen = true;
         }
     }
 
@@ -432,7 +525,7 @@ public sealed partial class HomePage : Page
         if (_stage is LaunchStage.WaitingWindow or LaunchStage.Running)
         {
             // 已拉起：杀进程，Exited 回调感知取消标记 → 直接收层回主页
-            try { _gameProcess?.Kill(true); } catch { /* 已退出等情况忽略 */ }
+            try { _gameProcess?.Kill(); } catch { /* 已退出等情况忽略 */ }
         }
         // 未拉起：等当前 await 完成后的阶段边界检查退出（LaunchBtn_Click）
     }
@@ -469,7 +562,7 @@ public sealed partial class HomePage : Page
         // 第二击「停止游戏」：杀当前进程，右栏状态由 Exited 回调收尾
         if (_gameProcess is { HasExited: false })
         {
-            try { _gameProcess.Kill(true); } catch { /* ignore */ }
+            try { _gameProcess.Kill(); } catch { /* ignore */ }
             return;
         }
 
@@ -507,7 +600,11 @@ public sealed partial class HomePage : Page
             // 层叠合并（版本管理设计）：全局设置 + 版本档案覆盖 → 生效启动参数
             var dotMc = _s.Settings.DotMinecraft;
             var store = new InstanceSettingsStore(dotMc);
-            var eff = InstanceLayout.Resolve(dotMc, versionId, store.Get(versionId), _s.Settings);
+            var profile = store.Get(versionId);
+            var gameRoot = InstanceLayout.GameRoot(dotMc, versionId,
+                InstanceLayout.IsIsolated(profile, _s.Settings));
+            var eff = InstanceLayout.Resolve(dotMc, versionId, profile, _s.Settings,
+                MemoryAdvisor.Probe(gameRoot)); // auto 内存档位按实际模组数推荐（spec §8.2）
             var options = new LaunchOptions(
                 versionId, playerName, eff.GameRoot, dotMc,
                 eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs,
@@ -515,120 +612,36 @@ public sealed partial class HomePage : Page
                 eff.ServerAddress, eff.Language, eff.LanguageOverride,
                 eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars,
                 eff.PreCmd, eff.PostCmd);
+            _activeOptions = options;
 
-            // 启动前预检：缺失/损坏文件全自动补全，进度显示在启动页，补完直接启动
-            ApplyStage(LaunchStage.CheckingFiles);
-            var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
+            // 启动前环境体检（spec §6）：Block 弹窗由用户决定是否继续，Warn 只提示不阻断
+            ApplyStage(LaunchStage.EnvChecking);
+            var report = await _s.EnvCheck.CheckAsync(dotMc, versionId, options, _s.Settings);
             if (_cancelRequested) { HideOverlay("已取消启动"); return; }
-            if (preflight.NeedsRepair)
+            if (report.NeedsAttention)
             {
-                if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
+                LauncherLog.Write("launch", $"环境体检 {versionId}：" +
+                    string.Join("、", report.Issues.Select(i => $"{i.Code}({i.Level})")));
+                if (report.Worst == EnvLevel.Block)
                 {
-                    HideOverlay(null);
-                    LocalErrorBar.Message = "版本 JSON 缺失或损坏，无法自动恢复，请到下载页重新安装";
-                    LocalErrorBar.IsOpen = true;
-                    return;
+                    var go = await EnvCheckDialogs.ShowAsync(XamlRoot, report,
+                        issue => FixEnvIssueAsync(issue, versionId, options));
+                    if (!go) { HideOverlay("已取消启动"); return; }
                 }
-                ApplyStage(LaunchStage.RepairingFiles);
-                // 唯一真进度：BatchProgress 线性映射到 25→75%（spec §3.2）
-                var progress = new Progress<BatchProgress>(p =>
+                else
                 {
-                    LaunchProgress.Value = 25 + p.Percentage * 0.5;
-                    LaunchStageStepText.Text = $"补全缺失文件 {p.DoneFiles}/{p.TotalFiles}（{p.Percentage}%）…";
-                });
-                try
-                {
-                    await _s.Preflight.EnsureReadyAsync(dotMc, versionId, preflight,
-                        _s.Settings, progress);
+                    LaunchStageStepText.Text = "环境提示：" + report.Issues[0].Title;
                 }
-                catch (PreflightException ex)
-                {
-                    var listed = string.Join("\n", ex.FailedFiles.Take(5)
-                        .Select(f => "• " + f.Path));
-                    if (ex.FailedFiles.Count > 5)
-                        listed += $"\n等 {ex.FailedFiles.Count} 个文件";
-                    var dialog = new ContentDialog
-                    {
-                        Title = "补全失败",
-                        Content = listed,
-                        PrimaryButtonText = "仍然启动",
-                        CloseButtonText = "取消",
-                        DefaultButton = ContentDialogButton.Close,
-                        XamlRoot = XamlRoot,
-                    };
-                    // 取消则不启动（覆盖层一并收起）；「仍然启动」带缺失文件继续
-                    if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-                    {
-                        HideOverlay(null);
-                        return;
-                    }
-                }
-                if (_cancelRequested) { HideOverlay("已取消启动"); return; }
             }
+            if (_cancelRequested) { HideOverlay("已取消启动"); return; }
 
-            ApplyStage(LaunchStage.StartingProcess);
-
-            // 版本级启动前命令：非零退出码时询问是否继续（仍可强制启动）
-            if (!string.IsNullOrWhiteSpace(options.PreLaunchCommand))
-            {
-                var pre = await _s.Launcher.RunPreLaunchAsync(options);
-                if (pre.ExitCode != 0)
-                {
-                    var tail = pre.Output.Length > 600 ? "…" + pre.Output[^600..] : pre.Output;
-                    var dialog = new ContentDialog
-                    {
-                        Title = "启动前命令失败",
-                        Content = $"退出码 {pre.ExitCode}\n{tail}",
-                        PrimaryButtonText = "仍然启动",
-                        CloseButtonText = "取消",
-                        DefaultButton = ContentDialogButton.Close,
-                        XamlRoot = XamlRoot,
-                    };
-                    if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-                    {
-                        HideOverlay(null);
-                        return;
-                    }
-                }
-                if (_cancelRequested) { HideOverlay("已取消启动"); return; }
-            }
-
-            _gameProcess = await _s.Launcher.LaunchVersionAsync(
-                dotMc, versionId, options);
-            _gameProcess.Exited += (_, _) => _dq.TryEnqueue(async () =>
-            {
-                App.RunningVersionId = null;
-                if (_cancelRequested)
-                    HideOverlay("已取消启动");        // 取消路径：直接收层回主页（spec §3.4）
-                else if (LaunchOverlay.Visibility == Visibility.Visible)
-                    ApplyStage(LaunchStage.Exited);   // 覆盖层显示：停在启动页展示本局时长
-                // else：已收层回主页，不打扰（不再显示「游戏已退出」状态文字）
-                UpdateVersionMeta();
-                try { _s.Launcher.RunPostLaunch(options); }
-                catch { /* 收尾命令失败不影响退出流程 */ }
-                // Nova 收尾：补扫日志 → 生成战报卡（仅当本局开过观察会话）
-                await _s.NovaRuntime.OnGameExitedAsync();
-            });
-            if (_cancelRequested)
-            {
-                // 极短窗口内取消：杀掉刚拉起的进程回主页，Exited 回调续收尾
-                try { _gameProcess.Kill(true); } catch { /* ignore */ }
-                HideOverlay("已取消启动");
-                return;
-            }
-            _runningStart = Environment.TickCount64;
-            ApplyStage(LaunchStage.WaitingWindow); // 窗口出现由 _windowTimer 轮询（§3.3）
-
-            // Nova 时刻：游戏启动即开观察会话（未授权捕捉则静默）；浮窗监测需要 pid
-            _s.NovaRuntime.OnGameLaunched(versionId, _gameProcess.Id);
-            App.RunningVersionId = versionId;
-            store.TouchPlayed(versionId); // 记录版本档案「上次启动」
-            _s.Settings.LastUsername = _s.LaunchAccount.Mode == "microsoft" ? "ms:" + playerName : playerName;
-            _s.Settings.LastVersion = versionId;
-            _s.Settings.Save();
+            // 闭包从 _activeOptions 取参数：体检一键修复后能立刻用上新内存档位
+            _relaunch = () => AcquireAndLaunchAsync(dotMc, versionId, _activeOptions ?? options);
+            await _relaunch();
         }
         catch (Exception ex)
         {
+            ReleaseSession();
             if (_cancelRequested) { HideOverlay("已取消启动"); return; }
             // 启动期间的异常显示在启动页（spec §3.4），不再弹 LocalErrorBar
             if (LaunchOverlay.Visibility == Visibility.Visible)
@@ -647,6 +660,294 @@ public sealed partial class HomePage : Page
             LaunchBtn.IsEnabled = true;
             UpdateVersionMeta();
         }
+    }
+
+    /// <summary>占会话锁 → 预检补全 → 拉起进程（首次启动与自动重试共用）。</summary>
+    private async Task AcquireAndLaunchAsync(string dotMc, string versionId, LaunchOptions options)
+    {
+        // 防双开（spec §8.3）：同一 .minecraft 下只允许一局游戏
+        ReleaseSession();
+        _sessionHandle = GameSessionGuard.TryAcquire(dotMc, versionId, out var blockedBy);
+        if (_sessionHandle is null)
+        {
+            HideOverlay(null);
+            LocalErrorBar.Message = $"版本 {blockedBy} 正在运行中，请先关闭游戏再启动";
+            LocalErrorBar.IsOpen = true;
+            LauncherLog.Write("launch", $"拒绝启动 {versionId}：{blockedBy} 会话仍在运行");
+            return;
+        }
+
+        // 启动前预检：缺失/损坏文件全自动补全，进度显示在启动页，补完直接启动
+        ApplyStage(LaunchStage.CheckingFiles);
+        var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
+        if (_cancelRequested) { HideOverlay("已取消启动"); return; }
+        if (preflight.NeedsRepair)
+        {
+            if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
+            {
+                HideOverlay(null);
+                LocalErrorBar.Message = "版本 JSON 缺失或损坏，无法自动恢复，请到下载页重新安装";
+                LocalErrorBar.IsOpen = true;
+                return;
+            }
+            ApplyStage(LaunchStage.RepairingFiles);
+            // 唯一真进度：BatchProgress 线性映射到 25→75%（spec §3.2）
+            var progress = new Progress<BatchProgress>(p =>
+            {
+                LaunchProgress.Value = 25 + p.Percentage * 0.5;
+                LaunchStageStepText.Text = $"补全缺失文件 {p.DoneFiles}/{p.TotalFiles}（{p.Percentage}%）…";
+            });
+            try
+            {
+                await _s.Preflight.EnsureReadyAsync(dotMc, versionId, preflight,
+                    _s.Settings, progress);
+            }
+            catch (PreflightException ex)
+            {
+                var listed = string.Join("\n", ex.FailedFiles.Take(5)
+                    .Select(f => "• " + f.Path));
+                if (ex.FailedFiles.Count > 5)
+                    listed += $"\n等 {ex.FailedFiles.Count} 个文件";
+                var dialog = new ContentDialog
+                {
+                    Title = "补全失败",
+                    Content = listed,
+                    PrimaryButtonText = "仍然启动",
+                    CloseButtonText = "取消",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot,
+                };
+                // 取消则不启动（覆盖层一并收起）；「仍然启动」带缺失文件继续
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    HideOverlay(null);
+                    return;
+                }
+            }
+            if (_cancelRequested) { HideOverlay("已取消启动"); return; }
+        }
+
+        ApplyStage(LaunchStage.StartingProcess);
+
+        // 版本级启动前命令：非零退出码时询问是否继续（仍可强制启动）
+        if (!string.IsNullOrWhiteSpace(options.PreLaunchCommand))
+        {
+            var pre = await _s.Launcher.RunPreLaunchAsync(options);
+            if (pre.ExitCode != 0)
+            {
+                var tail = pre.Output.Length > 600 ? "…" + pre.Output[^600..] : pre.Output;
+                var dialog = new ContentDialog
+                {
+                    Title = "启动前命令失败",
+                    Content = $"退出码 {pre.ExitCode}\n{tail}",
+                    PrimaryButtonText = "仍然启动",
+                    CloseButtonText = "取消",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot,
+                };
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    HideOverlay(null);
+                    return;
+                }
+            }
+            if (_cancelRequested) { HideOverlay("已取消启动"); return; }
+        }
+
+        var session = await _s.Launcher.LaunchVersionAsync(dotMc, versionId, options);
+        _gameProcess = session;
+        _sessionHandle?.Bind(session.Pid);       // 会话锁绑定真实 pid（防双开判活）
+        session.OutputLine += OnGameOutputLine;  // 实时日志（spec §5）
+        session.Exited += OnGameExited;          // 退出收尾 / 崩溃诊断 / 自动重试（spec §7、§8.1）
+        if (_cancelRequested)
+        {
+            // 极短窗口内取消：杀掉刚拉起的进程回主页，Exited 回调续收尾
+            try { session.Kill(); } catch { /* ignore */ }
+            HideOverlay("已取消启动");
+            return;
+        }
+        _launchStartedAt = Environment.TickCount64;
+        _runningStart = _launchStartedAt;
+        ApplyStage(LaunchStage.WaitingWindow); // 窗口出现由 _windowTimer 轮询（§3.3）
+
+        // Nova 时刻：游戏启动即开观察会话（未授权捕捉则静默）；浮窗监测需要 pid
+        _s.NovaRuntime.OnGameLaunched(versionId, session.Id);
+        App.RunningVersionId = versionId;
+        new InstanceSettingsStore(dotMc).TouchPlayed(versionId); // 记录版本档案「上次启动」
+        _s.Settings.LastUsername = options.Credentials is not null
+            ? "ms:" + options.PlayerName : options.PlayerName;
+        _s.Settings.LastVersion = versionId;
+        _s.Settings.Save();
+        LauncherLog.Write("launch", $"已拉起 {versionId}（pid {session.Pid}，退出码待定）");
+    }
+
+    /// <summary>释放防双开会话锁（退出 / 失败 / 取消 / 重试前都要调用）。</summary>
+    private void ReleaseSession()
+    {
+        try { _sessionHandle?.Dispose(); } catch { /* 锁文件被占用时忽略 */ }
+        _sessionHandle = null;
+    }
+
+    /// <summary>体检项一键修复（spec §6）：写版本内存档位；返回是否修复成功。</summary>
+    private Task<bool> FixEnvIssueAsync(EnvIssue issue, string versionId, LaunchOptions options)
+    {
+        try
+        {
+            var dotMc = _s.Settings.DotMinecraft;
+            var (modCount, hasShaders) = MemoryAdvisor.Probe(options.GameDir);
+            var totalMb = SystemMemory.Snapshot().TotalMb;
+            var suggest = MemoryAdvisor.SuggestMaxMb(totalMb, modCount, hasShaders);
+
+            var store = new InstanceSettingsStore(dotMc);
+            var profile = store.Get(versionId);
+            profile.MemoryMode = "manual";
+            profile.MemoryMinMb = 512;
+            profile.MemoryMaxMb = suggest;
+            store.Set(versionId, profile);
+            store.Save();
+
+            // 本次启动立即生效：_relaunch 每次从 _activeOptions 取参数
+            _activeOptions = (_activeOptions ?? options) with { MinMemoryMb = 512, MaxMemoryMb = suggest };
+            LauncherLog.Write("launch", $"体检修复 {versionId}（{issue.Code}）→ 内存 512-{suggest} MB，" +
+                MemoryAdvisor.Explain(totalMb, modCount, hasShaders));
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("launch", $"体检修复 {versionId} 失败（{issue.Code}）", ex);
+            return Task.FromResult(false);
+        }
+    }
+
+    /// <summary>游戏进程退出（后台线程）→ 切回 UI 线程收尾。</summary>
+    private void OnGameExited(int exitCode) =>
+        _dq.TryEnqueue(() => _ = HandleGameExitedAsync(exitCode));
+
+    /// <summary>退出收尾（spec §7、§8.1）：自动重试 / 崩溃诊断 / 状态展示，最后统一跑收尾命令与 Nova 收尾。</summary>
+    private async Task HandleGameExitedAsync(int exitCode)
+    {
+        var session = _gameProcess;
+        var options = _activeOptions;
+        var versionId = session?.VersionId ?? options?.VersionId ?? "";
+        var uptimeMs = _launchStartedAt > 0
+            ? Math.Max(0, Environment.TickCount64 - _launchStartedAt) : 0;
+        var overlayVisible = LaunchOverlay.Visibility == Visibility.Visible && IsLoaded;
+
+        App.RunningVersionId = null;
+        ReleaseSession();
+
+        // 自动重试（spec §8.1）：启动即崩且本局未重试过 → 静默重跑一次（不重跑体检）
+        if (!_cancelRequested && exitCode != 0 && _retryCount == 0
+            && _s.Settings.LaunchAutoRetry && uptimeMs < 8000
+            && _relaunch is not null && overlayVisible)
+        {
+            _retryCount++;
+            LauncherLog.Write("launch", $"{versionId} 启动即退出（退出码 {exitCode}，{uptimeMs:F0} ms），自动重试一次");
+            ApplyStage(LaunchStage.Retrying);
+            await Task.Delay(600); // 让用户看清「正在重试」（spec §8.1 文案）
+            try
+            {
+                await _relaunch();
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Error("launch", $"自动重试启动 {versionId} 失败", ex);
+                LaunchErrorText.Text = ex.Message;
+                ApplyStage(LaunchStage.Failed);
+            }
+            return;
+        }
+
+        if (_cancelRequested)
+        {
+            HideOverlay("已取消启动"); // 取消路径：直接收层回主页（spec §3.4）
+        }
+        else if (exitCode == 0)
+        {
+            LauncherLog.Write("launch", $"{versionId} 正常退出（运行 {uptimeMs / 1000} 秒）");
+            if (overlayVisible)
+                ApplyStage(LaunchStage.Exited); // 覆盖层显示：停在启动页展示本局时长
+        }
+        else
+        {
+            LauncherLog.Write("launch", $"{versionId} 异常退出（退出码 {exitCode}，运行 {uptimeMs / 1000} 秒）");
+            if (overlayVisible)
+            {
+                LaunchStageTitle.Text = "游戏异常退出";
+                LaunchStageTitle.Foreground = ThemeBrush("SystemFillColorCriticalBrush");
+                LaunchStageStepText.Text = "正在分析崩溃原因…";
+                await ShowCrashDialogAsync(session, options, versionId, exitCode);
+            }
+        }
+
+        await RunExitCleanupAsync(options);
+    }
+
+    /// <summary>异常退出：本地规则诊断 → 崩溃弹窗（spec §7）。</summary>
+    private async Task ShowCrashDialogAsync(GameSession? session, LaunchOptions? options,
+        string versionId, int exitCode)
+    {
+        if (_crashDialogOpen) return;
+        _crashDialogOpen = true;
+        try
+        {
+            var dotMc = _s.Settings.DotMinecraft;
+            var store = new InstanceSettingsStore(dotMc);
+            var gameRoot = options?.GameDir ?? InstanceLayout.GameRoot(dotMc, versionId,
+                InstanceLayout.IsIsolated(store.Get(versionId), _s.Settings));
+
+            CrashDiagnosis diag;
+            try
+            {
+                diag = await _s.CrashAnalyzer.AnalyzeAsync(dotMc, versionId, exitCode,
+                    session?.StartedAt, session?.Tail(60), gameRoot);
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Error("crash", $"崩溃诊断 {versionId} 失败", ex);
+                diag = new CrashDiagnosis("游戏异常退出", $"退出码 {exitCode}，本地诊断失败：{ex.Message}",
+                    "", "", [], CrashFixKind.None, null, null);
+            }
+            LauncherLog.Write("crash", $"{versionId} 诊断结论：{diag.Title}（修复动作 {diag.Fix}）");
+
+            await CrashDialog.ShowAsync(XamlRoot, diag, versionId, exitCode,
+                restartAsync: async () =>
+                {
+                    if (_relaunch is null) return;
+                    ShowOverlay(versionId, _s.LaunchAccount.Mode == "microsoft"); // 复位状态机
+                    try { await _relaunch(); }
+                    catch (Exception ex)
+                    {
+                        LaunchErrorText.Text = ex.Message;
+                        ApplyStage(LaunchStage.Failed);
+                    }
+                },
+                askNovaAsync: () =>
+                {
+                    _s.NovaRuntime.SetCurrentInstance(versionId);
+                    _s.NovaRuntime.RequestInput(
+                        $"游戏 {versionId} 刚刚异常退出（退出码 {exitCode}），帮我看看是什么原因");
+                    (App.MainWindow as MainWindow)?.OpenNovaPanel();
+                    return Task.CompletedTask;
+                });
+        }
+        finally
+        {
+            _crashDialogOpen = false;
+        }
+    }
+
+    /// <summary>退出后统一收尾：刷新版本元数据 → 启动后命令 → Nova 战报（失败不阻断退出流程）。</summary>
+    private async Task RunExitCleanupAsync(LaunchOptions? options)
+    {
+        UpdateVersionMeta();
+        if (options is not null)
+        {
+            try { _s.Launcher.RunPostLaunch(options); }
+            catch (Exception ex) { LauncherLog.Error("launch", "启动后命令执行失败", ex); }
+        }
+        try { await _s.NovaRuntime.OnGameExitedAsync(); }
+        catch (Exception ex) { LauncherLog.Error("launch", "Nova 收尾失败", ex); }
     }
 
     // ── 入口 ──

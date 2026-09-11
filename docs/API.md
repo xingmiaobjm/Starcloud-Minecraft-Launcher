@@ -167,11 +167,14 @@ public sealed class GameLauncher
     public Task<string> BuildCommandLineAsync(MinecraftVersion version,
         LaunchOptions options, CancellationToken ct = default);
 
-    // 启动进程（CreateNoWindow），返回 Process；退出监控由调用方订阅 Exited
-    public Process Launch(string commandLine, string workingDirectory);
+    // 启动进程（CreateNoWindow，stdout/stderr 重定向并落盘），返回游戏会话
+    // GameSession：Pid / LogFile / HasExited / ExitCode / Uptime / Tail(n)
+    //             Kill(entireTree) / WaitForExitAsync() / event OutputLine / event Exited(int)
+    public GameSession Launch(string commandLine, string workingDirectory, string versionId,
+        IReadOnlyDictionary<string, string>? envVars = null);
 
     // 便捷入口：LoadVersionAsync → BuildCommandLineAsync → Launch
-    public Task<Process> LaunchVersionAsync(string dotMinecraft, string versionId,
+    public Task<GameSession> LaunchVersionAsync(string dotMinecraft, string versionId,
         LaunchOptions options, CancellationToken ct = default);
 }
 ```

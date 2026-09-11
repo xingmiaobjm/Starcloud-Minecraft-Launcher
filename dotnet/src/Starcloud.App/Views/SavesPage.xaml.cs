@@ -19,7 +19,8 @@ public sealed partial class SavesPage : Page
     private List<SaveRow> _rows = [];
     private bool _busy;
     private bool _suppressFilter;
-    private Process? _gameProcess;
+    private GameSession? _gameProcess;
+    private GameSessionHandle? _sessionHandle;  // 防双开会话锁（spec §8.3）
 
     public SavesPage()
     {
@@ -382,9 +383,11 @@ public sealed partial class SavesPage : Page
         string? copyFolder, bool sameRoot)
     {
         var dotMc = _s.Settings.DotMinecraft;
-        if (App.RunningVersionId == targetId)
+        ReleaseSession();
+        _sessionHandle = GameSessionGuard.TryAcquire(dotMc, targetId, out var blockedBy);
+        if (_sessionHandle is null)
         {
-            ErrorBar.Message = $"版本 {targetId} 正在运行中，请先退出游戏";
+            ErrorBar.Message = $"版本 {blockedBy} 正在运行中，请先退出游戏";
             ErrorBar.IsOpen = true;
             return;
         }
@@ -420,6 +423,7 @@ public sealed partial class SavesPage : Page
             catch (Exception ex)
             {
                 // 启动抛异常不回滚副本（spec §5）：留记录，用户可稍后重试或另选归属
+                ReleaseSession();
                 if (!sameRoot) new PendingWorldStore(dotMc).Save(rec);
                 ErrorBar.Message = sameRoot
                     ? $"启动失败：{ex.Message}"
@@ -428,8 +432,9 @@ public sealed partial class SavesPage : Page
                 return;
             }
 
-            _gameProcess.Exited += (_, _) => DispatcherQueue.TryEnqueue(async () => await OnGameExitedAsync());
-            rec.ProcessId = _gameProcess.Id;
+            _sessionHandle?.Bind(_gameProcess.Pid);
+            _gameProcess.Exited += _ => DispatcherQueue.TryEnqueue(async () => await OnGameExitedAsync());
+            rec.ProcessId = _gameProcess.Pid;
             new PendingWorldStore(dotMc).Save(rec);
 
             App.RunningVersionId = targetId;
@@ -440,6 +445,7 @@ public sealed partial class SavesPage : Page
         }
         catch (Exception ex)
         {
+            ReleaseSession();
             ErrorBar.Message = $"启动失败：{ex.Message}";
             ErrorBar.IsOpen = true;
         }
@@ -450,9 +456,16 @@ public sealed partial class SavesPage : Page
         }
     }
 
+    /// <summary>释放防双开会话锁（退出 / 失败 / 取消都要调用，spec §8.3）。</summary>
+    private void ReleaseSession()
+    {
+        try { _sessionHandle?.Dispose(); } catch { /* 锁文件被占用时忽略 */ }
+        _sessionHandle = null;
+    }
+
     private void StopGame_Click(object s, RoutedEventArgs e)
     {
-        try { _gameProcess?.Kill(true); } catch { /* 进程可能已退出 */ }
+        try { _gameProcess?.Kill(); } catch { /* 进程可能已退出 */ }
         RunBar.IsOpen = false;
     }
 
@@ -461,6 +474,7 @@ public sealed partial class SavesPage : Page
     private async Task OnGameExitedAsync()
     {
         App.RunningVersionId = null;
+        ReleaseSession();
         RunBar.IsOpen = false;
 
         var dotMc = _s.Settings.DotMinecraft;

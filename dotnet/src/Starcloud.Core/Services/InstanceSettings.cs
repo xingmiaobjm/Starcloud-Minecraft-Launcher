@@ -214,16 +214,19 @@ public static class InstanceLayout
     private static string Mode(string? explicitMode, bool hasLegacyValue)
         => explicitMode ?? (hasLegacyValue ? "manual" : "global");
 
-    /// <summary>层叠合并：全局 + 版本覆盖 → EffectiveLaunch</summary>
+    /// <summary>层叠合并：全局 + 版本覆盖 → EffectiveLaunch；autoMemContext 供 auto 档位算智能内存</summary>
     public static EffectiveLaunch Resolve(
-        string dotMc, string versionId, VersionProfile profile, LauncherSettings settings)
+        string dotMc, string versionId, VersionProfile profile, LauncherSettings settings,
+        (int ModCount, bool HasShaders)? autoMemContext = null)
     {
         var isolated = IsIsolated(profile, settings);
 
         // 内存档位：global / manual / auto（最小固定 512）
         var (minMem, maxMem) = Mode(profile.MemoryMode, profile.MemoryMaxMb is not null) switch
         {
-            "auto" => (512, SystemMemory.AutoMaxMb()),
+            "auto" => (512, autoMemContext is { } ctx
+                ? MemoryAdvisor.SuggestMaxMb(SystemMemory.Snapshot().TotalMb, ctx.ModCount, ctx.HasShaders)
+                : SystemMemory.AutoMaxMb()),
             "manual" => (profile.MemoryMinMb ?? 512,
                          profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb),
             _ => (settings.DefaultMinMemoryMb, settings.DefaultMaxMemoryMb),

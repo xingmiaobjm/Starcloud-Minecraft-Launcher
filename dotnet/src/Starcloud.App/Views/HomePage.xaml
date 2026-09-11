@@ -387,6 +387,18 @@
                     </Grid>
                 </Border>
 
+                <!-- 实时游戏日志（默认折叠；设计：launch-reliability-design.md §5） -->
+                <ToggleButton x:Name="LaunchLogToggle" Content="显示日志" FontSize="12"
+                              HorizontalAlignment="Center"
+                              Checked="LaunchLogToggle_Changed" Unchecked="LaunchLogToggle_Changed" />
+                <TextBox x:Name="LaunchLogText" Visibility="Collapsed" Width="440" Height="180"
+                         FontFamily="Consolas" FontSize="11" IsReadOnly="True" AcceptsReturn="True"
+                         TextWrapping="NoWrap" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                <HyperlinkButton x:Name="LaunchLogOpenBtn" Content="打开日志文件" FontSize="12"
+                                 Visibility="Collapsed" HorizontalAlignment="Center"
+                                 Click="LaunchLogOpen_Click" />
+
                 <TextBlock x:Name="LaunchErrorText" FontSize="12" TextWrapping="Wrap"
                            MaxLines="2" TextTrimming="CharacterEllipsis" TextAlignment="Center"
                            Visibility="Collapsed" HorizontalAlignment="Center"

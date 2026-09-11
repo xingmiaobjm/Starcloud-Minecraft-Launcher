@@ -148,6 +148,33 @@
 
                             <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="10">
+                                    <TextBlock Text="启动可靠性" Style="{StaticResource PclSectionTitle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="启动失败自动重试一次" Style="{StaticResource PclLabel}" />
+                                        <ToggleSwitch x:Name="LaunchAutoRetrySwitch"
+                                                      Toggled="LaunchAutoRetrySwitch_Toggled" />
+                                    </StackPanel>
+                                    <TextBlock Text="游戏启动后 8 秒内异常退出时，自动重试一次（不重复环境体检）。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="启动页默认展开实时日志" Style="{StaticResource PclLabel}" />
+                                        <ToggleSwitch x:Name="ShowGameLogSwitch"
+                                                      Toggled="ShowGameLogSwitch_Toggled" />
+                                    </StackPanel>
+                                    <TextBlock Text="启动时在启动页显示游戏实时输出，便于排查启动问题。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Text="智能内存推荐" FontSize="12" FontWeight="SemiBold" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="MemoryRecommendText" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <Button x:Name="ApplyMemoryRecommendBtn" Content="应用为默认最大内存"
+                                            Click="ApplyMemoryRecommend_Click" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
                                     <TextBlock Text="默认窗口" Style="{StaticResource PclSectionTitle}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock Text="窗口尺寸" Style="{StaticResource PclLabel}" />

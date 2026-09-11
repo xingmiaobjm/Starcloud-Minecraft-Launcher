@@ -44,11 +44,19 @@ public static class LauncherPaths
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
 
+    /// <summary>启动器侧保存的游戏日志（每局一个文件）</summary>
+    public static string GameLogsDir => Path.Combine(LogsDir, "game");
+
+    /// <summary>跨进程游戏会话锁文件（随 .minecraft，共享同一实例目录的多窗口互斥）</summary>
+    public static string GameSessionFile(string dotMc) =>
+        Path.Combine(dotMc, "starcloud", "game-session.json");
+
     public static void EnsureDataDir()
     {
         Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(JavaDir);
         Directory.CreateDirectory(LogsDir);
+        Directory.CreateDirectory(GameLogsDir);
         Directory.CreateDirectory(CacheDir);
         Directory.CreateDirectory(LibraryDir);
     }
@@ -165,6 +173,15 @@ public sealed class LauncherSettings
     // ── 全局环境变量（版本级 EnvVars 之外的公共环境变量） ──
     [JsonPropertyName("global_env_vars")]
     public Dictionary<string, string> GlobalEnvVars { get; set; } = new();
+
+    // ── 启动可靠性（设计：launch-reliability-design.md §9） ──
+    /// <summary>启动即崩时自动重试一次（默认开）</summary>
+    [JsonPropertyName("launch_auto_retry")]
+    public bool LaunchAutoRetry { get; set; } = true;
+
+    /// <summary>启动覆盖层默认展开实时日志（默认关，克制）</summary>
+    [JsonPropertyName("show_game_log_on_launch")]
+    public bool ShowGameLogOnLaunch { get; set; } = false;
 
     private static readonly JsonSerializerOptions Options = new()
     {

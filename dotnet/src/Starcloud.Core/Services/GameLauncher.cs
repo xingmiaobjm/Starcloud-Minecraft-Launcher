@@ -251,8 +251,8 @@ public sealed class GameLauncher
         return !m.Success || int.TryParse(m.Groups[1].Value, out var minor) && minor >= 13;
     }
 
-    /// <summary>启动游戏进程；返回进程（退出由调用方监控 Exited 事件）</summary>
-    public Process Launch(string commandLine, string workingDirectory,
+    /// <summary>启动游戏进程；返回会话（stdout/stderr 已重定向并落盘，退出由 GameSession.Exited 收口）</summary>
+    public GameSession Launch(string commandLine, string workingDirectory, string versionId,
         IReadOnlyDictionary<string, string>? envVars = null)
     {
         var psi = new ProcessStartInfo
@@ -262,18 +262,25 @@ public sealed class GameLauncher
             UseShellExecute = false,
             WorkingDirectory = workingDirectory,
             CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
         if (envVars is not null)
         {
             foreach (var (k, v) in envVars) psi.Environment[k] = v;
         }
         var p = Process.Start(psi) ?? throw new InvalidOperationException("游戏进程启动失败");
-        p.EnableRaisingEvents = true; // 不开则 Exited 事件永不触发（手动关游戏后 UI 状态卡死）
-        return p;
+        // 退出统一由 GameSession 的 WaitForExitAsync 收口，此处不再 EnableRaisingEvents
+        var logFile = Path.Combine(LauncherPaths.GameLogsDir, $"game-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+        var session = new GameSession(p, versionId, logFile);
+        LauncherLog.Write("game", $"启动 {versionId}（pid {session.Pid}），日志 {logFile}");
+        return session;
     }
 
     /// <summary>便捷：加载版本并启动（供 UI 一次调用）</summary>
-    public async Task<Process> LaunchVersionAsync(string dotMinecraft, string versionId,
+    public async Task<GameSession> LaunchVersionAsync(string dotMinecraft, string versionId,
         LaunchOptions options, CancellationToken ct = default)
     {
         var version = await _installer.LoadVersionAsync(dotMinecraft, versionId, ct);
@@ -283,7 +290,7 @@ public sealed class GameLauncher
         EnsureFirstRunLanguage(options.GameDir, lang);
         if (options.LanguageOverride is not null)
             PatchLanguage(options.GameDir, options.LanguageOverride);
-        return Launch(cmd, options.GameDir, options.EnvVars);
+        return Launch(cmd, options.GameDir, versionId, options.EnvVars);
     }
 
     /// <summary>首次开启（无 options.txt）时按启动器语言写入游戏语言；失败静默不阻塞启动</summary>

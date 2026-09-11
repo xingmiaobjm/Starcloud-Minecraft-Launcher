@@ -30,6 +30,8 @@ public sealed class AppServices
     public StarcloudIdService StarcloudId { get; }
     public GameDiagnosticsService Diagnostics { get; }
     public LaunchPreflightService Preflight { get; }
+    public CrashAnalysisService CrashAnalyzer { get; }
+    public EnvironmentCheckService EnvCheck { get; }
     public ModConflictService ModConflicts { get; }
     public NovaPermissionStore NovaPermissions { get; }
     public NovaActionLog NovaLog { get; }
@@ -63,6 +65,8 @@ public sealed class AppServices
         StarcloudId = new StarcloudIdService();
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         Preflight = new LaunchPreflightService(Installer, Download, Manifest);
+        CrashAnalyzer = new CrashAnalysisService(Installer);
+        EnvCheck = new EnvironmentCheckService(Installer, Java);
         ModConflicts = new ModConflictService();
         NovaPermissions = new NovaPermissionStore();
         NovaLog = new NovaActionLog();
@@ -72,6 +76,7 @@ public sealed class AppServices
             NovaLog, NovaMoments, NovaInvites, Saves);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
+        LauncherLog.Write("app", $"启动器就绪，数据目录 {LauncherPaths.DataDir}");
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();

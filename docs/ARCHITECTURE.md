@@ -132,7 +132,10 @@ StartDeviceCodeAsync → 展示 user_code + verification_uri
 ### 5.4 启动游戏（HomePage）
 
 ```
-LaunchOptions（版本/玩家名/内存/Java）→ GameLauncher.LaunchVersionAsync
+环境体检（EnvironmentCheckService，阻断项可一键修复）
+→ GameSessionGuard.TryAcquire（防双开：<.minecraft>/starcloud/game-session.json）
+→ 文件预检（PreflightService，缺失文件可批量补全）
+→ LaunchOptions（版本/玩家名/内存/Java）→ GameLauncher.LaunchVersionAsync
   ├─ LoadVersionAsync（inheritsFrom 递归合并）
   ├─ BuildCommandLineAsync
   │   ├─ classpath = 规则过滤后的库 + 版本 jar（";" 连接）
@@ -141,6 +144,9 @@ LaunchOptions（版本/玩家名/内存/Java）→ GameLauncher.LaunchVersionAsy
   │   ├─ 旧代 minecraftArguments 拆词替换
   │   └─ 现代版本缺 --username 时补全必需 game 参数
   └─ Process.Start（工作目录 = 游戏目录，CreateNoWindow）
+       → GameSession：stdout/stderr 重定向并落盘（持续读流防阻塞）
+                      → event OutputLine（首页实时日志面板，100ms 批量刷新）
+                      → event Exited(int)（退出收尾 / 崩溃诊断 / 8s 内自动重试）
 ```
 
 ### 5.5 Java 管理（SettingsPage）

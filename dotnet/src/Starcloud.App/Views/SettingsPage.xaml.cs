@@ -41,6 +41,11 @@ public sealed partial class SettingsPage : Page
             MemoryAutoHint.Text =
                 $"1 ~ {(int)MaxMemorySlider.Maximum} GB（物理内存 {physicalGb} GB，自动上限 {autoGb} GB）；最小内存固定 512 MB。";
 
+            // 启动可靠性：自动重试 / 实时日志开关
+            LaunchAutoRetrySwitch.IsOn = s.LaunchAutoRetry;
+            ShowGameLogSwitch.IsOn = s.ShowGameLogOnLaunch;
+            RefreshMemoryRecommend();
+
             // 默认窗口
             DefaultWidthBox.Value = s.DefaultWindowWidth ?? 854;
             DefaultHeightBox.Value = s.DefaultWindowHeight ?? 480;
@@ -94,10 +99,60 @@ public sealed partial class SettingsPage : Page
 
     // ── 游戏：内存滑块 ──
 
+    private int _suggestMaxMemoryMb;
+
     private void MaxMemorySlider_ValueChanged(object s, RangeBaseValueChangedEventArgs e)
     {
         if (MaxMemoryText is null) return;
         MaxMemoryText.Text = $"{(int)e.NewValue} GB";
+    }
+
+    // ── 游戏：启动可靠性 ──
+
+    private void LaunchAutoRetrySwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.LaunchAutoRetry = LaunchAutoRetrySwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
+    private void ShowGameLogSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.ShowGameLogOnLaunch = ShowGameLogSwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
+    /// <summary>按物理内存 + 全局 mods 探测刷新智能内存推荐文案（spec §8.2）。</summary>
+    private void RefreshMemoryRecommend()
+    {
+        var dotMc = _s.Settings.DotMinecraft;
+        var (modCount, hasShaders) = MemoryAdvisor.Probe(dotMc);
+        var totalMb = SystemMemory.Snapshot().TotalMb;
+        _suggestMaxMemoryMb = MemoryAdvisor.SuggestMaxMb(totalMb, modCount, hasShaders);
+        MemoryRecommendText.Text = MemoryAdvisor.Explain(totalMb, modCount, hasShaders);
+    }
+
+    /// <summary>应用推荐值到全局默认最大内存（同步滑块显示并落盘）。</summary>
+    private void ApplyMemoryRecommend_Click(object s, RoutedEventArgs e)
+    {
+        try
+        {
+            var suggestGb = Math.Max(1, (int)Math.Round(_suggestMaxMemoryMb / 1024.0));
+            MaxMemorySlider.Maximum = Math.Max(MaxMemorySlider.Maximum, suggestGb);
+            MaxMemorySlider.Value = Math.Clamp(suggestGb, 1, MaxMemorySlider.Maximum);
+            _s.Settings.DefaultMaxMemoryMb = (int)MaxMemorySlider.Value * 1024;
+            _s.Settings.DefaultMinMemoryMb = Math.Min(_s.Settings.DefaultMinMemoryMb, _s.Settings.DefaultMaxMemoryMb);
+            _s.Settings.Save();
+            SavedBar.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = ex.Message;
+            ErrorBar.IsOpen = true;
+        }
     }
 
     // ── Java：自动 / 手动 ──

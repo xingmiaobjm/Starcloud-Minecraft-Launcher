@@ -8,17 +8,30 @@
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <!-- 页头 -->
         <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock Text="启动器日志" FontSize="28" FontWeight="SemiBold" />
-            <TextBlock Text="应用运行与启动过程的详细输出"
+            <TextBlock Text="日志" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="启动器运行日志与每一局游戏的原样输出"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </StackPanel>
 
-        <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        <!-- 来源切换 -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <RadioButtons x:Name="LogSource" MaxColumns="2"
+                          SelectionChanged="LogSource_SelectionChanged">
+                <x:String>启动器日志</x:String>
+                <x:String>游戏日志</x:String>
+            </RadioButtons>
+            <ComboBox x:Name="GameLogCombo" MinWidth="240" Visibility="Collapsed"
+                      PlaceholderText="选择一局游戏日志" SelectionChanged="GameLogCombo_SelectionChanged" />
+            <Button x:Name="OpenLogDirBtn" Content="打开日志目录" Click="OpenLogDir_Click" />
+        </StackPanel>
+
+        <Border Grid.Row="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">
             <ScrollViewer x:Name="LogScroll">

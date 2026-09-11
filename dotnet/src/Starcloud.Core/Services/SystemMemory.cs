@@ -35,11 +35,6 @@ public static class SystemMemory
         return (total, total - avail);
     }
 
-    /// <summary>自动上限：clamp(物理/4, 2048, 物理*3/4)，向下取整到 512 倍数（MB）。</summary>
-    public static int AutoMaxMb()
-    {
-        var total = Snapshot().TotalMb;
-        var raw = Math.Clamp(total / 4, 2048, total * 3 / 4);
-        return (int)(raw / 512 * 512);
-    }
+    /// <summary>自动上限：委托 MemoryAdvisor（物理内存基线，512 对齐，下限 2048 MB）。</summary>
+    public static int AutoMaxMb() => MemoryAdvisor.SuggestMaxMb(Snapshot().TotalMb, 0, false);
 }
