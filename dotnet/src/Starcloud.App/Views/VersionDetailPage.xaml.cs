@@ -11,6 +11,8 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 
 namespace Starcloud.App.Views;
@@ -26,6 +28,12 @@ public sealed partial class VersionDetailPage : Page
 
     /// <summary>全字段防抖保存（500ms 单发）。</summary>
     private readonly DispatcherTimer _saveTimer;
+
+    /// <summary>内容分区行模型缓存（检查更新时遍历）。</summary>
+    private readonly List<ContentFileRow> _contentRows = [];
+
+    /// <summary>内容分区对应的游戏根目录。</summary>
+    private string _contentGameRoot = "";
 
     /// <summary>环境变量行（名称 / 值 / 容器），顺序即写入顺序。</summary>
     private readonly List<EnvRow> _envRows = [];
@@ -99,10 +107,8 @@ public sealed partial class VersionDetailPage : Page
         CategoryBox.Text = category;
         NoteBox.Text = profile.Note ?? "";
 
-        // 内容：5 个内容目录行
-        ContentPanel.Children.Clear();
-        foreach (var dir in InstanceLayout.ContentDirs)
-            ContentPanel.Children.Add(BuildContentRow(gameRoot, dir));
+        // 内容：Mod / 资源包光影 / 存档三分区
+        ContentPanelFill(gameRoot);
 
         LoadSettingsCard(profile, running);
 
@@ -179,11 +185,117 @@ public sealed partial class VersionDetailPage : Page
         UpdateJavaHint();
     }
 
-    private StackPanel BuildContentRow(string gameRoot, string dir)
+    // ── 内容卡片：Mod / 资源包光影 / 存档三分区 ──
+
+    /// <summary>填充三个内容分区（先渲染，再异步标注「无法解析」）。</summary>
+    private void ContentPanelFill(string gameRoot)
     {
-        var path = Path.Combine(gameRoot, dir);
-        var exists = Directory.Exists(path);
-        var openBtn = new Button
+        _contentGameRoot = gameRoot;
+        BuildContentSections(gameRoot, broken: null);
+        _ = AnnotateBrokenModsAsync(gameRoot);
+    }
+
+    /// <summary>重建三分区；broken 非空时把对应 Mod 行状态改为「无法解析」。</summary>
+    private void BuildContentSections(string gameRoot, HashSet<string>? broken)
+    {
+        ModSection.Children.Clear();
+        PackSection.Children.Clear();
+        SaveSection.Children.Clear();
+        _contentRows.Clear();
+
+        // Mod（含 .disabled）
+        var modsDir = Path.Combine(gameRoot, "mods");
+        ModSection.Children.Add(SectionHeader("Mod 模组", modsDir));
+        foreach (var row in BuildFileRows(modsDir, "mod"))
+        {
+            var shown = broken is not null && broken.Contains(row.FileName)
+                ? row with { StatusText = "无法解析" }
+                : row;
+            _contentRows.Add(shown);
+            ModSection.Children.Add(BuildFileRow(shown));
+        }
+        ModSection.Children.Add(OpenDirRow(modsDir));
+
+        // 资源包 + 光影
+        foreach (var (dir, kind, label) in new[]
+        {
+            ("resourcepacks", "resourcepack", "资源包"),
+            ("shaderpacks", "shader", "光影包"),
+        })
+        {
+            var path = Path.Combine(gameRoot, dir);
+            PackSection.Children.Add(SectionHeader(label, path));
+            foreach (var row in BuildFileRows(path, kind))
+            {
+                _contentRows.Add(row);
+                PackSection.Children.Add(BuildFileRow(row));
+            }
+            PackSection.Children.Add(OpenDirRow(path));
+        }
+
+        // 存档（每个存档下的数据包）
+        var savesDir = Path.Combine(gameRoot, "saves");
+        SaveSection.Children.Add(SectionHeader("存档", savesDir));
+        if (Directory.Exists(savesDir))
+        {
+            foreach (var save in Directory.EnumerateDirectories(savesDir))
+            {
+                var dpDir = Path.Combine(save, "datapacks");
+                SaveSection.Children.Add(new TextBlock
+                {
+                    Text = Path.GetFileName(save),
+                    FontSize = 13,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Margin = new Thickness(0, 6, 0, 0),
+                });
+                foreach (var row in BuildFileRows(dpDir, "datapack"))
+                {
+                    _contentRows.Add(row);
+                    SaveSection.Children.Add(BuildFileRow(row));
+                }
+            }
+        }
+        SaveSection.Children.Add(OpenDirRow(savesDir));
+    }
+
+    /// <summary>用 mod 扫描结果标注无法解析的 jar（异步，不阻塞首屏）。</summary>
+    private async Task AnnotateBrokenModsAsync(string gameRoot)
+    {
+        ModConflictReport report;
+        try
+        {
+            report = await _s.ModConflicts.ScanAsync(_s.Settings.DotMinecraft);
+        }
+        catch
+        {
+            return;
+        }
+        if (!string.Equals(gameRoot, _contentGameRoot, StringComparison.OrdinalIgnoreCase)) return;
+        var broken = report.Mods
+            .Where(m => m.Error is not null)
+            .Select(m => m.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (broken.Count == 0) return;
+        BuildContentSections(gameRoot, broken);
+    }
+
+    /// <summary>分区标题（名称 + 现有条目数）。</summary>
+    private static TextBlock SectionHeader(string label, string dir)
+    {
+        var count = Directory.Exists(dir) ? Directory.EnumerateFileSystemEntries(dir).Count() : 0;
+        return new TextBlock
+        {
+            Text = $"{label}（{count}）",
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+    }
+
+    /// <summary>目录路径 + 「打开目录」按钮。</summary>
+    private StackPanel OpenDirRow(string path)
+    {
+        var open = new Button
         {
             Content = "打开目录",
             Tag = path,
@@ -191,34 +303,323 @@ public sealed partial class VersionDetailPage : Page
             Padding = new Thickness(10, 2, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(openBtn, $"打开 {dir} 目录");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, $"打开 {Path.GetFileName(path)} 目录");
+        open.Click += OpenDir_Click;
         return new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Padding = new Thickness(0, 4, 0, 4),
+            Padding = new Thickness(0, 2, 0, 2),
             Children =
             {
-                new FontIcon { Glyph = "\uE8B7", FontSize = 16 },
-                new TextBlock { Text = dir, FontSize = 13, VerticalAlignment = VerticalAlignment.Center },
                 new TextBlock
                 {
-                    Text = exists ? "已存在" : "尚未创建",
-                    FontSize = 12,
-                    Opacity = 0.55,
+                    Text = path,
+                    FontSize = 11,
                     VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = SecondaryBrush(),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
                 },
-                openBtn,
+                open,
             },
         };
     }
 
-    private void OpenContentDir_Click(object sender, RoutedEventArgs e)
+    private void OpenDir_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not string path) return;
-        Directory.CreateDirectory(path);
-        Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+        try
+        {
+            Directory.CreateDirectory(path);
+            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            ShowContentInfo($"打开目录失败：{ex.Message}", InfoBarSeverity.Error);
+        }
     }
+
+    /// <summary>枚举目录内文件（含 .disabled）生成行模型。</summary>
+    private static List<ContentFileRow> BuildFileRows(string dir, string kind)
+    {
+        var rows = new List<ContentFileRow>();
+        if (!Directory.Exists(dir)) return rows;
+        foreach (var file in Directory.EnumerateFiles(dir))
+        {
+            var name = Path.GetFileName(file);
+            var enabled = !name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+            var display = enabled ? name : name[..^".disabled".Length];
+            rows.Add(new ContentFileRow(
+                display, FormatSize(new FileInfo(file).Length),
+                enabled ? "启用" : "已停用", enabled, kind, file));
+        }
+        return rows.OrderBy(r => r.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>单行：图标 + 文件名 + 状态 + 大小 + 启停 / 删除。</summary>
+    private Grid BuildFileRow(ContentFileRow row)
+    {
+        var info = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                new FontIcon { Glyph = "\uE8B7", FontSize = 14, Foreground = SecondaryBrush() },
+                new TextBlock { Text = row.FileName, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis },
+                new TextBlock { Text = row.StatusText, FontSize = 12, Foreground = SecondaryBrush() },
+                new TextBlock { Text = row.SizeText, FontSize = 12, Foreground = SecondaryBrush() },
+            },
+        };
+
+        var toggle = new Button
+        {
+            Content = row.ToggleVerb,
+            Tag = row,
+            FontSize = 12,
+            Padding = new Thickness(10, 2, 10, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, $"{row.ToggleVerb} {row.FileName}");
+        toggle.Click += ToggleFile_Click;
+
+        var del = new Button
+        {
+            Content = "删除",
+            Tag = row,
+            FontSize = 12,
+            Padding = new Thickness(10, 2, 10, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = ErrorBrush(),
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, $"删除 {row.FileName}");
+        del.Click += DeleteFile_Click;
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { toggle, del },
+        };
+
+        var grid = new Grid { Padding = new Thickness(0, 2, 0, 2) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(info, 0);
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(info);
+        grid.Children.Add(actions);
+        return grid;
+    }
+
+    /// <summary>停用 / 启用（改名 .disabled，不删除文件）。</summary>
+    private void ToggleFile_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ContentFileRow row) return;
+        var verb = row.ToggleVerb;
+        try
+        {
+            var target = row.Enabled
+                ? row.FullPath + ".disabled"
+                : row.FullPath[..^".disabled".Length];
+            if (File.Exists(target)) File.Delete(target);
+            File.Move(row.FullPath, target, overwrite: true);
+            ShowContentInfo($"{row.FileName} 已{verb}。", InfoBarSeverity.Success);
+            ContentPanelFill(_contentGameRoot);
+        }
+        catch (Exception ex)
+        {
+            ShowContentInfo($"{verb}失败：{ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    /// <summary>删除单个内容文件（确认后执行）。</summary>
+    private async void DeleteFile_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ContentFileRow row) return;
+        var dlg = new ContentDialog
+        {
+            Title = "删除内容文件",
+            Content = $"确定要删除 {row.FileName} 吗？此操作不可恢复。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        try
+        {
+            File.Delete(row.FullPath);
+            ShowContentInfo($"{row.FileName} 已删除。", InfoBarSeverity.Success);
+            ContentPanelFill(_contentGameRoot);
+        }
+        catch (Exception ex)
+        {
+            ShowContentInfo($"删除失败：{ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    /// <summary>把消息显示在内容卡片 InfoBar。</summary>
+    private void ShowContentInfo(string message, InfoBarSeverity severity)
+    {
+        ContentInfoBar.Severity = severity;
+        ContentInfoBar.Message = message;
+        ContentInfoBar.IsOpen = true;
+    }
+
+    // ── 检查更新 / 冲突扫描 ──
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = _contentRows.Where(r => r.Enabled).ToList();
+        if (rows.Count == 0)
+        {
+            ShowContentInfo("没有可检查的文件（已停用的内容不参与更新检查）。", InfoBarSeverity.Informational);
+            return;
+        }
+
+        var loader = ContentLibraryService.ResolveLoader(_versionId, out _);
+        var mc = ContentLibraryService.ResolveMc(_versionId);
+        CheckUpdateBtn.IsEnabled = false;
+        try
+        {
+            var outdated = new List<string>();
+            foreach (var row in rows)
+            {
+                try
+                {
+                    var result = await _s.ContentLibrary.CheckUpdateAsync(
+                        row.FullPath, mc, loader == "vanilla" ? null : loader);
+                    if (result is not null) outdated.Add(row.FileName);
+                }
+                catch
+                {
+                    // 单个文件失败不影响其它文件
+                }
+            }
+            ShowContentInfo(
+                outdated.Count == 0
+                    ? $"已检查 {rows.Count} 个文件，都是最新版本。"
+                    : $"{outdated.Count} 个文件可更新：{string.Join("、", outdated)}。可到下载页搜索同名资源安装新版本。",
+                outdated.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
+        }
+        finally
+        {
+            CheckUpdateBtn.IsEnabled = true;
+        }
+    }
+
+    private async void ScanConflict_Click(object sender, RoutedEventArgs e)
+    {
+        ScanConflictBtn.IsEnabled = false;
+        try
+        {
+            var report = await _s.ModConflicts.ScanAsync(_s.Settings.DotMinecraft);
+            if (report.Conflicts.Count == 0)
+            {
+                ShowContentInfo($"已扫描 {report.ScannedCount} 个模组，未发现冲突。", InfoBarSeverity.Success);
+            }
+            else
+            {
+                var first = report.Conflicts[0];
+                ShowContentInfo(
+                    $"发现 {report.Conflicts.Count} 个冲突。[{first.Kind}] {first.Detail}　建议：{first.Suggestion}",
+                    InfoBarSeverity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowContentInfo($"冲突扫描失败：{ex.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            ScanConflictBtn.IsEnabled = true;
+        }
+    }
+
+    // ── 拖拽安装（.jar → Mod，.zip → 资源包） ──
+
+    private void Content_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "安装到该版本";
+        e.DragUIOverride.IsCaptionVisible = true;
+    }
+
+    private async void Content_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        IReadOnlyList<IStorageItem> items;
+        try
+        {
+            items = await e.DataView.GetStorageItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowContentInfo($"读取拖入内容失败：{ex.Message}", InfoBarSeverity.Error);
+            return;
+        }
+
+        var installed = new List<string>();
+        var skipped = 0;
+        foreach (var file in items.OfType<StorageFile>())
+        {
+            var kind = file.FileType.ToLowerInvariant() switch
+            {
+                ".jar" => "mod",
+                ".zip" => "resourcepack",
+                _ => "",
+            };
+            if (kind.Length == 0)
+            {
+                skipped++;
+                continue;
+            }
+            try
+            {
+                // 先复制到库内临时目录，避免 AdoptAsync 删除用户原文件
+                var tmpDir = Path.Combine(LauncherPaths.LibraryDir, ".tmp");
+                Directory.CreateDirectory(tmpDir);
+                var tmp = Path.Combine(tmpDir, file.Name);
+                File.Copy(file.Path, tmp, overwrite: true);
+                var entry = await _s.ContentLibrary.AdoptAsync(kind, tmp, new LibraryAdoptInfo(
+                    Path.GetFileNameWithoutExtension(file.Name), null, null, null, null, null, [], [], null));
+                await _s.ContentLibrary.InstallToVersionAsync(entry, _versionId);
+                installed.Add(entry.FileName);
+            }
+            catch (Exception ex)
+            {
+                ShowContentInfo($"{file.Name} 安装失败：{ex.Message}", InfoBarSeverity.Error);
+            }
+        }
+
+        if (installed.Count > 0)
+        {
+            ShowContentInfo(
+                $"已安装：{string.Join("、", installed)}"
+                + (skipped > 0 ? $"（忽略 {skipped} 个不支持的文件，整合包请到下载页安装）" : ""),
+                InfoBarSeverity.Success);
+            ContentPanelFill(_contentGameRoot);
+        }
+        else if (skipped > 0)
+        {
+            ShowContentInfo(
+                "未安装任何文件：仅支持 .jar（Mod）与 .zip（资源包）拖入；整合包请到下载页搜索安装。",
+                InfoBarSeverity.Warning);
+        }
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        <= 0 => "0 B",
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F0} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
+        _ => $"{bytes / 1024.0 / 1024 / 1024:F2} GB",
+    };
 
     private void ApplyIcon(string? iconPath)
     {

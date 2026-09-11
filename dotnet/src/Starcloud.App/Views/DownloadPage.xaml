@@ -13,11 +13,19 @@
         </Grid.RowDefinitions>
 
         <!-- 页头 -->
-        <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock Text="下载" FontSize="28" FontWeight="SemiBold" />
-            <TextBlock Text="下载原版与加载器，或在社区资源中查找 Mod 与整合包"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="下载" FontSize="28" FontWeight="SemiBold" />
+                <TextBlock Text="下载原版与加载器，或在社区资源中查找 Mod 与整合包"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+            <Button x:Name="LibraryBtn" Grid.Column="1" Content="资源管理"
+                    VerticalAlignment="Center" Click="Library_Click" />
+        </Grid>
 
         <!-- 主体：左分类 + 右内容 -->
         <Grid Grid.Row="1" ColumnSpacing="16">
@@ -756,5 +764,66 @@
                 </Grid>
             </Grid>
         </Grid>
+
+        <!-- 资源管理覆盖层（下载页右上角按钮展开） -->
+        <Border x:Name="LibraryPanel" Grid.Row="1" Visibility="Collapsed"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="16">
+            <Grid RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                    <TextBlock Text="资源管理" FontSize="20" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button x:Name="LibraryCloseBtn" Content="关闭" HorizontalAlignment="Right"
+                            Click="LibraryClose_Click" />
+                </Grid>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                    <Button Content="全部" Tag="" Click="LibKind_Click" />
+                    <Button Content="Mod" Tag="mod" Click="LibKind_Click" />
+                    <Button Content="资源包" Tag="resourcepack" Click="LibKind_Click" />
+                    <Button Content="光影" Tag="shader" Click="LibKind_Click" />
+                    <Button Content="数据包" Tag="datapack" Click="LibKind_Click" />
+                    <Button Content="整合包" Tag="modpack" Click="LibKind_Click" />
+                    <Button Content="重扫" Click="LibraryRescan_Click" />
+                </StackPanel>
+                <ListView x:Name="LibraryList" Grid.Row="2" SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:LibraryRow">
+                            <Grid ColumnSpacing="12" Padding="8,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Image Grid.Column="0" Source="{x:Bind Icon}" Width="32" Height="32" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Title}" FontSize="14"
+                                               FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind SubText}" FontSize="12" Opacity="0.6"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind KindLabel}" FontSize="12" />
+                                    <TextBlock Text="{x:Bind SizeText}" FontSize="12" Opacity="0.6" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8"
+                                            VerticalAlignment="Center">
+                                    <Button Content="装载" Tag="{x:Bind Id}" Click="LibraryInstall_Click"
+                                            MinWidth="72" />
+                                    <Button Content="删除" Tag="{x:Bind Id}" Click="LibraryRemove_Click"
+                                            MinWidth="72" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Border>
     </Grid>
 </Page>

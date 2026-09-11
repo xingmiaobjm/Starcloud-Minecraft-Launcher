@@ -57,6 +57,8 @@ public sealed class ModRow
     public string ProjectId { get; init; } = "";
     public string Title { get; init; } = "";
     public string Description { get; init; } = "";
+    public string IconUrl { get; init; } = "";
+    public string Author { get; init; } = "";
     public IReadOnlyList<string> Tags { get; init; } = [];
     public string LoadersText { get; init; } = "";
     public string DownloadsText { get; init; } = "";
@@ -77,6 +79,18 @@ public sealed record AccountRow(string Uuid, string Username, string TypeText, b
     public string Initial => string.IsNullOrWhiteSpace(Username) ? "?" : Username[..1].ToUpperInvariant();
     public Visibility DefaultBadgeVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DefaultBtnVisibility => IsDefault ? Visibility.Collapsed : Visibility.Visible;
+}
+
+/// <summary>资源管理列表行</summary>
+public sealed record LibraryRow(
+    string Id, string Kind, string Title, string FileName, string SubText,
+    string SizeText, string TimeText, ImageSource? Icon, string KindLabel);
+
+/// <summary>版本内容分区的单个文件行</summary>
+public sealed record ContentFileRow(
+    string FileName, string SizeText, string StatusText, bool Enabled, string Kind, string FullPath)
+{
+    public string ToggleVerb => Enabled ? "停用" : "启用";
 }
 
 /// <summary>下载页版本列表模板选择：大版本分组行用抽屉模板，其余平铺</summary>

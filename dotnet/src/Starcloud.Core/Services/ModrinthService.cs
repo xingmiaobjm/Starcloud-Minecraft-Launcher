@@ -88,6 +88,37 @@ public sealed class ModrinthService
         var json = await _downloader.GetStringAsync(url, ct);
         return JsonSerializer.Deserialize<List<ModrinthVersion>>(json) ?? [];
     }
+
+    /// <summary>按 SHA1 批量反查版本（分片 100/批；未命中的哈希不出现在结果字典）</summary>
+    public async Task<Dictionary<string, ModrinthVersion>> GetVersionsByHashesAsync(
+        IReadOnlyCollection<string> sha1s, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, ModrinthVersion>(StringComparer.OrdinalIgnoreCase);
+        if (sha1s.Count == 0) return result;
+
+        foreach (var chunk in sha1s.Chunk(100))
+        {
+            ct.ThrowIfCancellationRequested();
+            var body = JsonSerializer.Serialize(new { hashes = chunk, algorithm = "sha1" });
+            var json = await _downloader.PostJsonAsync($"{ApiBase}/version_files", body, ct);
+            var map = JsonSerializer.Deserialize<Dictionary<string, ModrinthVersion>>(json);
+            if (map is null) continue;
+            foreach (var (hash, version) in map) result[hash] = version;
+        }
+        return result;
+    }
+
+    /// <summary>取项目标题（依赖提示用；失败返回 null）</summary>
+    public async Task<string?> GetProjectTitleAsync(string projectId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(projectId)) return null;
+        try
+        {
+            var json = await _downloader.GetStringAsync($"{ApiBase}/project/{projectId}", ct);
+            return JsonSerializer.Deserialize<ModrinthProject>(json)?.Title;
+        }
+        catch { return null; }
+    }
 }
 
 public sealed class ModrinthSearchResult
@@ -147,6 +178,9 @@ public sealed class ModrinthVersion
     [JsonPropertyName("id")]
     public string Id { get; set; } = "";
 
+    [JsonPropertyName("project_id")]
+    public string ProjectId { get; set; } = "";
+
     [JsonPropertyName("version_number")]
     public string VersionNumber { get; set; } = "";
 
@@ -162,6 +196,9 @@ public sealed class ModrinthVersion
 
     [JsonPropertyName("files")]
     public List<ModrinthFile> Files { get; set; } = [];
+
+    [JsonPropertyName("dependencies")]
+    public List<ModrinthDependency> Dependencies { get; set; } = [];
 
     [JsonIgnore]
     public ModrinthFile? PrimaryFile =>
@@ -184,4 +221,34 @@ public sealed class ModrinthFile
 
     [JsonPropertyName("sha1")]
     public string? Sha1 { get; set; }
+}
+
+/// <summary>Modrinth 版本依赖项</summary>
+public sealed class ModrinthDependency
+{
+    [JsonPropertyName("project_id")]
+    public string? ProjectId { get; set; }
+
+    [JsonPropertyName("version_id")]
+    public string? VersionId { get; set; }
+
+    [JsonPropertyName("file_name")]
+    public string? FileName { get; set; }
+
+    /// <summary>required | optional | incompatible | embedded</summary>
+    [JsonPropertyName("dependency_type")]
+    public string DependencyType { get; set; } = "";
+}
+
+/// <summary>Modrinth 项目（仅取标题等展示字段）</summary>
+public sealed class ModrinthProject
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("icon_url")]
+    public string? IconUrl { get; set; }
 }

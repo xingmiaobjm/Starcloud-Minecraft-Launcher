@@ -35,6 +35,11 @@ public static class LauncherPaths
     /// <summary>资源列表磁盘缓存目录（一 key 一文件）</summary>
     public static string CacheDir => Path.Combine(DataDir, "cache");
 
+    /// <summary>启动器统一资源库目录</summary>
+    public static string LibraryDir => Path.Combine(DataDir, "library");
+
+    public static string LibraryIndexFile => Path.Combine(LibraryDir, "library.json");
+
     public static string JavaDir => Path.Combine(DataDir, "java");
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
@@ -45,6 +50,7 @@ public static class LauncherPaths
         Directory.CreateDirectory(JavaDir);
         Directory.CreateDirectory(LogsDir);
         Directory.CreateDirectory(CacheDir);
+        Directory.CreateDirectory(LibraryDir);
     }
 }
 

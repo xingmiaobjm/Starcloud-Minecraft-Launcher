@@ -315,6 +315,16 @@ public static class InstanceLayout
         }
     }
 
+    /// <summary>资源类别 → 版本内容目录名</summary>
+    public static string ContentDirFor(string kind) => kind switch
+    {
+        "mod" => "mods",
+        "resourcepack" => "resourcepacks",
+        "shader" => "shaderpacks",
+        "datapack" => "datapacks",
+        _ => "mods",
+    };
+
     /// <summary>重命名版本：versions/&lt;old&gt;/ 整体移动 + 内部 json/jar 同步改名 + json id 字段写回</summary>
     public static void RenameInstance(string dotMc, string oldId, string newId)
     {

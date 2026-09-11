@@ -15,6 +15,7 @@ public sealed class AppServices
     public InstallerService Installer { get; }
     public FabricService Fabric { get; }
     public ModrinthService Mods { get; }
+    public ContentLibraryService ContentLibrary { get; }
     public GameLauncher Launcher { get; }
     public AccountStore Accounts { get; }
     public MicrosoftAuthService MicrosoftAuth { get; }
@@ -47,6 +48,7 @@ public sealed class AppServices
         Java = new JavaService(Download);
         Forge = new ForgeInstallerService(Download, Java);
         Mods = new ModrinthService(Download, ResourceCache);
+        ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();

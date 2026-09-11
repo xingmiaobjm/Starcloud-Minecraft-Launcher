@@ -1,6 +1,7 @@
 // 并发下载引擎：多文件批量下载 + 重试 + 进度/速度/ETA 回调（对应旧 Rust download 模块）
 
 using System.Diagnostics;
+using System.Text;
 using Starcloud.Core.Models;
 
 namespace Starcloud.Core.Services;
@@ -70,6 +71,15 @@ public sealed class DownloadService
     public async Task<string> GetStringAsync(string url, CancellationToken ct = default)
     {
         using var resp = await _http.GetAsync(url, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>POST JSON 并返回响应文本</summary>
+    public async Task<string> PostJsonAsync(string url, string jsonBody, CancellationToken ct = default)
+    {
+        using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        using var resp = await _http.PostAsync(url, content, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
     }

@@ -95,6 +95,10 @@ public sealed partial class DownloadPage : Page
     private CancellationTokenSource? _cts;
     private IReadOnlyList<ModrinthCategory>? _categories;
 
+    // ── 资源管理面板 ──
+    private string _libKind = "";
+    private bool _libLoaded;
+
     public DownloadPage()
     {
         InitializeComponent();
@@ -732,6 +736,8 @@ public sealed partial class DownloadPage : Page
                 ProjectId = h.ProjectId,
                 Title = h.Title,
                 Description = h.Description,
+                IconUrl = h.IconUrl ?? "",
+                Author = h.Author,
                 Tags = h.DisplayCategories.Take(3).Select(ChineseCategory).ToList(),
                 LoadersText = string.Join(" / ", h.Loaders.Select(DisplayLoader)),
                 DownloadsText = $"\u2193 {FormatCount(h.Downloads)}",
@@ -792,7 +798,7 @@ public sealed partial class DownloadPage : Page
         _ = SearchAsync(reset: false);
     }
 
-    // ── 社区安装 ──
+    // ── 社区安装（下载 → 入库去重 → 装载） ──
     private async void Install_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.DataContext is not ModRow row || _busy) return;
@@ -807,31 +813,71 @@ public sealed partial class DownloadPage : Page
         ErrorBar.IsOpen = false;
         try
         {
+            // 1. 取文件版本（跳过 alpha）
             var versions = await _s.Mods.ListVersionsAsync(row.ProjectId, loader, versionId);
-            var version = versions.FirstOrDefault();
-            if (version?.PrimaryFile is not { } file)
+            if (versions.Count == 0)
                 throw new InvalidOperationException(
                     versionId is null ? "没有可用文件版本"
                         : loader is null ? $"没有兼容 {versionId} 的文件版本"
                         : $"没有兼容 {versionId}（{loader}）的文件版本");
+            var version = versions.FirstOrDefault(v =>
+                !string.Equals(v.VersionType, "alpha", StringComparison.OrdinalIgnoreCase)) ?? versions[0];
+            if (version.PrimaryFile is not { } file)
+                throw new InvalidOperationException("该版本没有可用文件");
 
-            var dest = Path.Combine(_s.Settings.DotMinecraft, info.Folder, file.Filename);
-            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            await _s.Download.DownloadFileAsync(file.Url, dest, file.Sha1, ct: CancellationToken.None);
+            // 2. 下载到库临时目录
+            var tmpDir = Path.Combine(LauncherPaths.LibraryDir, ".tmp");
+            Directory.CreateDirectory(tmpDir);
+            var tmp = Path.Combine(tmpDir, file.Filename);
+            await _s.Download.DownloadFileAsync(file.Url, tmp, file.Sha1, ct: CancellationToken.None);
 
+            // 3. 整合包：归档入库后走新建版本流程
             if (info.Tag == "modpack" && file.Filename.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
             {
-                var summary = await InstallMrPackAsync(dest);
-                OkBar.Message = $"{file.Filename} 已安装。{summary}";
+                var archived = await _s.ContentLibrary.AdoptAsync("modpack", tmp, new LibraryAdoptInfo(
+                    row.Title, row.IconUrl, row.Author, row.ProjectId, version.Id, version.VersionNumber,
+                    version.GameVersions, version.Loaders, file.Url));
+                var libPath = Path.Combine(_s.ContentLibrary.DirFor("modpack"), archived.FileName);
+                var summary = await InstallMrPackAsync(libPath);
+                ShowOk($"{file.Filename} 已安装。{summary}");
+                return;
             }
-            else
+
+            // 4. 其余类别入库（同 SHA1 自动去重）
+            var entry = await _s.ContentLibrary.AdoptAsync(info.Tag, tmp, new LibraryAdoptInfo(
+                row.Title, row.IconUrl, row.Author, row.ProjectId, version.Id, version.VersionNumber,
+                version.GameVersions, version.Loaders, file.Url));
+
+            // 5. 选择装载目标版本
+            var targets = await PickVersionsAsync(entry.Kind, row.Title);
+            if (targets is null || targets.Count == 0)
             {
-                OkBar.Message = $"{file.Filename} 已安装到 {info.Folder}" +
-                                (versionId is null ? "" : $"（{versionId}）");
+                ShowOk($"{entry.FileName} 已存入资源库（未装载）。");
+                if (_libLoaded) await RefreshLibraryAsync();
+                return;
             }
-            OkBar.IsOpen = true;
-            _okTimer.Stop();
-            _okTimer.Start();
+
+            // 6. 逐个装载（数据包进存档）
+            foreach (var id in targets)
+            {
+                if (entry.Kind == "datapack")
+                {
+                    var save = await PickSaveAsync(id);
+                    if (save is null) continue;
+                    await _s.ContentLibrary.InstallToSaveAsync(entry, id, save);
+                }
+                else
+                {
+                    await _s.ContentLibrary.InstallToVersionAsync(entry, id);
+                }
+            }
+            ShowOk($"{file.Filename} 已装载到 {targets.Count} 个版本。");
+            if (_libLoaded) await RefreshLibraryAsync();
+
+            // 7. Mod 类别 → 智能依赖提示
+            if (entry.Kind == "mod")
+                foreach (var id in targets)
+                    await CheckDependenciesAfterInstallAsync(version, id);
         }
         catch (Exception ex)
         {
@@ -844,6 +890,290 @@ public sealed partial class DownloadPage : Page
             btn.IsEnabled = true;
             InstallProgress.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private void ShowOk(string message)
+    {
+        OkBar.Message = message;
+        OkBar.IsOpen = true;
+        _okTimer.Stop();
+        _okTimer.Start();
+    }
+
+    // ════════════ 资源管理面板 ════════════
+
+    private async void Library_Click(object sender, RoutedEventArgs e)
+    {
+        LibraryPanel.Visibility = Visibility.Visible;
+        if (_libLoaded) return;
+        await RefreshLibraryAsync();
+        _libLoaded = true;
+    }
+
+    private void LibraryClose_Click(object sender, RoutedEventArgs e)
+        => LibraryPanel.Visibility = Visibility.Collapsed;
+
+    private async void LibKind_Click(object sender, RoutedEventArgs e)
+    {
+        _libKind = (sender as Button)?.Tag as string ?? "";
+        await RefreshLibraryAsync();
+    }
+
+    private async void LibraryRescan_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _s.ContentLibrary.RescanAsync();
+            await RefreshLibraryAsync();
+            ShowOk("资源库已重扫。");
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = $"重扫失败：{ex.Message}";
+            ErrorBar.IsOpen = true;
+        }
+    }
+
+    private async Task RefreshLibraryAsync()
+    {
+        var entries = await _s.ContentLibrary.ListAsync(_libKind);
+        LibraryList.ItemsSource = entries.Select(en => new LibraryRow(
+            en.Id, en.Kind,
+            string.IsNullOrEmpty(en.Title) ? en.FileName : en.Title,
+            en.FileName,
+            en.Author is null ? en.FileName : $"{en.Author} · {en.FileName}",
+            FormatSize(en.SizeBytes), FormatRelative(en.DownloadedAt),
+            string.IsNullOrEmpty(en.IconUrl) ? null : new BitmapImage(new Uri(en.IconUrl)),
+            KindLabel(en.Kind))).ToList();
+    }
+
+    private async void LibraryInstall_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string id) return;
+        var entry = (await _s.ContentLibrary.ListAsync()).FirstOrDefault(x => x.Id == id);
+        if (entry is null) return;
+
+        if (entry.Kind == "modpack")
+        {
+            ShowOk("整合包请在下载页使用「下载」按钮走新建版本流程。");
+            return;
+        }
+
+        var title = string.IsNullOrEmpty(entry.Title) ? entry.FileName : entry.Title;
+        var targets = await PickVersionsAsync(entry.Kind, title);
+        if (targets is null) return;              // 取消
+        if (targets.Count == 0)
+        {
+            ShowOk($"{entry.FileName} 已保留在资源库（未装载）。");
+            return;
+        }
+
+        try
+        {
+            foreach (var versionId in targets)
+            {
+                if (entry.Kind == "datapack")
+                {
+                    var save = await PickSaveAsync(versionId);
+                    if (save is null) continue;
+                    await _s.ContentLibrary.InstallToSaveAsync(entry, versionId, save);
+                }
+                else
+                {
+                    await _s.ContentLibrary.InstallToVersionAsync(entry, versionId);
+                }
+            }
+            ShowOk($"{entry.FileName} 已装载到 {targets.Count} 个版本。");
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = $"装载失败：{ex.Message}";
+            ErrorBar.IsOpen = true;
+        }
+    }
+
+    private async void LibraryRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string id) return;
+        _s.ContentLibrary.Remove(id);
+        await RefreshLibraryAsync();
+    }
+
+    /// <summary>资源类别 → 中文标签</summary>
+    private static string KindLabel(string kind) => kind switch
+    {
+        "mod" => "Mod", "resourcepack" => "资源包", "shader" => "光影",
+        "datapack" => "数据包", "modpack" => "整合包", _ => kind,
+    };
+
+    /// <summary>弹窗多选装载目标版本；取消返回 null，「暂不装载」返回空列表</summary>
+    private async Task<List<string>?> PickVersionsAsync(string kind, string title)
+    {
+        var installed = _s.ContentLibrary.ListInstalledVersions();
+        var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"把「{title}」（{KindLabel(kind)}）装载到哪些版本？",
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var checks = new List<CheckBox>();
+        if (installed.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "尚未安装任何版本，可稍后在「资源管理」中装载。",
+                Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
+            });
+        }
+        else
+        {
+            var list = new ListView { MaxHeight = 320, SelectionMode = ListViewSelectionMode.None };
+            foreach (var v in installed)
+            {
+                var check = new CheckBox
+                {
+                    Content = $"{v.Id}（{FormatSize(v.SizeBytes)}）",
+                    Tag = v.Id,
+                };
+                checks.Add(check);
+                list.Items.Add(check);
+            }
+            panel.Children.Add(list);
+        }
+
+        var dlg = new ContentDialog
+        {
+            Title = "装载到版本",
+            Content = panel,
+            PrimaryButtonText = "装载",
+            SecondaryButtonText = "暂不装载（仅入库）",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        var result = await dlg.ShowAsync();
+        if (result == ContentDialogResult.None) return null;
+        if (result == ContentDialogResult.Secondary) return [];
+        return checks.Where(c => c.IsChecked == true).Select(c => (string)c.Tag).ToList();
+    }
+
+    /// <summary>弹窗选择数据包的装载存档；无存档或取消返回 null</summary>
+    private async Task<string?> PickSaveAsync(string versionId)
+    {
+        var dotMc = _s.Settings.DotMinecraft;
+        var profile = new InstanceSettingsStore(dotMc).Get(versionId);
+        var isolated = InstanceLayout.IsIsolated(profile, _s.Settings);
+        var gameRoot = InstanceLayout.GameRoot(dotMc, versionId, isolated);
+        var saves = _s.Saves.ListSaves(gameRoot, versionId, isolated);
+
+        var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"把数据包装载到「{versionId}」的哪个存档？",
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        if (saves.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "该版本没有存档，请先创建世界。",
+                Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
+            });
+        }
+        else
+        {
+            foreach (var s in saves)
+                combo.Items.Add(new ComboBoxItem { Content = s.LevelName, Tag = s.FolderName });
+            combo.SelectedIndex = 0;
+            panel.Children.Add(combo);
+        }
+
+        var dlg = new ContentDialog
+        {
+            Title = "装载到存档",
+            Content = panel,
+            PrimaryButtonText = "装载",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        var result = await dlg.ShowAsync();
+        if (saves.Count == 0 || result != ContentDialogResult.Primary) return null;
+        return (combo.SelectedItem as ComboBoxItem)?.Tag as string;
+    }
+
+    // ════════════ 智能依赖提示 ════════════
+
+    /// <summary>Mod 装载后检查缺失依赖，提示一键补全</summary>
+    private async Task CheckDependenciesAfterInstallAsync(ModrinthVersion version, string versionId)
+    {
+        var report = await _s.ContentLibrary.CheckDependenciesAsync(version, versionId);
+        if (report.Required.Count == 0 && report.IncompatiblePresent.Count == 0) return;
+
+        var parts = new List<string>();
+        if (report.Required.Count > 0)
+            parts.Add($"缺少 {report.Required.Count} 个前置：{string.Join("、", report.Required.Select(d => d.Title))}");
+        if (report.IncompatiblePresent.Count > 0)
+            parts.Add($"与已装不兼容：{string.Join("、", report.IncompatiblePresent)}");
+        ShowOk(string.Join("；", parts));
+
+        if (report.Required.Count == 0) return;
+
+        var panel = new StackPanel { Spacing = 6, MinWidth = 320 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"是否自动下载并装载以下前置到「{versionId}」？",
+            TextWrapping = TextWrapping.Wrap,
+        });
+        foreach (var dep in report.Required)
+            panel.Children.Add(new TextBlock { Text = "• " + dep.Title, TextWrapping = TextWrapping.Wrap });
+
+        var dlg = new ContentDialog
+        {
+            Title = "补全前置依赖",
+            Content = panel,
+            PrimaryButtonText = "一键补全",
+            CloseButtonText = "稍后",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var loader = ContentLibraryService.ResolveLoader(versionId, out _);
+        var mc = ContentLibraryService.ResolveMc(versionId);
+        await ResolveMissingAsync(report.Required, versionId, mc,
+            loader == "vanilla" ? null : loader, 1, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>递归下载缺失前置（按 ProjectId 去重，深度 ≤ 2）</summary>
+    private async Task ResolveMissingAsync(
+        IReadOnlyList<MissingDependency> missing, string versionId, string mc,
+        string? loader, int depth, HashSet<string> seen)
+    {
+        if (depth > 2) return;
+        foreach (var dep in missing)
+        {
+            if (string.IsNullOrEmpty(dep.ProjectId) || !seen.Add(dep.ProjectId)) continue;
+
+            var versions = await _s.Mods.ListVersionsAsync(dep.ProjectId, loader, mc);
+            var version = versions.FirstOrDefault(v =>
+                !string.Equals(v.VersionType, "alpha", StringComparison.OrdinalIgnoreCase))
+                ?? versions.FirstOrDefault();
+            if (version?.PrimaryFile is not { } file) continue;
+
+            var entry = await _s.ContentLibrary.DownloadAndAdoptAsync("mod", file.Url, file.Filename,
+                file.Sha1, new LibraryAdoptInfo(dep.Title, null, null, dep.ProjectId,
+                    version.Id, version.VersionNumber, version.GameVersions, version.Loaders, file.Url));
+            await _s.ContentLibrary.InstallToVersionAsync(entry, versionId);
+
+            var nested = await _s.ContentLibrary.CheckDependenciesAsync(version, versionId);
+            if (nested.Required.Count > 0)
+                await ResolveMissingAsync(nested.Required, versionId, mc, loader, depth + 1, seen);
+        }
+        if (_libLoaded) await RefreshLibraryAsync();
     }
 
     // ── 整合包 .mrpack 自动安装 ──
@@ -923,6 +1253,15 @@ public sealed partial class DownloadPage : Page
     }
 
     // ── 格式化 ──
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        <= 0 => "0 B",
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F0} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
+        _ => $"{bytes / 1024.0 / 1024 / 1024:F2} GB",
+    };
+
     private static string FormatCount(long n) => n switch
     {
         >= 100_000_000 => $"{n / 100_000_000.0:0.#}亿",

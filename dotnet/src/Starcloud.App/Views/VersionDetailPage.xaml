@@ -3,6 +3,7 @@
     x:Class="Starcloud.App.Views.VersionDetailPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Starcloud.App.Views"
     NavigationCacheMode="Disabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
@@ -110,16 +111,29 @@
                 </StackPanel>
             </Border>
 
-            <!-- 内容卡片：隔离时随版本独立的 5 个目录 -->
+            <!-- 内容卡片：三分区文件管理（含启停 / 检查更新 / 冲突扫描 / 拖拽安装） -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16">
+                    BorderThickness="1" CornerRadius="16" Padding="16"
+                    AllowDrop="True" DragOver="Content_DragOver" Drop="Content_Drop">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="内容" FontSize="16" FontWeight="SemiBold" />
-                    <TextBlock FontSize="12"
+                    <Grid>
+                        <TextBlock Text="内容" FontSize="16" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <Button x:Name="CheckUpdateBtn" Content="检查更新" FontSize="12"
+                                    Padding="10,2,10,2" Click="CheckUpdate_Click" />
+                            <Button x:Name="ScanConflictBtn" Content="冲突扫描" FontSize="12"
+                                    Padding="10,2,10,2" Click="ScanConflict_Click" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock FontSize="12" TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="独立目录版本的 mods / 存档 / 配置等存放在游戏目录下，共享版本存放在 .minecraft 根目录。" />
-                    <StackPanel x:Name="ContentPanel" Spacing="4" />
+                               Text="可直接把 mods / 资源包 / 光影 / 数据包文件拖到此处安装；停用仅改名为 .disabled，可随时还原。" />
+                    <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" />
+                    <StackPanel x:Name="ModSection" Spacing="4" />
+                    <StackPanel x:Name="PackSection" Spacing="4" />
+                    <StackPanel x:Name="SaveSection" Spacing="4" />
                 </StackPanel>
             </Border>
 
