@@ -6,6 +6,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
@@ -109,7 +110,6 @@ public sealed partial class VersionDetailPage : Page
         NoteBox.Text = profile.Note ?? "";
 
         // NumberBox.Header 不在 Loc 附加属性支持范围内，改由代码赋值
-        MaxMemBox.Header = Loc.T("最大内存（MB）");
         WidthBox.Header = Loc.T("宽");
         HeightBox.Header = Loc.T("高");
 
@@ -138,7 +138,15 @@ public sealed partial class VersionDetailPage : Page
         _memDirty = false;
         var memMode = profile.MemoryMode ?? (profile.MemoryMaxMb is not null ? "manual" : "global");
         MemoryModeRadio.SelectedIndex = memMode switch { "auto" => 1, "manual" => 2, _ => 0 };
-        MaxMemBox.Value = profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb;
+
+        // 自定义内存：与「设置 → 内存分配」同款滑块（整数 GB），上界为「按物理内存自动分配」值
+        var autoGb = Math.Max(1, SystemMemory.AutoMaxMb() / 1024);
+        var memGb = Math.Max(1, (profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb) / 1024);
+        MaxMemSlider.Maximum = Math.Max(autoGb, memGb);
+        MaxMemSlider.Value = Math.Clamp(memGb, 1, MaxMemSlider.Maximum);
+        MaxMemText.Text = $"{(int)MaxMemSlider.Value} GB";
+        MemAutoHint.Text = Loc.T("1 ~ {0} GB（物理内存 {1} GB，自动上限 {2} GB）；最小内存固定 512 MB。",
+            (int)MaxMemSlider.Maximum, SystemMemory.Snapshot().TotalMb / 1024, autoGb);
 
         // Java 档位
         _javaOverride = profile.JavaPath;
@@ -183,7 +191,6 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>即时校验与提示文案（不写入数据）。</summary>
     private void RefreshHints()
     {
-        ValidateMemory();
         ValidateWindow();
         TryReadServer(out _);
         ReadEnv();
@@ -981,7 +988,7 @@ public sealed partial class VersionDetailPage : Page
     private void UpdateModeVisibility()
     {
         var memMode = MemoryModeRadio.SelectedIndex;
-        MaxMemBox.Visibility = memMode == 2 ? Visibility.Visible : Visibility.Collapsed;
+        MemManualPanel.Visibility = memMode == 2 ? Visibility.Visible : Visibility.Collapsed;
         AutoMemText.Visibility = memMode == 1 ? Visibility.Visible : Visibility.Collapsed;
         MemoryReset.Visibility = memMode == 0 ? Visibility.Collapsed : Visibility.Visible;
         if (memMode == 1)
@@ -1004,7 +1011,7 @@ public sealed partial class VersionDetailPage : Page
         var allocMb = MemoryModeRadio.SelectedIndex switch
         {
             1 => SystemMemory.AutoMaxMb(),
-            2 => double.IsNaN(MaxMemBox.Value) ? _s.Settings.DefaultMaxMemoryMb : (int)MaxMemBox.Value,
+            2 => (int)MaxMemSlider.Value * 1024,
             _ => _s.Settings.DefaultMaxMemoryMb,
         };
         var scale = totalMb > 0 ? barWidth / totalMb : 0;
@@ -1023,31 +1030,20 @@ public sealed partial class VersionDetailPage : Page
         if (MemoryModeRadio.SelectedIndex == 2) _memDirty = true;
         UpdateModeVisibility();
         RefreshMemoryBar();
-        ValidateMemory();
         ScheduleSave();
     }
 
-    private void Memory_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    private void MaxMemSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
+        if (MaxMemText is null) return;
+        MaxMemText.Text = $"{(int)e.NewValue} GB";
         if (_loading) return;
         _memDirty = true;
-        ValidateMemory();
         RefreshMemoryBar();
         ScheduleSave();
     }
 
     private void MemoryReset_Click(object sender, RoutedEventArgs e) => MemoryModeRadio.SelectedIndex = 0;
-
-    private bool ValidateMemory()
-    {
-        var max = MaxMemBox.Value;
-        var bad = MemoryModeRadio.SelectedIndex == 2
-            && (double.IsNaN(max) || max < 512 || max > 131072);
-        MaxMemBox.BorderBrush = bad ? ErrorBrush() : null;
-        MemErrorText.Visibility = bad ? Visibility.Visible : Visibility.Collapsed;
-        if (bad) MemErrorText.Text = Loc.T("请填写 512–131072 之间的数值。");
-        return !bad;
-    }
 
     // ── Java ──
 
@@ -1468,10 +1464,10 @@ public sealed partial class VersionDetailPage : Page
         // 内存：仅「自定义」写覆盖值（最小固定 512）
         if (profile.MemoryMode == "manual")
         {
-            if (_memDirty && ValidateMemory())
+            if (_memDirty)
             {
                 profile.MemoryMinMb = 512;
-                profile.MemoryMaxMb = (int)MaxMemBox.Value;
+                profile.MemoryMaxMb = (int)MaxMemSlider.Value * 1024;
             }
         }
         else

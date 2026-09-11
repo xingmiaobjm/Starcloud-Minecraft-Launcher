@@ -81,6 +81,7 @@ public sealed partial class AccountsPage : Page
             await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password, SelectedChannel);
             ScPwdBox.Password = "";
             RefreshStarcloudState();
+            _s.NovaRuntime.NotifyLoginChanged(); // 登录态变了：Nova 状态机/问候/Orb 面板同步
             ShowStatus(Loc.T("已登录，Nova 云端模型 Key 已就绪"));
         }
         catch (Exception ex)
@@ -193,6 +194,7 @@ public sealed partial class AccountsPage : Page
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
         _s.StarcloudId.Logout();
         RefreshStarcloudState();
+        _s.NovaRuntime.NotifyLoginChanged(); // 退出后 Orb 面板回到未登录引导
     }
 
     // ── 游戏账户：添加入口 + 登录方式选择 ──

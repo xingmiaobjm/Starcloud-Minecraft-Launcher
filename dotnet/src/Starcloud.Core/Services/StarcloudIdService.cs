@@ -23,7 +23,7 @@ public sealed class StarcloudIdService
     public const string CloudChannel = "cloud";
 
     /// <summary>云 AI 助手服务地址（云端通道；测试通道不访问网络）</summary>
-    public const string CloudBaseUrl = "https://ai.starcloud.example";
+    public const string CloudBaseUrl = "https://api.starcloudfur.cn";
 
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 

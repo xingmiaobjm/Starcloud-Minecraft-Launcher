@@ -1,5 +1,6 @@
 // 页面列表行模型（WinUI XAML 编译器要求 x:DataType 引用命名空间级类型，不能是页面嵌套类型）
 
+using System.ComponentModel;
 using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,8 +13,12 @@ namespace Starcloud.App.Views;
 /// <summary>首页版本列表条目（已安装版本）</summary>
 public sealed record VersionRow(string Id, string SizeText);
 
-/// <summary>下载页版本列表条目</summary>
-public sealed record DownloadRow(string Id, string TimeText, string Badge, Brush? BadgeBrush);
+/// <summary>下载页版本列表条目（Icon 为按版本类型选取的等距方块渲染图）</summary>
+public sealed record DownloadRow(
+    string Id, string TimeText, string Badge, Brush? BadgeBrush, ImageSource? Icon);
+
+/// <summary>下载页「最新版本」区块条目（最新正式版 / 最新预览版）</summary>
+public sealed record LatestVersionRow(string Id, string SubText, ImageSource? Icon);
 
 /// <summary>下载详情页加载器构建行（Selected 决定行尾"已选"徽标可见性）</summary>
 public sealed record LoaderBuildRow(string Version, string Sub, bool Selected)
@@ -22,12 +27,32 @@ public sealed record LoaderBuildRow(string Version, string Sub, bool Selected)
 }
 
 /// <summary>下载页原版列表的大版本分组（抽屉折叠行）</summary>
-public sealed class VersionGroupRow
+public sealed class VersionGroupRow : INotifyPropertyChanged
 {
+    private bool _isExpanded;
+
     public string Major { get; init; } = "";
     public int Count { get; init; }
     public string CountText => $"({Count})";
     public List<DownloadRow> Items { get; init; } = [];
+
+    /// <summary>抽屉是否展开（组头点击切换，驱动内容显隐与箭头方向）</summary>
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value) return;
+            _isExpanded = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ExpandGlyph)));
+        }
+    }
+
+    /// <summary>组头箭头字形（Segoe Fluent Icons）：收起为下箭头，展开为上箭头</summary>
+    public string ExpandGlyph => _isExpanded ? "\uE70E" : "\uE70D";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>版本页本地版本条目（含实例档案信息：类别 / 隔离 / 上次启动）</summary>
@@ -124,6 +149,32 @@ public sealed class VersionRowTemplateSelector : DataTemplateSelector
 /// <summary>版本行共用辅助（图标解析 / 时间格式化 / 类型推断）：版本页与详情页共用。</summary>
 public static class VersionRowHelpers
 {
+    /// <summary>版本类型 → 内置图标文件名（正式版草方块 / 快照紫水晶 / 远古版圆石与泥土）</summary>
+    private static readonly Dictionary<string, string> VersionIconFiles = new()
+    {
+        ["release"] = "natural_grass_block.png",
+        ["snapshot"] = "block_of_amethyst.png",
+        ["old_beta"] = "masonry_cobblestone.png",
+        ["old_alpha"] = "natural_dirt.png",
+    };
+
+    /// <summary>图标解码缓存（同一文件多行复用，避免重复解码）</summary>
+    private static readonly Dictionary<string, ImageSource?> VersionIconCache = [];
+
+    /// <summary>
+    /// 版本类型 → 内置等距方块图标（随输出目录发布于 Assets/MC-Icons）。
+    /// 文件缺失时返回 null，由模板中的 FontIcon 兜底层负责显示。
+    /// </summary>
+    public static ImageSource? VersionIcon(string? type)
+    {
+        var file = VersionIconFiles.GetValueOrDefault(type ?? "", VersionIconFiles["release"]);
+        if (VersionIconCache.TryGetValue(file, out var cached)) return cached;
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "MC-Icons", file);
+        var source = File.Exists(path) ? ResolveIconSource(path) : null;
+        VersionIconCache[file] = source;
+        return source;
+    }
+
     /// <summary>档案图标：相对路径 → starcloud/icons/；不存在或为空 → null 走 FontIcon 回退。</summary>
     public static string? ResolveIconPath(string dotMc, string? iconPath)
     {

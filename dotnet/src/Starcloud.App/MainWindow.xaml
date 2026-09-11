@@ -28,6 +28,13 @@
                 <FontIcon Glyph="&#xE728;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
                 <TextBlock Text="Starcloud" FontWeight="SemiBold" FontSize="14"
                            VerticalAlignment="Center" />
+                <!-- 测试版标识：启动器自身版本号（读 csproj <Version>，见 MainWindow.xaml.cs） -->
+                <Border CornerRadius="6" Padding="6,2" VerticalAlignment="Center"
+                        Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                    <TextBlock x:Name="VersionBadgeText" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                </Border>
             </StackPanel>
         </Grid>
 
@@ -138,10 +145,12 @@
             </Grid>
         </Border>
 
-        <!-- ① Nova 面板（顶栏 NovaOrb 下方弹出，380px 毛玻璃） -->
+        <!-- ① Nova 面板（顶栏 NovaOrb 下方弹出，440px 毛玻璃）。
+             注意：不要设 ShouldConstrainToRootBounds=False —— 那会命中 WinUI 的 IME bug（中文只出拼音字母），
+             面板因此保持「限制在窗口内」。 -->
         <Popup x:Name="NovaPopup" IsLightDismissEnabled="True" AllowFocusOnInteraction="True">
-            <Border x:Name="NovaPanelHost" Width="380" CornerRadius="16" Padding="16"
-                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+            <Border x:Name="NovaPanelHost" Width="440" CornerRadius="16" Padding="16"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
                 <Grid RowSpacing="10">

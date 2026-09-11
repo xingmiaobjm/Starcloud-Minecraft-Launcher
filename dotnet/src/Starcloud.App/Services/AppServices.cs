@@ -50,7 +50,9 @@ public sealed class AppServices
     {
         LauncherPaths.EnsureDataDir();
         Settings = LauncherSettings.Load();
-        Download = new DownloadService();
+        Download = new DownloadService(() => Settings);
+        // 下载源命中情况写进启动器日志，用于确认多源竞速是否生效
+        Download.Log = msg => LauncherLog.Write("download", msg);
         ResourceCache = new ResourceCacheService(() => Settings);
         Manifest = new ManifestService(Download, ResourceCache);
         Installer = new InstallerService(Download);

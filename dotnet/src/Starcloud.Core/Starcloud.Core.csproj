@@ -7,4 +7,8 @@
     <LangVersion>12</LangVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Starcloud.Core.Tests" />
+  </ItemGroup>
+
 </Project>

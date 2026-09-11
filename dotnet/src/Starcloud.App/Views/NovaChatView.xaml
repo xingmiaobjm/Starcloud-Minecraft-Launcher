@@ -72,6 +72,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 对话流 -->
@@ -140,8 +141,19 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- 发送完整日志（规格 §5：默认关闭；打开后跳过崩溃日志裁剪，消耗更多积分） -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10">
+            <ToggleSwitch x:Name="FullLogSwitch" MinWidth="0"
+                          OnContent="" OffContent="" Toggled="FullLog_Toggled" />
+            <TextBlock loc:Loc.Text="发送完整日志" FontSize="13" VerticalAlignment="Center" />
+            <TextBlock x:Name="FullLogHint" FontSize="12" VerticalAlignment="Center"
+                       TextWrapping="Wrap" Visibility="Collapsed"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       loc:Loc.Text="完整日志会显著增加积分消耗，仅在裁剪后仍无法定位时使用" />
+        </StackPanel>
+
         <!-- 输入行 -->
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <Grid Grid.Row="3" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

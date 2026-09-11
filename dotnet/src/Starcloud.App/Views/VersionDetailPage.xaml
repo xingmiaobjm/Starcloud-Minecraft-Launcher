@@ -190,11 +190,26 @@
                         <TextBlock x:Name="AutoMemText" FontSize="12" TextWrapping="Wrap"
                                    Visibility="Collapsed"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <NumberBox x:Name="MaxMemBox" loc:Loc.Name="最大内存"
-                                   Width="180" Minimum="512" Maximum="131072"
-                                   SmallChange="512" SpinButtonPlacementMode="Compact"
-                                   Visibility="Collapsed"
-                                   ValueChanged="Memory_ValueChanged" />
+                        <!-- 自定义：与「设置 → 内存分配」同款滑块（整数 GB） -->
+                        <StackPanel x:Name="MemManualPanel" Spacing="6" Visibility="Collapsed">
+                            <TextBlock loc:Loc.Text="最大内存（整数 GB）" FontSize="12" />
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Slider x:Name="MaxMemSlider" Grid.Column="0"
+                                        Minimum="1" Maximum="16" StepFrequency="1"
+                                        SnapsTo="StepValues" TickFrequency="1"
+                                        loc:Loc.Name="最大内存"
+                                        ValueChanged="MaxMemSlider_ValueChanged" />
+                                <TextBlock x:Name="MaxMemText" Grid.Column="1" Width="72"
+                                           VerticalAlignment="Center" TextAlignment="Right"
+                                           FontWeight="SemiBold" />
+                            </Grid>
+                            <TextBlock x:Name="MemAutoHint" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
                         <!-- 内存占用条：底槽 + 本版本分配（浅）+ 已使用（深） -->
                         <StackPanel Spacing="4">
                             <Grid Height="7" HorizontalAlignment="Left" Width="260">
@@ -210,9 +225,6 @@
                             <TextBlock x:Name="MemoryUsageText" FontSize="12" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
-                        <TextBlock x:Name="MemErrorText" FontSize="12" TextWrapping="Wrap"
-                                   Visibility="Collapsed"
-                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                     </StackPanel>
 
                     <!-- Java 运行时 -->

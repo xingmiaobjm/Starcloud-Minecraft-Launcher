@@ -198,8 +198,20 @@ public sealed partial class DownloadPage : Page
         {
             var installed = installedIds.Contains(v.Id);
             return new DownloadRow(v.Id, Describe(v),
-                installed ? Loc.T("已安装") : "", installed ? InstalledBrush : null);
+                installed ? Loc.T("已安装") : "", installed ? InstalledBrush : null,
+                VersionRowHelpers.VersionIcon(v.Type));
         }).ToList();
+
+        // 最新版本卡片（PCL2 式置顶）：最新正式版 + 最新预览版各一行
+        var latest = new List<LatestVersionRow>();
+        if (NewestOf("release") is { } rel)
+            latest.Add(new LatestVersionRow(rel.Id, LatestSubText("最新正式版", rel.ReleaseTime),
+                VersionRowHelpers.VersionIcon(rel.Type)));
+        if (NewestOf("snapshot") is { } snap)
+            latest.Add(new LatestVersionRow(snap.Id, LatestSubText("最新预览版", snap.ReleaseTime),
+                VersionRowHelpers.VersionIcon(snap.Type)));
+        LatestVersionList.ItemsSource = latest;
+        LatestCard.Visibility = latest.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         // 正式版且未搜索时按大版本抽屉折叠；搜索或快照/远古版平铺
         if (TypeTag == "release" && q.Length == 0)
@@ -223,6 +235,21 @@ public sealed partial class DownloadPage : Page
         var parts = id.Split('.');
         return parts.Length <= 2 ? id : string.Join('.', parts[..2]);
     }
+
+    /// <summary>指定类型里发布时间最新的一版（ReleaseTime 为 ISO 串，可直接按序比较）</summary>
+    private ManifestVersion? NewestOf(string type) =>
+        _versions.Where(v => v.Type == type)
+                 .OrderByDescending(v => v.ReleaseTime, StringComparer.Ordinal)
+                 .FirstOrDefault();
+
+    /// <summary>「最新正式版，发布于 2026/06/16 20:03」</summary>
+    private static string LatestSubText(string label, string releaseTime) =>
+        Loc.T($"{label}，发布于 {{0}}", FormatReleaseTime(releaseTime));
+
+    private static string FormatReleaseTime(string releaseTime) =>
+        DateTimeOffset.TryParse(releaseTime, out var t)
+            ? t.ToString("yyyy/MM/dd HH:mm")
+            : releaseTime;
 
     private static string Describe(ManifestVersion v) =>
         $"{v.ReleaseTime[..Math.Min(10, v.ReleaseTime.Length)]} · {TypeText(v.Type)}";
@@ -249,11 +276,26 @@ public sealed partial class DownloadPage : Page
         OpenDetail(row.Id);
     }
 
+    private void LatestVersionItem_Click(object s, ItemClickEventArgs e)
+    {
+        if (_busy || e.ClickedItem is not LatestVersionRow row) return;
+        OpenDetail(row.Id);
+    }
+
+    /// <summary>大版本抽屉组头：点击切换展开/收起（内容显隐由 ExpandBehavior 带淡入动效处理）</summary>
+    private void VersionGroupHeader_Click(object s, RoutedEventArgs e)
+    {
+        if (s is FrameworkElement { DataContext: VersionGroupRow row })
+            row.IsExpanded = !row.IsExpanded;
+    }
+
     private void OpenDetail(string id)
     {
         _detailId = id;
+        var v = _versions.FirstOrDefault(x => x.Id == id);
         DetailTitle.Text = id;
-        DetailMeta.Text = _versions.FirstOrDefault(v => v.Id == id) is { } v ? Describe(v) : "";
+        DetailMeta.Text = v is null ? "" : Describe(v);
+        DetailIcon.Source = VersionRowHelpers.VersionIcon(v?.Type);
         RefreshDetailState();
         ShowDetail(show: true);
         _ = LoadLoaderOptionsAsync(id);

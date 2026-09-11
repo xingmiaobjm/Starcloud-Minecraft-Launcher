@@ -116,6 +116,7 @@
                     <Grid x:Name="ListPanel" RowSpacing="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <Grid Grid.Row="0" ColumnSpacing="8">
@@ -139,84 +140,202 @@
                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                             </Border>
                         </Grid>
-                        <Border Grid.Row="1"
+                        <!-- 最新版本（PCL2 式置顶卡片：最新正式版 / 最新预览版） -->
+                        <Border x:Name="LatestCard" Grid.Row="1" Visibility="Collapsed"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="16" Padding="14,10">
+                            <StackPanel Spacing="4">
+                                <TextBlock loc:Loc.Text="最新版本" FontWeight="SemiBold" FontSize="14" />
+                                <ListView x:Name="LatestVersionList" SelectionMode="None"
+                                          IsItemClickEnabled="True"
+                                          ItemClick="LatestVersionItem_Click"
+                                          Padding="0" Margin="0,-4,0,-4">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            <Setter Property="MinHeight" Value="0" />
+                                            <Setter Property="Padding" Value="0" />
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="local:LatestVersionRow">
+                                            <Grid Margin="0,1" CornerRadius="10"
+                                                  local:RowHoverBehavior.IsEnabled="True"
+                                                  local:RowHoverBehavior.Overlay="{Binding ElementName=LatestHover}">
+                                                <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
+                                                <Border x:Name="LatestHover" CornerRadius="10" Opacity="0"
+                                                        IsHitTestVisible="False"
+                                                        Background="{ThemeResource ControlFillColorSecondaryBrush}" />
+                                                <Grid Padding="8,7" ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid Width="38" Height="38" VerticalAlignment="Center">
+                                                        <FontIcon Glyph="&#xE7B8;" FontSize="20"
+                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        <Image Source="{x:Bind Icon}" Width="38" Height="38"
+                                                               Stretch="Uniform" />
+                                                    </Grid>
+                                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                        <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{x:Bind SubText}" FontSize="11"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="2"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="16" Padding="4">
                             <ListView x:Name="VersionList" SelectionMode="Single"
                                       IsItemClickEnabled="True" ItemClick="VersionList_ItemClick">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="MinHeight" Value="0" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
                                 <ListView.Resources>
                                     <!-- 平铺行（快照/远古版/搜索结果） -->
                                     <DataTemplate x:Key="VersionFlatTemplate" x:DataType="local:DownloadRow">
-                                        <Grid Padding="12,8" ColumnSpacing="8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Spacing="2">
-                                                <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{x:Bind TimeText}" FontSize="11"
-                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1" Text="{x:Bind Badge}" FontSize="11"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{x:Bind BadgeBrush}" />
+                                        <Grid Margin="3,2" CornerRadius="10"
+                                              Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                              local:RowHoverBehavior.IsEnabled="True"
+                                              local:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
+                                            <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
+                                            <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
+                                                    IsHitTestVisible="False"
+                                                    Background="{ThemeResource ControlFillColorDefaultBrush}" />
+                                            <Grid Padding="14,10" ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <!-- 等距方块图标（按版本类型），文件缺失时退回 FontIcon -->
+                                                <Grid Width="38" Height="38" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE7B8;" FontSize="20"
+                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    <Image Source="{x:Bind Icon}" Width="38" Height="38"
+                                                           Stretch="Uniform" />
+                                                </Grid>
+                                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{x:Bind TimeText}" FontSize="11"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="11"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{x:Bind BadgeBrush}" />
+                                            </Grid>
                                         </Grid>
                                     </DataTemplate>
-                                    <!-- 大版本抽屉行（正式版默认视图）：折叠为组头，展开显示组内版本 -->
+                                    <!-- 大版本抽屉行（正式版默认视图）：折叠为组头，展开显示组内版本。
+                                         自绘抽屉替代内置 Expander：高度瞬时切换（不做逐帧 Height 动画），
+                                         展开仅对内容做合成线程友好的淡入 + 轻微上移，收尾不掉帧 -->
                                     <DataTemplate x:Key="VersionGroupTemplate" x:DataType="local:VersionGroupRow">
-                                        <Expander HorizontalAlignment="Stretch"
-                                                  HorizontalContentAlignment="Stretch" Margin="2,1">
-                                            <Expander.Header>
-                                                <Grid ColumnSpacing="8">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="{x:Bind Major}" FontWeight="SemiBold" />
-                                                    <TextBlock Grid.Column="1" Text="{x:Bind CountText}"
-                                                               FontSize="12" VerticalAlignment="Center"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <StackPanel HorizontalAlignment="Stretch">
+                                            <Button Click="VersionGroupHeader_Click"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                    BorderThickness="0" Margin="3,2"
+                                                    Padding="0" CornerRadius="10"
+                                                    local:RowHoverBehavior.IsEnabled="True"
+                                                    local:RowHoverBehavior.Overlay="{Binding ElementName=HeaderHover}">
+                                                <Grid CornerRadius="10">
+                                                    <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
+                                                    <Border x:Name="HeaderHover" CornerRadius="10" Opacity="0"
+                                                            IsHitTestVisible="False"
+                                                            Background="{ThemeResource ControlFillColorDefaultBrush}" />
+                                                    <Grid Padding="14,10" ColumnSpacing="8">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{x:Bind Major}" FontSize="14" FontWeight="SemiBold"
+                                                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                        <TextBlock Grid.Column="1" Text="{x:Bind CountText}"
+                                                                   FontSize="12" VerticalAlignment="Center"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        <FontIcon Grid.Column="3" Glyph="{x:Bind ExpandGlyph, Mode=OneWay}"
+                                                                  FontSize="12" VerticalAlignment="Center"
+                                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                    </Grid>
                                                 </Grid>
-                                            </Expander.Header>
-                                            <ListView ItemsSource="{x:Bind Items}" SelectionMode="None"
-                                                      IsItemClickEnabled="True"
-                                                      ItemClick="VersionGroupItem_Click"
-                                                      ScrollViewer.VerticalScrollMode="Disabled"
-                                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                                      Padding="0,2">
-                                                <ListView.ItemContainerStyle>
-                                                    <Style TargetType="ListViewItem">
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                                        <Setter Property="MinHeight" Value="48" />
-                                                        <Setter Property="Padding" Value="0" />
-                                                        <Setter Property="Margin" Value="0,1" />
-                                                    </Style>
-                                                </ListView.ItemContainerStyle>
-                                                <ListView.ItemTemplate>
-                                                    <DataTemplate x:DataType="local:DownloadRow">
-                                                        <Grid Padding="10,7" ColumnSpacing="8" CornerRadius="8"
-                                                              Background="{ThemeResource ControlFillColorSecondaryBrush}">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="Auto" />
-                                                            </Grid.ColumnDefinitions>
-                                                            <StackPanel Spacing="2">
-                                                                <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
-                                                                           TextTrimming="CharacterEllipsis" />
-                                                                <TextBlock Text="{x:Bind TimeText}" FontSize="11"
-                                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                            </StackPanel>
-                                                            <TextBlock Grid.Column="1" Text="{x:Bind Badge}" FontSize="11"
-                                                                       VerticalAlignment="Center"
-                                                                       Foreground="{x:Bind BadgeBrush}" />
-                                                        </Grid>
-                                                    </DataTemplate>
-                                                </ListView.ItemTemplate>
-                                            </ListView>
-                                        </Expander>
+                                            </Button>
+                                            <Grid Visibility="Collapsed" Margin="0,0,0,2"
+                                                  local:ExpandBehavior.IsExpanded="{x:Bind IsExpanded, Mode=OneWay}">
+                                                <Grid.RenderTransform>
+                                                    <TranslateTransform />
+                                                </Grid.RenderTransform>
+                                                <ListView ItemsSource="{x:Bind Items}" SelectionMode="None"
+                                                          IsItemClickEnabled="True"
+                                                          ItemClick="VersionGroupItem_Click"
+                                                          ScrollViewer.VerticalScrollMode="Disabled"
+                                                          ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                                          Padding="0">
+                                                    <ListView.ItemContainerStyle>
+                                                        <Style TargetType="ListViewItem">
+                                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                            <Setter Property="MinHeight" Value="0" />
+                                                            <Setter Property="Padding" Value="0" />
+                                                            <Setter Property="Margin" Value="0" />
+                                                        </Style>
+                                                    </ListView.ItemContainerStyle>
+                                                    <ListView.ItemTemplate>
+                                                        <DataTemplate x:DataType="local:DownloadRow">
+                                                            <Grid Margin="3,2" CornerRadius="10"
+                                                                  Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                                  local:RowHoverBehavior.IsEnabled="True"
+                                                                  local:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
+                                                                <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
+                                                                <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
+                                                                        IsHitTestVisible="False"
+                                                                        Background="{ThemeResource ControlFillColorDefaultBrush}" />
+                                                                <Grid Padding="14,10" ColumnSpacing="12">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <Grid Width="38" Height="38" VerticalAlignment="Center">
+                                                                        <FontIcon Glyph="&#xE7B8;" FontSize="20"
+                                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                                        <Image Source="{x:Bind Icon}" Width="38" Height="38"
+                                                                               Stretch="Uniform" />
+                                                                    </Grid>
+                                                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                                        <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                                                   TextTrimming="CharacterEllipsis" />
+                                                                        <TextBlock Text="{x:Bind TimeText}" FontSize="11"
+                                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                                    </StackPanel>
+                                                                    <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="11"
+                                                                               VerticalAlignment="Center"
+                                                                               Foreground="{x:Bind BadgeBrush}" />
+                                                                </Grid>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ListView.ItemTemplate>
+                                                </ListView>
+                                            </Grid>
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ListView.Resources>
                             </ListView>
@@ -243,20 +362,12 @@
                                     loc:Loc.Name="返回" loc:Loc.Tip="返回">
                                 <FontIcon Glyph="&#xE72B;" FontSize="14" />
                             </Button>
-                            <!-- 草方块图标（纯 XAML：上草皮下泥土） -->
-                            <Border Grid.Column="1" Width="44" Height="44" CornerRadius="8"
-                                    VerticalAlignment="Center"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="5*" />
-                                        <RowDefinition Height="4*" />
-                                    </Grid.RowDefinitions>
-                                    <Rectangle Fill="#6FBF44" />
-                                    <Rectangle Grid.Row="1" Fill="#8A5A33" />
-                                </Grid>
-                            </Border>
+                            <!-- 版本图标（按类型：正式版草方块 / 快照紫水晶 / 远古版圆石与泥土） -->
+                            <Grid Grid.Column="1" Width="44" Height="44" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7B8;" FontSize="22"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <Image x:Name="DetailIcon" Width="44" Height="44" Stretch="Uniform" />
+                            </Grid>
                             <Border Grid.Column="2" VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"

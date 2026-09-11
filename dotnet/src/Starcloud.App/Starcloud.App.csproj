@@ -16,6 +16,8 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
+    <!-- 启动器自身版本（当前为测试版）：标题栏「测试版 V0.2.1」标识的唯一来源 -->
+    <Version>0.2.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,6 +38,18 @@
   <!-- 本地化词典（D3）：嵌入式资源，逻辑名 Starcloud.App.Strings.<lang>.json -->
   <ItemGroup>
     <EmbeddedResource Include="Strings\*.json" />
+  </ItemGroup>
+
+  <!-- 版本图标（PCL2 式等距方块渲染图）：从仓库根 MC-Icons 链接发布到 Assets/MC-Icons，不复制源文件 -->
+  <ItemGroup>
+    <Content Include="..\..\..\MC-Icons\07-Mini-Blocks-128px\natural_grass_block.png"
+             Link="Assets\MC-Icons\natural_grass_block.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\MC-Icons\07-Mini-Blocks-128px\block_of_amethyst.png"
+             Link="Assets\MC-Icons\block_of_amethyst.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\MC-Icons\07-Mini-Blocks-128px\masonry_cobblestone.png"
+             Link="Assets\MC-Icons\masonry_cobblestone.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\MC-Icons\07-Mini-Blocks-128px\natural_dirt.png"
+             Link="Assets\MC-Icons\natural_dirt.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

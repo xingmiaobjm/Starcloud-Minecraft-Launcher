@@ -86,6 +86,7 @@ public sealed class NovaRuntime
         _observeTimer = timer;
 
         if (_s.StarcloudId.IsLoggedIn) EnsureGreeting();
+        RefreshState(); // 按已有会话初始化状态：否则冷启动时 Orb 面板会一直显示未登录引导
     }
 
     // ── 状态机 ──
@@ -120,7 +121,11 @@ public sealed class NovaRuntime
 
     // ── 对话（入口 ①④② 共用：SendAsync → ChatAsync → 消息流） ──
 
-    public async Task SendAsync(string input)
+    /// <summary>
+    /// 发送一句话。<paramref name="fullLog"/> = 用户在对话页打开了「发送完整日志」，
+    /// 跳过崩溃日志裁剪（仅对崩溃日志正文生效；闲聊/提问一律原样）。
+    /// </summary>
+    public async Task SendAsync(string input, bool fullLog = false)
     {
         input = input.Trim();
         if (input.Length == 0 || _busy) return;
@@ -136,7 +141,7 @@ public sealed class NovaRuntime
         _history.Add(new NovaChatTurn("user", input));
         try
         {
-            var reply = await _s.Nova.ChatAsync(input, _s.Settings, _history);
+            var reply = await _s.Nova.ChatAsync(input, _s.Settings, _history, fullLog: fullLog);
             var msg = new NovaChatMessage("assistant", reply.Text, Now());
             if (reply.Plan is not null) msg = msg with { Plan = reply.Plan };
             Messages.Add(msg);

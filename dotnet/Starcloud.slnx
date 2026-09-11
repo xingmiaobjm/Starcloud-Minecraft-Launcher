@@ -3,4 +3,7 @@
     <Project Path="src/Starcloud.App/Starcloud.App.csproj" />
     <Project Path="src/Starcloud.Core/Starcloud.Core.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Starcloud.Core.Tests/Starcloud.Core.Tests.csproj" />
+  </Folder>
 </Solution>

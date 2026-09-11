@@ -12,6 +12,7 @@
 //   2. StarCloud 云端 LLM（登录会话 API Key，服务未部署自动回退）
 //   3. 本地规则引擎兜底（能力指令不走 LLM，永不失败）
 
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -33,8 +34,8 @@ public sealed record NovaPlan(
     List<NovaActionItem> Items,
     Func<CancellationToken, Task<string>> ExecuteAsync);
 
-/// <summary>Nova 一轮回复：文本 + 可选确认清单（Plan 非空 = 需要用户点头才动手）</summary>
-public sealed record NovaReply(string Text, NovaPlan? Plan, bool FromCloud);
+/// <summary>Nova 一轮回复：文本 + 可选确认清单（Plan 非空 = 需要用户点头才动手）；Trim 非空 = 本次发送做过裁剪</summary>
+public sealed record NovaReply(string Text, NovaPlan? Plan, bool FromCloud, TrimOutcome? Trim = null);
 
 /// <summary>一轮对话（云端通道随请求携带上下文）</summary>
 public sealed record NovaChatTurn(
@@ -62,6 +63,7 @@ public sealed class NovaService
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, // max_tokens 未指定时不发该字段
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
@@ -89,10 +91,15 @@ public sealed class NovaService
     private string? CurrentInstance(LauncherSettings settings) =>
         _currentInstance ?? settings.LastVersion;
 
-    /// <summary>发送一句话给 Nova；能力指令走本地引擎（具体不空谈），其余走 LLM 降级链。</summary>
+    /// <summary>
+    /// 发送一句话给 Nova；能力指令走本地引擎（具体不空谈），其余走 LLM 降级链。
+    /// 发送前对崩溃日志做结构化裁剪（丢弃与病因无关的段落）；
+    /// <paramref name="fullLog"/> = 用户显式要求「发送完整日志」（跳过裁剪，消耗更多积分）。
+    /// </summary>
     public async Task<NovaReply> ChatAsync(
         string message, LauncherSettings settings,
-        IReadOnlyList<NovaChatTurn>? history = null, CancellationToken ct = default)
+        IReadOnlyList<NovaChatTurn>? history = null, CancellationToken ct = default,
+        bool fullLog = false, int? maxTokens = null)
     {
         if (string.IsNullOrWhiteSpace(message))
             return new NovaReply("说一句人话就行，比如「崩了帮我看看」「找个 1.20.1 的优化整合包」。", null, false);
@@ -100,27 +107,58 @@ public sealed class NovaService
         var local = await RouteLocalAsync(message, settings, ct);
         if (local is not null) return local;
 
+        // 崩溃日志裁剪：只把因果链（栈顶 / Caused by: / System Details / Suspected Mods）发给模型；
+        // fullLog=true 时原样发送（用户已知会更贵）。非崩溃文本裁剪函数会逐字节原样返回。
+        var body = message.Trim();
+        var trim = fullLog ? CrashLogTrimmer.Passthrough(body) : CrashLogTrimmer.TrimCrashLog(body);
+        var sendHistory = TrimHistory(history, fullLog);
+
         // 未命中能力指令 → LLM 降级链
         var session = _id.Current;
         if (session is { Channel: StarcloudIdService.CloudChannel })
         {
             try
             {
-                return new NovaReply(await CloudChatAsync(session, message.Trim(), history, ct), null, true);
+                // 先探活：llm_active 为空表示上游模型未接入，聊天必返 501，直接跳过云端降级。
+                if (await CloudLlmReadyAsync(ct))
+                {
+                    var text = await CloudChatAsync(session, trim.Text, sendHistory, ct, fullLog, maxTokens);
+                    return new NovaReply(text, null, true, trim);
+                }
             }
             catch (OperationCanceledException) { throw; }
+            catch (NovaCloudException ex) { return new NovaReply(ex.Message, null, true, trim); }
             catch { /* 云端不可用 → 继续降级 */ }
         }
 
         try
         {
-            var text = await UserLlmChatAsync(settings, message.Trim(), history, ct);
-            if (text is not null) return new NovaReply(text, null, true);
+            var text = await UserLlmChatAsync(settings, trim.Text, sendHistory, ct, maxTokens);
+            if (text is not null) return new NovaReply(text, null, true, trim);
         }
         catch (OperationCanceledException) { throw; }
         catch { /* 用户 Key 失效/欠费 → 降级本地兜底，不卡死 */ }
 
-        return new NovaReply(LocalFallback(message), null, false);
+        return new NovaReply(LocalFallback(message), null, false, trim);
+    }
+
+    /// <summary>历史里的崩溃日志同样裁剪（只作用于发给模型的副本，本地会话仍保留原文）。</summary>
+    private static IReadOnlyList<NovaChatTurn>? TrimHistory(
+        IReadOnlyList<NovaChatTurn>? history, bool fullLog)
+    {
+        if (fullLog || history is null || history.Count == 0) return history;
+
+        List<NovaChatTurn>? copy = null;
+        for (var i = 0; i < history.Count; i++)
+        {
+            var turn = history[i];
+            if (string.IsNullOrEmpty(turn.Content)) continue;
+            var outcome = CrashLogTrimmer.TrimCrashLog(turn.Content);
+            if (!outcome.Applied) continue;
+            copy ??= [.. history];
+            copy[i] = turn with { Content = outcome.Text };
+        }
+        return copy ?? history;
     }
 
     // ── 本地能力路由（命中返回 null 表示未命中） ──
@@ -709,7 +747,7 @@ public sealed class NovaService
     // ── LLM 降级链 · 第 1 级：用户自填 Key（OpenAI 兼容协议，零成本，多模型档案取当前） ──
     private static async Task<string?> UserLlmChatAsync(
         LauncherSettings settings, string message,
-        IReadOnlyList<NovaChatTurn>? history, CancellationToken ct)
+        IReadOnlyList<NovaChatTurn>? history, CancellationToken ct, int? maxTokens = null)
     {
         var profile = settings.ActiveLlmProfile();
         var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
@@ -730,7 +768,7 @@ public sealed class NovaService
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
-            JsonSerializer.Serialize(new { model, messages }, JsonOpts),
+            JsonSerializer.Serialize(new { model, messages, max_tokens = maxTokens }, JsonOpts),
             Encoding.UTF8, "application/json");
         var resp = await http.SendAsync(req, cts.Token);
         resp.EnsureSuccessStatusCode();
@@ -747,26 +785,115 @@ public sealed class NovaService
         "不编造价格、日期和性能数据；语气简短、接地气，用简体中文。";
 
     // ── LLM 降级链 · 第 2 级：StarCloud 云端（会话 API Key；服务未部署自动回退） ──
+
+    /// <summary>
+    /// 探活：<c>GET /v1/health</c> 的 <c>llm_active</c> 非空才认为云端聊天可用（规格 §4）。
+    /// 上游模型未接入时聊天必返 <c>501</c>，这里先拦掉，省一次无谓请求。
+    /// </summary>
+    private static async Task<bool> CloudLlmReadyAsync(CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+            var json = await http.GetStringAsync("/v1/health", cts.Token);
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("llm_active", out var active)
+                   && active.ValueKind == JsonValueKind.String
+                   && !string.IsNullOrWhiteSpace(active.GetString());
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return false; // 探活超时 → 视为云端聊天不可用
+        }
+    }
+
     private static async Task<string> CloudChatAsync(
         StarcloudSession session, string message,
-        IReadOnlyList<NovaChatTurn>? history, CancellationToken ct)
+        IReadOnlyList<NovaChatTurn>? history, CancellationToken ct,
+        bool fullLog = false, int? maxTokens = null)
     {
         using var http = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/ai/chat");
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/chat");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.ApiKey);
         req.Content = new StringContent(
-            JsonSerializer.Serialize(new CloudChatRequest(message, history ?? []), JsonOpts),
+            JsonSerializer.Serialize(new CloudChatRequest(message, CloudMessages(history), fullLog, maxTokens), JsonOpts),
             Encoding.UTF8, "application/json");
         var resp = await http.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
         var json = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new NovaCloudException(DescribeCloudError(resp.StatusCode, json));
+
         using var doc = JsonDocument.Parse(json);
         var text = doc.RootElement.GetProperty("text").GetString()
                    ?? throw new InvalidOperationException("云端 AI 响应缺少 text");
         return text;
     }
 
+    /// <summary>
+    /// 组装 <c>messages</c>：服务端不注入任何 system prompt（规格 §3.2），人格必须由启动器放在第一条；
+    /// 历史轮次依次在后，当前输入仍走 <c>message</c> 字段，由服务端追加为最后一条 user 消息。
+    /// </summary>
+    private static IReadOnlyList<NovaChatTurn> CloudMessages(IReadOnlyList<NovaChatTurn>? history)
+    {
+        var messages = new List<NovaChatTurn>(1 + (history?.Count ?? 0))
+        {
+            new("system", SystemPrompt),
+        };
+        if (history is { Count: > 0 }) messages.AddRange(history);
+        return messages;
+    }
+
+    /// <summary>云端返回的业务错误：Message 已是用户可读中文（规格 §3.4，不暴露原始 code）。</summary>
+    private sealed class NovaCloudException(string message) : Exception(message);
+
+    /// <summary>把服务端错误信封 <c>{ error: { code, message } }</c> 翻译成一句人话。</summary>
+    private static string DescribeCloudError(HttpStatusCode status, string json)
+    {
+        var code = string.Empty;
+        var serverMessage = string.Empty;
+        int? retryAfter = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object)
+            {
+                if (err.TryGetProperty("code", out var c) && c.ValueKind == JsonValueKind.String)
+                    code = c.GetString() ?? string.Empty;
+                if (err.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String)
+                    serverMessage = m.GetString() ?? string.Empty;
+            }
+            if (root.TryGetProperty("retry_after", out var ra) && ra.TryGetInt32(out var seconds))
+                retryAfter = seconds;
+        }
+        catch { /* 响应体不是 JSON → 走状态码兜底 */ }
+
+        // 429 排队超时：尊重服务端给出的 retry_after，按它给出等待秒数
+        if (status == HttpStatusCode.TooManyRequests && retryAfter is int wait and > 0)
+            return $"当前排队较多，{wait} 秒后再试一次。";
+
+        return (status, code) switch
+        {
+            (HttpStatusCode.BadRequest, _) or (_, "empty_message") => "请先粘贴日志或描述问题。",
+            (HttpStatusCode.Unauthorized, _) or (_, "invalid_api_key") or (_, "invalid_token")
+                => "登录已过期，请在侧栏 Nova 页重新登录 Starcloud ID。",
+            (HttpStatusCode.Forbidden, _) or (_, "account_banned") => "账号状态异常，请联系客服。",
+            (HttpStatusCode.PaymentRequired, _) or (_, "insufficient_credits")
+                => "积分不足，去「支持」页购买或订阅后再试。",
+            (HttpStatusCode.TooManyRequests, _) or (_, "queue_timeout") => "当前排队较多，稍等片刻再试一次。",
+            (_, "model_not_configured") => "Nova 服务未就绪，请稍后再试。",
+            (_, "provider_error") or (_, "empty_response") => "模型暂时不可用，请稍后重试。",
+            _ => serverMessage.Length > 0
+                ? serverMessage
+                : $"云端暂时不可用（{(int)status}），请稍后重试。",
+        };
+    }
+
     private sealed record CloudChatRequest(
         [property: JsonPropertyName("message")] string Message,
-        [property: JsonPropertyName("history")] IReadOnlyList<NovaChatTurn> History);
+        [property: JsonPropertyName("messages")] IReadOnlyList<NovaChatTurn> Messages,
+        [property: JsonPropertyName("full_log")] bool FullLog,
+        [property: JsonPropertyName("max_tokens")] int? MaxTokens);
 }

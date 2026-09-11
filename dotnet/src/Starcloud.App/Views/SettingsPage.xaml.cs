@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
@@ -64,15 +65,23 @@ public sealed partial class SettingsPage : Page
             _globalEnvRows.Clear();
             foreach (var (k, v) in s.GlobalEnvVars) AddGlobalEnvRow(k, v, focus: false);
 
-            // Java
-            JavaModeRadio.SelectedIndex = string.IsNullOrWhiteSpace(s.JavaExecutable) ? 0 : 1;
-            JavaBox.Text = s.JavaExecutable ?? "";
-            UpdateJavaModeUi();
+            // Java（下拉列表在执行下面的 ScanJavaAsync 时自动填充）
+            _javaOverride = s.JavaExecutable;
 
             // 下载与资源
             ConcurrencyBox.Value = s.DownloadConcurrency;
             RetriesBox.Value = s.DownloadMaxRetries;
             ResourceCacheSwitch.IsOn = s.ResourceCacheEnabled;
+            // 未知 ID 回落「自动（多源聚合）」
+            SourceCombo.SelectedIndex = s.DownloadSource?.Trim().ToLowerInvariant() switch
+            {
+                "official" => 1,
+                "bmclapi" => 2,
+                "fastmirror" => 3,
+                "rainyun" => 4,
+                _ => 0,
+            };
+            CustomMirrorBox.Text = s.DownloadCustomMirrorUrl ?? "";
 
             // 通用
             ThemeCombo.SelectedIndex = s.Theme switch
@@ -119,7 +128,7 @@ public sealed partial class SettingsPage : Page
             UpdateBackgroundPanels();
 
             _loaded = true;
-            await DetectJavaAsync();
+            await ScanJavaAsync();
         };
     }
 
@@ -129,10 +138,95 @@ public sealed partial class SettingsPage : Page
         // 此时右侧 SectionGame 等控件尚未创建，直接跳过（XAML 已自带正确的初始可见性）
         if (SectionGame is null) return;
         var tag = (CategoryList.SelectedItem as FrameworkElement)?.Tag as string ?? "game";
-        SectionGame.Visibility = tag == "game" ? Visibility.Visible : Visibility.Collapsed;
-        SectionJava.Visibility = tag == "java" ? Visibility.Visible : Visibility.Collapsed;
-        SectionDownload.Visibility = tag == "download" ? Visibility.Visible : Visibility.Collapsed;
-        SectionGeneral.Visibility = tag == "general" ? Visibility.Visible : Visibility.Collapsed;
+
+        var target = tag switch
+        {
+            "java" => SectionJava,
+            "download" => SectionDownload,
+            "general" => SectionGeneral,
+            _ => SectionGame,
+        };
+
+        foreach (var section in new[] { SectionGame, SectionJava, SectionDownload, SectionGeneral })
+            section.Visibility = ReferenceEquals(section, target) ? Visibility.Visible : Visibility.Collapsed;
+
+        // 进入 Java 页自动重新搜索（本机可能刚装了新 Java）
+        if (_loaded && tag == "java") _ = ScanJavaAsync();
+
+        // 各区块高度不同，切页时把滚动位置归零，避免内容被 ScrollViewer 夹紧时抖动
+        if (SectionScroll.VerticalOffset > 0) SectionScroll.ChangeView(null, 0, null, true);
+
+        // 二级子导航转场：显隐瞬时切换（不做布局动画），只让进入的区块淡入 + 轻微上移
+        AnimateSectionIn(target);
+    }
+
+    /// <summary>位移时长：稍长，留给缓出足够的收尾时间，观感更顺滑。</summary>
+    private static readonly TimeSpan SectionSlideDuration = TimeSpan.FromMilliseconds(340);
+
+    /// <summary>淡入时长：比位移短，区块先「亮起来」再缓缓落位，避免整体显得拖沓。</summary>
+    private static readonly TimeSpan SectionFadeDuration = TimeSpan.FromMilliseconds(240);
+
+    /// <summary>进场时区块的起始下移量（像素）。</summary>
+    private const double SectionSlideOffset = 18d;
+
+    private Storyboard? _sectionStoryboard;
+
+    /// <summary>
+    /// 二级子导航进场动效：只对进入的区块做 <c>Opacity</c> 淡入 + 轻微上移。
+    /// <para>
+    /// 不用 <c>EntranceThemeTransition</c>：① 它靠「重新挂载元素」触发，会强制一次完整 Layout，
+    /// 区块内控件较多时容易掉帧；② 它默认对子元素逐级错峰（staggering），卡片依次冒出来反而显得拖沓。
+    /// 这里动画的 <c>Opacity</c> 与 <c>TranslateTransform.Y</c> 都是合成线程上的独立动画，不触发布局。
+    /// </para>
+    /// </summary>
+    private void AnimateSectionIn(FrameworkElement section)
+    {
+        var transform = section.RenderTransform as TranslateTransform;
+        if (transform is null)
+        {
+            transform = new TranslateTransform();
+            section.RenderTransform = transform;
+        }
+
+        try { _sectionStoryboard?.Stop(); } catch { /* 停旧动画失败不影响新动画 */ }
+        _sectionStoryboard = null;
+
+        if (!_s.Motion.Enabled)
+        {
+            section.Opacity = 1;
+            transform.Y = 0;
+            return;
+        }
+
+        section.Opacity = 0;
+        transform.Y = SectionSlideOffset;
+
+        // 缓出曲线：位移用 QuinticEase（尾部收得非常慢，落位「丝滑」不突兀），淡入用 CubicEase（不着痕迹地亮起）
+        var fadeEase = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var slideEase = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var storyboard = new Storyboard();
+
+        var fade = new DoubleAnimation { To = 1, Duration = SectionFadeDuration, EasingFunction = fadeEase };
+        Storyboard.SetTarget(fade, section);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        storyboard.Children.Add(fade);
+
+        var slide = new DoubleAnimation { To = 0, Duration = SectionSlideDuration, EasingFunction = slideEase };
+        Storyboard.SetTarget(slide, section);
+        Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(TranslateTransform.Y)");
+        storyboard.Children.Add(slide);
+
+        _sectionStoryboard = storyboard;
+        try
+        {
+            storyboard.Begin();
+        }
+        catch
+        {
+            // 动画失败也要保证内容可见可交互
+            section.Opacity = 1;
+            transform.Y = 0;
+        }
     }
 
     // ── 游戏：内存滑块 ──
@@ -193,30 +287,51 @@ public sealed partial class SettingsPage : Page
         }
     }
 
-    // ── Java：自动 / 手动 ──
+    // ── Java：自动搜索 + 下拉选择（下拉第一项 = 自动按版本推荐） ──
 
-    private void JavaMode_SelectionChanged(object s, SelectionChangedEventArgs e)
+    /// <summary>已搜索到的本机运行时。</summary>
+    private List<JavaRuntime> _javaRuntimes = [];
+
+    /// <summary>用户选定的 java.exe；null = 自动（按版本 JSON 推荐的主版本匹配）。</summary>
+    private string? _javaOverride;
+
+    private void JavaCombo_SelectionChanged(object s, SelectionChangedEventArgs e) =>
+        _javaOverride = (JavaCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+
+    /// <summary>重建下拉：自动项 + 已搜索运行时 +（必要时）手动添加的自定义项，并恢复当前选择。</summary>
+    private void PopulateJavaCombo()
     {
-        if (JavaWillUseText is null) return;
-        UpdateJavaModeUi();
+        JavaCombo.Items.Clear();
+        JavaCombo.Items.Add(new ComboBoxItem { Content = Loc.T("自动选择（按版本推荐）"), Tag = null });
+        foreach (var rt in _javaRuntimes)
+            JavaCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"Java {rt.MajorVersion} · {rt.VersionString} · {rt.Executable}",
+                Tag = rt.Executable,
+            });
+        var overridePath = _javaOverride;
+        if (!string.IsNullOrWhiteSpace(overridePath) && !_javaRuntimes.Any(rt => MatchesOverride(rt.Executable)))
+            JavaCombo.Items.Add(new ComboBoxItem
+            {
+                Content = Loc.T("手动添加 · {0}", overridePath),
+                Tag = overridePath,
+            });
+
+        var index = 0;
+        for (var i = 1; i < JavaCombo.Items.Count; i++)
+        {
+            if (JavaCombo.Items[i] is ComboBoxItem item && MatchesOverride(item.Tag as string))
+            {
+                index = i;
+                break;
+            }
+        }
+        JavaCombo.SelectedIndex = index;
     }
 
-    private void JavaBox_TextChanged(object s, TextChangedEventArgs e)
-    {
-        if (JavaWillUseText is null) return;
-        UpdateJavaModeUi();
-    }
-
-    private void UpdateJavaModeUi()
-    {
-        var manual = JavaModeRadio.SelectedIndex == 1;
-        JavaBox.IsEnabled = manual;
-        JavaWillUseText.Text = manual
-            ? (string.IsNullOrWhiteSpace(JavaBox.Text)
-                ? Loc.T("手动指定：留空时将回退到自动检测到的 Java。")
-                : Loc.T("手动指定：将使用 {0}", JavaBox.Text.Trim()))
-            : Loc.T("自动选择：按游戏版本 JSON 推荐的 Java 主版本匹配已安装或已下载的运行时。");
-    }
+    private bool MatchesOverride(string? exe) =>
+        !string.IsNullOrWhiteSpace(_javaOverride) &&
+        string.Equals(exe, _javaOverride, StringComparison.OrdinalIgnoreCase);
 
     private async void BrowseJava_Click(object s, RoutedEventArgs e)
     {
@@ -226,8 +341,31 @@ public sealed partial class SettingsPage : Page
         picker.FileTypeFilter.Add(".exe");
         var file = await picker.PickSingleFileAsync();
         if (file is null) return;
-        JavaModeRadio.SelectedIndex = 1;
-        JavaBox.Text = file.Path;
+
+        JavaBrowseBtn.IsEnabled = false;
+        try
+        {
+            var rt = await JavaService.ProbeAsync(file.Path);
+            if (rt is null)
+            {
+                ErrorBar.Message = Loc.T("未能从该文件解析出 Java 版本：\n{0}", file.Path);
+                ErrorBar.IsOpen = true;
+                return;
+            }
+            _javaOverride = rt.Executable;
+            if (!_javaRuntimes.Any(x => string.Equals(x.Executable, rt.Executable, StringComparison.OrdinalIgnoreCase)))
+                _javaRuntimes.Insert(0, rt);
+            PopulateJavaCombo();
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("Java 校验失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            JavaBrowseBtn.IsEnabled = true;
+        }
     }
 
     // ── 游戏：全局环境变量 ──
@@ -324,24 +462,37 @@ public sealed partial class SettingsPage : Page
         SavedBar.IsOpen = true;
     }
 
-    // ── Java 检测 ──
+    // ── Java 自动搜索 ──
 
-    private async Task DetectJavaAsync()
+    /// <summary>「搜索 Java」按钮：重新扫一遍本机（可能刚装了新 Java）。</summary>
+    private async void ScanJava_Click(object s, RoutedEventArgs e) => await ScanJavaAsync(interactive: true);
+
+    private async Task ScanJavaAsync(bool interactive = false)
     {
+        if (interactive)
+        {
+            JavaScanBtn.IsEnabled = false;
+            JavaScanBtn.Content = Loc.T("正在搜索…");
+        }
         try
         {
-            var runtimes = await _s.Java.ListRuntimesAsync();
-            JavaListText.Text = runtimes.Count == 0
-                ? Loc.T("未检测到 Java，可点击上方按钮下载")
-                : string.Join("\n", runtimes.Select(r => $"{r.Source} · Java {r.MajorVersion} · {r.VersionString}"));
+            _javaRuntimes = await _s.Java.ListRuntimesAsync();
+            PopulateJavaCombo();
         }
         catch (Exception ex)
         {
-            JavaListText.Text = Loc.T("检测失败：{0}", ex.Message);
+            ErrorBar.Message = Loc.T("搜索 Java 失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            if (interactive)
+            {
+                JavaScanBtn.Content = Loc.T("搜索 Java");
+                JavaScanBtn.IsEnabled = true;
+            }
         }
     }
-
-    private async void DetectJava_Click(object s, RoutedEventArgs e) => await DetectJavaAsync();
 
     private async void DownloadJava_Click(object s, RoutedEventArgs e) => await DownloadJavaAsync(21);
     private async void DownloadJava8_Click(object s, RoutedEventArgs e) => await DownloadJavaAsync(8);
@@ -354,9 +505,8 @@ public sealed partial class SettingsPage : Page
             var progress = new Progress<BatchProgress>(p => _dq.TryEnqueue(() =>
                 JavaProgress.Value = p.TotalFiles > 0 ? p.Percentage : 0));
             var exe = await _s.Java.DownloadRuntimeAsync(major, progress);
-            JavaModeRadio.SelectedIndex = 1;
-            JavaBox.Text = exe;
-            await DetectJavaAsync();
+            _javaOverride = exe;
+            await ScanJavaAsync();
         }
         catch (Exception ex)
         {
@@ -585,9 +735,8 @@ public sealed partial class SettingsPage : Page
         s0.DefaultWindowHeight = IntOf(DefaultHeightBox, 480);
         s0.DefaultFullscreen = DefaultFullscreenSwitch.IsOn;
 
-        // Java：仅手动档位写入路径
-        s0.JavaExecutable = JavaModeRadio.SelectedIndex == 1 && !string.IsNullOrWhiteSpace(JavaBox.Text)
-            ? JavaBox.Text.Trim() : null;
+        // Java：下拉里选了具体运行时才写路径，选「自动选择」则留空（null = 自动）
+        s0.JavaExecutable = string.IsNullOrWhiteSpace(_javaOverride) ? null : _javaOverride;
 
         // 启动参数
         s0.ExtraJvmArgs = SplitLines(ExtraJvmArgsBox.Text);
@@ -597,6 +746,8 @@ public sealed partial class SettingsPage : Page
         s0.DownloadConcurrency = Math.Max(1, IntOf(ConcurrencyBox, s0.DownloadConcurrency));
         s0.DownloadMaxRetries = Math.Max(0, IntOf(RetriesBox, s0.DownloadMaxRetries));
         s0.ResourceCacheEnabled = ResourceCacheSwitch.IsOn;
+        s0.DownloadSource = (SourceCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
+        s0.DownloadCustomMirrorUrl = CustomMirrorBox.Text.Trim();
 
         // 全局环境变量
         s0.GlobalEnvVars = ReadGlobalEnv();

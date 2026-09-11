@@ -21,14 +21,6 @@
             <Setter Property="FontSize" Value="13" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <!-- PCL 风格：3px 蓝色左竖线 + 浅色底信息条 -->
-        <Style x:Key="PclInfoBar" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource AccentFillColorTertiaryBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="3,0,0,0" />
-            <Setter Property="CornerRadius" Value="4" />
-            <Setter Property="Padding" Value="10,6" />
-        </Style>
     </Page.Resources>
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
@@ -73,7 +65,18 @@
                     </ListViewItem>
                     <ListViewItem Tag="java">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
-                            <FontIcon Glyph="&#xEA4D;" FontSize="14" />
+                            <!-- Java：自绘咖啡杯线稿（Segoe Fluent 无 Java 字形，原 &#xEA4D; 是缺字方框）。
+                                 16 单位画布按 14px 缩放 → 描边约 1px，与相邻字形图标重量一致。 -->
+                            <Viewbox Width="14" Height="14">
+                                <Grid Width="16" Height="16">
+                                    <Path HorizontalAlignment="Left" VerticalAlignment="Top" Stretch="None"
+                                          Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                          StrokeThickness="1.25"
+                                          StrokeLineJoin="Round"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          Data="M1.9,7.2 L12.7,7.2 L11.4,13.4 L3.2,13.4 Z M12.3,9 C14.2,9 14.2,12.7 11.5,13.1 M5.3,6 C5.3,4.4 6.5,4.4 6.5,2.6 M8.5,6 C8.5,4.4 9.7,4.4 9.7,2.6" />
+                                </Grid>
+                            </Viewbox>
                             <TextBlock Text="Java" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
@@ -105,7 +108,7 @@
                     <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="1">
+                <ScrollViewer x:Name="SectionScroll" Grid.Row="1">
                     <StackPanel Spacing="16">
 
                         <!-- ══ 游戏 ══ -->
@@ -145,7 +148,8 @@
                                 <StackPanel Spacing="10">
                                     <TextBlock loc:Loc.Text="启动可靠性" Style="{StaticResource PclSectionTitle}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock loc:Loc.Text="启动失败自动重试一次" Style="{StaticResource PclLabel}" />
+                                        <TextBlock loc:Loc.Text="启动失败自动重试一次" Style="{StaticResource PclLabel}"
+                                                   Width="Auto" />
                                         <ToggleSwitch x:Name="LaunchAutoRetrySwitch"
                                                       Toggled="LaunchAutoRetrySwitch_Toggled" />
                                     </StackPanel>
@@ -153,7 +157,8 @@
                                                FontSize="12" TextWrapping="Wrap"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock loc:Loc.Text="启动页默认展开实时日志" Style="{StaticResource PclLabel}" />
+                                        <TextBlock loc:Loc.Text="启动页默认展开实时日志" Style="{StaticResource PclLabel}"
+                                                   Width="Auto" />
                                         <ToggleSwitch x:Name="ShowGameLogSwitch"
                                                       Toggled="ShowGameLogSwitch_Toggled" />
                                     </StackPanel>
@@ -232,26 +237,24 @@
                             <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="10">
                                     <TextBlock loc:Loc.Text="Java 运行时" Style="{StaticResource PclSectionTitle}" />
-                                    <RadioButtons x:Name="JavaModeRadio" SelectionChanged="JavaMode_SelectionChanged">
-                                        <RadioButton loc:Loc.Text="自动选择（按版本推荐）" />
-                                        <RadioButton loc:Loc.Text="手动指定" />
-                                    </RadioButtons>
-                                    <Border Style="{StaticResource PclInfoBar}">
-                                        <TextBlock x:Name="JavaWillUseText" FontSize="12" TextWrapping="Wrap" />
-                                    </Border>
-                                    <TextBox x:Name="JavaBox" loc:Loc.Placeholder="java.exe 完整路径"
-                                             TextChanged="JavaBox_TextChanged" />
+                                    <TextBlock loc:Loc.Text="进入本页时自动搜索本机 Java，搜索完成后在下方选择；也可以手动添加。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button loc:Loc.Text="检测系统 Java" Click="DetectJava_Click" />
-                                        <Button loc:Loc.Text="浏览 java.exe…" Click="BrowseJava_Click" />
+                                        <ComboBox x:Name="JavaCombo" Width="380"
+                                                  loc:Loc.Name="Java 运行时"
+                                                  loc:Loc.Placeholder="正在搜索本机 Java…"
+                                                  SelectionChanged="JavaCombo_SelectionChanged" />
+                                        <Button x:Name="JavaScanBtn" loc:Loc.Text="搜索 Java"
+                                                loc:Loc.Name="搜索 Java" Click="ScanJava_Click" />
+                                        <Button x:Name="JavaBrowseBtn" loc:Loc.Text="手动添加…"
+                                                loc:Loc.Name="手动添加 Java" Click="BrowseJava_Click" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Button loc:Loc.Text="下载 Java 21（Temurin）" Click="DownloadJava_Click" />
                                         <Button loc:Loc.Text="下载 Java 8（Temurin）" Click="DownloadJava8_Click" />
                                     </StackPanel>
                                     <ProgressBar x:Name="JavaProgress" Visibility="Collapsed" />
-                                    <TextBlock loc:Loc.Text="已检测到的 Java 运行时" FontSize="12"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <TextBlock x:Name="JavaListText" FontSize="12" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -270,6 +273,22 @@
                                         <TextBlock loc:Loc.Text="失败重试次数" Style="{StaticResource PclLabel}" />
                                         <NumberBox x:Name="RetriesBox" Minimum="0" Maximum="10"
                                                    SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="下载源" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="SourceCombo" Width="200" loc:Loc.Name="下载源">
+                                            <ComboBoxItem loc:Loc.Text="自动（多源聚合）" Tag="auto" />
+                                            <ComboBoxItem loc:Loc.Text="仅官方" Tag="official" />
+                                            <ComboBoxItem loc:Loc.Text="BMCLAPI" Tag="bmclapi" />
+                                            <ComboBoxItem loc:Loc.Text="FastMinecraftMirror" Tag="fastmirror" />
+                                            <ComboBoxItem loc:Loc.Text="RainYun" Tag="rainyun" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="自定义镜像地址" Style="{StaticResource PclLabel}" />
+                                        <TextBox x:Name="CustomMirrorBox" Width="320"
+                                                 loc:Loc.Name="自定义镜像地址"
+                                                 loc:Loc.Placeholder="自定义镜像地址" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>

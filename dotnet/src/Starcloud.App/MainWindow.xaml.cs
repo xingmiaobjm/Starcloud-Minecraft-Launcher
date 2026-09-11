@@ -31,6 +31,15 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon("Assets/AppIcon.ico");
         Title = "Starcloud Minecraft Launcher";
 
+        // 测试版标识：启动器自身版本号（取自 csproj <Version>）→「测试版 V0.2.1」
+        var rawVer = typeof(MainWindow).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion ?? "0.0.0";
+        var meta = rawVer.IndexOf('+'); // 去掉 SourceLink 附加的 +<commit>
+        if (meta >= 0) rawVer = rawVer[..meta];
+        VersionBadgeText.Text = Loc.T("测试版 V{0}", rawVer);
+
         // Nova 内嵌（NOVA_INTEGRATION.md 五入口）：顶栏 Orb 随全局状态机联动
         var rt = AppServices.Instance.NovaRuntime;
         rt.StateChanged += OnNovaStateChanged;
@@ -108,22 +117,24 @@ public sealed partial class MainWindow : Window
 
     // ── Nova 内嵌（NOVA_INTEGRATION.md 五入口：① 顶栏 Orb） ──
 
-    /// <summary>① NovaOrb：顶栏下方 8px 弹出 380px 毛玻璃面板，再点收回。</summary>
+    /// <summary>① NovaOrb：顶栏下方 8px 弹出面板，再点收回。</summary>
     private void NovaOrb_Click(object sender, RoutedEventArgs e)
     {
         if (NovaPopup.IsOpen) { NovaPopup.IsOpen = false; return; }
         ShowNovaPopup();
     }
 
-    /// <summary>按 Orb 实际位置水平定位弹出面板（右边界贴齐，左不越界）。</summary>
+    /// <summary>按 Orb 实际位置定位弹出面板（右边界贴齐，左不越界），并限高到窗口底部。</summary>
     private void ShowNovaPopup()
     {
         var root = Content as FrameworkElement;
         if (root is null) return;
         // WinUI 3 的 Window 不继承 FrameworkElement，宽度从 Content 根元素取
         var p = NovaOrb.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, 0));
-        NovaPopup.HorizontalOffset = Math.Max(12, Math.Min(p.X, root.ActualWidth - 380 - 12));
+        NovaPopup.HorizontalOffset = Math.Max(12, Math.Min(p.X, root.ActualWidth - NovaPanelHost.Width - 12));
         NovaPopup.VerticalOffset = 48 + 8; // 顶栏(48) 下 8px
+        // 面板比窗口还高时会被 Popup 裁掉输入行：限高，超出部分交给面板内部滚动
+        NovaPanelHost.MaxHeight = Math.Max(240, root.ActualHeight - NovaPopup.VerticalOffset - 12);
         NovaPopup.IsOpen = true;
     }
 

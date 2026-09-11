@@ -14,61 +14,299 @@ public sealed class JavaService
 
     public JavaService(DownloadService downloader) => _downloader = downloader;
 
-    /// <summary>列出可用 Java：启动器已下载 + 官方启动器运行时 + 系统 PATH/JAVA_HOME 检测</summary>
+    /// <summary>
+    /// 列出可用 Java：启动器已下载 + 官方启动器运行时（<c>.minecraft\runtime</c>）
+    /// + 系统检测（PATH / JAVA_HOME / 注册表登记项 / 各厂商默认安装目录 / 各盘常见 Java 文件夹）。
+    /// </summary>
     public async Task<List<JavaRuntime>> ListRuntimesAsync(CancellationToken ct = default,
         string? officialRuntimeDir = null)
     {
         var result = new List<JavaRuntime>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         LauncherPaths.EnsureDataDir();
 
-        // 已下载：java/<major>/bin/java.exe
-        if (Directory.Exists(LauncherPaths.JavaDir))
+        // 探测一个候选 exe，版本能解析出来才收进结果
+        async Task AddAsync(string exe, string source)
         {
-            foreach (var dir in Directory.EnumerateDirectories(LauncherPaths.JavaDir))
-            {
-                var exe = Path.Combine(dir, "bin", "java.exe");
-                if (!File.Exists(exe)) continue;
-                var major = Path.GetFileName(dir);
-                var version = await GetJavaVersionStringAsync(exe, ct) ?? $"Java {major}";
-                result.Add(new JavaRuntime(exe, int.TryParse(major, out var m) ? m : 0, version, true, "launcher"));
-            }
-        }
-
-        // 官方启动器运行时（.minecraft\runtime\java-runtime-* 等）
-        if (officialRuntimeDir is not null && Directory.Exists(officialRuntimeDir))
-        {
-            foreach (var dir in Directory.EnumerateDirectories(officialRuntimeDir))
-            {
-                var exe = Path.Combine(dir, "bin", "java.exe");
-                if (!File.Exists(exe)) continue;
-                var version = await GetJavaVersionStringAsync(exe, ct);
-                if (version is null) continue;
-                var major = ParseMajorVersion(version);
-                if (major <= 0) continue;
-                result.Add(new JavaRuntime(exe, major, version, true, "official"));
-            }
-        }
-
-        // 系统检测
-        var candidates = new List<string>();
-        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
-        candidates.AddRange(pathVar.Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => Path.Combine(p.Trim(), "java.exe")));
-        var javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
-        if (!string.IsNullOrEmpty(javaHome))
-            candidates.Add(Path.Combine(javaHome, "bin", "java.exe"));
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var exe in candidates.Where(File.Exists))
-        {
-            if (!seen.Add(exe)) continue;
+            if (ct.IsCancellationRequested) return;
+            if (!seen.Add(NormalizeExe(exe))) return;
             var version = await GetJavaVersionStringAsync(exe, ct);
-            if (version is null) continue;
+            if (version is null) return;
             var major = ParseMajorVersion(version);
-            if (major <= 0) continue;
-            result.Add(new JavaRuntime(exe, major, version, true, "system"));
+            if (major <= 0) return;
+            result.Add(new JavaRuntime(exe, major, version, true, source));
         }
+
+        // ① 已下载：java/<major>/bin/java.exe（目录名即主版本，省一次探测）
+        foreach (var dir in SafeEnumerateDirectories(LauncherPaths.JavaDir))
+        {
+            var exe = Path.Combine(dir, "bin", "java.exe");
+            if (!File.Exists(exe) || !seen.Add(NormalizeExe(exe))) continue;
+            var major = Path.GetFileName(dir);
+            var version = await GetJavaVersionStringAsync(exe, ct) ?? $"Java {major}";
+            result.Add(new JavaRuntime(exe, int.TryParse(major, out var m) ? m : 0, version, true, "launcher"));
+        }
+
+        // ② 官方启动器运行时（.minecraft\runtime\java-runtime-* 等）
+        foreach (var root in RuntimeSearchRoots(officialRuntimeDir))
+            foreach (var exe in EnumerateChildJavaExes(root))
+                await AddAsync(exe, "official");
+
+        // ③ 系统 PATH / JAVA_HOME
+        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var entry in pathVar.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var exe in JavaExesIn(entry.Trim().Trim('"')))
+                await AddAsync(exe, "system");
+
+        var javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
+        if (!string.IsNullOrWhiteSpace(javaHome))
+            foreach (var exe in JavaExesIn(javaHome))
+                await AddAsync(exe, "system");
+
+        // ④ 注册表：各厂商安装时登记的 Java 主目录
+        foreach (var home in await QueryRegistryJavaHomesAsync())
+            foreach (var exe in JavaExesIn(home))
+                await AddAsync(exe, "system");
+
+        // ⑤ 各厂商默认安装目录：装完没写 PATH、也没登记注册表的情况
+        foreach (var root in ExpandJavaInstallRoots())
+            foreach (var exe in EnumerateChildJavaExes(root))
+                await AddAsync(exe, "system");
+
+        // ⑥ 各盘根目录下名字像 Java 的文件夹（如 D:\Java\jdk-17、C:\jdk1.8）：PCL 能扫到的那类
+        foreach (var exe in EnumerateDriveJavaExes())
+            await AddAsync(exe, "system");
+
         return result;
+    }
+
+    // ── 候选 java.exe 的收集 ──
+
+    /// <summary>
+    /// 要扫描的「运行时目录」：调用方给的游戏目录下的 <c>runtime</c>，以及官方启动器默认的
+    /// <c>%APPDATA%\.minecraft\runtime</c>（没传参时也要扫，否则只装了官方启动器的机器一个都搜不到）。
+    /// </summary>
+    private static IEnumerable<string> RuntimeSearchRoots(string? gameRuntimeDir)
+    {
+        if (!string.IsNullOrWhiteSpace(gameRuntimeDir)) yield return gameRuntimeDir;
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrWhiteSpace(appData))
+            yield return Path.Combine(appData, ".minecraft", "runtime");
+    }
+
+    /// <summary>各 Java 厂商在注册表中登记安装位置的根键（HKLM 与 HKCU 都会查）</summary>
+    private static readonly string[] RegistryJavaRoots =
+    [
+        @"SOFTWARE\JavaSoft",
+        @"SOFTWARE\Eclipse Adoptium",
+        @"SOFTWARE\Eclipse Foundation",
+        @"SOFTWARE\Microsoft\JDK",
+        @"SOFTWARE\Azul Systems\Zulu",
+        @"SOFTWARE\Amazon Corretto",
+        @"SOFTWARE\BellSoft",
+        @"SOFTWARE\SapMachine",
+        @"SOFTWARE\IBM\Semeru",
+        @"SOFTWARE\GraalVM",
+        @"SOFTWARE\AdoptOpenJDK",
+    ];
+
+    private static readonly string[] RegistryHives = ["HKLM", "HKCU"];
+
+    /// <summary>各厂商默认安装根目录：其一级子目录形如 &lt;root&gt;\jdk-17\bin\java.exe</summary>
+    private static readonly string[] JavaInstallRoots =
+    [
+        @"%ProgramFiles%\Java",
+        @"%ProgramFiles(x86)%\Java",
+        @"%ProgramFiles%\Eclipse Adoptium",
+        @"%ProgramFiles%\Eclipse Foundation",
+        @"%ProgramFiles%\Microsoft",
+        @"%ProgramFiles%\Zulu",
+        @"%ProgramFiles%\Azul Systems\Zulu",
+        @"%ProgramFiles%\Amazon Corretto",
+        @"%ProgramFiles%\BellSoft",
+        @"%ProgramFiles%\SapMachine",
+        @"%ProgramFiles%\IBM\Semeru",
+        @"%ProgramFiles%\AdoptOpenJDK",
+        @"%ProgramFiles%\GraalVM",
+        @"%ProgramFiles%\Common Files\Oracle\Java",
+        @"%ProgramFiles%\Android",
+        @"%LOCALAPPDATA%\Programs\Eclipse Adoptium",
+        @"%LOCALAPPDATA%\Programs\Java",
+        @"%LOCALAPPDATA%\Programs\Android",
+        @"%USERPROFILE%\.jdks",
+    ];
+
+    /// <summary>本身就是 Java 主目录、但层级不规则的常见位置</summary>
+    private static readonly string[] DirectJavaHomes =
+    [
+        @"%ProgramFiles%\Android\Android Studio\jbr",
+        @"%LOCALAPPDATA%\Programs\Android Studio\jbr",
+        @"%ProgramFiles%\Java\jdk-21",
+    ];
+
+    /// <summary><paramref name="dir"/> 里的 java.exe：兼容 <c>dir\bin\java.exe</c> 与 javapath 那种直接躺在目录里的</summary>
+    private static IEnumerable<string> JavaExesIn(string? dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) yield break;
+        var bin = Path.Combine(dir, "bin", "java.exe");
+        if (File.Exists(bin)) yield return bin;
+        var direct = Path.Combine(dir, "java.exe");
+        if (File.Exists(direct)) yield return direct;
+    }
+
+    /// <summary><paramref name="root"/> 下每个一级子目录里的 java.exe</summary>
+    private static IEnumerable<string> EnumerateChildJavaExes(string? root)
+    {
+        foreach (var dir in SafeEnumerateDirectories(root))
+            foreach (var exe in JavaExesIn(dir))
+                yield return exe;
+    }
+
+    private static string[] SafeEnumerateDirectories(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root) || root.Contains('%') || !Directory.Exists(root)) return [];
+        try { return Directory.GetDirectories(root); }
+        catch { return []; }
+    }
+
+    /// <summary>目录名里出现这些词就认为它可能是 Java 安装目录（对齐 PCL 的按名匹配）</summary>
+    private static readonly string[] JavaFolderKeywords =
+    [
+        "java", "jdk", "jre", "jvm", "jbr", "temurin", "zulu", "corretto", "adoptium",
+        "adoptopenjdk", "graalvm", "sapmachine", "semeru", "bellsoft", "liberica", "dragonwell",
+    ];
+
+    /// <summary>
+    /// 扫各固定磁盘根目录下「名字像 Java」的一级目录及其一级子目录。
+    /// <para>
+    /// 覆盖 PCL 能搜到、但既不登记注册表也不写 PATH 的绿色/解压版（如 <c>D:\Java\jdk-17</c>）。
+    /// 只看两层，避免整盘递归拖慢「搜索 Java」。
+    /// </para>
+    /// </summary>
+    private static IEnumerable<string> EnumerateDriveJavaExes()
+    {
+        DriveInfo[] drives;
+        try { drives = DriveInfo.GetDrives(); }
+        catch { yield break; }
+
+        foreach (var drive in drives)
+        {
+            string root;
+            try
+            {
+                if (drive.DriveType != DriveType.Fixed || !drive.IsReady) continue;
+                root = drive.RootDirectory.FullName;
+            }
+            catch { continue; }
+
+            foreach (var dir in SafeEnumerateDirectories(root))
+            {
+                var name = Path.GetFileName(dir);
+                if (!JavaFolderKeywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                foreach (var exe in JavaExesIn(dir)) yield return exe;
+                foreach (var exe in EnumerateChildJavaExes(dir)) yield return exe;
+            }
+        }
+    }
+
+    private static IEnumerable<string> ExpandJavaInstallRoots()
+    {
+        foreach (var raw in JavaInstallRoots.Concat(DirectJavaHomes))
+        {
+            var path = Environment.ExpandEnvironmentVariables(raw);
+            if (path.Contains('%')) continue;   // 该环境变量在本机不存在（如 32 位系统上的 ProgramFiles(x86)）
+            yield return path;
+        }
+    }
+
+    /// <summary>去重键：解析软链接（Oracle 的 javapath 是符号链接，否则同一运行时会列两次）</summary>
+    private static string NormalizeExe(string exe)
+    {
+        try
+        {
+            var full = Path.GetFullPath(exe);
+            return File.ResolveLinkTarget(full, returnFinalTarget: true)?.FullName ?? full;
+        }
+        catch
+        {
+            return exe;
+        }
+    }
+
+    // ── 注册表查询 ──
+
+    /// <summary>
+    /// 用 <c>reg.exe</c> 读出各厂商登记的 Java 主目录。
+    /// <para>
+    /// 不用 <c>Microsoft.Win32.Registry</c>：Core 的目标框架是 <c>net8.0</c>（非 Windows 专用），
+    /// 引用注册表 API 需要额外 NuGet 包；<c>reg.exe</c> 在所有 Windows 上都有，输出也易于解析。
+    /// 各厂商的值名不统一（JavaHome / InstallationPath / Path…），故不按名称取值，
+    /// 而是把所有 REG_SZ 值中「确实含 java.exe」的路径挑出来。
+    /// </para>
+    /// </summary>
+    private static async Task<IReadOnlyList<string>> QueryRegistryJavaHomesAsync()
+    {
+        var queries = new List<Task<string?>>();
+        foreach (var root in RegistryJavaRoots)
+            foreach (var hive in RegistryHives)
+                queries.Add(RunRegQueryAsync($@"{hive}\{root}"));
+
+        var homes = new List<string>();
+        foreach (var output in await Task.WhenAll(queries))
+        {
+            if (output is null) continue;
+            foreach (var value in ParseRegStringValues(output))
+                if (LooksLikeJavaHome(value)) homes.Add(value);
+        }
+        return homes;
+    }
+
+    private static async Task<string?> RunRegQueryAsync(string key)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "reg.exe",
+                Arguments = $"query \"{key}\" /s",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi)!;
+            var stdout = await p.StandardOutput.ReadToEndAsync();
+            await p.WaitForExitAsync();
+            return p.ExitCode == 0 ? stdout : null;   // 键不存在时 reg.exe 返回 1
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>取 <c>reg query /s</c> 输出里的 REG_SZ / REG_EXPAND_SZ 值（路径可能含空格，故按类型标记切分）</summary>
+    private static IEnumerable<string> ParseRegStringValues(string regOutput)
+    {
+        foreach (var line in regOutput.Split('\n'))
+        {
+            var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var typeIndex = Array.FindIndex(tokens,
+                t => t.Equals("REG_SZ", StringComparison.OrdinalIgnoreCase)
+                     || t.Equals("REG_EXPAND_SZ", StringComparison.OrdinalIgnoreCase));
+            if (typeIndex < 1 || typeIndex >= tokens.Length - 1) continue;
+            yield return string.Join(' ', tokens[(typeIndex + 1)..]);
+        }
+    }
+
+    /// <summary>该注册表值是否真的指向一个 Java（值可能是主目录，也可能直接是 java.exe）</summary>
+    private static bool LooksLikeJavaHome(string value)
+    {
+        var path = Environment.ExpandEnvironmentVariables(value.Trim().Trim('"'));
+        if (path.Length == 0 || path.Contains('%')) return false;
+        if (path.EndsWith("java.exe", StringComparison.OrdinalIgnoreCase)) return File.Exists(path);
+        return JavaExesIn(path).Any();
     }
 
     /// <summary>下载并解压 Adoptium JDK 到 java/&lt;major&gt;/</summary>

@@ -81,9 +81,13 @@ public sealed partial class NovaChatView : UserControl
         var input = InputBox.Text.Trim();
         if (input.Length == 0 || _s.NovaRuntime.State == NovaState.Thinking) return;
         InputBox.Text = "";
-        await _s.NovaRuntime.SendAsync(input);
+        await _s.NovaRuntime.SendAsync(input, FullLogSwitch.IsOn);
         InputBox.Focus(FocusState.Programmatic);
     }
+
+    /// <summary>打开「发送完整日志」时才提示更贵（规格 §5）。</summary>
+    private void FullLog_Toggled(object sender, RoutedEventArgs e) =>
+        FullLogHint.Visibility = FullLogSwitch.IsOn ? Visibility.Visible : Visibility.Collapsed;
 
     private void Quick_Click(object sender, RoutedEventArgs e)
     {

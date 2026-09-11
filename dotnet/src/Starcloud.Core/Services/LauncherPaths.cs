@@ -111,6 +111,14 @@ public sealed class LauncherSettings
     [JsonPropertyName("download_max_retries")]
     public int DownloadMaxRetries { get; set; } = 3;
 
+    /// <summary>下载源：auto（多源分片竞速）/ official / bmclapi / fastmirror / rainyun / custom</summary>
+    [JsonPropertyName("download_source")]
+    public string DownloadSource { get; set; } = "auto";
+
+    /// <summary>自定义镜像根 URL（空 = 不启用；自动模式下配置即纳入竞速池）</summary>
+    [JsonPropertyName("download_custom_mirror_url")]
+    public string? DownloadCustomMirrorUrl { get; set; } = "";
+
     [JsonPropertyName("version_isolated")]
     public bool VersionIsolated { get; set; } = true;
 

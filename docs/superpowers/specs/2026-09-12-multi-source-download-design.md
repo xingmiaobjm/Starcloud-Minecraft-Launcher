@@ -63,7 +63,7 @@ public sealed class DownloadSourceRegistry
     public IReadOnlyList<SourceKind> RacingPool();
 
     public void RecordSuccess(SourceKind k);          // 重置失败计数、恢复降级
-    public void RecordFailure(SourceKind k);          // 连续失败 ≥5 → 降级
+    public void RecordFailure(SourceKind k);          // 连续失败 ≥2 → 降级（阈值见 §9 风险 4）
     public void MarkNoRangeSupport(SourceKind k);     // 该源不支持 Range，退出分片池（进程内）
     public void ResetHealth();
 }
@@ -178,6 +178,13 @@ public sealed class ChunkedFileDownloader(HttpClient http, DownloadSourceRegistr
 - 小文件（`size < Threshold` 或 `size <= 0`）→ 1 个「整文件任务」，沿用现有单源路径。
 - 大文件（`size >= Threshold`）→ 1 个「分片组任务」，占 **1 个闸门位**，内部自己跑至多 4 个分片 worker。
 
+**分片竞速的准入门槛（实现期细化）**：只有 `DownloadSourceRegistry.IsMojangUrl(url)` 为真
+（即命中 §3.1 的 7 个 `MojangPrefixes`）的文件才进入分片竞速；其余域名（Modrinth / Fabric /
+Adoptium 等）无论体积一律走整文件路径，被镜像改写的也仍然原样放行。理由是分片竞速的价值
+来自「多源叠加」，而非 Mojang 域名没有任何镜像会去改写，分片只会凭空增加并发与开销。
+`size <= 0` 且是 Mojang 域名时先用 `ProbeSizeAsync`（HEAD，经首选源改写）探测一次再分流；
+探测失败按未知大小走整文件路径。
+
 闸门仍是 `settings.DownloadConcurrency`（默认 16）→ 峰值连接 16 × 4 = 64 < 128 上限。
 进度模型统一为「每个任务单元上报字节」，无需第二套并发池。
 
@@ -245,11 +252,57 @@ public sealed class ChunkedFileDownloader(HttpClient http, DownloadSourceRegistr
 4. 设置页切「仅官方」→ 请求回到 `piston-data.mojang.com`，安装成功。
 5. `dotnet build dotnet/src/Starcloud.App/Starcloud.App.csproj` 0 警告 0 错误；`dotnet test` 全绿。
 
+### 验收记录（2026-09-12，自动化部分）
+
+未走 GUI，而是用一个临时控制台工程直接驱动 `Starcloud.Core` 的真实 `DownloadService`
+下载真实文件（1.21.1）——这是同一份生产代码路径，证据强度等同实机：
+
+| 场景 | 结果 |
+|---|---|
+| `auto` + client.jar（26,836,906 B） | 成功。日志 `分片竞速 client.jar（25.6MB / 7 片）：Mojang 官方 13.6MB / BMCLAPI 12.0MB` —— **两个源确实同时贡献了字节**（对应验收项 2） |
+| `auto` + 小 library（964 B，`libraries.minecraft.net` → `/maven` 改写） | 成功，SHA1 校验通过 —— 整文件路径与镜像改写生效 |
+| `official` + client.jar | 成功。日志 `分片竞速 client-official.jar（25.6MB / 7 片）：Mojang 官方 25.6MB` —— 对应验收项 4（仅官方不走镜像） |
+| `dotnet test` | 88 passed / 0 failed |
+
+验收项 3（断源切换）由实测的 FastMirror 不可达 / RainYun 不支持 Range 天然覆盖：
+两者都被自动剔除，下载仍成功。
+
+
 ## 9. 风险与未决
 
-1. **镜像是否都支持 Range 未逐源验证**。RainYun 尤其存疑。缓解：`MarkNoRangeSupport`
-   会自动把不支持的源踢出分片池，最坏情况退化为单源整文件，不影响功能正确性。
+1. **镜像是否都支持 Range —— 已逐源实测（2026-09-12，1.21.1 client.jar 26,836,906 B）**：
+
+   | 源 | `Range: bytes=0-1023` 结果 | 结论 |
+   |---|---|---|
+   | `piston-data.mojang.com` | `206` / 1024 B | 支持 |
+   | `bmclapi2.bangbang93.com` | `206` / 1024 B（先 302 跳转，需跟随重定向） | 支持 |
+   | `launcher.fastmcmirror.org` | TCP 443 连接超时（DNS 正常解析到 195.123.225.29） | 本机网络不可达 |
+   | `mirrors.rainyun.com` | `200` + 3516 B（返回的是站点 HTML，非镜像文件） | 不支持 Range，且该根路径下无 Minecraft 文件 |
+
+   RainYun 的改写结果继承自旧 Rust `rewrite_root(url, "mirrors.rainyun.com")`，即把
+   `piston-data` 映射到镜像根。实测该路径不提供文件，故 RainYun 实际不会贡献字节。
+   两个异常源都被设计内的机制自动处理：RainYun 首次请求返回 `200` 即触发
+   `MarkNoRangeSupport` 退出分片池、FastMirror 连续失败触发降级，**功能正确性不受影响**。
+
 2. **镜像内容与官方不一致**（镜像滞后或损坏）。缓解：整文件 SHA1 校验是最终裁判，
    校验失败即换整文件单源下载重试。
 3. **`MaxConnectionsPerServer` 提到 128 的内存/句柄开销**未实测。若异常，回落方案是
    把单文件分片 worker 从 4 降到 2。
+4. **不可达镜像会先拖慢、再被降级（实测数据）**。同一台机器、同一 26 MB client.jar：
+
+   | 配置 | 耗时 | 日志 |
+   |---|---|---|
+   | `auto`（阈值 5） | 31.1 s | `Mojang 官方 13.6MB / BMCLAPI 12.0MB` |
+   | `auto`（阈值 2） | 21.2 s | `Mojang 官方 13.6MB / BMCLAPI 12.0MB` |
+   | `official` | 3.7 s / 5.6 s（两次测量） | `Mojang 官方 25.6MB` |
+
+   根因：FastMirror 的连接超时约 3.7 s/次，而旧 Rust 沿用的 `DegradeAfterFailures = 5`
+   要累计 5 次连续失败才降级，首次安装的前几个分片会白等十几秒。
+   **已按实测把阈值下调为 2**（[DownloadSource.cs](../../../dotnet/src/Starcloud.Core/Services/DownloadSource.cs#L18-L25)），
+   收益约 10 s。关键是**健康度是进程级共享的**（`DownloadSourceRegistry` 由 `DownloadService`
+   持有，`AppServices` 全局唯一），所以这笔开销只在每个进程的**首个下载**付一次，
+   此后 FastMirror 不再被派片，多源叠加的收益从第二个文件起才完整体现。
+   （上表三次测量都是「新进程的第一个文件」，因此 `auto` 仍慢于 `official`。）
+   误降级风险由 `RecordSuccess` 立即恢复兜底。
+   残留白等若要继续压缩，下一个杠杆是 `SocketsHttpHandler.ConnectTimeout`（只约束建连，
+   不影响慢速大文件传输），比下调 `HttpClient.Timeout`（当前 60 s）安全得多。
