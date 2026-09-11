@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Starcloud.App.Views"
+    xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
@@ -19,11 +20,11 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Spacing="4">
-                <TextBlock Text="下载" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="下载原版与加载器，或在社区资源中查找 Mod 与整合包"
+                <TextBlock loc:Loc.Text="下载" FontSize="28" FontWeight="SemiBold" />
+                <TextBlock loc:Loc.Text="下载原版与加载器，或在社区资源中查找 Mod 与整合包"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
-            <Button x:Name="LibraryBtn" Grid.Column="1" Content="资源管理"
+            <Button x:Name="LibraryBtn" Grid.Column="1" loc:Loc.Text="资源管理"
                     VerticalAlignment="Center" Click="Library_Click" />
         </Grid>
 
@@ -51,11 +52,11 @@
                     <ListViewItem Tag="vanilla" IsSelected="True">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
                             <FontIcon Glyph="&#xE718;" FontSize="14" />
-                            <TextBlock Text="原版游戏" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="原版游戏" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
                     <ListViewItem IsEnabled="False" IsHitTestVisible="False">
-                        <TextBlock Text="社区资源" FontSize="12" Margin="10,8,0,2"
+                        <TextBlock loc:Loc.Text="社区资源" FontSize="12" Margin="10,8,0,2"
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </ListViewItem>
                     <ListViewItem Tag="mod">
@@ -67,25 +68,25 @@
                     <ListViewItem Tag="modpack">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
                             <FontIcon Glyph="&#xE7B8;" FontSize="14" />
-                            <TextBlock Text="整合包" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="整合包" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
                     <ListViewItem Tag="datapack">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
                             <FontIcon Glyph="&#xE8A5;" FontSize="14" />
-                            <TextBlock Text="数据包" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="数据包" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
                     <ListViewItem Tag="resourcepack">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
                             <FontIcon Glyph="&#xE91B;" FontSize="14" />
-                            <TextBlock Text="资源包" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="资源包" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
                     <ListViewItem Tag="shader">
                         <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
                             <FontIcon Glyph="&#xE706;" FontSize="14" />
-                            <TextBlock Text="光影包" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="光影包" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
                 </ListView>
@@ -100,8 +101,8 @@
 
                 <!-- 提示与进度 -->
                 <StackPanel Grid.Row="0" Spacing="8">
-                    <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" Title="操作失败" />
-                    <InfoBar x:Name="OkBar" Severity="Success" IsOpen="False" IsClosable="True" Title="完成" />
+                    <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+                    <InfoBar x:Name="OkBar" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
                     <ProgressBar x:Name="InstallProgress" IsIndeterminate="True" Visibility="Collapsed" />
                     <TextBlock x:Name="ProgressText" FontSize="12" Visibility="Collapsed"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -125,16 +126,16 @@
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="TypeCombo" MinWidth="140"
                                       SelectionChanged="TypeCombo_SelectionChanged">
-                                <ComboBoxItem Content="正式版" Tag="release" IsSelected="True" />
-                                <ComboBoxItem Content="快照版" Tag="snapshot" />
-                                <ComboBoxItem Content="远古版本" Tag="old" />
+                                <ComboBoxItem loc:Loc.Text="正式版" Tag="release" IsSelected="True" />
+                                <ComboBoxItem loc:Loc.Text="快照版" Tag="snapshot" />
+                                <ComboBoxItem loc:Loc.Text="远古版本" Tag="old" />
                             </ComboBox>
-                            <TextBox x:Name="SearchBox" Grid.Column="1" PlaceholderText="搜索版本 ID…"
+                            <TextBox x:Name="SearchBox" Grid.Column="1" loc:Loc.Placeholder="搜索版本 ID…"
                                      TextChanged="SearchBox_TextChanged" />
                             <Border x:Name="VersionCacheBadge" Grid.Column="2" Visibility="Collapsed"
                                     CornerRadius="4" Padding="8,2" VerticalAlignment="Center"
                                     Background="{ThemeResource AccentFillColorTertiaryBrush}">
-                                <TextBlock Text="缓存" FontSize="11"
+                                <TextBlock loc:Loc.Text="缓存" FontSize="11"
                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                             </Border>
                         </Grid>
@@ -238,7 +239,8 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Button Click="Back_Click" Padding="10,8" CornerRadius="8"
-                                    VerticalAlignment="Center">
+                                    VerticalAlignment="Center"
+                                    loc:Loc.Name="返回" loc:Loc.Tip="返回">
                                 <FontIcon Glyph="&#xE72B;" FontSize="14" />
                             </Button>
                             <!-- 草方块图标（纯 XAML：上草皮下泥土） -->
@@ -282,7 +284,7 @@
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="Forge" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <TextBlock x:Name="ForgeStatus" Grid.Column="1" Text="获取中…" FontSize="12"
+                                            <TextBlock x:Name="ForgeStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </Grid>
@@ -305,12 +307,12 @@
                                                 <Border x:Name="ForgeRecBadge" Grid.Column="1"
                                                         Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
                                                         CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                    <TextBlock x:Name="ForgeRecBadgeText" Text="推荐" FontSize="11"
+                                                    <TextBlock x:Name="ForgeRecBadgeText" loc:Loc.Text="推荐" FontSize="11"
                                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
                                                 </Border>
                                             </Grid>
                                         </Button>
-                                        <TextBlock x:Name="ForgeCountText" Text="全部版本 (0)" FontSize="13"
+                                        <TextBlock x:Name="ForgeCountText" loc:Loc.Text="全部版本 (0)" FontSize="13"
                                                    FontWeight="SemiBold" Margin="4,0,0,0"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="ForgeBuildList" SelectionMode="None"
@@ -342,14 +344,14 @@
                                                         <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
                                                                 Background="{ThemeResource AccentFillColorDefaultBrush}"
                                                                 CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                            <TextBlock Text="已选" FontSize="11"
+                                                            <TextBlock loc:Loc.Text="已选" FontSize="11"
                                                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                                                         </Border>
                                                     </Grid>
                                                 </DataTemplate>
                                             </ListView.ItemTemplate>
                                         </ListView>
-                                        <TextBlock x:Name="ForgeEmptyText" Text="暂无可用构建" Visibility="Collapsed"
+                                        <TextBlock x:Name="ForgeEmptyText" loc:Loc.Text="暂无可用构建" Visibility="Collapsed"
                                                    FontSize="12" Margin="4,0,0,0"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                     </StackPanel>
@@ -365,7 +367,7 @@
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="NeoForge" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <TextBlock x:Name="NeoForgeStatus" Grid.Column="1" Text="获取中…" FontSize="12"
+                                            <TextBlock x:Name="NeoForgeStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </Grid>
@@ -388,12 +390,12 @@
                                                 <Border x:Name="NeoForgeRecBadge" Grid.Column="1"
                                                         Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
                                                         CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                    <TextBlock x:Name="NeoForgeRecBadgeText" Text="推荐" FontSize="11"
+                                                    <TextBlock x:Name="NeoForgeRecBadgeText" loc:Loc.Text="推荐" FontSize="11"
                                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
                                                 </Border>
                                             </Grid>
                                         </Button>
-                                        <TextBlock x:Name="NeoForgeCountText" Text="全部版本 (0)" FontSize="13"
+                                        <TextBlock x:Name="NeoForgeCountText" loc:Loc.Text="全部版本 (0)" FontSize="13"
                                                    FontWeight="SemiBold" Margin="4,0,0,0"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="NeoForgeBuildList" SelectionMode="None"
@@ -425,14 +427,14 @@
                                                         <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
                                                                 Background="{ThemeResource AccentFillColorDefaultBrush}"
                                                                 CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                            <TextBlock Text="已选" FontSize="11"
+                                                            <TextBlock loc:Loc.Text="已选" FontSize="11"
                                                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                                                         </Border>
                                                     </Grid>
                                                 </DataTemplate>
                                             </ListView.ItemTemplate>
                                         </ListView>
-                                        <TextBlock x:Name="NeoForgeEmptyText" Text="暂无可用构建" Visibility="Collapsed"
+                                        <TextBlock x:Name="NeoForgeEmptyText" loc:Loc.Text="暂无可用构建" Visibility="Collapsed"
                                                    FontSize="12" Margin="4,0,0,0"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                     </StackPanel>
@@ -448,7 +450,7 @@
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="Fabric" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <TextBlock x:Name="FabricStatus" Grid.Column="1" Text="获取中…" FontSize="12"
+                                            <TextBlock x:Name="FabricStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </Grid>
@@ -471,12 +473,12 @@
                                                 <Border x:Name="FabricRecBadge" Grid.Column="1"
                                                         Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
                                                         CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                    <TextBlock x:Name="FabricRecBadgeText" Text="推荐" FontSize="11"
+                                                    <TextBlock x:Name="FabricRecBadgeText" loc:Loc.Text="推荐" FontSize="11"
                                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
                                                 </Border>
                                             </Grid>
                                         </Button>
-                                        <TextBlock x:Name="FabricCountText" Text="全部版本 (0)" FontSize="13"
+                                        <TextBlock x:Name="FabricCountText" loc:Loc.Text="全部版本 (0)" FontSize="13"
                                                    FontWeight="SemiBold" Margin="4,0,0,0"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="FabricBuildList" SelectionMode="None"
@@ -508,14 +510,14 @@
                                                         <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
                                                                 Background="{ThemeResource AccentFillColorDefaultBrush}"
                                                                 CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                            <TextBlock Text="已选" FontSize="11"
+                                                            <TextBlock loc:Loc.Text="已选" FontSize="11"
                                                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                                                         </Border>
                                                     </Grid>
                                                 </DataTemplate>
                                             </ListView.ItemTemplate>
                                         </ListView>
-                                        <TextBlock x:Name="FabricEmptyText" Text="暂无可用构建" Visibility="Collapsed"
+                                        <TextBlock x:Name="FabricEmptyText" loc:Loc.Text="暂无可用构建" Visibility="Collapsed"
                                                    FontSize="12" Margin="4,0,0,0"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                     </StackPanel>
@@ -532,7 +534,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="OptiFine" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="暂不支持" VerticalAlignment="Center"
+                                        <TextBlock Grid.Column="1" loc:Loc.Text="暂不支持" VerticalAlignment="Center"
                                                    FontSize="12"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                     </Grid>
@@ -549,7 +551,7 @@
                                     Click="StartDownload_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <FontIcon Glyph="&#xE896;" FontSize="16" />
-                                    <TextBlock Text="开始下载" FontSize="15" FontWeight="SemiBold" />
+                                    <TextBlock loc:Loc.Text="开始下载" FontSize="15" FontWeight="SemiBold" />
                                 </StackPanel>
                             </Button>
                         </StackPanel>
@@ -570,7 +572,7 @@
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" CornerRadius="16" Padding="16">
                         <StackPanel Spacing="12">
-                            <TextBlock x:Name="SearchTitle" Text="搜索 Mod" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock x:Name="SearchTitle" loc:Loc.Text="搜索 Mod" FontSize="16" FontWeight="SemiBold" />
                             <Grid ColumnSpacing="24" RowSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -588,16 +590,16 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="名称" MinWidth="36" VerticalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="名称" MinWidth="36" VerticalAlignment="Center" />
                                     <TextBox x:Name="CommunitySearchBox" Grid.Column="1"
-                                             PlaceholderText="如：Sodium、JEI、Create…"
+                                             loc:Loc.Placeholder="如：Sodium、JEI、Create…"
                                              KeyDown="SearchBox_KeyDown" />
                                 </Grid>
 
                                 <!-- 分类（按资源类型动态加载；无分类的类型隐藏） -->
                                 <StackPanel x:Name="CategoryRow" Grid.Row="0" Grid.Column="1"
                                             Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="分类" MinWidth="48" VerticalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="分类" MinWidth="48" VerticalAlignment="Center" />
                                     <ComboBox x:Name="CategoryCombo" MinWidth="170" SelectionChanged="Filter_Changed" />
                                 </StackPanel>
 
@@ -607,9 +609,9 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="版本" MinWidth="36" VerticalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="版本" MinWidth="36" VerticalAlignment="Center" />
                                     <ComboBox x:Name="VersionCombo" Grid.Column="1" IsEditable="True"
-                                              PlaceholderText="全部 (也可自行输入)"
+                                              loc:Loc.Placeholder="全部 (也可自行输入)"
                                               MaxDropDownHeight="360"
                                               SelectionChanged="Filter_Changed" KeyDown="VersionBox_KeyDown" />
                                 </Grid>
@@ -617,10 +619,10 @@
                                 <!-- 加载器（仅 Mod 分区） -->
                                 <StackPanel x:Name="LoaderRow" Grid.Row="1" Grid.Column="1"
                                             Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="加载器" MinWidth="48" VerticalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="加载器" MinWidth="48" VerticalAlignment="Center" />
                                     <ComboBox x:Name="LoaderCombo" MinWidth="170" SelectionChanged="Filter_Changed">
-                                        <ComboBoxItem Content="自动检测" Tag="auto" IsSelected="True" />
-                                        <ComboBoxItem Content="全部" Tag="any" />
+                                        <ComboBoxItem loc:Loc.Text="自动检测" Tag="auto" IsSelected="True" />
+                                        <ComboBoxItem loc:Loc.Text="全部" Tag="any" />
                                         <ComboBoxItem Content="Fabric" Tag="fabric" />
                                         <ComboBoxItem Content="Forge" Tag="forge" />
                                         <ComboBoxItem Content="NeoForge" Tag="neoforge" />
@@ -634,20 +636,20 @@
                                             Style="{ThemeResource AccentButtonStyle}" Click="SearchBtn_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon Glyph="&#xE721;" FontSize="14" />
-                                            <TextBlock Text="搜索" />
+                                            <TextBlock loc:Loc.Text="搜索" />
                                         </StackPanel>
                                     </Button>
-                                    <Button x:Name="ResetBtn" MinWidth="110" Content="重置条件" Click="ResetBtn_Click" />
+                                    <Button x:Name="ResetBtn" MinWidth="110" loc:Loc.Text="重置条件" Click="ResetBtn_Click" />
                                 </StackPanel>
 
                                 <!-- 排序 -->
                                 <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="排序" MinWidth="48" VerticalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="排序" MinWidth="48" VerticalAlignment="Center" />
                                     <ComboBox x:Name="SortCombo" MinWidth="170" SelectionChanged="Filter_Changed">
-                                        <ComboBoxItem Content="相关性" Tag="relevance" IsSelected="True" />
-                                        <ComboBoxItem Content="下载最多" Tag="downloads" />
-                                        <ComboBoxItem Content="最新发布" Tag="newest" />
-                                        <ComboBoxItem Content="最近更新" Tag="updated" />
+                                        <ComboBoxItem loc:Loc.Text="相关性" Tag="relevance" IsSelected="True" />
+                                        <ComboBoxItem loc:Loc.Text="下载最多" Tag="downloads" />
+                                        <ComboBoxItem loc:Loc.Text="最新发布" Tag="newest" />
+                                        <ComboBoxItem loc:Loc.Text="最近更新" Tag="updated" />
                                     </ComboBox>
                                 </StackPanel>
                             </Grid>
@@ -732,7 +734,7 @@
                             <local:EmptyStateView x:Name="EmptyHint" Visibility="Collapsed"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
                                                   Glyph="&#xE721;"
-                                                  Title="没有找到相关资源，换个关键词或筛选条件试试" />
+                                                  loc:Loc.Title="没有找到相关资源，换个关键词或筛选条件试试" />
                         </Grid>
                     </Border>
 
@@ -748,13 +750,13 @@
                             <Border x:Name="CacheBadge" Visibility="Collapsed" CornerRadius="4" Padding="8,2"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource AccentFillColorTertiaryBrush}">
-                                <TextBlock Text="缓存" FontSize="11"
+                                <TextBlock loc:Loc.Text="缓存" FontSize="11"
                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                            <Button x:Name="PrevBtn" Content="上一页" Click="PrevBtn_Click" />
-                            <Button x:Name="NextBtn" Content="下一页" Click="NextBtn_Click" />
+                            <Button x:Name="PrevBtn" loc:Loc.Text="上一页" Click="PrevBtn_Click" />
+                            <Button x:Name="NextBtn" loc:Loc.Text="下一页" Click="NextBtn_Click" />
                         </StackPanel>
                     </Grid>
                 </Grid>
@@ -773,19 +775,19 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <Grid Grid.Row="0">
-                    <TextBlock Text="资源管理" FontSize="20" FontWeight="SemiBold"
+                    <TextBlock loc:Loc.Text="资源管理" FontSize="20" FontWeight="SemiBold"
                                VerticalAlignment="Center" />
-                    <Button x:Name="LibraryCloseBtn" Content="关闭" HorizontalAlignment="Right"
+                    <Button x:Name="LibraryCloseBtn" loc:Loc.Text="关闭" HorizontalAlignment="Right"
                             Click="LibraryClose_Click" />
                 </Grid>
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                    <Button Content="全部" Tag="" Click="LibKind_Click" />
+                    <Button loc:Loc.Text="全部" Tag="" Click="LibKind_Click" />
                     <Button Content="Mod" Tag="mod" Click="LibKind_Click" />
-                    <Button Content="资源包" Tag="resourcepack" Click="LibKind_Click" />
-                    <Button Content="光影" Tag="shader" Click="LibKind_Click" />
-                    <Button Content="数据包" Tag="datapack" Click="LibKind_Click" />
-                    <Button Content="整合包" Tag="modpack" Click="LibKind_Click" />
-                    <Button Content="重扫" Click="LibraryRescan_Click" />
+                    <Button loc:Loc.Text="资源包" Tag="resourcepack" Click="LibKind_Click" />
+                    <Button loc:Loc.Text="光影" Tag="shader" Click="LibKind_Click" />
+                    <Button loc:Loc.Text="数据包" Tag="datapack" Click="LibKind_Click" />
+                    <Button loc:Loc.Text="整合包" Tag="modpack" Click="LibKind_Click" />
+                    <Button loc:Loc.Text="重扫" Click="LibraryRescan_Click" />
                 </StackPanel>
                 <ListView x:Name="LibraryList" Grid.Row="2" SelectionMode="None">
                     <ListView.ItemTemplate>
@@ -810,9 +812,9 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8"
                                             VerticalAlignment="Center">
-                                    <Button Content="装载" Tag="{x:Bind Id}" Click="LibraryInstall_Click"
+                                    <Button loc:Loc.Text="装载" Tag="{x:Bind Id}" Click="LibraryInstall_Click"
                                             MinWidth="72" />
-                                    <Button Content="删除" Tag="{x:Bind Id}" Click="LibraryRemove_Click"
+                                    <Button loc:Loc.Text="删除" Tag="{x:Bind Id}" Click="LibraryRemove_Click"
                                             MinWidth="72" />
                                 </StackPanel>
                             </Grid>

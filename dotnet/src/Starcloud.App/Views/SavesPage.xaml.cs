@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -12,7 +13,10 @@ namespace Starcloud.App.Views;
 
 public sealed partial class SavesPage : Page
 {
-    private const string AllVersions = "全部";
+    // 全部：仅内存筛选哨兵，属界面文案，随语言变化
+    private static string AllVersions => Loc.T("全部");
+    // 共享：既是筛选哨兵，又是副本目录名（"{世界}-来自 共享"）与持久化记录 SourceVersion="" 的稳定标识，
+    // 故保留中文常量不本地化，否则切换语言后 FindCopyFolder 前缀匹配会失败（属文件路径豁免）
     private const string SharedLabel = "共享";
 
     private readonly AppServices _s = AppServices.Instance;
@@ -42,9 +46,9 @@ public sealed partial class SavesPage : Page
         {
             _rows = _s.SaveLibrary.ListAll(dotMc, _s.Settings).Select(v => new SaveRow(
                 v.FolderName, v.LevelName, v.IconPath,
-                v.LastPlayed is { } t ? $"上次游玩 {t:yyyy-MM-dd HH:mm}" : "无游玩记录",
+                v.LastPlayed is { } t ? Loc.T("上次游玩 {0:yyyy-MM-dd HH:mm}", t) : Loc.T("无游玩记录"),
                 FormatSize(v.SizeBytes),
-                v.Isolated ? v.VersionId : SharedLabel,
+                v.Isolated ? v.VersionId : Loc.T("共享"),
                 v.VersionId,
                 v.Isolated,
                 v.GameRoot,
@@ -53,7 +57,7 @@ public sealed partial class SavesPage : Page
         catch (Exception ex)
         {
             _rows = [];
-            ErrorBar.Message = $"读取存档失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("读取存档失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
 
@@ -66,7 +70,7 @@ public sealed partial class SavesPage : Page
     private void FillVersionFilter(string dotMc)
     {
         var prev = VersionFilter.SelectedItem as string ?? AllVersions;
-        var items = new List<string> { AllVersions, SharedLabel };
+        var items = new List<string> { AllVersions, Loc.T("共享") };
         try
         {
             items.AddRange(_s.SaveLibrary.ListVersionIds(dotMc));
@@ -92,14 +96,14 @@ public sealed partial class SavesPage : Page
 
         if (_rows.Count == 0)
         {
-            EmptyHint.Title = "暂无存档";
-            EmptyHint.Subtitle = "启动游戏创建世界后，可在此进行备份与管理";
+            EmptyHint.Title = Loc.T("暂无存档");
+            EmptyHint.Subtitle = Loc.T("启动游戏创建世界后，可在此进行备份与管理");
             EmptyHint.Visibility = Visibility.Visible;
         }
         else if (filtered.Count == 0)
         {
-            EmptyHint.Title = "没有匹配的存档";
-            EmptyHint.Subtitle = "试试换个关键词或版本筛选";
+            EmptyHint.Title = Loc.T("没有匹配的存档");
+            EmptyHint.Subtitle = Loc.T("试试换个关键词或版本筛选");
             EmptyHint.Visibility = Visibility.Visible;
         }
         else
@@ -133,7 +137,7 @@ public sealed partial class SavesPage : Page
 
     private static string FormatSize(long bytes) => bytes switch
     {
-        <= 0 => "空",
+        <= 0 => Loc.T("空"),
         < 1024 * 1024 => $"{bytes / 1024.0:F0} KB",
         < 1024L * 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
         _ => $"{bytes / 1024.0 / 1024 / 1024:F2} GB",
@@ -170,10 +174,10 @@ public sealed partial class SavesPage : Page
         if (SaveList.SelectedItem is not SaveRow row || _busy) return;
         var dlg = new ContentDialog
         {
-            Title = "备份世界",
-            Content = $"将「{row.Name}」压缩备份到 backups 文件夹，可能需要一些时间，继续吗？",
-            PrimaryButtonText = "开始备份",
-            CloseButtonText = "取消",
+            Title = Loc.T("备份世界"),
+            Content = Loc.T("将「{0}」压缩备份到 backups 文件夹，可能需要一些时间，继续吗？", row.Name),
+            PrimaryButtonText = Loc.T("开始备份"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -186,12 +190,12 @@ public sealed partial class SavesPage : Page
         {
             var zipPath = await Task.Run(() => _s.Saves.Backup(
                 row.GameRoot, Path.Combine(row.GameRoot, "backups"), row.FolderName));
-            OkBar.Message = $"已备份到 {zipPath}";
+            OkBar.Message = Loc.T("已备份到 {0}", zipPath);
             OkBar.IsOpen = true;
         }
         catch (Exception ex)
         {
-            ErrorBar.Message = $"备份失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("备份失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
         finally
@@ -207,10 +211,10 @@ public sealed partial class SavesPage : Page
         if (SaveList.SelectedItem is not SaveRow row || _busy) return;
         var dlg = new ContentDialog
         {
-            Title = "删除世界",
-            Content = $"确定要删除「{row.Name}」吗？\n世界文件夹将被移除，建议先备份。此操作不可恢复。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
+            Title = Loc.T("删除世界"),
+            Content = Loc.T("确定要删除「{0}」吗？\n世界文件夹将被移除，建议先备份。此操作不可恢复。", row.Name),
+            PrimaryButtonText = Loc.T("删除"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -223,7 +227,7 @@ public sealed partial class SavesPage : Page
         }
         catch (Exception ex)
         {
-            ErrorBar.Message = $"删除失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("删除失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
     }
@@ -246,7 +250,7 @@ public sealed partial class SavesPage : Page
         var candidates = _s.SaveLibrary.ListVersionIds(dotMc).Where(v => v != sourceLabel).ToList();
         if (candidates.Count == 0)
         {
-            ErrorBar.Message = "没有其他已安装版本，请先在下载页安装一个版本";
+            ErrorBar.Message = Loc.T("没有其他已安装版本，请先在下载页安装一个版本");
             ErrorBar.IsOpen = true;
             return;
         }
@@ -274,17 +278,17 @@ public sealed partial class SavesPage : Page
         };
         var basic = new TextBlock
         {
-            Text = "基础启动模式：不含文件校验与自动修复，失败请回首页启动。",
+            Text = Loc.T("基础启动模式：不含文件校验与自动修复，失败请回首页启动。"),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
         };
         var account = new TextBlock
         {
-            Text = $"使用账户：{player.Name}（{(player.Credentials is null ? "离线" : "正版")}）",
+            Text = Loc.T("使用账户：{0}（{1}）", player.Name, player.Credentials is null ? Loc.T("离线") : Loc.T("正版")),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
         };
-        var confirm = new CheckBox { Content = "我已了解跨版本风险" };
+        var confirm = new CheckBox { Content = Loc.T("我已了解跨版本风险") };
         var panel = new StackPanel { Spacing = 12 };
         panel.Children.Add(warn);
         panel.Children.Add(combo);
@@ -294,9 +298,9 @@ public sealed partial class SavesPage : Page
 
         var dlg = new ContentDialog
         {
-            Title = "用其他版本打开世界",
+            Title = Loc.T("用其他版本打开世界"),
             Content = panel,
-            CloseButtonText = "取消",
+            CloseButtonText = Loc.T("取消"),
             XamlRoot = Content.XamlRoot,
         };
 
@@ -311,12 +315,13 @@ public sealed partial class SavesPage : Page
         {
             var targetId = combo.SelectedItem as string ?? candidates[0];
             var same = SameRoot(targetId);
+            var sourceDisplay = row.Isolated ? row.VersionId : Loc.T("共享");
             warn.Message = same
-                ? $"此世界来自 {sourceLabel}，与 {targetId} 使用同一游戏目录，无需复制。"
-                : $"此世界来自 {sourceLabel}，将由 {targetId} 打开。跨版本打开可能触发世界数据升级，且改动不可逆。";
+                ? Loc.T("此世界来自 {0}，与 {1} 使用同一游戏目录，无需复制。", sourceDisplay, targetId)
+                : Loc.T("此世界来自 {0}，将由 {1} 打开。跨版本打开可能触发世界数据升级，且改动不可逆。", sourceDisplay, targetId);
             confirm.Visibility = same ? Visibility.Collapsed : Visibility.Visible;
-            dlg.PrimaryButtonText = same ? "启动" : "复制并启动";
-            dlg.SecondaryButtonText = same ? "" : "仅复制";
+            dlg.PrimaryButtonText = same ? Loc.T("启动") : Loc.T("复制并启动");
+            dlg.SecondaryButtonText = same ? "" : Loc.T("仅复制");
             dlg.DefaultButton = same || startAfterCopy ? ContentDialogButton.Primary : ContentDialogButton.Secondary;
             dlg.IsPrimaryButtonEnabled = same || confirm.IsChecked == true;
         }
@@ -355,7 +360,7 @@ public sealed partial class SavesPage : Page
             catch (Exception ex)
             {
                 try { if (Directory.Exists(dstDir)) Directory.Delete(dstDir, true); } catch { /* 清理失败留给用户手工处理 */ }
-                ErrorBar.Message = $"复制失败：{ex.Message}";
+                ErrorBar.Message = Loc.T("复制失败：{0}", ex.Message);
                 ErrorBar.IsOpen = true;
                 return;
             }
@@ -369,7 +374,7 @@ public sealed partial class SavesPage : Page
 
         if (!doLaunch)
         {
-            OkBar.Message = $"已复制到 {targetId}：{copyFolder}";
+            OkBar.Message = Loc.T("已复制到 {0}：{1}", targetId, copyFolder);
             OkBar.IsOpen = true;
             LoadSaves();
             return;
@@ -387,7 +392,7 @@ public sealed partial class SavesPage : Page
         _sessionHandle = GameSessionGuard.TryAcquire(dotMc, targetId, out var blockedBy);
         if (_sessionHandle is null)
         {
-            ErrorBar.Message = $"版本 {blockedBy} 正在运行中，请先退出游戏";
+            ErrorBar.Message = Loc.T("版本 {0} 正在运行中，请先退出游戏", blockedBy);
             ErrorBar.IsOpen = true;
             return;
         }
@@ -426,8 +431,8 @@ public sealed partial class SavesPage : Page
                 ReleaseSession();
                 if (!sameRoot) new PendingWorldStore(dotMc).Save(rec);
                 ErrorBar.Message = sameRoot
-                    ? $"启动失败：{ex.Message}"
-                    : $"启动失败：{ex.Message}。副本已保留在 {targetId}，可稍后重试";
+                    ? Loc.T("启动失败：{0}", ex.Message)
+                    : Loc.T("启动失败：{0}。副本已保留在 {1}，可稍后重试", ex.Message, targetId);
                 ErrorBar.IsOpen = true;
                 return;
             }
@@ -439,14 +444,14 @@ public sealed partial class SavesPage : Page
 
             App.RunningVersionId = targetId;
             store.TouchPlayed(targetId);
-            RunBar.Message = $"正在以 {targetId} 运行「{row.Name}」";
+            RunBar.Message = Loc.T("正在以 {0} 运行「{1}」", targetId, row.Name);
             RunBar.IsOpen = true;
             LoadSaves();
         }
         catch (Exception ex)
         {
             ReleaseSession();
-            ErrorBar.Message = $"启动失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("启动失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
         finally
@@ -529,16 +534,16 @@ public sealed partial class SavesPage : Page
         if (xamlRoot is null) return;
 
         var detail = copyFolder is null
-            ? $"「{rec.WorldName}」已复制到 {rec.TargetVersion}，但游戏未成功启动。这份副本要如何处理？"
-            : $"「{rec.WorldName}」在 {rec.TargetVersion} 中的改动将如何处理？";
+            ? Loc.T("「{0}」已复制到 {1}，但游戏未成功启动。这份副本要如何处理？", rec.WorldName, rec.TargetVersion)
+            : Loc.T("「{0}」在 {1} 中的改动将如何处理？", rec.WorldName, rec.TargetVersion);
 
         var dlg = new ContentDialog
         {
-            Title = "世界成果归属",
+            Title = Loc.T("世界成果归属"),
             Content = detail,
-            PrimaryButtonText = "保存到当前版本",
-            SecondaryButtonText = "保留在原本的版本",
-            CloseButtonText = "丢弃本次改动",
+            PrimaryButtonText = Loc.T("保存到当前版本"),
+            SecondaryButtonText = Loc.T("保留在原本的版本"),
+            CloseButtonText = Loc.T("丢弃本次改动"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = xamlRoot,
         };
@@ -570,14 +575,14 @@ public sealed partial class SavesPage : Page
                 CopyDirectory(copyDir, srcDir);
             });
             _s.Saves.Delete(rec.TargetGameRoot, copyFolder);
-            OkBar.Message = $"已用副本替换源存档，原存档备份在 {zip}";
+            OkBar.Message = Loc.T("已用副本替换源存档，原存档备份在 {0}", zip);
             OkBar.IsOpen = true;
         }
         catch (Exception ex)
         {
             ErrorBar.Message = zip is null
-                ? $"回传失败：{ex.Message}（副本仍在 {rec.TargetVersion}）"
-                : $"回传失败：{ex.Message}；原存档已备份到 {zip}，副本仍在 {rec.TargetVersion}";
+                ? Loc.T("回传失败：{0}（副本仍在 {1}）", ex.Message, rec.TargetVersion)
+                : Loc.T("回传失败：{0}；原存档已备份到 {1}，副本仍在 {2}", ex.Message, zip, rec.TargetVersion);
             ErrorBar.IsOpen = true;
         }
     }

@@ -3,6 +3,7 @@
     x:Class="Starcloud.App.Views.LogsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
@@ -14,21 +15,19 @@
 
         <!-- 页头 -->
         <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock Text="日志" FontSize="28" FontWeight="SemiBold" />
-            <TextBlock Text="启动器运行日志与每一局游戏的原样输出"
+            <TextBlock loc:Loc.Text="日志" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock loc:Loc.Text="启动器运行日志与每一局游戏的原样输出"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </StackPanel>
 
-        <!-- 来源切换 -->
+        <!-- 来源切换（选项文案在 code-behind 按语言重建，见 LogsPage.xaml.cs） -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
             <RadioButtons x:Name="LogSource" MaxColumns="2"
                           SelectionChanged="LogSource_SelectionChanged">
-                <x:String>启动器日志</x:String>
-                <x:String>游戏日志</x:String>
             </RadioButtons>
             <ComboBox x:Name="GameLogCombo" MinWidth="240" Visibility="Collapsed"
-                      PlaceholderText="选择一局游戏日志" SelectionChanged="GameLogCombo_SelectionChanged" />
-            <Button x:Name="OpenLogDirBtn" Content="打开日志目录" Click="OpenLogDir_Click" />
+                      loc:Loc.Placeholder="选择一局游戏日志" SelectionChanged="GameLogCombo_SelectionChanged" />
+            <Button x:Name="OpenLogDirBtn" loc:Loc.Text="打开日志目录" Click="OpenLogDir_Click" />
         </StackPanel>
 
         <Border Grid.Row="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

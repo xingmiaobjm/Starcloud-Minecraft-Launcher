@@ -13,6 +13,7 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using Starcloud.App.Localization;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Services;
@@ -110,11 +111,11 @@ public sealed class NovaRuntime
 
     public string StateText => State switch
     {
-        NovaState.Idle => "待命",
-        NovaState.Thinking => "思考中…",
-        NovaState.HasPlan => "有提案",
-        NovaState.Observing => "观察中",
-        _ => "离线",
+        NovaState.Idle => Loc.T("待命"),
+        NovaState.Thinking => Loc.T("思考中…"),
+        NovaState.HasPlan => Loc.T("有提案"),
+        NovaState.Observing => Loc.T("观察中"),
+        _ => Loc.T("离线"),
     };
 
     // ── 对话（入口 ①④② 共用：SendAsync → ChatAsync → 消息流） ──
@@ -125,7 +126,7 @@ public sealed class NovaRuntime
         if (input.Length == 0 || _busy) return;
         if (_s.StarcloudId.Current is null)
         {
-            AddAssistant("先在侧栏 Nova 页登录 Starcloud ID，我才能上线干活。");
+            AddAssistant(Loc.T("先在侧栏 Nova 页登录 Starcloud ID，我才能上线干活。"));
             return;
         }
 
@@ -144,7 +145,7 @@ public sealed class NovaRuntime
         }
         catch (Exception ex)
         {
-            AddAssistant($"出错了：{ex.Message}");
+            AddAssistant(Loc.T("出错了：{0}", ex.Message));
         }
         finally
         {
@@ -195,9 +196,9 @@ public sealed class NovaRuntime
     {
         var plan = new NovaPlan(
             Guid.NewGuid().ToString("N")[..12],
-            "做成 Nova 时刻",
+            Loc.T("做成 Nova 时刻"),
             [new NovaActionItem(
-                $"收藏{c.KindText}片段", $"{c.TimeText} · {NovaMomentsService.ClipRange}")],
+                Loc.T("收藏{0}片段", c.KindText), $"{c.TimeText} · {NovaMomentsService.ClipRange}")],
             _ => Task.FromResult(AcceptCandidateText(c.Id)));
         _candidatePlans[plan.Id] = c.Id;
 
@@ -210,7 +211,7 @@ public sealed class NovaRuntime
     public string AcceptCandidateText(string candidateId)
     {
         var moment = _s.NovaMoments.Accept(candidateId);
-        return $"已收藏：{moment.KindText} {moment.TimeText}（{moment.ClipRangeText}）";
+        return Loc.T("已收藏：{0} {1}（{2}）", moment.KindText, moment.TimeText, moment.ClipRangeText);
     }
 
     public void DismissCandidate(string candidateId) => _s.NovaMoments.Dismiss(candidateId);
@@ -250,7 +251,7 @@ public sealed class NovaRuntime
         }
 
         StartObserving();
-        AddAssistant("跟你说一声：时刻捕捉开着，我会留意这一局的高光，有料会喊你。");
+        AddAssistant(Loc.T("跟你说一声：时刻捕捉开着，我会留意这一局的高光，有料会喊你。"));
         RefreshState();
     }
 
@@ -268,7 +269,7 @@ public sealed class NovaRuntime
             catch { /* 补扫失败不影响战报 */ }
             var report = _s.NovaMoments.EndSession();
             AddAssistant(_s.NovaMoments.BuildReportText(report));
-            OverlayToast?.Invoke(new NovaOverlayToast("Nova：本局战报已生成，点浮窗查看"));
+            OverlayToast?.Invoke(new NovaOverlayToast(Loc.T("Nova：本局战报已生成，点浮窗查看")));
         }
         HideOverlaySoon(); // 战报留 5s 阅读窗，随后收浮窗
         RefreshState();
@@ -324,30 +325,32 @@ public sealed class NovaRuntime
     private void OnStutter(StutterEvidence e)
     {
         // 上一次疑似卡顿还没处理完就不再叠卡（克制；Watcher 侧另有 10 分钟冷却）
-        if (Messages.Any(m => m.Plan is not null && m.Plan.Title == "游戏体检" && m.PlanState == "pending"))
+        // 标题由 Loc.T 产出（en-US 下会翻译），此处必须用同一取词，否则去重守卫在英文界面失配
+        if (Messages.Any(m => m.Plan is not null && m.Plan.Title == Loc.T("游戏体检") && m.PlanState == "pending"))
             return;
 
-        var gpu = e.GpuAvailable && e.GpuAvgPercent is { } g ? $"，GPU 平均 {g:F0}%" : "";
-        var text = $"刚才 {e.WindowSeconds} 秒里 CPU 平均 {e.CpuAvgPercent:F0}%、抖动明显{gpu}，" +
-                   "疑似卡顿（启发式推测，不是实测帧数）。要我跑一次游戏体检找原因吗？";
+        var gpu = e.GpuAvailable && e.GpuAvgPercent is { } g ? Loc.T("，GPU 平均 {0:F0}%", g) : "";
+        var text = Loc.T("刚才 {0} 秒里 CPU 平均 {1:F0}%、抖动明显{2}，", e.WindowSeconds, e.CpuAvgPercent, gpu) +
+                   Loc.T("疑似卡顿（启发式推测，不是实测帧数）。要我跑一次游戏体检找原因吗？");
         var plan = new NovaPlan(
             Guid.NewGuid().ToString("N")[..12],
-            "游戏体检",
-            [new NovaActionItem("跑一次游戏体检", $"CPU 均值 {e.CpuAvgPercent:F0}% · {e.WindowSeconds} 秒窗口")],
+            Loc.T("游戏体检"),
+            [new NovaActionItem(Loc.T("跑一次游戏体检"), Loc.T("CPU 均值 {0:F0}% · {1} 秒窗口", e.CpuAvgPercent, e.WindowSeconds))],
             ct => RunCheckupAsync(ct));
         Messages.Add(new NovaChatMessage("assistant", text, Now(), Plan: plan));
 
         OverlayToast?.Invoke(new NovaOverlayToast(
-            $"Nova：疑似卡顿（CPU {e.CpuAvgPercent:F0}%），点浮窗看详情", e));
+            Loc.T("Nova：疑似卡顿（CPU {0:F0}%），点浮窗看详情", e.CpuAvgPercent), e));
         RefreshState();
     }
 
     /// <summary>证据卡「跑一次游戏体检」→ 复用既有体检意图路由（ChatAsync），不另起逻辑。</summary>
     private async Task<string> RunCheckupAsync(CancellationToken ct)
     {
-        if (_busy) return "Nova 正在处理别的请求，稍等再点一次。";
+        if (_busy) return Loc.T("Nova 正在处理别的请求，稍等再点一次。");
+        // 该文本同时是 Core 侧 NovaService 的中文关键词路由依据（lower.Contains("体检")），故不本地化
         await SendAsync("游戏体检");
-        return "体检方案已生成，见下方确认清单。";
+        return Loc.T("体检方案已生成，见下方确认清单。");
     }
 
     // ── 协议激活（starcloud://join?t=…）：好友邀请直达确认清单，不过 LLM ──
@@ -356,13 +359,13 @@ public sealed class NovaRuntime
     {
         if (!NovaInviteService.TryParseJoinUrl(url, out var token) || token is null)
         {
-            AddAssistant("这个邀请链接无效或已过期，让好友重新生成一份吧。");
+            AddAssistant(Loc.T("这个邀请链接无效或已过期，让好友重新生成一份吧。"));
             RefreshState();
             return;
         }
         if (_s.StarcloudId.Current is null)
         {
-            AddAssistant("先在侧栏 Nova 页登录 Starcloud ID，我才能带你进好友的世界。");
+            AddAssistant(Loc.T("先在侧栏 Nova 页登录 Starcloud ID，我才能带你进好友的世界。"));
             RefreshState();
             return;
         }
@@ -373,7 +376,7 @@ public sealed class NovaRuntime
         }
         catch (Exception ex)
         {
-            AddAssistant($"邀请处理失败：{ex.Message}");
+            AddAssistant(Loc.T("邀请处理失败：{0}", ex.Message));
         }
         RefreshState();
     }
@@ -408,8 +411,8 @@ public sealed class NovaRuntime
     {
         if (Messages.Count > 0 || _s.StarcloudId.Current is not { } s) return;
         Messages.Add(new NovaChatMessage("assistant",
-            $"你好，{s.DisplayName}！我是 Nova——你说一句人话，我打理启动器里的脏活累活；所有落盘动作先给确认清单，点头才执行。\n" +
-            "试试：崩了帮我看看 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找个整合包",
+            Loc.T("你好，{0}！我是 Nova——你说一句人话，我打理启动器里的脏活累活；所有落盘动作先给确认清单，点头才执行。\n", s.DisplayName) +
+            Loc.T("试试：崩了帮我看看 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找个整合包"),
             Now()));
     }
 
@@ -471,10 +474,10 @@ public sealed record NovaChatMessage(
 
     public string PlanStateText => PlanState switch
     {
-        "done" => "✔ 已确认执行（已记入动手流水）" +
+        "done" => Loc.T("✔ 已确认执行（已记入动手流水）") +
                   (string.IsNullOrEmpty(ResultText) ? "" : $"\n{ResultText}"),
-        "cancelled" => "已取消，未做任何改动",
-        "failed" => $"执行失败（已记入动手流水）：{ResultText}",
+        "cancelled" => Loc.T("已取消，未做任何改动"),
+        "failed" => Loc.T("执行失败（已记入动手流水）：{0}", ResultText),
         _ => "",
     };
 }

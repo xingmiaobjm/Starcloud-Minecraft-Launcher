@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 using Windows.ApplicationModel.DataTransfer;
@@ -58,26 +59,26 @@ public sealed partial class VersionsPage : Page
         IEnumerable<LocalVersionRow> query = _all;
         var kw = SearchBox.Text.Trim().ToLowerInvariant();
         if (kw.Length > 0) query = query.Where(r => r.SearchKey.Contains(kw));
-        var cat = (CategoryFilter.SelectedItem as string) ?? "全部";
-        if (cat == "未分类") query = query.Where(r => string.IsNullOrEmpty(r.Category));
-        else if (cat != "全部") query = query.Where(r => r.Category == cat);
+        var cat = (CategoryFilter.SelectedItem as string) ?? Loc.T("全部");
+        if (cat == Loc.T("未分类")) query = query.Where(r => string.IsNullOrEmpty(r.Category));
+        else if (cat != Loc.T("全部")) query = query.Where(r => r.Category == cat);
         var list = query.ToList();
         VersionListView.ItemsSource = list;
         EmptyHint.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Title = _all.Count == 0
-            ? "还没有已安装的版本，去「下载」页安装一个吧"
-            : "没有匹配的版本，试试调整搜索或筛选";
+            ? Loc.T("还没有已安装的版本，去「下载」页安装一个吧")
+            : Loc.T("没有匹配的版本，试试调整搜索或筛选");
     }
 
     private void RebuildCategoryFilter()
     {
-        var current = CategoryFilter.SelectedItem as string ?? "全部";
+        var current = CategoryFilter.SelectedItem as string ?? Loc.T("全部");
         var categories = _all.Select(r => r.Category)
             .Where(c => !string.IsNullOrEmpty(c)).Distinct().OrderBy(c => c).ToList();
-        var items = new List<string> { "全部", "未分类" };
+        var items = new List<string> { Loc.T("全部"), Loc.T("未分类") };
         items.AddRange(categories);
         CategoryFilter.ItemsSource = items;
-        CategoryFilter.SelectedItem = items.Contains(current) ? current : "全部";
+        CategoryFilter.SelectedItem = items.Contains(current) ? current : Loc.T("全部");
     }
 
     private void Refresh_Click(object s, RoutedEventArgs e) => RefreshList();
@@ -139,7 +140,7 @@ public sealed partial class VersionsPage : Page
         if (result is null) return;
         if (result.Error is not null)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "重命名失败", result.Error);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("重命名失败"), result.Error);
             return;
         }
         RefreshList();
@@ -153,7 +154,7 @@ public sealed partial class VersionsPage : Page
         if (result is null) return;
         if (result.Error is not null)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "复制失败", result.Error);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("复制失败"), result.Error);
             return;
         }
         RefreshList();
@@ -170,6 +171,7 @@ public sealed partial class VersionsPage : Page
     {
         if (RowOf(sender) is not { } row) return;
         _s.NovaRuntime.SetCurrentInstance(row.Id);
+        // 送入 Nova 的请求文本同时是 Core 侧中文关键词路由（NovaService）的匹配依据，故不本地化
         _s.NovaRuntime.RequestInput($"帮我给 {row.Id} 做一次游戏体检，有隐患直接说");
         (App.MainWindow as MainWindow)?.OpenNovaPanel();
     }
@@ -182,12 +184,12 @@ public sealed partial class VersionsPage : Page
         var running = App.RunningVersionId == row.Id;
         var dlg = new ContentDialog
         {
-            Title = "删除版本",
+            Title = Loc.T("删除版本"),
             Content = running
-                ? $"版本 {row.Id} 正在运行，请先停止游戏再删除。"
-                : $"确定要删除版本 {row.Id} 吗？\n将删除其版本文件夹，此操作不可恢复。",
-            PrimaryButtonText = running ? string.Empty : "删除",
-            CloseButtonText = "关闭",
+                ? Loc.T("版本 {0} 正在运行，请先停止游戏再删除。", row.Id)
+                : Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", row.Id),
+            PrimaryButtonText = running ? string.Empty : Loc.T("删除"),
+            CloseButtonText = Loc.T("关闭"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -201,9 +203,9 @@ public sealed partial class VersionsPage : Page
         {
             var err = new ContentDialog
             {
-                Title = "删除失败",
+                Title = Loc.T("删除失败"),
                 Content = ex.Message,
-                CloseButtonText = "确定",
+                CloseButtonText = Loc.T("确定"),
                 XamlRoot = Content.XamlRoot,
             };
             await err.ShowAsync();
@@ -243,7 +245,7 @@ public sealed partial class VersionsPage : Page
     {
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
         e.AcceptedOperation = DataPackageOperation.Copy;
-        e.DragUIOverride.Caption = "导入整合包";
+        e.DragUIOverride.Caption = Loc.T("导入整合包");
         e.DragUIOverride.IsCaptionVisible = true;
     }
 
@@ -263,7 +265,7 @@ public sealed partial class VersionsPage : Page
 
     private static string FormatSize(long bytes) => bytes switch
     {
-        <= 0 => "未完成",
+        <= 0 => Loc.T("未完成"),
         < 1024 * 1024 => $"{bytes / 1024.0:F0} KB",
         < 1024L * 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
         _ => $"{bytes / 1024.0 / 1024 / 1024:F2} GB",

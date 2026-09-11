@@ -1,0 +1,144 @@
+Manual: will use {0}
+Manual: if left blank, falls back to the auto-detected Java.
+Home
+Enter player name
+Datapacks
+Refresh
+Refresh list
+Thinking…
+Search
+Search mods
+Search versions
+Search version / category
+Search version ID…
+Search and install mods and modpacks
+Search shader packs
+Search failed: {0}
+Search worlds / versions
+Search datapacks
+Search modpacks
+Search resource packs
+Tip
+Checkup plan generated. See the confirmation checklist below.
+Add
+Add variable
+Add environment variable
+Add a game account
+Add account
+Iron golems don't take fall damage, but they can drown, so don't let it fall into water.
+Disable
+Stop game
+Channel
+General
+Also copy isolated content such as mods / saves
+Image file
+Potato quality
+Featured
+Exit
+Sign out
+Signing out will delete the local session and your Nova cloud model Key. Sign out?
+Appearance
+Done
+Full (includes shared .minecraft content)
+Player name
+Player names may only contain letters, numbers, and underscores, and must be 3-16 characters long
+K
+Fine-tune
+Microsoft account
+No files installed: only .jar (Mod) and .zip (resource pack) files can be dragged in; search for modpacks on the Downloads page to install them.
+Not signed in
+Uncategorized
+No Java detected. Click the button above to download.
+Failed to parse a Java version from this file:\n{0}
+Incomplete
+Not selected (will be matched automatically)
+No version selected
+No content directory selected.
+No instance selected
+No account selected
+Unknown
+Stable
+Ask Nova
+I understand the cross-version risks
+Cannot import modpack
+Cannot read {0}.json: {1}
+Invalid
+Unrecognized Java
+No builds available
+No public IP needed; one-click co-op play (planned)
+No play history
+Items
+Next page
+Download
+Download Fabric API
+Download Java 21 (Temurin)
+Download Java 8 (Temurin)
+Download version
+Download concurrency
+Downloads & resources
+Download vanilla {0}
+Download vanilla and loaders, or find mods and modpacks in community resources
+Most downloads
+Sign in to Starcloud ID on the Nova page in the sidebar first, then I can take you into your friends' worlds.
+Sign in to Starcloud ID on the Nova page in the sidebar first, then I can get to work.
+Show log
+Relevance
+Minigames
+Realistic
+The default isolation mode for new versions. Isolated directories separate only 5 types of content—mods/saves/configs/resource packs/shaders—while libraries and assets stay shared; individual versions can override this on their details page.
+New version name
+New version name
+Add model
+Nebula
+Performance
+Fixes
+Repair failed: 
+Repairing…
+Choose a local background image
+Choose image…
+Choose the type of game account to add. If you're not sure which to use, we recommend trying an offline account first.
+Select a game session log
+Verifying Microsoft credentials…
+Verify files
+File verification failed
+Failed to handle invite: {0}
+Complete all
+Everything looks good—no missing or corrupted files found.
+Suspected stutter (a heuristic guess, not measured FPS). Want me to run a game checkup to find the cause?
+Installed
+Installed (downloading again will overwrite)
+Installed: {0}
+Set maximum memory to {0} MB. Click "Restart" to apply.
+Saved
+Backed up to {0}
+Created version "{0}".\n{1}
+Created backup "{0}" ({1}, {2} files).
+Opened the crash report folder.
+Opened the mods folder (the launcher will not delete mods automatically).
+Signed in · {0}
+Signed in. Nova cloud model Key is ready.
+Copied
+Copied and opened
+Copied to {0}: {1}
+Overrode the global language; it will be written to this version's options.txt before launch.
+Rolled back to "{0}".
+Detected Java runtimes
+Checked {0} files; all are up to date.
+Unlocked
+Linked install 
+Game launched
+Cancelled; no changes were made
+Scanned {0} mods; no conflicts found.
+Used {0} / Total {1} · {2} allocated to this version
+Favorited: {0} {1} ({2})
+Disabled
+Assigned Java for this version: {0}
+Written to the shared .minecraft folder.\n{0}
+Repaired
+Selected
+Replaced the source world with a copy; the original was backed up to {0}
+Backup exists
+Reinstalled. You can restart the game.
+The following names are invalid (letters, numbers, and underscores only, and cannot start with a number) and were ignored:
+Failed to complete the following files:\n{0}
+B

@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Starcloud.App.Views"
+    xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
@@ -13,12 +14,12 @@
 
             <!-- 头部：返回 / 图标 / 标题徽章 / 换图标 / 启动 -->
             <StackPanel Spacing="12">
-                <Button Click="Back_Click" AutomationProperties.Name="返回版本列表"
+                <Button Click="Back_Click" loc:Loc.Name="返回版本列表"
                         Background="Transparent" BorderThickness="0" Padding="8,4"
                         Margin="-8,0,0,0" HorizontalAlignment="Left">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon Glyph="&#xE72B;" FontSize="14" />
-                        <TextBlock Text="返回版本列表" />
+                        <TextBlock loc:Loc.Text="返回版本列表" />
                     </StackPanel>
                 </Button>
                 <Grid ColumnSpacing="16">
@@ -51,30 +52,30 @@
                             <Border x:Name="IsolatedBadge" Padding="8,2" CornerRadius="4"
                                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                     Visibility="Collapsed">
-                                <TextBlock Text="独立目录" FontSize="12"
+                                <TextBlock loc:Loc.Text="独立目录" FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Border>
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
                                 VerticalAlignment="Center">
-                        <Button Click="ChangeIcon_Click" AutomationProperties.Name="更换图标"
+                        <Button Click="ChangeIcon_Click" loc:Loc.Name="更换图标"
                                 Background="Transparent" BorderThickness="0" Padding="8"
-                                ToolTipService.ToolTip="更换图标">
+                                loc:Loc.Tip="更换图标">
                             <FontIcon Glyph="&#xE70F;" FontSize="14" />
                         </Button>
                         <Button x:Name="LaunchBtn" Click="Launch_Click"
-                                AutomationProperties.Name="启动该版本">
+                                loc:Loc.Name="启动该版本">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE768;" FontSize="14" />
-                                <TextBlock Text="启动" />
+                                <TextBlock loc:Loc.Text="启动" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
                 </Grid>
                 <InfoBar x:Name="RunningBanner" IsOpen="False" Severity="Warning"
-                         IsClosable="False" Title="该版本正在运行"
-                         Message="游戏进程存活期间无法修改其隔离方式或重命名。" />
+                         IsClosable="False" loc:Loc.Title="该版本正在运行"
+                         loc:Loc.Message="游戏进程存活期间无法修改其隔离方式或重命名。" />
             </StackPanel>
 
             <!-- 概览卡片 -->
@@ -82,30 +83,30 @@
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16" Padding="16">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="概览" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock loc:Loc.Text="概览" FontSize="16" FontWeight="SemiBold" />
                     <StackPanel Spacing="8">
-                        <TextBlock Text="游戏目录" FontSize="12"
+                        <TextBlock loc:Loc.Text="游戏目录" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <TextBlock x:Name="GameRootText" FontSize="12" IsTextSelectionEnabled="True"
                                    TextTrimming="CharacterEllipsis"
                                    FontFamily="Consolas" />
-                        <TextBlock Text="上次启动" FontSize="12"
+                        <TextBlock loc:Loc.Text="上次启动" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <TextBlock x:Name="LastPlayedText" FontSize="13" />
                     </StackPanel>
                     <StackPanel Spacing="4">
-                        <TextBlock Text="类别" FontSize="12"
+                        <TextBlock loc:Loc.Text="类别" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBox x:Name="CategoryBox" AutomationProperties.Name="类别"
+                        <TextBox x:Name="CategoryBox" loc:Loc.Name="类别"
                                  TextChanged="CategoryBox_TextChanged"
-                                 PlaceholderText="未分类" MaxLength="24" />
+                                 loc:Loc.Placeholder="未分类" MaxLength="24" />
                     </StackPanel>
                     <StackPanel Spacing="4">
-                        <TextBlock Text="备注" FontSize="12"
+                        <TextBlock loc:Loc.Text="备注" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBox x:Name="NoteBox" AutomationProperties.Name="备注"
+                        <TextBox x:Name="NoteBox" loc:Loc.Name="备注"
                                  TextChanged="NoteBox_TextChanged"
-                                 PlaceholderText="给这个版本写点什么…" AcceptsReturn="True"
+                                 loc:Loc.Placeholder="给这个版本写点什么…" AcceptsReturn="True"
                                  MinHeight="72" MaxLength="500" />
                     </StackPanel>
                 </StackPanel>
@@ -118,18 +119,18 @@
                     AllowDrop="True" DragOver="Content_DragOver" Drop="Content_Drop">
                 <StackPanel Spacing="12">
                     <Grid>
-                        <TextBlock Text="内容" FontSize="16" FontWeight="SemiBold"
+                        <TextBlock loc:Loc.Text="内容" FontSize="16" FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                            <Button x:Name="CheckUpdateBtn" Content="检查更新" FontSize="12"
+                            <Button x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新" FontSize="12"
                                     Padding="10,2,10,2" Click="CheckUpdate_Click" />
-                            <Button x:Name="ScanConflictBtn" Content="冲突扫描" FontSize="12"
+                            <Button x:Name="ScanConflictBtn" loc:Loc.Text="冲突扫描" FontSize="12"
                                     Padding="10,2,10,2" Click="ScanConflict_Click" />
                         </StackPanel>
                     </Grid>
                     <TextBlock FontSize="12" TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="可直接把 mods / 资源包 / 光影 / 数据包文件拖到此处安装；停用仅改名为 .disabled，可随时还原。" />
+                               loc:Loc.Text="可直接把 mods / 资源包 / 光影 / 数据包文件拖到此处安装；停用仅改名为 .disabled，可随时还原。" />
                     <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" />
                     <StackPanel x:Name="ModSection" Spacing="4" />
                     <StackPanel x:Name="PackSection" Spacing="4" />
@@ -143,28 +144,28 @@
                     BorderThickness="1" CornerRadius="16" Padding="16">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
-                        <TextBlock Text="游戏设置" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock loc:Loc.Text="游戏设置" FontSize="16" FontWeight="SemiBold" />
                         <TextBlock FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Text="各项默认跟随全局设置；修改后立即保存。带「恢复跟随」的项可清除本版本的覆盖值。" />
+                                   loc:Loc.Text="各项默认跟随全局设置；修改后立即保存。带「恢复跟随」的项可清除本版本的覆盖值。" />
                     </StackPanel>
                     <InfoBar x:Name="SettingsRunningBanner" IsOpen="False" Severity="Warning"
-                             IsClosable="False" Message="该版本正在运行，设置将在下次启动生效。" />
+                             IsClosable="False" loc:Loc.Message="该版本正在运行，设置将在下次启动生效。" />
 
                     <!-- 隔离模式（三态） -->
                     <StackPanel Spacing="6">
                         <Grid>
-                            <TextBlock Text="版本隔离" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <HyperlinkButton x:Name="IsolationReset" Content="恢复跟随"
+                            <TextBlock loc:Loc.Text="版本隔离" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <HyperlinkButton x:Name="IsolationReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="IsolationReset_Click"
-                                             AutomationProperties.Name="隔离模式恢复跟随"
+                                             loc:Loc.Name="隔离模式恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <RadioButtons x:Name="IsolationRadio" AutomationProperties.Name="版本隔离模式"
+                        <RadioButtons x:Name="IsolationRadio" loc:Loc.Name="版本隔离模式"
                                       SelectionChanged="IsolationRadio_SelectionChanged">
-                            <RadioButton Content="跟随全局默认" />
-                            <RadioButton Content="共享目录（.minecraft）" />
-                            <RadioButton Content="独立目录（versions/&lt;版本名&gt;）" />
+                            <RadioButton loc:Loc.Text="跟随全局默认" />
+                            <RadioButton loc:Loc.Text="共享目录（.minecraft）" />
+                            <RadioButton loc:Loc.Text="独立目录（versions/&lt;版本名&gt;）" />
                         </RadioButtons>
                         <TextBlock x:Name="GameRootPreview" FontSize="12" TextWrapping="Wrap"
                                    IsTextSelectionEnabled="True" FontFamily="Consolas"
@@ -174,23 +175,23 @@
                     <!-- 内存 -->
                     <StackPanel Spacing="6">
                         <Grid>
-                            <TextBlock Text="内存分配" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <HyperlinkButton x:Name="MemoryReset" Content="恢复跟随"
+                            <TextBlock loc:Loc.Text="内存分配" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <HyperlinkButton x:Name="MemoryReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="MemoryReset_Click"
-                                             AutomationProperties.Name="内存恢复跟随"
+                                             loc:Loc.Name="内存恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <RadioButtons x:Name="MemoryModeRadio" AutomationProperties.Name="内存分配档位"
+                        <RadioButtons x:Name="MemoryModeRadio" loc:Loc.Name="内存分配档位"
                                       SelectionChanged="MemoryMode_SelectionChanged">
-                            <RadioButton Content="跟随全局设置" />
-                            <RadioButton Content="自动配置" />
-                            <RadioButton Content="自定义" />
+                            <RadioButton loc:Loc.Text="跟随全局设置" />
+                            <RadioButton loc:Loc.Text="自动配置" />
+                            <RadioButton loc:Loc.Text="自定义" />
                         </RadioButtons>
                         <TextBlock x:Name="AutoMemText" FontSize="12" TextWrapping="Wrap"
                                    Visibility="Collapsed"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <NumberBox x:Name="MaxMemBox" AutomationProperties.Name="最大内存"
-                                   Header="最大内存（MB）" Width="180" Minimum="512" Maximum="131072"
+                        <NumberBox x:Name="MaxMemBox" loc:Loc.Name="最大内存"
+                                   Width="180" Minimum="512" Maximum="131072"
                                    SmallChange="512" SpinButtonPlacementMode="Compact"
                                    Visibility="Collapsed"
                                    ValueChanged="Memory_ValueChanged" />
@@ -217,25 +218,25 @@
                     <!-- Java 运行时 -->
                     <StackPanel Spacing="6">
                         <Grid>
-                            <TextBlock Text="Java 运行时" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <HyperlinkButton x:Name="JavaReset" Content="恢复跟随"
+                            <TextBlock loc:Loc.Text="Java 运行时" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <HyperlinkButton x:Name="JavaReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="JavaReset_Click"
-                                             AutomationProperties.Name="Java 恢复跟随"
+                                             loc:Loc.Name="Java 恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <RadioButtons x:Name="JavaModeRadio" AutomationProperties.Name="Java 运行时候选档位"
+                        <RadioButtons x:Name="JavaModeRadio" loc:Loc.Name="Java 运行时候选档位"
                                       SelectionChanged="JavaMode_SelectionChanged">
-                            <RadioButton Content="跟随全局设置" />
-                            <RadioButton Content="自动配置（按版本推荐）" />
-                            <RadioButton Content="自定义" />
+                            <RadioButton loc:Loc.Text="跟随全局设置" />
+                            <RadioButton loc:Loc.Text="自动配置（按版本推荐）" />
+                            <RadioButton loc:Loc.Text="自定义" />
                         </RadioButtons>
                         <StackPanel x:Name="JavaManualPanel" Orientation="Horizontal" Spacing="8"
                                     Visibility="Collapsed">
-                            <ComboBox x:Name="JavaCombo" AutomationProperties.Name="Java 运行时"
-                                      Width="440" PlaceholderText="未选择（将自动匹配）"
+                            <ComboBox x:Name="JavaCombo" loc:Loc.Name="Java 运行时"
+                                      Width="440" loc:Loc.Placeholder="未选择（将自动匹配）"
                                       SelectionChanged="JavaCombo_SelectionChanged" />
-                            <Button x:Name="JavaBrowseBtn" Content="浏览…" Click="JavaBrowse_Click"
-                                    AutomationProperties.Name="浏览 Java 可执行文件" />
+                            <Button x:Name="JavaBrowseBtn" loc:Loc.Text="浏览…" Click="JavaBrowse_Click"
+                                    loc:Loc.Name="浏览 Java 可执行文件" />
                         </StackPanel>
                         <TextBlock x:Name="JavaHintText" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -244,56 +245,56 @@
                     <!-- 窗口 -->
                     <StackPanel Spacing="6">
                         <Grid>
-                            <TextBlock Text="游戏窗口" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <HyperlinkButton x:Name="WindowReset" Content="恢复跟随"
+                            <TextBlock loc:Loc.Text="游戏窗口" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <HyperlinkButton x:Name="WindowReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="WindowReset_Click"
-                                             AutomationProperties.Name="窗口恢复跟随"
+                                             loc:Loc.Name="窗口恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <RadioButtons x:Name="WindowModeRadio" AutomationProperties.Name="窗口尺寸档位"
+                        <RadioButtons x:Name="WindowModeRadio" loc:Loc.Name="窗口尺寸档位"
                                       SelectionChanged="WindowMode_SelectionChanged">
-                            <RadioButton Content="跟随全局设置" />
-                            <RadioButton Content="自动配置（854 × 480 窗口化）" />
-                            <RadioButton Content="自定义" />
+                            <RadioButton loc:Loc.Text="跟随全局设置" />
+                            <RadioButton loc:Loc.Text="自动配置（854 × 480 窗口化）" />
+                            <RadioButton loc:Loc.Text="自定义" />
                         </RadioButtons>
                         <TextBlock x:Name="WindowHintText" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <StackPanel x:Name="WindowManualPanel" Spacing="6" Visibility="Collapsed">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <NumberBox x:Name="WidthBox" AutomationProperties.Name="窗口宽度"
-                                           Header="宽" Width="180" Minimum="200" Maximum="32767"
+                                <NumberBox x:Name="WidthBox" loc:Loc.Name="窗口宽度"
+                                           Width="180" Minimum="200" Maximum="32767"
                                            SmallChange="10" SpinButtonPlacementMode="Compact"
                                            ValueChanged="Window_ValueChanged" />
-                                <NumberBox x:Name="HeightBox" AutomationProperties.Name="窗口高度"
-                                           Header="高" Width="180" Minimum="200" Maximum="32767"
+                                <NumberBox x:Name="HeightBox" loc:Loc.Name="窗口高度"
+                                           Width="180" Minimum="200" Maximum="32767"
                                            SmallChange="10" SpinButtonPlacementMode="Compact"
                                            ValueChanged="Window_ValueChanged" />
                             </StackPanel>
-                            <RadioButtons x:Name="FullscreenRadio" AutomationProperties.Name="全屏"
+                            <RadioButtons x:Name="FullscreenRadio" loc:Loc.Name="全屏"
                                           SelectionChanged="FullscreenRadio_SelectionChanged">
-                                <RadioButton Content="跟随全局默认" />
-                                <RadioButton Content="开启全屏" />
-                                <RadioButton Content="关闭全屏" />
+                                <RadioButton loc:Loc.Text="跟随全局默认" />
+                                <RadioButton loc:Loc.Text="开启全屏" />
+                                <RadioButton loc:Loc.Text="关闭全屏" />
                             </RadioButtons>
                         </StackPanel>
                     </StackPanel>
 
                     <!-- 自动连服 -->
                     <StackPanel Spacing="6">
-                        <TextBlock Text="自动连服地址" FontWeight="SemiBold" />
-                        <TextBox x:Name="ServerBox" AutomationProperties.Name="自动连服地址"
+                        <TextBlock loc:Loc.Text="自动连服地址" FontWeight="SemiBold" />
+                        <TextBox x:Name="ServerBox" loc:Loc.Name="自动连服地址"
                                  TextChanged="ServerBox_TextChanged"
-                                 PlaceholderText="例如 play.example.com 或 play.example.com:25565" />
+                                 loc:Loc.Placeholder="例如 play.example.com 或 play.example.com:25565" />
                         <TextBlock x:Name="ServerHintText" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
 
                     <!-- 环境变量 -->
                     <StackPanel Spacing="6">
-                        <TextBlock Text="环境变量" FontWeight="SemiBold" />
+                        <TextBlock loc:Loc.Text="环境变量" FontWeight="SemiBold" />
                         <StackPanel x:Name="EnvPanel" Spacing="6" />
-                        <Button x:Name="EnvAddBtn" Content="添加变量" Click="EnvAdd_Click"
-                                AutomationProperties.Name="添加环境变量" />
+                        <Button x:Name="EnvAddBtn" loc:Loc.Text="添加变量" Click="EnvAdd_Click"
+                                loc:Loc.Name="添加环境变量" />
                         <TextBlock x:Name="EnvWarnText" FontSize="12" TextWrapping="Wrap"
                                    Visibility="Collapsed"
                                    Foreground="{ThemeResource SystemFillColorCautionBrush}" />
@@ -301,40 +302,40 @@
 
                     <!-- 启动前 / 后命令 -->
                     <StackPanel Spacing="6">
-                        <TextBlock Text="启动前命令" FontWeight="SemiBold" />
-                        <TextBox x:Name="PreCmdBox" AutomationProperties.Name="启动前命令"
+                        <TextBlock loc:Loc.Text="启动前命令" FontWeight="SemiBold" />
+                        <TextBox x:Name="PreCmdBox" loc:Loc.Name="启动前命令"
                                  TextChanged="Cmd_TextChanged"
-                                 PlaceholderText="例如 echo 准备启动" />
+                                 loc:Loc.Placeholder="例如 echo 准备启动" />
                         <TextBlock FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Text="启动前执行；退出码非 0 会询问是否继续。支持 $GAME_DIR 占位符。" />
+                                   loc:Loc.Text="启动前执行；退出码非 0 会询问是否继续。支持 $GAME_DIR 占位符。" />
                     </StackPanel>
                     <StackPanel Spacing="6">
-                        <TextBlock Text="启动后命令" FontWeight="SemiBold" />
-                        <TextBox x:Name="PostCmdBox" AutomationProperties.Name="启动后命令"
+                        <TextBlock loc:Loc.Text="启动后命令" FontWeight="SemiBold" />
+                        <TextBox x:Name="PostCmdBox" loc:Loc.Name="启动后命令"
                                  TextChanged="Cmd_TextChanged"
-                                 PlaceholderText="例如 echo 已退出" />
+                                 loc:Loc.Placeholder="例如 echo 已退出" />
                         <TextBlock FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Text="游戏退出后执行；失败仅记录日志。支持 $GAME_DIR 占位符。" />
+                                   loc:Loc.Text="游戏退出后执行；失败仅记录日志。支持 $GAME_DIR 占位符。" />
                     </StackPanel>
 
                     <!-- 游戏语言 -->
                     <StackPanel Spacing="6">
                         <Grid>
-                            <TextBlock Text="游戏语言" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <HyperlinkButton x:Name="LangReset" Content="恢复跟随"
+                            <TextBlock loc:Loc.Text="游戏语言" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <HyperlinkButton x:Name="LangReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="LangReset_Click"
-                                             AutomationProperties.Name="语言恢复跟随"
+                                             loc:Loc.Name="语言恢复跟随"
                                              Visibility="Collapsed" />
                         </Grid>
-                        <ComboBox x:Name="LangCombo" AutomationProperties.Name="游戏语言" Width="240"
+                        <ComboBox x:Name="LangCombo" loc:Loc.Name="游戏语言" Width="240"
                                   SelectionChanged="LangCombo_SelectionChanged">
-                            <ComboBoxItem Content="跟随全局" />
-                            <ComboBoxItem Content="简体中文（zh_CN）" />
-                            <ComboBoxItem Content="繁體中文（zh_TW）" />
-                            <ComboBoxItem Content="English（en_US）" />
-                            <ComboBoxItem Content="日本語（ja_JP）" />
+                            <ComboBoxItem loc:Loc.Text="跟随全局" />
+                            <ComboBoxItem loc:Loc.Text="简体中文（zh_CN）" />
+                            <ComboBoxItem loc:Loc.Text="繁體中文（zh_TW）" />
+                            <ComboBoxItem loc:Loc.Text="English（en_US）" />
+                            <ComboBoxItem loc:Loc.Text="日本語（ja_JP）" />
                         </ComboBox>
                         <TextBlock x:Name="LangHintText" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -342,24 +343,24 @@
 
                     <!-- 额外参数 -->
                     <StackPanel Spacing="6">
-                        <TextBlock Text="额外 JVM 参数" FontWeight="SemiBold" />
-                        <TextBox x:Name="ExtraJvmBox" AutomationProperties.Name="额外 JVM 参数"
+                        <TextBlock loc:Loc.Text="额外 JVM 参数" FontWeight="SemiBold" />
+                        <TextBox x:Name="ExtraJvmBox" loc:Loc.Name="额外 JVM 参数"
                                  AcceptsReturn="True" MinHeight="64" TextWrapping="Wrap"
                                  TextChanged="ExtraArgs_TextChanged"
-                                 PlaceholderText="每行一个参数，例如&#x0a;-XX:+UseG1GC" />
+                                 loc:Loc.Placeholder="每行一个参数，例如&#x0a;-XX:+UseG1GC" />
                         <TextBlock FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Text="追加到 JVM 参数区；空行忽略。" />
+                                   loc:Loc.Text="追加到 JVM 参数区；空行忽略。" />
                     </StackPanel>
                     <StackPanel Spacing="6">
-                        <TextBlock Text="额外游戏参数" FontWeight="SemiBold" />
-                        <TextBox x:Name="ExtraGameBox" AutomationProperties.Name="额外游戏参数"
+                        <TextBlock loc:Loc.Text="额外游戏参数" FontWeight="SemiBold" />
+                        <TextBox x:Name="ExtraGameBox" loc:Loc.Name="额外游戏参数"
                                  AcceptsReturn="True" MinHeight="64" TextWrapping="Wrap"
                                  TextChanged="ExtraArgs_TextChanged"
-                                 PlaceholderText="每行一个参数" />
+                                 loc:Loc.Placeholder="每行一个参数" />
                         <TextBlock FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Text="追加到游戏参数区；空行忽略。" />
+                                   loc:Loc.Text="追加到游戏参数区；空行忽略。" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -369,37 +370,37 @@
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16" Padding="16">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="操作" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock loc:Loc.Text="操作" FontSize="16" FontWeight="SemiBold" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="VerifyBtn" Click="Verify_Click" AutomationProperties.Name="验证文件">
+                        <Button x:Name="VerifyBtn" Click="Verify_Click" loc:Loc.Name="验证文件">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE73E;" FontSize="14" />
-                                <TextBlock Text="验证文件" />
+                                <TextBlock loc:Loc.Text="验证文件" />
                             </StackPanel>
                         </Button>
-                        <Button x:Name="RenameBtn" Click="Rename_Click" AutomationProperties.Name="重命名">
+                        <Button x:Name="RenameBtn" Click="Rename_Click" loc:Loc.Name="重命名">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE8AC;" FontSize="14" />
-                                <TextBlock Text="重命名" />
+                                <TextBlock loc:Loc.Text="重命名" />
                             </StackPanel>
                         </Button>
-                        <Button x:Name="CopyBtn" Click="Copy_Click" AutomationProperties.Name="复制版本">
+                        <Button x:Name="CopyBtn" Click="Copy_Click" loc:Loc.Name="复制版本">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE8C9;" FontSize="14" />
-                                <TextBlock Text="复制版本" />
+                                <TextBlock loc:Loc.Text="复制版本" />
                             </StackPanel>
                         </Button>
-                        <Button Click="ViewJson_Click" AutomationProperties.Name="查看 JSON">
+                        <Button Click="ViewJson_Click" loc:Loc.Name="查看 JSON">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE943;" FontSize="14" />
-                                <TextBlock Text="查看 JSON" />
+                                <TextBlock loc:Loc.Text="查看 JSON" />
                             </StackPanel>
                         </Button>
-                        <Button Click="Delete_Click" AutomationProperties.Name="删除版本"
+                        <Button Click="Delete_Click" loc:Loc.Name="删除版本"
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE74D;" FontSize="14" />
-                                <TextBlock Text="删除" />
+                                <TextBlock loc:Loc.Text="删除" />
                             </StackPanel>
                         </Button>
                     </StackPanel>

@@ -4,6 +4,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -33,33 +34,33 @@ public sealed partial class AccountsPage : Page
     {
         if (_s.StarcloudId.Current is not { } session)
         {
-            ScTitleText.Text = "登录 Starcloud 账号以使用更多功能";
-            ScSubtitleText.Text = "在此登录或注册 Starcloud ID，也可管理用于启动的游戏账户";
+            ScTitleText.Text = Loc.T("登录 Starcloud 账号以使用更多功能");
+            ScSubtitleText.Text = Loc.T("在此登录或注册 Starcloud ID，也可管理用于启动的游戏账户");
             ScLoginPanel.Visibility = Visibility.Visible;
             ScUserPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        ScTitleText.Text = $"欢迎回来，{session.DisplayName}";
-        ScSubtitleText.Text = "Starcloud ID 已登录，Nova 云端模型已就绪";
+        ScTitleText.Text = Loc.T("欢迎回来，{0}", session.DisplayName);
+        ScSubtitleText.Text = Loc.T("Starcloud ID 已登录，Nova 云端模型已就绪");
         ScLoginPanel.Visibility = Visibility.Collapsed;
         ScUserPanel.Visibility = Visibility.Visible;
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
             ? "?" : session.DisplayName[..1].ToUpperInvariant();
         ScNameText.Text = session.DisplayName;
-        ScUserSubText.Text = $"{session.UserId} · {(session.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")}";
+        ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId, session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道"));
         ScKeyText.Text = MaskKey(session.ApiKey);
     }
 
     private string SelectedChannel =>
-        (ScChannelBox.SelectedItem as ComboBoxItem)?.Content.ToString() == "云端通道"
+        (ScChannelBox.SelectedItem as ComboBoxItem)?.Content.ToString() == Loc.T("云端通道")
             ? StarcloudIdService.CloudChannel : StarcloudIdService.TestChannel;
 
     private void ScChannelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (ScPwdBox is null) return; // XAML 初始化期间触发
         ScPwdBox.PlaceholderText = SelectedChannel == StarcloudIdService.CloudChannel
-            ? "密码" : "密码（测试通道任意内容）";
+            ? Loc.T("密码") : Loc.T("密码（测试通道任意内容）");
     }
 
     private async void ScPwdBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
@@ -80,7 +81,7 @@ public sealed partial class AccountsPage : Page
             await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password, SelectedChannel);
             ScPwdBox.Password = "";
             RefreshStarcloudState();
-            ShowStatus("已登录，Nova 云端模型 Key 已就绪");
+            ShowStatus(Loc.T("已登录，Nova 云端模型 Key 已就绪"));
         }
         catch (Exception ex)
         {
@@ -97,9 +98,9 @@ public sealed partial class AccountsPage : Page
 
     private async void ScRegister_Click(object sender, RoutedEventArgs e)
     {
-        var idBox = new TextBox { PlaceholderText = "用户名或邮箱" };
-        var pwdBox = new PasswordBox { PlaceholderText = "至少 6 位" };
-        var pwd2Box = new PasswordBox { PlaceholderText = "再次输入密码" };
+        var idBox = new TextBox { PlaceholderText = Loc.T("用户名或邮箱") };
+        var pwdBox = new PasswordBox { PlaceholderText = Loc.T("至少 6 位") };
+        var pwd2Box = new PasswordBox { PlaceholderText = Loc.T("再次输入密码") };
         var errText = new TextBlock
         {
             FontSize = 12,
@@ -108,20 +109,20 @@ public sealed partial class AccountsPage : Page
             TextWrapping = TextWrapping.Wrap,
         };
         var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock { Text = "Starcloud ID" });
+        panel.Children.Add(new TextBlock { Text = Loc.T("Starcloud ID") });
         panel.Children.Add(idBox);
-        panel.Children.Add(new TextBlock { Text = "密码" });
+        panel.Children.Add(new TextBlock { Text = Loc.T("密码") });
         panel.Children.Add(pwdBox);
-        panel.Children.Add(new TextBlock { Text = "确认密码" });
+        panel.Children.Add(new TextBlock { Text = Loc.T("确认密码") });
         panel.Children.Add(pwd2Box);
         panel.Children.Add(errText);
 
         var dlg = new ContentDialog
         {
-            Title = "注册 Starcloud ID",
+            Title = Loc.T("注册 Starcloud ID"),
             Content = panel,
-            PrimaryButtonText = "创建账户",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("创建账户"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -129,9 +130,9 @@ public sealed partial class AccountsPage : Page
         {
             if (args.Result != ContentDialogResult.Primary) return;
             string? err = null;
-            if (string.IsNullOrWhiteSpace(idBox.Text)) err = "Starcloud ID 不能为空";
-            else if (pwdBox.Password.Length < 6) err = "密码至少 6 位";
-            else if (pwdBox.Password != pwd2Box.Password) err = "两次输入的密码不一致";
+            if (string.IsNullOrWhiteSpace(idBox.Text)) err = Loc.T("Starcloud ID 不能为空");
+            else if (pwdBox.Password.Length < 6) err = Loc.T("密码至少 6 位");
+            else if (pwdBox.Password != pwd2Box.Password) err = Loc.T("两次输入的密码不一致");
             if (err is not null)
             {
                 args.Cancel = true;
@@ -147,7 +148,7 @@ public sealed partial class AccountsPage : Page
             ScIdBox.Text = idBox.Text.Trim();
             ScPwdBox.Password = "";
             ScPwdBox.Focus(FocusState.Programmatic);
-            ShowStatus("注册成功，请登录");
+            ShowStatus(Loc.T("注册成功，请登录"));
         }
         catch (Exception ex)
         {
@@ -166,7 +167,7 @@ public sealed partial class AccountsPage : Page
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
 
         var original = btn.Content;
-        btn.Content = "已复制";
+        btn.Content = Loc.T("已复制");
         btn.IsEnabled = false;
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
@@ -182,10 +183,10 @@ public sealed partial class AccountsPage : Page
     {
         var dlg = new ContentDialog
         {
-            Title = "退出登录",
-            Content = "退出后本地会话与 Nova 云端模型 Key 将被删除，确定退出吗？",
-            PrimaryButtonText = "退出",
-            CloseButtonText = "取消",
+            Title = Loc.T("退出登录"),
+            Content = Loc.T("退出后本地会话与 Nova 云端模型 Key 将被删除，确定退出吗？"),
+            PrimaryButtonText = Loc.T("退出"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -200,11 +201,11 @@ public sealed partial class AccountsPage : Page
     {
         var dlg = new ContentDialog
         {
-            Title = "请选择您的登录方式",
-            Content = "选择要添加的游戏账户类型。如果不清楚该使用哪种方式，建议使用离线账户先体验。",
-            PrimaryButtonText = "离线账户",
+            Title = Loc.T("请选择您的登录方式"),
+            Content = Loc.T("选择要添加的游戏账户类型。如果不清楚该使用哪种方式，建议使用离线账户先体验。"),
+            PrimaryButtonText = Loc.T("离线账户"),
             SecondaryButtonText = "Microsoft",
-            CloseButtonText = "取消",
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -217,7 +218,7 @@ public sealed partial class AccountsPage : Page
 
     private async Task ShowOfflineDialogAsync()
     {
-        var nameBox = new TextBox { PlaceholderText = "3-16 位字母、数字、下划线", MaxLength = 16 };
+        var nameBox = new TextBox { PlaceholderText = Loc.T("3-16 位字母、数字、下划线"), MaxLength = 16 };
         var errText = new TextBlock
         {
             FontSize = 12,
@@ -225,16 +226,16 @@ public sealed partial class AccountsPage : Page
             Visibility = Visibility.Collapsed,
         };
         var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock { Text = "玩家名称" });
+        panel.Children.Add(new TextBlock { Text = Loc.T("玩家名称") });
         panel.Children.Add(nameBox);
         panel.Children.Add(errText);
 
         var dlg = new ContentDialog
         {
-            Title = "创建新账户",
+            Title = Loc.T("创建新账户"),
             Content = panel,
-            PrimaryButtonText = "保存账户",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("保存账户"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -252,7 +253,7 @@ public sealed partial class AccountsPage : Page
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
         _s.Accounts.AddOffline(nameBox.Text.Trim());
         RefreshList();
-        ShowStatus($"离线账户 {nameBox.Text.Trim()} 已添加");
+        ShowStatus(Loc.T("离线账户 {0} 已添加", nameBox.Text.Trim()));
     }
 
     private static bool ValidateOfflineName(string name, out string error)
@@ -260,7 +261,7 @@ public sealed partial class AccountsPage : Page
         if (name.Length is < 3 or > 16 ||
             name.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_'))
         {
-            error = "玩家名只能包含字母、数字、下划线，长度 3-16";
+            error = Loc.T("玩家名只能包含字母、数字、下划线，长度 3-16");
             return false;
         }
         error = "";
@@ -294,14 +295,14 @@ public sealed partial class AccountsPage : Page
         };
         var statusText = new TextBlock
         {
-            Text = "等待授权…",
+            Text = Loc.T("等待授权…"),
             FontSize = 12,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         var openBtn = new Button
         {
-            Content = "复制并打开验证网站",
+            Content = Loc.T("复制并打开验证网站"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         openBtn.Click += async (_, _) =>
@@ -312,21 +313,21 @@ public sealed partial class AccountsPage : Page
             };
             pkg.SetText(code.UserCode);
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
-            openBtn.Content = "已复制并打开";
+            openBtn.Content = Loc.T("已复制并打开");
             await Windows.System.Launcher.LaunchUriAsync(new Uri(code.VerificationUri));
         };
 
         var panel = new StackPanel { Spacing = 14 };
         panel.Children.Add(new TextBlock
         {
-            Text = "使用一次性验证代码登录到你的 Microsoft 账户",
+            Text = Loc.T("使用一次性验证代码登录到你的 Microsoft 账户"),
             TextWrapping = TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
         });
         panel.Children.Add(codeText);
         panel.Children.Add(new TextBlock
         {
-            Text = $"使用浏览器打开 {code.VerificationUri}，输入以上代码并按照网页提示完成授权。完成后启动器将自动把账户添加至启动器内。",
+            Text = Loc.T("使用浏览器打开 {0}，输入以上代码并按照网页提示完成授权。完成后启动器将自动把账户添加至启动器内。", code.VerificationUri),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
@@ -337,9 +338,9 @@ public sealed partial class AccountsPage : Page
 
         var dlg = new ContentDialog
         {
-            Title = "登录 Microsoft 账户",
+            Title = Loc.T("登录 Microsoft 账户"),
             Content = panel,
-            CloseButtonText = "取消",
+            CloseButtonText = Loc.T("取消"),
             XamlRoot = Content.XamlRoot,
         };
         dlg.Closed += (_, _) =>
@@ -373,7 +374,7 @@ public sealed partial class AccountsPage : Page
                     {
                         dlg.Hide();
                         RefreshList();
-                        ShowStatus($"Microsoft 账户已登录：{result.Username}");
+                        ShowStatus(Loc.T("Microsoft 账户已登录：{0}", result.Username));
                     });
                     return;
                 }
@@ -388,7 +389,7 @@ public sealed partial class AccountsPage : Page
                     return;
                 }
                 consecutiveFailures = 0;
-                _dq.TryEnqueue(() => statusText.Text = $"等待授权…（{message}）");
+                _dq.TryEnqueue(() => statusText.Text = Loc.T("等待授权…（{0}）", message));
             }
             catch (Exception) when (++consecutiveFailures < 3)
             {
@@ -414,7 +415,7 @@ public sealed partial class AccountsPage : Page
     {
         var rows = _s.Accounts.Accounts
             .Select(a => new AccountRow(a.Uuid, a.Username,
-                a.Type == "microsoft" ? "微软账户" : "离线账户", a.IsDefault))
+                a.Type == "microsoft" ? Loc.T("微软账户") : Loc.T("离线账户"), a.IsDefault))
             .ToList();
         AccountList.ItemsSource = rows;
         var empty = rows.Count == 0;
@@ -435,10 +436,10 @@ public sealed partial class AccountsPage : Page
         var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid);
         var dlg = new ContentDialog
         {
-            Title = "删除账户",
-            Content = $"确定要删除账户 {acc?.Username ?? uuid} 吗？",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
+            Title = Loc.T("删除账户"),
+            Content = Loc.T("确定要删除账户 {0} 吗？", acc?.Username ?? uuid),
+            PrimaryButtonText = Loc.T("删除"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };

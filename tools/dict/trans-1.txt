@@ -1,0 +1,144 @@
+ · {0} files · {1}
+({0} unsupported files ignored; install modpacks from the Download page)
+(Name cannot be empty)
+(No logs yet)
+(No game logs yet: they will appear here after you launch the game once)
+, GPU avg {0:F0}%
+.minecraft directory path
+\n(A version with the same name already exists, it was renamed automatically)
+\n\nHint: {0}
+\n\nSaved to: {0}
+\nand {0} more files
+\nNote: Mods and saves in the isolated directory will be deleted as well.
+{0}    {1} (Custom)
+{0} {1}
+{0} {1}% · {2}/{3} files · {4:F0} KB/s
+{0} · {1}
+{0} · Will install
+{0} · Also install Fabric API
+{0} installation failed: {1}
+{0} minutes ago
+{0} files can be updated: {1}. Search for the same resource on the Download page to install a new version.
+{0} months ago
+{0} years ago
+{0} days ago
+{0} items · {1}
+{0} hours ago
+{0} has been {1}.
+{0} is installed. {1}
+{0} was kept in the resource library (not loaded).
+{0} has been added to the resource library (not loaded).
+{0} deleted.
+{0} loaded into {1} versions.
+{0} ({1})
+{0} (Default)
+{0} failed: {1}
+"{0}" was copied to {1}, but the game failed to start. What should be done with this copy?
+What should be done with the changes to "{0}" in {1}?
+✔ Action confirmed (recorded in the action log)
+1 ~ {0} GB (physical memory {1} GB, auto cap {2} GB); minimum memory is fixed at 512 MB.
+3-16 letters, numbers, and underscores
+Alpha
+Beta
+CPU avg {0:F0}% · {1}s window
+English
+English (en_US)
+The Java version is matched automatically to the modpack's requirements; no manual selection needed.
+Reset Java to Follow
+Java verification failed
+Java runtime
+Java runtime options
+Full path to java.exe
+Microsoft account signed in: {0}
+Mods
+Modrinth modpack
+Nova watches progress, challenges, and mishaps in the game logs, then generates a "what happened this session" report after you log off, so your highlights are remembered.
+Nova overlay
+Nova isn't online yet
+Every action Nova takes (including permission toggles) is recorded here
+Nova can help you find modpacks and mods—just tell it what you need.
+Nova settings
+You can enable the in-game overlay on the Nova page to keep an eye on FPS and crashes during your session.
+Nova in-game overlay
+Nova in-game overlay toggle
+Nova account
+Nova is handling another request. Wait a moment and click again.
+Nova assistant
+Nova: Session report is ready, click the overlay to view
+Nova: Standby
+Nova: Possible lag (CPU {0:F0}%), click the overlay for details
+PBR
+Starcloud ID
+Starcloud ID cannot be empty
+Starcloud ID signed in, Nova cloud model is ready
+Starcloud ID (username or email)
+Install
+Install Fabric {0}
+Install to this version
+Installation failed: {0}
+Installation complete
+Install modpack
+Filter by category
+Which versions should "{0}" ({1}) be loaded into?
+Clip segments into 5-15s clips/GIFs; preview before sending, never send directly
+Which save in "{0}" should the datapack be loaded into?
+Version
+Version {0} does not exist and may have been deleted
+Version {0} is running. Stop the game before deleting it.
+Version {0} is running. Close the game before launching it.
+Version {0} is running. Please exit the game first
+Version JSON is missing or corrupted and cannot be recovered automatically. Reinstall it from the Download page.
+Version JSON is missing or corrupted and cannot be recovered automatically. Reinstall it from the Download page.
+Versions, resources, and library files will be installed to this directory
+Version isolation
+Version isolation (Default)
+Version isolation (Recommended; modpack content is stored separately)
+Version isolation mode
+Version list
+Version name cannot be empty
+Version name cannot be empty and cannot contain < > : " / \ | ? *
+Version directory does not exist
+Version settings
+You can adjust memory allocation in the version settings; 4-8G is usually enough for a modpack.
+Version details
+Select version
+Semi-realistic
+Pack name:
+Save
+Save to current version
+Saved game accounts
+Save settings
+Save account
+Keep in the original version
+Back up, restore, and clean up local worlds
+Backup granularity
+Backup name
+Backup name cannot be empty.
+Backup failed
+Backup failed: {0}
+Back up world
+Back up selected worlds
+Backup complete
+Backup & rollback
+Backup & rollback · {0}
+Note
+Note name
+Background
+Background type
+Background blur strength
+Background image opacity
+Background & appearance
+Localization
+Local image
+Session length {0} min {1} sec
+Session length {0} sec
+This launcher supports Modrinth-format modpacks (.mrpack, or a zip containing modrinth.index.json).\n\n
+Crash auto-recovery
+Crashed
+Standard (this version's content)
+Complete missing dependencies
+Completing missing files {0}/{1} ({2}%)…
+Completing missing files…
+Completion failed
+Completion finished. Files have been fully restored.
+Capture

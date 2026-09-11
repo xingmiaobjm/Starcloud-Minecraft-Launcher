@@ -1,0 +1,145 @@
+Shadows
+Audio
+Hide logs
+Apply as default maximum memory
+Hardcore challenge
+Username or email
+Mobs renamed with a name tag on an anvil will not despawn naturally.
+Open world with another version
+Launch with another version
+Game
+When the game crashes, check the logs in .minecraft/logs first; ask Nova if you can't make sense of them.
+Game window
+Game mechanics
+Game record memory
+You cannot change the isolation mode or rename the game process while it is running.
+Game directory
+Game directory, memory, Java, downloads and general options
+Game directory: {0}
+In-game assist overlay
+If the game exits unexpectedly within 8 seconds of launching, retry once automatically (no repeated environment checkup).
+Game logs
+Game settings
+Game checkup
+Runs after the game exits; failures are only logged. Supports the $GAME_DIR placeholder.
+Game exited
+Game exited unexpectedly (exit code {0})
+Game language
+Shows the Nova overlay in the screen corner while the game runs; press Ctrl+N anytime to open the chat. Takes effect on the next launch.
+Game running
+Has proposal
+Right-click a version in the version list to Ask Nova or delete that version.
+Mutually exclusive with the selected loader
+Incompatible with installed: {0}
+Follow language on restore
+Estimated export size: about {0} ({1} files)
+Estimated size: about {0} ({1} files)
+Preview
+Vanilla style
+Vanilla game
+Source version: {0}        MC {1}
+Ancient
+Cloud channel
+Cloud channel (service not deployed, protocol reserved only)
+Cloud channel password
+Transportation
+Runtime environment check
+Re-enter password
+Presence · In-game overlay
+Sign in or register a Starcloud ID here, or manage the game accounts used for launching.
+Not supported yet
+Don't load for now (import only)
+No backups yet.
+No saves yet
+No records yet
+No builds available
+No installed versions
+Combat
+Account
+Account, models and Nova capability options
+Find a modpack
+Find modpacks
+This invite link is invalid or has expired. Ask your friend to generate a new one.
+FPS checkup
+Modpack
+If a modpack reports a mod conflict, let Nova help you track it down.
+Modpack contents will be stored separately under versions/<new name>/.
+For modpacks, use the Download button on the Download page to go through the new version flow.
+Premium
+Premium login
+Release
+Backing up
+Completing missing files
+Rolling back
+Launching
+Canceling…
+Running "{1}" with {0}
+Running
+Retrying
+Reinstalling {0}…
+Evidence sources:
+Libraries
+Execution failed (logged to action log): {0}
+Value
+Vegetation
+Only observes the game screen and buffers highlight clips; never touches non-game windows.
+At least 6 characters
+Smart memory recommendation
+Rebuild index
+Rename
+Rename version
+Rename failed
+Rescan
+Rescan failed: {0}
+Reinstall failed:
+Recheck
+Restart
+Reset conditions
+Proactive · Nova Moment
+Theme
+Theme appearance
+Register Starcloud ID
+Registration successful. Please sign in.
+Equipment
+Launch failures after installing a shader pack are usually caused by outdated drivers or insufficient memory.
+Decoration
+Load
+Load into version
+Load into save
+Load failed: {0}
+Appended to the JVM arguments; blank lines are ignored.
+Appended to the game arguments; blank lines are ignored.
+Preparing…
+Resource pack
+Resource management
+Resource library rescanned.
+Resource list cache
+Resource list cache toggle
+Midnight
+Custom
+Custom · {0}
+Custom: nothing selected yet; will auto-match based on version recommendations.
+Auto: launch windowed at 854 × 480.
+Auto: matches local Java by the major version recommended in that version's JSON.
+Auto: allocates about {0} based on physical memory.
+Filled in automatically; editable
+Auto-detect
+Auto-connect server address
+Auto-configure
+Auto-configure (854 × 480 windowed)
+Auto-configure (per version recommendation)
+Auto-match available Java
+Auto-select (per version recommendation)
+Auto-select: matches installed or downloaded runtimes by the Java major version recommended in the game version JSON.
+Font
+Maximum memory
+Maximum memory (MB)
+Maximum memory (whole GB)
+Recently updated
+Minimal (version definition and launcher settings)
+Latest
+Latest release
+Latest stable
+Yesterday {0:HH:mm}
+Make a Nova Moment
+Back

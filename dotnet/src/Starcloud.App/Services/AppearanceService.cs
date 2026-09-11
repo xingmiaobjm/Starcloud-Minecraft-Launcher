@@ -1,6 +1,7 @@
 // 外观应用中心：主题应用 + 内置壁纸清单 + 毛玻璃遮罩解析（设计：custom-background-theme-design.md §5）
 
 using Microsoft.UI.Xaml;
+using Starcloud.App.Localization;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Services;
@@ -17,12 +18,12 @@ public sealed class AppearanceService
     /// <summary>内置壁纸清单（文件随输出目录发布，位于 Assets/Wallpapers 下）。</summary>
     public static IReadOnlyList<BuiltinWallpaper> Wallpapers { get; } =
     [
-        new("aurora", "极光", "aurora.jpg", true),
-        new("nebula", "星云", "nebula.jpg", true),
-        new("midnight", "子夜", "midnight.jpg", true),
-        new("dawn", "破晓", "dawn.jpg", false),
-        new("mist", "晨雾", "mist.jpg", false),
-        new("sand", "暖沙", "sand.jpg", false),
+        new("aurora", Loc.T("极光"), "aurora.jpg", true),
+        new("nebula", Loc.T("星云"), "nebula.jpg", true),
+        new("midnight", Loc.T("子夜"), "midnight.jpg", true),
+        new("dawn", Loc.T("破晓"), "dawn.jpg", false),
+        new("mist", Loc.T("晨雾"), "mist.jpg", false),
+        new("sand", Loc.T("暖沙"), "sand.jpg", false),
     ];
 
     /// <summary>内置壁纸目录。</summary>

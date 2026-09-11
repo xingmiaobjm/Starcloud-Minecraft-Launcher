@@ -217,6 +217,12 @@ public sealed class LauncherSettings
     [JsonPropertyName("ui_animations")]
     public string UiAnimations { get; set; } = "system";
 
+    // ── 启动器界面语言（设计：localization-design.md §3.5） ──
+    // 注意与上方 Language（游戏语言，透传 --lang）无关；非法值由 Loc.Initialize 回落 zh-CN。
+    /// <summary>启动器界面语言：zh-CN（默认）/ en-US</summary>
+    [JsonPropertyName("ui_language")]
+    public string UiLanguage { get; set; } = "zh-CN";
+
     /// <summary>背景字段范围钳制（每次加载/保存前调用，避免脏数据导致 UI 越界）</summary>
     public void ClampBackgroundValues()
     {

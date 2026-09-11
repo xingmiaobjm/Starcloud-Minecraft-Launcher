@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 using Windows.ApplicationModel.DataTransfer;
@@ -106,6 +107,11 @@ public sealed partial class VersionDetailPage : Page
         LastPlayedText.Text = VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt);
         CategoryBox.Text = category;
         NoteBox.Text = profile.Note ?? "";
+
+        // NumberBox.Header 不在 Loc 附加属性支持范围内，改由代码赋值
+        MaxMemBox.Header = Loc.T("最大内存（MB）");
+        WidthBox.Header = Loc.T("宽");
+        HeightBox.Header = Loc.T("高");
 
         // 内容：Mod / 资源包光影 / 存档三分区
         ContentPanelFill(gameRoot);
@@ -205,11 +211,11 @@ public sealed partial class VersionDetailPage : Page
 
         // Mod（含 .disabled）
         var modsDir = Path.Combine(gameRoot, "mods");
-        ModSection.Children.Add(SectionHeader("Mod 模组", modsDir));
+        ModSection.Children.Add(SectionHeader(Loc.T("Mod 模组"), modsDir));
         foreach (var row in BuildFileRows(modsDir, "mod"))
         {
             var shown = broken is not null && broken.Contains(row.FileName)
-                ? row with { StatusText = "无法解析" }
+                ? row with { StatusText = Loc.T("无法解析") }
                 : row;
             _contentRows.Add(shown);
             ModSection.Children.Add(BuildFileRow(shown));
@@ -219,8 +225,8 @@ public sealed partial class VersionDetailPage : Page
         // 资源包 + 光影
         foreach (var (dir, kind, label) in new[]
         {
-            ("resourcepacks", "resourcepack", "资源包"),
-            ("shaderpacks", "shader", "光影包"),
+            ("resourcepacks", "resourcepack", Loc.T("资源包")),
+            ("shaderpacks", "shader", Loc.T("光影包")),
         })
         {
             var path = Path.Combine(gameRoot, dir);
@@ -235,7 +241,7 @@ public sealed partial class VersionDetailPage : Page
 
         // 存档（每个存档下的数据包）
         var savesDir = Path.Combine(gameRoot, "saves");
-        SaveSection.Children.Add(SectionHeader("存档", savesDir));
+        SaveSection.Children.Add(SectionHeader(Loc.T("存档"), savesDir));
         if (Directory.Exists(savesDir))
         {
             foreach (var save in Directory.EnumerateDirectories(savesDir))
@@ -285,7 +291,7 @@ public sealed partial class VersionDetailPage : Page
         var count = Directory.Exists(dir) ? Directory.EnumerateFileSystemEntries(dir).Count() : 0;
         return new TextBlock
         {
-            Text = $"{label}（{count}）",
+            Text = Loc.T("{0}（{1}）", label, count),
             FontSize = 13,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Margin = new Thickness(0, 4, 0, 0),
@@ -297,13 +303,13 @@ public sealed partial class VersionDetailPage : Page
     {
         var open = new Button
         {
-            Content = "打开目录",
+            Content = Loc.T("打开目录"),
             Tag = path,
             FontSize = 12,
             Padding = new Thickness(10, 2, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, $"打开 {Path.GetFileName(path)} 目录");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, Loc.T("打开 {0} 目录", Path.GetFileName(path)));
         open.Click += OpenDir_Click;
         return new StackPanel
         {
@@ -335,7 +341,7 @@ public sealed partial class VersionDetailPage : Page
         }
         catch (Exception ex)
         {
-            ShowContentInfo($"打开目录失败：{ex.Message}", InfoBarSeverity.Error);
+            ShowContentInfo(Loc.T("打开目录失败：{0}", ex.Message), InfoBarSeverity.Error);
         }
     }
 
@@ -351,7 +357,7 @@ public sealed partial class VersionDetailPage : Page
             var display = enabled ? name : name[..^".disabled".Length];
             rows.Add(new ContentFileRow(
                 display, FormatSize(new FileInfo(file).Length),
-                enabled ? "启用" : "已停用", enabled, kind, file));
+                enabled ? Loc.T("启用") : Loc.T("已停用"), enabled, kind, file));
         }
         return rows.OrderBy(r => r.FileName, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -381,19 +387,19 @@ public sealed partial class VersionDetailPage : Page
             Padding = new Thickness(10, 2, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, $"{row.ToggleVerb} {row.FileName}");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, Loc.T("{0} {1}", row.ToggleVerb, row.FileName));
         toggle.Click += ToggleFile_Click;
 
         var del = new Button
         {
-            Content = "删除",
+            Content = Loc.T("删除"),
             Tag = row,
             FontSize = 12,
             Padding = new Thickness(10, 2, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = ErrorBrush(),
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, $"删除 {row.FileName}");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, Loc.T("删除 {0}", row.FileName));
         del.Click += DeleteFile_Click;
 
         var actions = new StackPanel
@@ -427,12 +433,12 @@ public sealed partial class VersionDetailPage : Page
                 : row.FullPath[..^".disabled".Length];
             if (File.Exists(target)) File.Delete(target);
             File.Move(row.FullPath, target, overwrite: true);
-            ShowContentInfo($"{row.FileName} 已{verb}。", InfoBarSeverity.Success);
+            ShowContentInfo(Loc.T("{0} 已{1}。", row.FileName, verb), InfoBarSeverity.Success);
             ContentPanelFill(_contentGameRoot);
         }
         catch (Exception ex)
         {
-            ShowContentInfo($"{verb}失败：{ex.Message}", InfoBarSeverity.Error);
+            ShowContentInfo(Loc.T("{0}失败：{1}", verb, ex.Message), InfoBarSeverity.Error);
         }
     }
 
@@ -442,10 +448,10 @@ public sealed partial class VersionDetailPage : Page
         if ((sender as FrameworkElement)?.Tag is not ContentFileRow row) return;
         var dlg = new ContentDialog
         {
-            Title = "删除内容文件",
-            Content = $"确定要删除 {row.FileName} 吗？此操作不可恢复。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
+            Title = Loc.T("删除内容文件"),
+            Content = Loc.T("确定要删除 {0} 吗？此操作不可恢复。", row.FileName),
+            PrimaryButtonText = Loc.T("删除"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -453,12 +459,12 @@ public sealed partial class VersionDetailPage : Page
         try
         {
             File.Delete(row.FullPath);
-            ShowContentInfo($"{row.FileName} 已删除。", InfoBarSeverity.Success);
+            ShowContentInfo(Loc.T("{0} 已删除。", row.FileName), InfoBarSeverity.Success);
             ContentPanelFill(_contentGameRoot);
         }
         catch (Exception ex)
         {
-            ShowContentInfo($"删除失败：{ex.Message}", InfoBarSeverity.Error);
+            ShowContentInfo(Loc.T("删除失败：{0}", ex.Message), InfoBarSeverity.Error);
         }
     }
 
@@ -477,7 +483,7 @@ public sealed partial class VersionDetailPage : Page
         var rows = _contentRows.Where(r => r.Enabled).ToList();
         if (rows.Count == 0)
         {
-            ShowContentInfo("没有可检查的文件（已停用的内容不参与更新检查）。", InfoBarSeverity.Informational);
+            ShowContentInfo(Loc.T("没有可检查的文件（已停用的内容不参与更新检查）。"), InfoBarSeverity.Informational);
             return;
         }
 
@@ -502,8 +508,8 @@ public sealed partial class VersionDetailPage : Page
             }
             ShowContentInfo(
                 outdated.Count == 0
-                    ? $"已检查 {rows.Count} 个文件，都是最新版本。"
-                    : $"{outdated.Count} 个文件可更新：{string.Join("、", outdated)}。可到下载页搜索同名资源安装新版本。",
+                    ? Loc.T("已检查 {0} 个文件，都是最新版本。", rows.Count)
+                    : Loc.T("{0} 个文件可更新：{1}。可到下载页搜索同名资源安装新版本。", outdated.Count, string.Join("、", outdated)),
                 outdated.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
         }
         finally
@@ -520,19 +526,20 @@ public sealed partial class VersionDetailPage : Page
             var report = await _s.ModConflicts.ScanAsync(_s.Settings.DotMinecraft);
             if (report.Conflicts.Count == 0)
             {
-                ShowContentInfo($"已扫描 {report.ScannedCount} 个模组，未发现冲突。", InfoBarSeverity.Success);
+                ShowContentInfo(Loc.T("已扫描 {0} 个模组，未发现冲突。", report.ScannedCount), InfoBarSeverity.Success);
             }
             else
             {
                 var first = report.Conflicts[0];
                 ShowContentInfo(
-                    $"发现 {report.Conflicts.Count} 个冲突。[{first.Kind}] {first.Detail}　建议：{first.Suggestion}",
+                    Loc.T("发现 {0} 个冲突。[{1}] {2}　建议：{3}",
+                        report.Conflicts.Count, Loc.TCore(first.Kind), Loc.TCore(first.Detail), Loc.TCore(first.Suggestion)),
                     InfoBarSeverity.Warning);
             }
         }
         catch (Exception ex)
         {
-            ShowContentInfo($"冲突扫描失败：{ex.Message}", InfoBarSeverity.Error);
+            ShowContentInfo(Loc.T("冲突扫描失败：{0}", ex.Message), InfoBarSeverity.Error);
         }
         finally
         {
@@ -545,7 +552,7 @@ public sealed partial class VersionDetailPage : Page
     private void Content_DragOver(object sender, DragEventArgs e)
     {
         e.AcceptedOperation = DataPackageOperation.Copy;
-        e.DragUIOverride.Caption = "安装到该版本";
+        e.DragUIOverride.Caption = Loc.T("安装到该版本");
         e.DragUIOverride.IsCaptionVisible = true;
     }
 
@@ -559,7 +566,7 @@ public sealed partial class VersionDetailPage : Page
         }
         catch (Exception ex)
         {
-            ShowContentInfo($"读取拖入内容失败：{ex.Message}", InfoBarSeverity.Error);
+            ShowContentInfo(Loc.T("读取拖入内容失败：{0}", ex.Message), InfoBarSeverity.Error);
             return;
         }
 
@@ -592,22 +599,22 @@ public sealed partial class VersionDetailPage : Page
             }
             catch (Exception ex)
             {
-                ShowContentInfo($"{file.Name} 安装失败：{ex.Message}", InfoBarSeverity.Error);
+                ShowContentInfo(Loc.T("{0} 安装失败：{1}", file.Name, ex.Message), InfoBarSeverity.Error);
             }
         }
 
         if (installed.Count > 0)
         {
             ShowContentInfo(
-                $"已安装：{string.Join("、", installed)}"
-                + (skipped > 0 ? $"（忽略 {skipped} 个不支持的文件，整合包请到下载页安装）" : ""),
+                Loc.T("已安装：{0}", string.Join("、", installed))
+                + (skipped > 0 ? Loc.T("（忽略 {0} 个不支持的文件，整合包请到下载页安装）", skipped) : ""),
                 InfoBarSeverity.Success);
             ContentPanelFill(_contentGameRoot);
         }
         else if (skipped > 0)
         {
             ShowContentInfo(
-                "未安装任何文件：仅支持 .jar（Mod）与 .zip（资源包）拖入；整合包请到下载页搜索安装。",
+                Loc.T("未安装任何文件：仅支持 .jar（Mod）与 .zip（资源包）拖入；整合包请到下载页搜索安装。"),
                 InfoBarSeverity.Warning);
         }
     }
@@ -672,7 +679,7 @@ public sealed partial class VersionDetailPage : Page
         }
         catch (Exception ex)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "更换图标失败", ex);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("更换图标失败"), ex);
         }
     }
 
@@ -689,9 +696,9 @@ public sealed partial class VersionDetailPage : Page
             {
                 await new ContentDialog
                 {
-                    Title = "验证文件",
-                    Content = "一切正常，未发现缺失或损坏的文件。",
-                    CloseButtonText = "确定",
+                    Title = Loc.T("验证文件"),
+                    Content = Loc.T("一切正常，未发现缺失或损坏的文件。"),
+                    CloseButtonText = Loc.T("确定"),
                     XamlRoot = Content.XamlRoot,
                 }.ShowAsync();
                 return;
@@ -700,9 +707,9 @@ public sealed partial class VersionDetailPage : Page
             {
                 await new ContentDialog
                 {
-                    Title = "验证文件",
-                    Content = "版本 JSON 缺失或损坏且无法自动恢复，请到下载页重新安装。",
-                    CloseButtonText = "确定",
+                    Title = Loc.T("验证文件"),
+                    Content = Loc.T("版本 JSON 缺失或损坏且无法自动恢复，请到下载页重新安装。"),
+                    CloseButtonText = Loc.T("确定"),
                     XamlRoot = Content.XamlRoot,
                 }.ShowAsync();
                 return;
@@ -711,10 +718,10 @@ public sealed partial class VersionDetailPage : Page
             var count = report.Issues.Count + (report.VersionJsonBroken ? 1 : 0);
             var confirm = new ContentDialog
             {
-                Title = "验证文件",
-                Content = $"发现 {count} 个缺失或损坏的文件，立即补全吗？",
-                PrimaryButtonText = "立即补全",
-                CloseButtonText = "取消",
+                Title = Loc.T("验证文件"),
+                Content = Loc.T("发现 {0} 个缺失或损坏的文件，立即补全吗？", count),
+                PrimaryButtonText = Loc.T("立即补全"),
+                CloseButtonText = Loc.T("取消"),
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = Content.XamlRoot,
             };
@@ -725,7 +732,7 @@ public sealed partial class VersionDetailPage : Page
             var step = new TextBlock { FontSize = 12, Opacity = 0.7 };
             var progressDlg = new ContentDialog
             {
-                Title = "正在补全缺失文件",
+                Title = Loc.T("正在补全缺失文件"),
                 Content = new StackPanel { Spacing = 8, Children = { bar, step } },
                 PrimaryButtonText = string.Empty,
                 CloseButtonText = string.Empty,
@@ -743,9 +750,9 @@ public sealed partial class VersionDetailPage : Page
                 progressDlg.Hide();
                 await new ContentDialog
                 {
-                    Title = "验证文件",
-                    Content = "补全完成，文件已恢复完整。",
-                    CloseButtonText = "确定",
+                    Title = Loc.T("验证文件"),
+                    Content = Loc.T("补全完成，文件已恢复完整。"),
+                    CloseButtonText = Loc.T("确定"),
                     XamlRoot = Content.XamlRoot,
                 }.ShowAsync();
             }
@@ -755,21 +762,21 @@ public sealed partial class VersionDetailPage : Page
                 var listed = string.Join("\n", ex.FailedFiles.Take(5).Select(f => "• " + f.Path));
                 await new ContentDialog
                 {
-                    Title = "补全失败",
-                    Content = $"以下文件补全失败：\n{listed}",
-                    CloseButtonText = "确定",
+                    Title = Loc.T("补全失败"),
+                    Content = Loc.T("以下文件补全失败：\n{0}", listed),
+                    CloseButtonText = Loc.T("确定"),
                     XamlRoot = Content.XamlRoot,
                 }.ShowAsync();
             }
             catch (Exception ex)
             {
                 progressDlg.Hide();
-                await InstanceActions.ShowErrorAsync(Content.XamlRoot, "补全失败", ex);
+                await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("补全失败"), ex);
             }
         }
         catch (Exception ex)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "验证文件失败", ex);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("验证文件失败"), ex);
         }
         finally
         {
@@ -784,7 +791,7 @@ public sealed partial class VersionDetailPage : Page
         if (result is null) return;
         if (result.Error is not null)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "重命名失败", result.Error);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("重命名失败"), result.Error);
             return;
         }
         _versionId = result.Id; // 详情页内改名：更新 ID 与头部后留在本页
@@ -800,7 +807,7 @@ public sealed partial class VersionDetailPage : Page
         if (result is null) return;
         if (result.Error is not null)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "复制失败", result.Error);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("复制失败"), result.Error);
         }
     }
 
@@ -816,15 +823,15 @@ public sealed partial class VersionDetailPage : Page
         var profile = _store.Get(_versionId);
         var isolated = InstanceLayout.IsIsolated(profile, _s.Settings);
         var message = running
-            ? $"版本 {_versionId} 正在运行，请先停止游戏再删除。"
-            : $"确定要删除版本 {_versionId} 吗？\n将删除其版本文件夹，此操作不可恢复。"
-              + (isolated ? "\n注意：独立目录下的 mods / 存档等也将一并删除。" : "");
+            ? Loc.T("版本 {0} 正在运行，请先停止游戏再删除。", _versionId)
+            : Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", _versionId)
+              + (isolated ? Loc.T("\n注意：独立目录下的 mods / 存档等也将一并删除。") : "");
         var dlg = new ContentDialog
         {
-            Title = "删除版本",
+            Title = Loc.T("删除版本"),
             Content = message,
-            PrimaryButtonText = running ? string.Empty : "删除",
-            CloseButtonText = "关闭",
+            PrimaryButtonText = running ? string.Empty : Loc.T("删除"),
+            CloseButtonText = Loc.T("关闭"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -836,7 +843,7 @@ public sealed partial class VersionDetailPage : Page
         }
         catch (Exception ex)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "删除失败", ex);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("删除失败"), ex);
             return;
         }
         Frame.GoBack(); // 回到来源页（VersionsPage Loaded 会重新加载列表）
@@ -878,16 +885,17 @@ public sealed partial class VersionDetailPage : Page
                         && Directory.EnumerateFileSystemEntries(Path.Combine(fromRoot, d)).Any())
             .ToList();
         var body = movable.Count == 0
-            ? $"隔离方式将切换为「{IsolationName(target)}」，当前没有需要迁移的内容目录。"
-            : $"隔离方式将切换为「{IsolationName(target)}」。\n\n以下目录将从\n{fromRoot}\n移动到\n{toRoot}\n\n"
+            ? Loc.T("隔离方式将切换为「{0}」，当前没有需要迁移的内容目录。", IsolationName(target))
+            : Loc.T("隔离方式将切换为「{0}」。\n\n以下目录将从\n{1}\n移动到\n{2}\n\n",
+                  IsolationName(target), fromRoot, toRoot)
               + string.Join("\n", movable.Select(d => "• " + d));
         var dlg = new ContentDialog
         {
-            Title = "切换版本隔离",
+            Title = Loc.T("切换版本隔离"),
             Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = movable.Count == 0 ? string.Empty : "立即移动",
-            SecondaryButtonText = "仅切换不移动",
-            CloseButtonText = "取消",
+            PrimaryButtonText = movable.Count == 0 ? string.Empty : Loc.T("立即移动"),
+            SecondaryButtonText = Loc.T("仅切换不移动"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = movable.Count == 0 ? ContentDialogButton.Secondary : ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -914,7 +922,7 @@ public sealed partial class VersionDetailPage : Page
         catch (Exception ex)
         {
             RevertIsolationRadio();
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "迁移内容目录失败", ex);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("迁移内容目录失败"), ex);
             return;
         }
         finally
@@ -930,9 +938,9 @@ public sealed partial class VersionDetailPage : Page
 
     private static string IsolationName(string? isolation) => isolation switch
     {
-        "shared" => "共享目录",
-        "isolated" => "独立目录",
-        _ => "跟随全局默认",
+        "shared" => Loc.T("共享目录"),
+        "isolated" => Loc.T("独立目录"),
+        _ => Loc.T("跟随全局默认"),
     };
 
     /// <summary>写入隔离三态并整体刷新（GameRoot / 内容行 / 徽章随之更新）。</summary>
@@ -963,8 +971,8 @@ public sealed partial class VersionDetailPage : Page
             2 => true,
             _ => _s.Settings.VersionIsolated,
         };
-        GameRootPreview.Text = "游戏目录：" +
-            InstanceLayout.GameRoot(_s.Settings.DotMinecraft, _versionId, isolated);
+        GameRootPreview.Text = Loc.T("游戏目录：{0}",
+            InstanceLayout.GameRoot(_s.Settings.DotMinecraft, _versionId, isolated));
     }
 
     // ── 档位可见性 ──
@@ -977,7 +985,7 @@ public sealed partial class VersionDetailPage : Page
         AutoMemText.Visibility = memMode == 1 ? Visibility.Visible : Visibility.Collapsed;
         MemoryReset.Visibility = memMode == 0 ? Visibility.Collapsed : Visibility.Visible;
         if (memMode == 1)
-            AutoMemText.Text = $"自动：按物理内存分配约 {Gb(SystemMemory.AutoMaxMb())}。";
+            AutoMemText.Text = Loc.T("自动：按物理内存分配约 {0}。", Gb(SystemMemory.AutoMaxMb()));
 
         var javaMode = JavaModeRadio.SelectedIndex;
         JavaManualPanel.Visibility = javaMode == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -1002,7 +1010,7 @@ public sealed partial class VersionDetailPage : Page
         var scale = totalMb > 0 ? barWidth / totalMb : 0;
         MemoryUsedBar.Width = Math.Clamp(usedMb * scale, 0, barWidth);
         MemoryAllocBar.Width = Math.Clamp(allocMb * scale, 0, barWidth);
-        MemoryUsageText.Text = $"已使用 {Gb(usedMb)} / 总 {Gb(totalMb)}　·　本版本分配 {Gb(allocMb)}";
+        MemoryUsageText.Text = Loc.T("已使用 {0} / 总 {1}　·　本版本分配 {2}", Gb(usedMb), Gb(totalMb), Gb(allocMb));
     }
 
     private static string Gb(long mb) => $"{mb / 1024.0:0.#} GB";
@@ -1037,7 +1045,7 @@ public sealed partial class VersionDetailPage : Page
             && (double.IsNaN(max) || max < 512 || max > 131072);
         MaxMemBox.BorderBrush = bad ? ErrorBrush() : null;
         MemErrorText.Visibility = bad ? Visibility.Visible : Visibility.Collapsed;
-        if (bad) MemErrorText.Text = "请填写 512–131072 之间的数值。";
+        if (bad) MemErrorText.Text = Loc.T("请填写 512–131072 之间的数值。");
         return !bad;
     }
 
@@ -1080,7 +1088,7 @@ public sealed partial class VersionDetailPage : Page
             });
         if (_javaOverride is not null
             && !_runtimes.Any(r => string.Equals(r.Executable, _javaOverride, StringComparison.OrdinalIgnoreCase)))
-            JavaCombo.Items.Add(new ComboBoxItem { Content = $"自定义 · {_javaOverride}", Tag = _javaOverride });
+            JavaCombo.Items.Add(new ComboBoxItem { Content = Loc.T("自定义 · {0}", _javaOverride), Tag = _javaOverride });
 
         JavaCombo.SelectedIndex = -1;
         if (_javaOverride is null) return;
@@ -1097,11 +1105,11 @@ public sealed partial class VersionDetailPage : Page
 
     private void UpdateJavaHint() => JavaHintText.Text = JavaModeRadio.SelectedIndex switch
     {
-        1 => "自动：按该版本 JSON 推荐的主版本匹配本机 Java。",
+        1 => Loc.T("自动：按该版本 JSON 推荐的主版本匹配本机 Java。"),
         2 => _javaOverride is null
-            ? "自定义：尚未选择，将按版本推荐自动匹配。"
-            : $"已为这个版本指定 Java：{_javaOverride}",
-        _ => $"当前跟随全局：{_s.Settings.JavaExecutable ?? "自动匹配可用 Java"}",
+            ? Loc.T("自定义：尚未选择，将按版本推荐自动匹配。")
+            : Loc.T("已为这个版本指定 Java：{0}", _javaOverride),
+        _ => Loc.T("当前跟随全局：{0}", _s.Settings.JavaExecutable ?? Loc.T("自动匹配可用 Java")),
     };
 
     private void JavaCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1132,9 +1140,9 @@ public sealed partial class VersionDetailPage : Page
             {
                 await new ContentDialog
                 {
-                    Title = "无法识别的 Java",
-                    Content = $"未能从该文件解析出 Java 版本：\n{file.Path}",
-                    CloseButtonText = "确定",
+                    Title = Loc.T("无法识别的 Java"),
+                    Content = Loc.T("未能从该文件解析出 Java 版本：\n{0}", file.Path),
+                    CloseButtonText = Loc.T("确定"),
                     XamlRoot = Content.XamlRoot,
                 }.ShowAsync();
                 return;
@@ -1152,7 +1160,7 @@ public sealed partial class VersionDetailPage : Page
         }
         catch (Exception ex)
         {
-            await InstanceActions.ShowErrorAsync(Content.XamlRoot, "Java 校验失败", ex);
+            await InstanceActions.ShowErrorAsync(Content.XamlRoot, Loc.T("Java 校验失败"), ex);
         }
         finally
         {
@@ -1204,13 +1212,13 @@ public sealed partial class VersionDetailPage : Page
         WidthBox.BorderBrush = bad ? ErrorBrush() : null;
         HeightBox.BorderBrush = bad ? ErrorBrush() : null;
         WindowHintText.Text = bad
-            ? "宽高需同时填写 200–32767 之间的数值。"
+            ? Loc.T("宽高需同时填写 200–32767 之间的数值。")
             : WindowModeRadio.SelectedIndex switch
             {
-                1 => "自动：854 × 480 窗口化启动。",
+                1 => Loc.T("自动：854 × 480 窗口化启动。"),
                 _ => GameLauncher.ModernWindowArgs(_versionId)
-                    ? "窗口尺寸通过 --width/--height 传入；未改动时使用游戏默认大小。"
-                    : "此版本可能不支持窗口参数（需要 1.13 及以上）。",
+                    ? Loc.T("窗口尺寸通过 --width/--height 传入；未改动时使用游戏默认大小。")
+                    : Loc.T("此版本可能不支持窗口参数（需要 1.13 及以上）。"),
             };
         return !bad;
     }
@@ -1236,8 +1244,8 @@ public sealed partial class VersionDetailPage : Page
             ServerBox.BorderBrush = null;
             ServerHintText.Foreground = SecondaryBrush();
             ServerHintText.Text = supportsQuickPlay
-                ? "留空表示不自动连接；该版本支持 quickPlayMultiplayer。"
-                : "留空表示不自动连接。";
+                ? Loc.T("留空表示不自动连接；该版本支持 quickPlayMultiplayer。")
+                : Loc.T("留空表示不自动连接。");
             return true;
         }
 
@@ -1246,7 +1254,7 @@ public sealed partial class VersionDetailPage : Page
         {
             ServerBox.BorderBrush = ErrorBrush();
             ServerHintText.Foreground = ErrorBrush();
-            ServerHintText.Text = "格式不正确：应为 host 或 host:port，端口 1–65535。";
+            ServerHintText.Text = Loc.T("格式不正确：应为 host 或 host:port，端口 1–65535。");
             return false;
         }
 
@@ -1254,12 +1262,12 @@ public sealed partial class VersionDetailPage : Page
         if (supportsQuickPlay)
         {
             ServerHintText.Foreground = SecondaryBrush();
-            ServerHintText.Text = "启动时将自动连接该服务器（quickPlayMultiplayer）。";
+            ServerHintText.Text = Loc.T("启动时将自动连接该服务器（quickPlayMultiplayer）。");
         }
         else
         {
             ServerHintText.Foreground = CautionBrush();
-            ServerHintText.Text = "此版本不支持自动连服，该设置不会生效。";
+            ServerHintText.Text = Loc.T("此版本不支持自动连服，该设置不会生效。");
         }
         value = text;
         return true;
@@ -1279,7 +1287,7 @@ public sealed partial class VersionDetailPage : Page
         var nameBox = new TextBox
         {
             Text = name,
-            PlaceholderText = "名称",
+            PlaceholderText = Loc.T("名称"),
             Width = 200,
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1287,7 +1295,7 @@ public sealed partial class VersionDetailPage : Page
         var valueBox = new TextBox
         {
             Text = value,
-            PlaceholderText = "值",
+            PlaceholderText = Loc.T("值"),
             Width = 360,
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1300,9 +1308,9 @@ public sealed partial class VersionDetailPage : Page
             Padding = new Thickness(8, 4, 8, 4),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(nameBox, "环境变量名称");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(valueBox, "环境变量值");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, "删除环境变量");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(nameBox, Loc.T("环境变量名称"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(valueBox, Loc.T("环境变量值"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, Loc.T("删除环境变量"));
 
         var container = new StackPanel
         {
@@ -1355,7 +1363,7 @@ public sealed partial class VersionDetailPage : Page
             var val = row.Value.Text;
             if (name.Length == 0)
             {
-                if (val.Trim().Length > 0) invalid.Add("（名称不能为空）");
+                if (val.Trim().Length > 0) invalid.Add(Loc.T("（名称不能为空）"));
                 continue;
             }
             if (!EnvNameRegex.IsMatch(name))
@@ -1369,10 +1377,10 @@ public sealed partial class VersionDetailPage : Page
 
         var msgs = new List<string>();
         if (invalid.Count > 0)
-            msgs.Add("以下名称不合法（仅字母、数字、下划线，且不以数字开头），已忽略："
+            msgs.Add(Loc.T("以下名称不合法（仅字母、数字、下划线，且不以数字开头），已忽略：")
                      + string.Join("、", invalid));
         if (dupes.Count > 0)
-            msgs.Add("名称重复（后者覆盖前者）：" + string.Join("、", dupes));
+            msgs.Add(Loc.T("名称重复（后者覆盖前者）：") + string.Join("、", dupes));
         EnvWarnText.Text = string.Join("\n", msgs);
         EnvWarnText.Visibility = msgs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         return dict;
@@ -1408,8 +1416,8 @@ public sealed partial class VersionDetailPage : Page
 
     private void UpdateLangHint() =>
         LangHintText.Text = _langOverride is null
-            ? $"当前跟随全局：{_s.Settings.Language}"
-            : "已覆盖全局语言；启动前会写入该版本的 options.txt。";
+            ? Loc.T("当前跟随全局：{0}", _s.Settings.Language)
+            : Loc.T("已覆盖全局语言；启动前会写入该版本的 options.txt。");
 
     private void ExtraArgs_TextChanged(object sender, TextChangedEventArgs e)
     {

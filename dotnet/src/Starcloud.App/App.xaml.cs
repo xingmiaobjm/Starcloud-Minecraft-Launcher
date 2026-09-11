@@ -2,6 +2,8 @@
 
 using System.IO;
 using Microsoft.UI.Xaml;
+using Starcloud.App.Localization;
+using Starcloud.App.Services;
 
 namespace Starcloud.App;
 
@@ -17,6 +19,8 @@ public partial class App : Application
 
     public App()
     {
+        // 界面语言必须在任何 XAML 解析之前确定（D3 多语言）
+        Loc.Initialize(AppServices.Instance.Settings.UiLanguage);
         InitializeComponent();
         // 全局异常日志：WinUI stowed exception（0xc000027b）默认不留托管堆栈，落地到文件便于诊断
         UnhandledException += (_, e) =>

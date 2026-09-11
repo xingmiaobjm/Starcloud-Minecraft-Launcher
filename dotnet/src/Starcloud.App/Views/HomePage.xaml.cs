@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -86,7 +87,7 @@ public sealed partial class HomePage : Page
         var row = _rows.FirstOrDefault(r => r.Id == id);
         if (row is null)
         {
-            LocalErrorBar.Message = $"版本 {id} 不存在，可能已被删除";
+            LocalErrorBar.Message = Loc.T("版本 {0} 不存在，可能已被删除", id);
             LocalErrorBar.IsOpen = true;
             return;
         }
@@ -125,7 +126,7 @@ public sealed partial class HomePage : Page
         catch (Exception ex)
         {
             _rows = [];
-            LocalErrorBar.Message = $"读取已安装版本失败：{ex.Message}";
+            LocalErrorBar.Message = Loc.T("读取已安装版本失败：{0}", ex.Message);
             LocalErrorBar.IsOpen = true;
         }
         VersionList.ItemsSource = _rows;
@@ -147,15 +148,15 @@ public sealed partial class HomePage : Page
     {
         var id = (VersionList.SelectedItem as VersionRow)?.Id;
         var isRunning = _gameProcess is { HasExited: false };
-        LaunchTitleText.Text = isRunning ? "停止游戏" : "启动游戏";
+        LaunchTitleText.Text = isRunning ? Loc.T("停止游戏") : Loc.T("启动游戏");
         LaunchIcon.Glyph = isRunning ? "\uE71A" : "\uE768";
-        LaunchSubText.Text = id ?? "未选择版本";
+        LaunchSubText.Text = id ?? Loc.T("未选择版本");
         LaunchBtn.IsEnabled = isRunning || id is not null;
     }
 
     private static string FormatSize(long bytes) => bytes switch
     {
-        <= 0 => "未完成",
+        <= 0 => Loc.T("未完成"),
         < 1024 * 1024 => $"{bytes / 1024.0:F0} KB",
         < 1024L * 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
         _ => $"{bytes / 1024.0 / 1024 / 1024:F2} GB",
@@ -185,7 +186,7 @@ public sealed partial class HomePage : Page
         var dir = Path.Combine(_s.Settings.DotMinecraft, "versions", id);
         if (!Directory.Exists(dir))
         {
-            LocalErrorBar.Message = "版本目录不存在";
+            LocalErrorBar.Message = Loc.T("版本目录不存在");
             LocalErrorBar.IsOpen = true;
             return;
         }
@@ -198,10 +199,10 @@ public sealed partial class HomePage : Page
         if (string.IsNullOrEmpty(id)) return;
         var dlg = new ContentDialog
         {
-            Title = "删除版本",
-            Content = $"确定要删除版本 {id} 吗？\n将删除其版本文件夹，此操作不可恢复。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
+            Title = Loc.T("删除版本"),
+            Content = Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", id),
+            PrimaryButtonText = Loc.T("删除"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -219,7 +220,7 @@ public sealed partial class HomePage : Page
         }
         catch (Exception ex)
         {
-            LocalErrorBar.Message = $"删除失败：{ex.Message}";
+            LocalErrorBar.Message = Loc.T("删除失败：{0}", ex.Message);
             LocalErrorBar.IsOpen = true;
         }
     }
@@ -239,14 +240,14 @@ public sealed partial class HomePage : Page
         if (list.Count > 0)
         {
             AccountCombo.ItemsSource = list
-                .Select(a => new ComboItem(a.Uuid, a.IsDefault ? $"{a.Username}（默认）" : a.Username))
+                .Select(a => new ComboItem(a.Uuid, a.IsDefault ? Loc.T("{0}（默认）", a.Username) : a.Username))
                 .ToList();
             AccountCombo.SelectedValue = def is { } d && list.Any(a => a.Uuid == d.Uuid)
                 ? d.Uuid : list[0].Uuid;
         }
         else
         {
-            AccountNameText.Text = _s.LaunchAccount.Mode == "microsoft" ? "尚无正版账户" : "输入玩家名";
+            AccountNameText.Text = _s.LaunchAccount.Mode == "microsoft" ? Loc.T("尚无正版账户") : Loc.T("输入玩家名");
             AvatarText.Text = "?";
         }
         RefreshNameFromSelection();
@@ -257,7 +258,7 @@ public sealed partial class HomePage : Page
         var uuid = AccountCombo.SelectedValue as string;
         var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid);
         var name = acc?.Username ?? PlayerNameBox.Text.Trim();
-        AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? "未选择账户" : name;
+        AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
     }
 
@@ -287,57 +288,57 @@ public sealed partial class HomePage : Page
         switch (stage)
         {
             case LaunchStage.VerifyingCredentials:
-                SetStageUi("正在启动", "验证 Microsoft 凭据…", 0, 10);
+                SetStageUi(Loc.T("正在启动"), Loc.T("验证 Microsoft 凭据…"), 0, 10);
                 break;
             case LaunchStage.EnvChecking:
-                SetStageUi("正在启动", "检查运行环境…", 0, 10);
+                SetStageUi(Loc.T("正在启动"), Loc.T("检查运行环境…"), 0, 10);
                 break;
             case LaunchStage.Retrying:
-                SetStageUi("正在重试", "启动失败，正在重试…", 0, 25);
+                SetStageUi(Loc.T("正在重试"), Loc.T("启动失败，正在重试…"), 0, 25);
                 break;
             case LaunchStage.CheckingFiles:
-                SetStageUi("正在启动", "检查游戏文件完整性…", 10, 25);
+                SetStageUi(Loc.T("正在启动"), Loc.T("检查游戏文件完整性…"), 10, 25);
                 break;
             case LaunchStage.RepairingFiles:
                 // 真进度阶段：Progress 回调映射 25→75，这里不爬升
-                SetStageUi("正在启动", "补全缺失文件…", 25, null);
+                SetStageUi(Loc.T("正在启动"), Loc.T("补全缺失文件…"), 25, null);
                 break;
             case LaunchStage.StartingProcess:
-                SetStageUi("正在启动", "构建启动命令…", 75, 85);
+                SetStageUi(Loc.T("正在启动"), Loc.T("构建启动命令…"), 75, 85);
                 break;
             case LaunchStage.WaitingWindow:
-                SetStageUi("已启动游戏", "等待游戏窗口出现…", 85, null);
+                SetStageUi(Loc.T("已启动游戏"), Loc.T("等待游戏窗口出现…"), 85, null);
                 LaunchProgress.IsIndeterminate = true; // 不确定态闪烁
                 _windowDeadline = Environment.TickCount64 + 120_000;
                 _windowTimer.Start();
                 break;
             case LaunchStage.Running:
                 _windowTimer.Stop();
-                LaunchStageTitle.Text = "已启动游戏";
+                LaunchStageTitle.Text = Loc.T("已启动游戏");
                 LaunchStageTitle.Foreground = null;
-                LaunchStageStepText.Text = "游戏运行中";
+                LaunchStageStepText.Text = Loc.T("游戏运行中");
                 LaunchProgress.IsIndeterminate = false;
                 LaunchProgress.Value = 100;
                 break;
             case LaunchStage.Exited:
                 _windowTimer.Stop();
-                LaunchStageTitle.Text = "游戏已退出";
+                LaunchStageTitle.Text = Loc.T("游戏已退出");
                 LaunchStageTitle.Foreground = null;
                 var sec = Math.Max(0, (Environment.TickCount64 - _runningStart) / 1000);
                 LaunchStageStepText.Text = sec >= 60
-                    ? $"本局时长 {sec / 60} 分 {sec % 60} 秒" : $"本局时长 {sec} 秒";
+                    ? Loc.T("本局时长 {0} 分 {1} 秒", sec / 60, sec % 60) : Loc.T("本局时长 {0} 秒", sec);
                 LaunchProgress.IsIndeterminate = false;
                 LaunchProgress.Value = 0;
                 break;
             case LaunchStage.Failed:
                 _windowTimer.Stop();
-                LaunchStageTitle.Text = "启动失败";
+                LaunchStageTitle.Text = Loc.T("启动失败");
                 LaunchStageTitle.Foreground = ThemeBrush("SystemFillColorCriticalBrush");
                 LaunchProgress.IsIndeterminate = false;
                 LaunchProgress.Value = 0;
                 break;
             default: // Idle
-                LaunchStageTitle.Text = "正在启动";
+                LaunchStageTitle.Text = Loc.T("正在启动");
                 LaunchStageTitle.Foreground = null;
                 LaunchProgress.IsIndeterminate = false;
                 LaunchProgress.Value = 0;
@@ -391,10 +392,10 @@ public sealed partial class HomePage : Page
     private void ShowOverlay(string versionId, bool isMicrosoft)
     {
         _cancelRequested = false;
-        LaunchCancelBtn.Content = "取消";
+        LaunchCancelBtn.Content = Loc.T("取消");
         LaunchCancelBtn.IsEnabled = true;
         LaunchVersionText.Text = versionId;
-        LaunchLoginModeText.Text = isMicrosoft ? "正版登录" : "离线登录";
+        LaunchLoginModeText.Text = isMicrosoft ? Loc.T("正版登录") : Loc.T("离线登录");
         LaunchTipText.Text = LaunchTips.Next();
         LaunchErrorText.Text = "";
         _retryCount = 0;
@@ -478,7 +479,7 @@ public sealed partial class HomePage : Page
     private void LaunchLogToggle_Changed(object sender, RoutedEventArgs e)
     {
         var show = LaunchLogToggle.IsChecked == true;
-        LaunchLogToggle.Content = show ? "隐藏日志" : "显示日志";
+        LaunchLogToggle.Content = show ? Loc.T("隐藏日志") : Loc.T("显示日志");
         LaunchLogText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         LaunchLogOpenBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (show) FlushLogBuffer();
@@ -497,7 +498,7 @@ public sealed partial class HomePage : Page
         }
         catch (Exception ex)
         {
-            LocalErrorBar.Message = $"打开日志失败：{ex.Message}";
+            LocalErrorBar.Message = Loc.T("打开日志失败：{0}", ex.Message);
             LocalErrorBar.IsOpen = true;
         }
     }
@@ -520,7 +521,7 @@ public sealed partial class HomePage : Page
     private void LaunchCancelBtn_Click(object sender, RoutedEventArgs e)
     {
         _cancelRequested = true;
-        LaunchCancelBtn.Content = "正在取消…";
+        LaunchCancelBtn.Content = Loc.T("正在取消…");
         LaunchCancelBtn.IsEnabled = false;
         if (_stage is LaunchStage.WaitingWindow or LaunchStage.Running)
         {
@@ -535,7 +536,7 @@ public sealed partial class HomePage : Page
         if (_stage == LaunchStage.Running)
         {
             // 游戏仍在运行：只收层，主页复用「停止游戏」第二击路径（不杀进程）
-            HideOverlay("游戏运行中");
+            HideOverlay(Loc.T("游戏运行中"));
             UpdateVersionMeta();
         }
         else
@@ -581,7 +582,7 @@ public sealed partial class HomePage : Page
             _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
             if (_s.Accounts.Default is null && string.IsNullOrWhiteSpace(_s.LaunchAccount.OfflineName))
             {
-                LocalErrorBar.Message = "请输入离线玩家名或选择账户";
+                LocalErrorBar.Message = Loc.T("请输入离线玩家名或选择账户");
                 LocalErrorBar.IsOpen = true;
                 return;
             }
@@ -630,7 +631,7 @@ public sealed partial class HomePage : Page
                 }
                 else
                 {
-                    LaunchStageStepText.Text = "环境提示：" + report.Issues[0].Title;
+                    LaunchStageStepText.Text = Loc.T("环境提示：{0}", Loc.TCore(report.Issues[0].Title));
                 }
             }
             if (_cancelRequested) { HideOverlay("已取消启动"); return; }
@@ -671,7 +672,7 @@ public sealed partial class HomePage : Page
         if (_sessionHandle is null)
         {
             HideOverlay(null);
-            LocalErrorBar.Message = $"版本 {blockedBy} 正在运行中，请先关闭游戏再启动";
+            LocalErrorBar.Message = Loc.T("版本 {0} 正在运行中，请先关闭游戏再启动", blockedBy);
             LocalErrorBar.IsOpen = true;
             LauncherLog.Write("launch", $"拒绝启动 {versionId}：{blockedBy} 会话仍在运行");
             return;
@@ -686,7 +687,7 @@ public sealed partial class HomePage : Page
             if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
             {
                 HideOverlay(null);
-                LocalErrorBar.Message = "版本 JSON 缺失或损坏，无法自动恢复，请到下载页重新安装";
+                LocalErrorBar.Message = Loc.T("版本 JSON 缺失或损坏，无法自动恢复，请到下载页重新安装");
                 LocalErrorBar.IsOpen = true;
                 return;
             }
@@ -695,7 +696,7 @@ public sealed partial class HomePage : Page
             var progress = new Progress<BatchProgress>(p =>
             {
                 LaunchProgress.Value = 25 + p.Percentage * 0.5;
-                LaunchStageStepText.Text = $"补全缺失文件 {p.DoneFiles}/{p.TotalFiles}（{p.Percentage}%）…";
+                LaunchStageStepText.Text = Loc.T("补全缺失文件 {0}/{1}（{2}%）…", p.DoneFiles, p.TotalFiles, p.Percentage);
             });
             try
             {
@@ -707,7 +708,7 @@ public sealed partial class HomePage : Page
                 var listed = string.Join("\n", ex.FailedFiles.Take(5)
                     .Select(f => "• " + f.Path));
                 if (ex.FailedFiles.Count > 5)
-                    listed += $"\n等 {ex.FailedFiles.Count} 个文件";
+                    listed += Loc.T("\n等 {0} 个文件", ex.FailedFiles.Count);
                 var dialog = new ContentDialog
                 {
                     Title = "补全失败",

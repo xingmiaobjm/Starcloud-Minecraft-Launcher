@@ -3,7 +3,8 @@
     x:Class="Starcloud.App.Views.NovaOverlayWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:views="using:Starcloud.App.Views">
+    xmlns:views="using:Starcloud.App.Views"
+    xmlns:loc="using:Starcloud.App.Localization">
 
     <!--  Nova 游戏内浮窗（设计：nova-overlay-design.md §3.2）
           收起态 48×48 贴角 Orb（可拖动）/ Toast 一句话提醒（10s 自收）
@@ -30,7 +31,7 @@
 
             <!-- 收起态 Orb：状态着色 + 有提案黄点，点击展开，按住可拖动 -->
             <Button x:Name="OrbBtn" Grid.Column="2"
-                    AutomationProperties.Name="Nova 浮窗"
+                    loc:Loc.Name="Nova 浮窗"
                     Width="48" Height="48" Padding="0" CornerRadius="24"
                     Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -64,7 +65,7 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="PanelTitle" Grid.Column="0" Text="Nova" FontWeight="SemiBold"
                                VerticalAlignment="Center" />
-                    <Button x:Name="CollapseBtn" Grid.Column="1" AutomationProperties.Name="收起浮窗"
+                    <Button x:Name="CollapseBtn" Grid.Column="1" loc:Loc.Name="收起浮窗"
                             Style="{StaticResource SubtleButtonStyle}" Padding="6">
                         <FontIcon Glyph="&#xE721;" FontSize="14" />
                     </Button>

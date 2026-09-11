@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Starcloud.App.Localization;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Views;
@@ -19,7 +20,7 @@ internal static class EnvCheckDialogs
         var panel = new StackPanel { Spacing = 12, MinWidth = 420, MaxWidth = 520 };
         panel.Children.Add(new TextBlock
         {
-            Text = "检测到以下问题，可先修复再继续启动。",
+            Text = Loc.T("检测到以下问题，可先修复再继续启动。"),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
@@ -30,10 +31,10 @@ internal static class EnvCheckDialogs
 
         var dlg = new ContentDialog
         {
-            Title = "运行环境检查",
+            Title = Loc.T("运行环境检查"),
             Content = new ScrollViewer { Content = panel, MaxHeight = 420 },
-            PrimaryButtonText = "仍然启动",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("仍然启动"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = root,
         };
@@ -62,13 +63,13 @@ internal static class EnvCheckDialogs
         var text = new StackPanel { Spacing = 2 };
         text.Children.Add(new TextBlock
         {
-            Text = issue.Title,
+            Text = Loc.TCore(issue.Title),
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
         });
         text.Children.Add(new TextBlock
         {
-            Text = issue.Detail,
+            Text = Loc.TCore(issue.Detail),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
@@ -80,7 +81,7 @@ internal static class EnvCheckDialogs
 
         var fixBtn = new Button
         {
-            Content = issue.FixHint ?? "修复",
+            Content = Loc.TCore(issue.FixHint) is { Length: > 0 } hint ? hint : Loc.T("修复"),
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -90,7 +91,7 @@ internal static class EnvCheckDialogs
         fixBtn.Click += async (_, _) =>
         {
             fixBtn.IsEnabled = false;
-            fixBtn.Content = "修复中…";
+            fixBtn.Content = Loc.T("修复中…");
             var ok = false;
             try
             {
@@ -102,13 +103,13 @@ internal static class EnvCheckDialogs
             }
             if (ok)
             {
-                fixBtn.Content = "已修复";
+                fixBtn.Content = Loc.T("已修复");
                 dot.Fill = ThemeBrush("SystemFillColorSuccessBrush");
                 text.Opacity = 0.6;
             }
             else
             {
-                fixBtn.Content = issue.FixHint ?? "修复";
+                fixBtn.Content = Loc.TCore(issue.FixHint) is { Length: > 0 } hint ? hint : Loc.T("修复");
                 fixBtn.IsEnabled = true;
             }
         };

@@ -1,0 +1,144 @@
+The default account will be used for one-click launch
+Directory does not exist: {0}
+Directory name, e.g. kubejs / schematics
+Invalid directory name.
+More memory isn't always smoother — allocating too much can actually cause stutters.
+Memory allocation
+Memory allocation preset
+Memory resets to follow
+Content
+Built-in JVM arguments
+Built-in wallpapers
+Built-in wallpaper: {0}
+Built-in wallpaper list
+Capability roadmap
+Hi, {0}! I'm Nova — just tell me what you need in plain words, and I'll handle the tedious work in the launcher; anything that touches your files gets a confirmation checklist first, and only runs after you approve.\n
+What can you do
+Just say it in plain words, and I'll handle the tedious work
+Warm Sand
+Sort
+Run a game checkup
+Configuration
+Daybreak
+Fantasy
+Launch
+Launch arguments
+Launch error
+Don't panic if the launch fails — the reason is shown right on the launch page.
+Launch this version
+Post-launch command
+Launch reliability
+The AI assistant inside the launcher — the kind that actually gets things done
+Launcher log
+Launcher runtime logs and the raw output of every game session
+The pre-launch checkup automatically fills in missing files, so there's nothing to download by hand.
+Pre-launch command
+Runs before launch; a non-zero exit code will prompt you to continue. Supports the $GAME_DIR placeholder.
+Launch failed
+Launch failed, retrying…
+Launch failed: {0}
+Launch failed: {0}. A copy has been kept at {1}, so you can try again later
+Retry once automatically if the launch fails
+The server will be connected automatically on launch (quickPlayMultiplayer).
+Show live game output on the launch page to help troubleshoot launch issues.
+Expand live logs by default on the launch page
+Launch game
+After you launch the game and create a world, you can back it up and manage it here
+Pre-launch checkup
+Enable
+Enable caching for resource list fetching
+Failed to migrate content directory
+Go to the download page to install
+Light
+Toggle version isolation
+Lightweight
+Clear
+Clear local background image
+The version could not be found in the manifest
+Clear all
+Clear cache
+Clear action log
+Enter an offline player name or select an account
+Enter a directory name.
+Enter a value between 512 and 131072.
+Enter a backup name.
+Choose your sign-in method
+Select at least one content directory.
+Cancel
+Cancel execution
+Sign in on the Nova page
+All
+All (or enter your own)
+All (including saves)
+All versions
+All versions ({0})
+All versions (0)
+All content
+Global environment variables
+Global environment variable name
+Global environment variable value
+Fullscreen
+Launch in fullscreen
+Missing {0} dependencies: {1}
+OK
+Delete backup "{0}"? This action cannot be undone.
+Delete {0}? This action cannot be undone.
+Delete "{0}"?\nThe world folder will be removed, so back it up first. This action cannot be undone.
+Delete version {0}?\nIts version folder will be deleted. This action cannot be undone.
+Delete account {0}?
+Confirm rollback
+Confirm password
+Confirm
+Let Nova take a look
+Tasks
+Launch anyway
+日本語（ja_JP）
+Logs
+e.g. Sodium, JEI, Create…
+Delete
+Delete {0}
+Delete version
+Delete backup
+Delete this version
+Delete the version
+Delete environment variable
+Delete content files
+Delete global environment variable
+Delete failed
+Delete failed: {0}
+Delete world
+Delete account
+Deleted the wrong version? No worries — just reinstall it from the download page to restore it.
+Last launch
+Last played {0:yyyy-MM-dd HH:mm}
+Previous page
+No versions installed yet; you can add one later in "Resource Management".
+No premium account yet
+Later
+Set as current
+Set as default
+Settings
+Social
+Community resources
+Dark
+Generate share cards and send them to preset groups or friends; each one asks for confirmation first and is only sent once you confirm
+Mobs
+Retry attempts on failure
+Instance: {0}
+Entities
+Utility
+Food & Cooking
+Open {0} in your browser, enter the code above, and follow the on-screen instructions to authorize. When you're done, the launcher will add the account automatically.
+Sign in to your Microsoft account with a one-time verification code
+Using account: {0} ({1})
+Always on
+World achievement attribution
+World saves
+World elements
+Try: my game crashed, take a look / game checkup / check mod conflicts / play out of the box / find me a modpack
+Try a different keyword or version filter
+Automatically download and install the following dependencies into "{0}"?
+Save {0} clips
+Collapse floating window
+Collapse evidence
+Specify manually

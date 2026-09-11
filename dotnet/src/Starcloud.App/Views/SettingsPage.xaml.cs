@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 using Windows.Storage.Pickers;
@@ -41,8 +42,8 @@ public sealed partial class SettingsPage : Page
             MaxMemorySlider.Value = Math.Clamp(existingGb, 1, MaxMemorySlider.Maximum);
             MaxMemoryText.Text = $"{(int)MaxMemorySlider.Value} GB";
             var physicalGb = SystemMemory.Snapshot().TotalMb / 1024;
-            MemoryAutoHint.Text =
-                $"1 ~ {(int)MaxMemorySlider.Maximum} GB（物理内存 {physicalGb} GB，自动上限 {autoGb} GB）；最小内存固定 512 MB。";
+            MemoryAutoHint.Text = Loc.T("1 ~ {0} GB（物理内存 {1} GB，自动上限 {2} GB）；最小内存固定 512 MB。",
+                (int)MaxMemorySlider.Maximum, physicalGb, autoGb);
 
             // 启动可靠性：自动重试 / 实时日志开关
             LaunchAutoRetrySwitch.IsOn = s.LaunchAutoRetry;
@@ -86,6 +87,8 @@ public sealed partial class SettingsPage : Page
                 "off" => 2,
                 _ => 0,
             };
+            LanguageCombo.SelectedIndex =
+                string.Equals(s.UiLanguage, "en-US", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
 
@@ -210,9 +213,9 @@ public sealed partial class SettingsPage : Page
         JavaBox.IsEnabled = manual;
         JavaWillUseText.Text = manual
             ? (string.IsNullOrWhiteSpace(JavaBox.Text)
-                ? "手动指定：留空时将回退到自动检测到的 Java。"
-                : $"手动指定：将使用 {JavaBox.Text.Trim()}")
-            : "自动选择：按游戏版本 JSON 推荐的 Java 主版本匹配已安装或已下载的运行时。";
+                ? Loc.T("手动指定：留空时将回退到自动检测到的 Java。")
+                : Loc.T("手动指定：将使用 {0}", JavaBox.Text.Trim()))
+            : Loc.T("自动选择：按游戏版本 JSON 推荐的 Java 主版本匹配已安装或已下载的运行时。");
     }
 
     private async void BrowseJava_Click(object s, RoutedEventArgs e)
@@ -236,7 +239,7 @@ public sealed partial class SettingsPage : Page
         var nameBox = new TextBox
         {
             Text = name,
-            PlaceholderText = "名称",
+            PlaceholderText = Loc.T("名称"),
             Width = 200,
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
@@ -244,7 +247,7 @@ public sealed partial class SettingsPage : Page
         var valueBox = new TextBox
         {
             Text = value,
-            PlaceholderText = "值",
+            PlaceholderText = Loc.T("值"),
             Width = 360,
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
@@ -257,9 +260,9 @@ public sealed partial class SettingsPage : Page
             Padding = new Thickness(8, 4, 8, 4),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(nameBox, "全局环境变量名称");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(valueBox, "全局环境变量值");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, "删除全局环境变量");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(nameBox, Loc.T("全局环境变量名称"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(valueBox, Loc.T("全局环境变量值"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(del, Loc.T("删除全局环境变量"));
 
         var container = new StackPanel
         {
@@ -317,7 +320,7 @@ public sealed partial class SettingsPage : Page
             ErrorBar.IsOpen = true;
             return;
         }
-        SavedBar.Title = "缓存已清空";
+        SavedBar.Title = Loc.T("缓存已清空");
         SavedBar.IsOpen = true;
     }
 
@@ -329,12 +332,12 @@ public sealed partial class SettingsPage : Page
         {
             var runtimes = await _s.Java.ListRuntimesAsync();
             JavaListText.Text = runtimes.Count == 0
-                ? "未检测到 Java，可点击上方按钮下载"
+                ? Loc.T("未检测到 Java，可点击上方按钮下载")
                 : string.Join("\n", runtimes.Select(r => $"{r.Source} · Java {r.MajorVersion} · {r.VersionString}"));
         }
         catch (Exception ex)
         {
-            JavaListText.Text = $"检测失败：{ex.Message}";
+            JavaListText.Text = Loc.T("检测失败：{0}", ex.Message);
         }
     }
 
@@ -384,6 +387,17 @@ public sealed partial class SettingsPage : Page
         SavedBar.IsOpen = true;
     }
 
+    // 界面语言：切换即时生效（词典热替换 + 已本地化的 XAML 文案重放）
+    private void Language_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.UiLanguage =
+            (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "zh-CN";
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        Loc.SetLanguage(_s.Settings.UiLanguage);
+        SavedBar.IsOpen = true;
+    }
+
     // Nova 游戏内浮窗：切换即落盘（下局游戏启动生效，不追溯当前会话——克制）
     private void OverlaySwitch_Toggled(object sender, RoutedEventArgs e)
     {
@@ -417,7 +431,7 @@ public sealed partial class SettingsPage : Page
             };
             var cell = new StackPanel { Spacing = 4, Children = { thumb, caption } };
             cell.Tag = w.Id;
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(cell, $"内置壁纸：{w.Name}");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(cell, Loc.T("内置壁纸：{0}", w.Name));
             BuiltinWallpaperGrid.Items.Add(cell);
         }
     }
@@ -590,11 +604,12 @@ public sealed partial class SettingsPage : Page
         // 通用
         s0.Theme = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         s0.UiAnimations = (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        s0.UiLanguage = (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "zh-CN";
         s0.VersionIsolated = IsolationDefaultRadio.SelectedIndex == 0;
 
         s0.Save();
         MainWindow.RefreshAppearance();
-        SavedBar.Title = "已保存";
+        SavedBar.Title = Loc.T("已保存");
         SavedBar.IsOpen = true;
     }
 }

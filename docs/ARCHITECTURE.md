@@ -51,6 +51,10 @@ dotnet/
         │   ├── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
         │   ├── AppearanceService.cs  # 主题应用 + 内置壁纸清单 + 毛玻璃遮罩解析
         │   └── MotionService.cs      # 界面动效总开关（跟随系统 / 始终开启 / 关闭）
+        ├── Localization/
+        │   └── Loc.cs                # 本地化服务：Loc.T / Loc.TCore + 11 个 XAML 附加属性
+        ├── Strings/
+        │   └── en-US.json            # 英文词典（键 = 简体中文原文；源语言即键）
         └── Views/
             ├── CardHoverBehavior.cs        # 卡片悬浮/按压反馈附加属性（Composition Scale）
             ├── EmptyStateView.xaml(.cs)    # 统一空状态（图标 + 标题 + 副标题 + 可选按钮）
@@ -198,3 +202,22 @@ JavaService.ListRuntimesAsync（启动器下载的 + 系统 PATH/JAVA_HOME）
   过期需重新设备码登录。
 - Quilt / OptiFine 未接入（原版、Fabric、Forge、NeoForge 已支持）。
 - 插件系统、Terracotta 联机为旧 Tauri 架构特性，.NET 版暂未实现。
+
+## 8. 本地化层（D3）
+
+放弃 WinUI 的 `x:Uid` / `.resw` / `PrimaryLanguageOverride` 方案（非打包应用下 override 不跨会话持久化且无法清空，见 microsoft/WindowsAppSDK#5335），改为**源语言即键**的自建 JSON 词典：
+
+- **源语言即键**：词条键 = 简体中文原文（`Loc.T("暂无已安装版本")`）。zh-CN 下不加载词典、一律回退原文，因此天然零回归；只需维护一份 `Strings/en-US.json`（作为 `EmbeddedResource` 嵌入程序集）。
+- **`Loc`**（`Localization/Loc.cs`）：
+  - `Loc.T(key)` / `Loc.T(key, args)`：普通取词（`string.Format` 回填）。
+  - `Loc.TCore(text)`：本地化 **Core 层产出的**展示文案。Core 不引用 `Loc`，且多数文案在 Core 内已用运行时值格式化（如「退出码 1」），故除精确匹配外，还按词典里含 `{0}` / `{1}` 的条目做**占位符反解**（前缀 / 中缀 / 后缀切分 + `string.Format` 回填）。
+  - **XAML 附加属性**（XAML 无自定义标记扩展，故用附加属性声明式取词）：`Text` / `Header` / `Placeholder` / `Tip` / `Name` / `Title` / `Message` / `OnContent` / `OffContent` / `Subtitle` / `ActionText`，共 11 个。控件经 `Track` 登记，语言切换时由 `ReplayAll()` 即时刷新。
+  - `Initialize` / `SetLanguage`：读取设置 `ui_language`（默认 `zh-CN`），切片即换词典并重放全部已登记控件——**无需重启**。
+  - 词典缺失 / 损坏 → 空词典 + 静默回退中文，绝不阻断启动。
+- **边界规则**：品牌与专有名词（Starcloud / Java / Nova / Mod / `×` / `-Xss1M` / PBR）不本地化；内部标识符、落盘常量、XAML `Tag` 与 **Nova 意图路由关键词**不本地化（路由靠中文子串匹配，如 `lower.Contains("体检")`，送入 Nova 的请求文本必须保持原始中文）。
+- **维护工具（`tools/`，PowerShell 5.1，注释必须纯 ASCII）**：
+  - `extract-loc-keys.ps1`：从 `Loc.T("…")` 与 `loc:Loc.Xxx="…"` 静态抽取词条 → `loc-keys.txt`。
+  - `loc-dict.ps1 -Mode split|merge`：`split` 把词条均分到 `tools/dict/keys-N.txt`（人工翻译写入 `trans-N.txt`）；`merge` 合并各分片并并入 `core-strings.json`（Core 文案）→ 生成 `Strings/en-US.json`。
+  - `verify-loc.ps1`：期望集（静态键 + `extra-keys.txt` 运行时键 + `core-strings.json`）与词典比对，要求 `MISSING=0 UNUSED=0`。
+- **无障碍**：仅图标交互控件一律 `loc:Loc.Name`（映射到 `AutomationProperties.Name`）并与 `loc:Loc.Tip` 同源；表单控件保证 `Header` / `PlaceholderText` 成对。
+- **未覆盖**：Nova 会话文本（`NovaService.cs` 等 Core 内硬编码中文与意图路由关键词耦合）暂保持中文。

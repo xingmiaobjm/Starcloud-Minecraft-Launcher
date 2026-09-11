@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Starcloud.App.Views"
+    xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
     <!-- LauncherX 式布局：大标题（Starcloud 登录/注册）+ 右上添加账户 + 保存的游戏账户卡流 -->
@@ -22,19 +23,19 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
-                <TextBlock x:Name="ScTitleText" Text="登录 Starcloud 账号以使用更多功能"
+                <TextBlock x:Name="ScTitleText" loc:Loc.Text="登录 Starcloud 账号以使用更多功能"
                            FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock x:Name="ScSubtitleText" Text="在此登录或注册 Starcloud ID，也可管理用于启动的游戏账户"
+                <TextBlock x:Name="ScSubtitleText" loc:Loc.Text="在此登录或注册 Starcloud ID，也可管理用于启动的游戏账户"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
-            <Button Grid.Column="1" Content="添加一个游戏账户" VerticalAlignment="Center"
+            <Button Grid.Column="1" loc:Loc.Text="添加一个游戏账户" VerticalAlignment="Center"
                     Style="{StaticResource AccentButtonStyle}" Click="AddAccount_Click" />
         </Grid>
 
         <!-- 状态条 -->
         <StackPanel Grid.Row="1" Spacing="8">
-            <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" Title="操作失败" />
-            <InfoBar x:Name="StatusInfo" Severity="Success" IsOpen="False" IsClosable="True" Title="完成" />
+            <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+            <InfoBar x:Name="StatusInfo" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
         </StackPanel>
 
         <!-- Starcloud ID 卡：未登录=登录表单，已登录=会话管理 -->
@@ -46,23 +47,23 @@
                 <StackPanel x:Name="ScLoginPanel" Spacing="12">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon Glyph="&#xE99A;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
-                        <TextBlock Text="Starcloud ID" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock Text="登录后自动创建 Nova 云端模型 Key" FontSize="12"
+                        <TextBlock loc:Loc.Text="Starcloud ID" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock loc:Loc.Text="登录后自动创建 Nova 云端模型 Key" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox x:Name="ScIdBox" PlaceholderText="Starcloud ID（用户名或邮箱）" Width="250" />
-                        <PasswordBox x:Name="ScPwdBox" PlaceholderText="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
+                        <TextBox x:Name="ScIdBox" loc:Loc.Placeholder="Starcloud ID（用户名或邮箱）" Width="250" />
+                        <PasswordBox x:Name="ScPwdBox" loc:Loc.Placeholder="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
                         <ComboBox x:Name="ScChannelBox" SelectedIndex="0" Width="128" SelectionChanged="ScChannelBox_SelectionChanged">
-                            <ComboBoxItem Content="测试通道" />
-                            <ComboBoxItem Content="云端通道" />
+                            <ComboBoxItem loc:Loc.Text="测试通道" />
+                            <ComboBoxItem loc:Loc.Text="云端通道" />
                         </ComboBox>
-                        <Button x:Name="ScLoginBtn" Content="登录" Style="{StaticResource AccentButtonStyle}"
+                        <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource AccentButtonStyle}"
                                 Click="ScLogin_Click" />
                         <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
                                       IsActive="False" VerticalAlignment="Center" />
-                        <HyperlinkButton Content="没有账号？注册" Padding="4,0" VerticalAlignment="Center"
+                        <HyperlinkButton loc:Loc.Text="没有账号？注册" Padding="4,0" VerticalAlignment="Center"
                                          Click="ScRegister_Click" />
                     </StackPanel>
                     <TextBlock x:Name="ScErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
@@ -88,8 +89,8 @@
                                 Background="{ThemeResource ControlFillColorDefaultBrush}">
                             <TextBlock x:Name="ScKeyText" FontSize="12" FontFamily="Consolas" />
                         </Border>
-                        <Button x:Name="ScCopyBtn" Content="复制 Key" Height="30" Padding="12,0" Click="ScCopyKey_Click" />
-                        <Button Content="退出登录" Height="30" Padding="12,0" Click="ScLogout_Click"
+                        <Button x:Name="ScCopyBtn" loc:Loc.Text="复制 Key" Height="30" Padding="12,0" Click="ScCopyKey_Click" />
+                        <Button loc:Loc.Text="退出登录" Height="30" Padding="12,0" Click="ScLogout_Click"
                                 Background="Transparent" BorderThickness="0"
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                     </StackPanel>
@@ -112,16 +113,16 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="保存的游戏账户" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock loc:Loc.Text="保存的游戏账户" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" FontSize="12" VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="默认账户将用于一键启动" />
+                               loc:Loc.Text="默认账户将用于一键启动" />
                 </Grid>
                 <local:EmptyStateView x:Name="AccountEmptyText" Grid.Row="1"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                       Glyph="&#xE77B;"
-                                      Title="还没有游戏账户"
-                                      ActionText="添加账户"
+                                      loc:Loc.Title="还没有游戏账户"
+                                      loc:Loc.ActionText="添加账户"
                                       ActionClick="AddAccount_Click" />
                 <ListView x:Name="AccountList" Grid.Row="1" SelectionMode="None" Margin="-16" Visibility="Collapsed">
                     <ListView.ItemsPanel>
@@ -168,17 +169,17 @@
                                                 <Border CornerRadius="4" Padding="6,1"
                                                         Background="{ThemeResource AccentFillColorDefaultBrush}"
                                                         Visibility="{x:Bind DefaultBadgeVisibility}">
-                                                    <TextBlock Text="默认" FontSize="10"
+                                                    <TextBlock loc:Loc.Text="默认" FontSize="10"
                                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                                                 </Border>
                                             </StackPanel>
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                                        <Button Content="设为默认" Height="30" Padding="12,0"
+                                        <Button loc:Loc.Text="设为默认" Height="30" Padding="12,0"
                                                 Tag="{x:Bind Uuid}" Click="SetDefault_Click"
                                                 Visibility="{x:Bind DefaultBtnVisibility}" />
-                                        <Button Content="删除" Height="30" Padding="12,0"
+                                        <Button loc:Loc.Text="删除" Height="30" Padding="12,0"
                                                 Tag="{x:Bind Uuid}" Click="Remove_Click" />
                                     </StackPanel>
                                 </Grid>

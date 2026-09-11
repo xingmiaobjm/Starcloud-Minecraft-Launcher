@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Starcloud.App.Localization;
 
 namespace Starcloud.App.Views;
 
@@ -63,7 +64,7 @@ public sealed class ModRow
     public string LoadersText { get; init; } = "";
     public string DownloadsText { get; init; } = "";
     public string UpdatedText { get; init; } = "";
-    public string ButtonText { get; init; } = "安装";
+    public string ButtonText { get; init; } = Loc.T("安装");
     public ImageSource? Icon { get; init; }
 
     public Visibility LoadersVisibility =>
@@ -90,7 +91,7 @@ public sealed record LibraryRow(
 public sealed record ContentFileRow(
     string FileName, string SizeText, string StatusText, bool Enabled, string Kind, string FullPath)
 {
-    public string ToggleVerb => Enabled ? "停用" : "启用";
+    public string ToggleVerb => Enabled ? Loc.T("停用") : Loc.T("启用");
 }
 
 /// <summary>导出整合包的内容目录候选行（勾选状态可变）</summary>
@@ -152,14 +153,14 @@ public static class VersionRowHelpers
     /// <summary>上次启动时间：「今天 14:32 / 昨天 20:01 / 3 天前 / 从未启动」。</summary>
     public static string FormatLastPlayed(DateTime? time)
     {
-        if (time is not { } t) return "从未启动";
+        if (time is not { } t) return Loc.T("从未启动");
         var days = (DateTime.Now.Date - t.Date).Days;
         return days switch
         {
-            <= 0 => $"今天 {t:HH:mm}",
-            1 => $"昨天 {t:HH:mm}",
-            < 30 => $"{days} 天前",
-            < 365 => $"{days / 30} 个月前",
+            <= 0 => Loc.T("今天 {0:HH:mm}", t),
+            1 => Loc.T("昨天 {0:HH:mm}", t),
+            < 30 => Loc.T("{0} 天前", days),
+            < 365 => Loc.T("{0} 个月前", days / 30),
             _ => $"{t:yyyy-MM-dd}",
         };
     }
@@ -174,14 +175,14 @@ public static class VersionRowHelpers
             if (json.Contains("fabricloader", StringComparison.OrdinalIgnoreCase) ||
                 json.Contains("fabricmc", StringComparison.OrdinalIgnoreCase)) return "Fabric";
             if (json.Contains("forge", StringComparison.OrdinalIgnoreCase)) return "Forge";
-            if (json.Contains("\"old_beta\"", StringComparison.Ordinal)) return "Beta 版";
-            if (json.Contains("\"old_alpha\"", StringComparison.Ordinal)) return "Alpha 版";
-            if (json.Contains("\"snapshot\"", StringComparison.Ordinal)) return "快照版";
-            return "正式版";
+            if (json.Contains("\"old_beta\"", StringComparison.Ordinal)) return Loc.T("Beta 版");
+            if (json.Contains("\"old_alpha\"", StringComparison.Ordinal)) return Loc.T("Alpha 版");
+            if (json.Contains("\"snapshot\"", StringComparison.Ordinal)) return Loc.T("快照版");
+            return Loc.T("正式版");
         }
         catch
         {
-            return "未知";
+            return Loc.T("未知");
         }
     }
 }

@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Views;
@@ -16,12 +17,23 @@ public sealed partial class LogsPage : Page
     public LogsPage()
     {
         InitializeComponent();
+        ApplySourceLabels();
+        Loc.LanguageChanged += ApplySourceLabels;
+        Unloaded += (_, _) => Loc.LanguageChanged -= ApplySourceLabels;
         Loaded += (_, _) =>
         {
             _ready = true;
             LogSource.SelectedIndex = 0;   // 触发 SelectionChanged → Load()
             Load();
         };
+    }
+
+    /// <summary>语言切换时重建来源选项（RadioButtons 的 x:String 子项无法挂本地化附加属性）。</summary>
+    private void ApplySourceLabels()
+    {
+        var selected = LogSource.SelectedIndex;
+        LogSource.ItemsSource = new[] { Loc.T("启动器日志"), Loc.T("游戏日志") };
+        LogSource.SelectedIndex = selected;
     }
 
     private bool IsGameSource => LogSource.SelectedIndex == 1;
@@ -88,7 +100,7 @@ public sealed partial class LogsPage : Page
 
         if (file is null || !File.Exists(file))
         {
-            LogText.Text = IsGameSource ? "（暂无游戏日志：启动一次游戏后这里会出现）" : "（暂无日志）";
+            LogText.Text = IsGameSource ? Loc.T("（暂无游戏日志：启动一次游戏后这里会出现）") : Loc.T("（暂无日志）");
             return;
         }
         try
@@ -97,7 +109,7 @@ public sealed partial class LogsPage : Page
         }
         catch (Exception ex)
         {
-            LogText.Text = $"读取日志失败：{ex.Message}";
+            LogText.Text = Loc.T("读取日志失败：{0}", ex.Message);
         }
     }
 

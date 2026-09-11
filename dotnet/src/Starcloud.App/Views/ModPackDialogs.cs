@@ -9,6 +9,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 using Windows.Storage.Pickers;
@@ -54,7 +55,7 @@ public static class ModPackDialogs
             dirs.Add(new ExportDirRow
             {
                 Name = c.Name,
-                Detail = $"{c.FileCount} 项 · {FormatSize(c.SizeBytes)}",
+                Detail = Loc.T("{0} 项 · {1}", c.FileCount, FormatSize(c.SizeBytes)),
                 IsStandard = c.IsStandard,
                 IsChecked = c.IsStandard,
             });
@@ -76,15 +77,15 @@ public static class ModPackDialogs
                 if (meta.TryGetValue(d.Name, out var m)) { bytes += m.Bytes; files += m.Count; }
             }
             summary.Text = selected == 0
-                ? "未选择任何内容目录。"
-                : $"预计导出体积：约 {FormatSize(bytes)}（{files} 个文件）";
+                ? Loc.T("未选择任何内容目录。")
+                : Loc.T("预计导出体积：约 {0}（{1} 个文件）", FormatSize(bytes), files);
         }
 
         CheckBox MakeBox(ExportDirRow d)
         {
             var box = new CheckBox
             {
-                Content = d.IsStandard ? $"{d.Name}    {d.Detail}" : $"{d.Name}    {d.Detail}（自定义）",
+                Content = d.IsStandard ? $"{d.Name}    {d.Detail}" : Loc.T("{0}    {1}（自定义）", d.Name, d.Detail),
                 IsChecked = d.IsChecked,
                 Tag = d,
             };
@@ -107,27 +108,27 @@ public static class ModPackDialogs
             RefreshSummary();
         }
 
-        var customBox = new TextBox { PlaceholderText = "目录名，如 kubejs / schematics", Width = 240 };
-        var addBtn = new Button { Content = "添加" };
+        var customBox = new TextBox { PlaceholderText = Loc.T("目录名，如 kubejs / schematics"), Width = 240 };
+        var addBtn = new Button { Content = Loc.T("添加") };
         addBtn.Click += (_, _) =>
         {
             hint.Text = "";
             var name = customBox.Text.Trim().Replace('\\', '/').Trim('/');
-            if (name.Length == 0) { hint.Text = "请输入目录名。"; return; }
-            if (name.Split('/').Any(seg => seg is "" or "." or "..")) { hint.Text = "目录名不合法。"; return; }
+            if (name.Length == 0) { hint.Text = Loc.T("请输入目录名。"); return; }
+            if (name.Split('/').Any(seg => seg is "" or "." or "..")) { hint.Text = Loc.T("目录名不合法。"); return; }
             if (dirs.Any(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
             {
-                hint.Text = "该目录已在列表中。";
+                hint.Text = Loc.T("该目录已在列表中。");
                 return;
             }
             var abs = Path.Combine(gameRoot, name.Replace('/', Path.DirectorySeparatorChar));
-            if (!Directory.Exists(abs)) { hint.Text = $"目录不存在：{name}"; return; }
+            if (!Directory.Exists(abs)) { hint.Text = Loc.T("目录不存在：{0}", name); return; }
             var m = Measure(abs);
             meta[name] = m;
             var d = new ExportDirRow
             {
                 Name = name,
-                Detail = $"{m.Count} 项 · {FormatSize(m.Bytes)}",
+                Detail = Loc.T("{0} 项 · {1}", m.Count, FormatSize(m.Bytes)),
                 IsChecked = true,
             };
             dirs.Add(d);
@@ -140,24 +141,24 @@ public static class ModPackDialogs
         var panel = new StackPanel { Spacing = 10, MinWidth = 460, MaxWidth = 560 };
         panel.Children.Add(new TextBlock
         {
-            Text = $"源版本：{row.Id}        MC {gameVersion}" + (loader.Length > 0 ? $" · {loader}" : ""),
+            Text = Loc.T("源版本：{0}        MC {1}", row.Id, gameVersion) + (loader.Length > 0 ? $" · {loader}" : ""),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
         });
         var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         head.Children.Add(new TextBlock
         {
-            Text = "打包内容",
+            Text = Loc.T("打包内容"),
             FontSize = 12,
             Opacity = 0.8,
             VerticalAlignment = VerticalAlignment.Center,
         });
-        head.Children.Add(MakePresetButton("仅 Mod 与配置",
+        head.Children.Add(MakePresetButton(Loc.T("仅 Mod 与配置"),
             () => ApplyPreset(n => n.Equals("mods", StringComparison.OrdinalIgnoreCase) ||
                                    n.Equals("config", StringComparison.OrdinalIgnoreCase))));
-        head.Children.Add(MakePresetButton("全部内容",
+        head.Children.Add(MakePresetButton(Loc.T("全部内容"),
             () => ApplyPreset(n => !n.Equals("saves", StringComparison.OrdinalIgnoreCase))));
-        head.Children.Add(MakePresetButton("全部（含存档）", () => ApplyPreset(_ => true)));
+        head.Children.Add(MakePresetButton(Loc.T("全部（含存档）"), () => ApplyPreset(_ => true)));
         panel.Children.Add(head);
         panel.Children.Add(new ScrollViewer { MaxHeight = 220, Content = rowsPanel });
         var customRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -170,10 +171,10 @@ public static class ModPackDialogs
 
         var dlg = new ContentDialog
         {
-            Title = "导出整合包",
+            Title = Loc.T("导出整合包"),
             Content = panel,
-            PrimaryButtonText = "导出…",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("导出…"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = root,
         };
@@ -182,7 +183,7 @@ public static class ModPackDialogs
         var selectedDirs = dirs.Where(d => d.IsChecked).Select(d => d.Name).ToList();
         if (selectedDirs.Count == 0)
         {
-            await InfoAsync(root, "导出整合包", "请至少勾选一个内容目录。");
+            await InfoAsync(root, Loc.T("导出整合包"), Loc.T("请至少勾选一个内容目录。"));
             return;
         }
 
@@ -191,7 +192,7 @@ public static class ModPackDialogs
             SuggestedStartLocation = PickerLocationId.Desktop,
             SuggestedFileName = $"{InstanceLayout.SafeFileName(row.Id)}-{DateTime.Now:yyyyMMdd}",
         };
-        picker.FileTypeChoices.Add("Modrinth 整合包", new List<string> { ".mrpack" });
+        picker.FileTypeChoices.Add(Loc.T("Modrinth 整合包"), new List<string> { ".mrpack" });
         WinRT.Interop.InitializeWithWindow.Initialize(picker,
             WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
         var file = await picker.PickSaveFileAsync();
@@ -201,21 +202,21 @@ public static class ModPackDialogs
         ExportResult? result;
         try
         {
-            result = await RunWithProgressAsync(root, "导出整合包", "后台导出",
+            result = await RunWithProgressAsync(root, Loc.T("导出整合包"), Loc.T("后台导出"),
                 p => s.ModPackExport.ExportAsync(request, p), indeterminate: true);
         }
         catch (Exception ex)
         {
-            await ErrorAsync(root, "导出失败", ex);
+            await ErrorAsync(root, Loc.T("导出失败"), ex);
             return;
         }
         if (result is null) return;
 
-        var message = $"可下载 {result.DownloadableFiles} 个 · 打包 {result.OverriddenFiles} 个 · " +
-                      $"共 {FormatSize(result.TotalBytes)}";
-        if (!string.IsNullOrEmpty(result.LoaderWarning)) message += $"\n\n提示：{result.LoaderWarning}";
-        message += $"\n\n已保存到：{file.Path}";
-        await InfoAsync(root, "导出完成", message);
+        var message = Loc.T("可下载 {0} 个 · 打包 {1} 个 · ", result.DownloadableFiles, result.OverriddenFiles) +
+                      Loc.T("共 {0}", FormatSize(result.TotalBytes));
+        if (!string.IsNullOrEmpty(result.LoaderWarning)) message += Loc.T("\n\n提示：{0}", result.LoaderWarning);
+        message += Loc.T("\n\n已保存到：{0}", file.Path);
+        await InfoAsync(root, Loc.T("导出完成"), message);
     }
 
     /// <summary>推断 MC 版本与加载器依赖。
@@ -312,8 +313,8 @@ public static class ModPackDialogs
         }
         catch (Exception ex)
         {
-            await InfoAsync(root, "无法导入整合包",
-                "本启动器支持 Modrinth 格式整合包（.mrpack 或内含 modrinth.index.json 的 zip）。\n\n" + ex.Message);
+            await InfoAsync(root, Loc.T("无法导入整合包"),
+                Loc.T("本启动器支持 Modrinth 格式整合包（.mrpack 或内含 modrinth.index.json 的 zip）。\n\n") + ex.Message);
             return;
         }
 
@@ -326,18 +327,18 @@ public static class ModPackDialogs
             nameBox = new TextBox
             {
                 Text = InstanceLayout.SafeFileName(info.Name),
-                PlaceholderText = "新建版本名称",
+                PlaceholderText = Loc.T("新建版本名称"),
             };
             isoBox = new CheckBox
             {
-                Content = "版本隔离（推荐，整合包内容独立存放）",
+                Content = Loc.T("版本隔离（推荐，整合包内容独立存放）"),
                 IsChecked = true,
             };
             hint = new TextBlock { FontSize = 12, Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
             var note = new TextBlock { FontSize = 12, Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
             void SyncNote() => note.Text = isoBox.IsChecked == true
-                ? "整合包内容将独立存放在 versions/<新名称>/ 下。"
-                : "将写入共享 .minecraft 目录，不会新建版本条目。";
+                ? Loc.T("整合包内容将独立存放在 versions/<新名称>/ 下。")
+                : Loc.T("将写入共享 .minecraft 目录，不会新建版本条目。");
             isoBox.Checked += (_, _) => SyncNote();
             isoBox.Unchecked += (_, _) => SyncNote();
             SyncNote();
@@ -346,19 +347,19 @@ public static class ModPackDialogs
             var panel = new StackPanel { Spacing = 10, MinWidth = 420, MaxWidth = 520 };
             panel.Children.Add(new TextBlock
             {
-                Text = "包名：" + info.Name,
+                Text = Loc.T("包名：") + info.Name,
                 FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
             });
             panel.Children.Add(new TextBlock
             {
                 Text = $"Minecraft {info.GameVersion}" + (loader.Length > 0 ? $" · {loader}" : "") +
-                       $" · {info.DownloadFileCount} 个文件 · {FormatSize(info.TotalBytes)}",
+                       Loc.T(" · {0} 个文件 · {1}", info.DownloadFileCount, FormatSize(info.TotalBytes)),
                 FontSize = 12,
                 Opacity = 0.8,
                 TextWrapping = TextWrapping.Wrap,
             });
-            panel.Children.Add(new TextBlock { Text = "新建版本名称", FontSize = 12, Opacity = 0.8 });
+            panel.Children.Add(new TextBlock { Text = Loc.T("新建版本名称"), FontSize = 12, Opacity = 0.8 });
             panel.Children.Add(nameBox);
             panel.Children.Add(isoBox);
             panel.Children.Add(note);
@@ -371,10 +372,10 @@ public static class ModPackDialogs
         {
             var dlg = new ContentDialog
             {
-                Title = "导入整合包",
+                Title = Loc.T("导入整合包"),
                 Content = BuildPanel(),
-                PrimaryButtonText = "导入",
-                CloseButtonText = "取消",
+                PrimaryButtonText = Loc.T("导入"),
+                CloseButtonText = Loc.T("取消"),
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = root,
             };
@@ -382,7 +383,7 @@ public static class ModPackDialogs
             var typed = nameBox.Text.Trim();
             if (!InstanceLayout.IsValidVersionId(typed))
             {
-                hint.Text = "版本名不能为空，且不能包含 < > : \" / \\ | ? *";
+                hint.Text = Loc.T("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
                 continue;
             }
             targetId = typed;
@@ -400,9 +401,9 @@ public static class ModPackDialogs
 
         var progressDlg = new ContentDialog
         {
-            Title = "导入整合包",
+            Title = Loc.T("导入整合包"),
             Content = CreateProgressPanel(out var statusText, out var bar),
-            CloseButtonText = "后台导入",
+            CloseButtonText = Loc.T("后台导入"),
             XamlRoot = root,
         };
         _ = progressDlg.ShowAsync();
@@ -437,16 +438,16 @@ public static class ModPackDialogs
         catch (Exception ex)
         {
             try { progressDlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
-            await ErrorAsync(root, "导入失败", ex);
+            await ErrorAsync(root, Loc.T("导入失败"), ex);
             return;
         }
         try { progressDlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
 
         var message = isolated
-            ? $"已创建版本「{targetId}」。\n{summary}"
-            : $"已写入共享 .minecraft 目录。\n{summary}";
-        if (renamed) message += "\n（同名版本已存在，已自动改名）";
-        await InfoAsync(root, "导入完成", message);
+            ? Loc.T("已创建版本「{0}」。\n{1}", targetId, summary)
+            : Loc.T("已写入共享 .minecraft 目录。\n{0}", summary);
+        if (renamed) message += Loc.T("\n（同名版本已存在，已自动改名）");
+        await InfoAsync(root, Loc.T("导入完成"), message);
     }
 
     /// <summary>名称冲突时递增 " (n)"（baseName 可用时原样返回）</summary>
@@ -479,7 +480,7 @@ public static class ModPackDialogs
         var dotMc = s.Settings.DotMinecraft;
         if (App.RunningVersionId == row.Id)
         {
-            await InfoAsync(root, "备份与回档", "该版本正在运行，请先退出游戏再备份或回档。");
+            await InfoAsync(root, Loc.T("备份与回档"), Loc.T("该版本正在运行，请先退出游戏再备份或回档。"));
             return;
         }
 
@@ -491,10 +492,10 @@ public static class ModPackDialogs
             var panel = BuildBackupPanel(s, dotMc, row.Id, isolated, state, () => dlg?.Hide(), out var gather);
             dlg = new ContentDialog
             {
-                Title = $"备份与回档 · {row.Id}",
+                Title = Loc.T("备份与回档 · {0}", row.Id),
                 Content = panel,
-                PrimaryButtonText = "开始备份",
-                CloseButtonText = "关闭",
+                PrimaryButtonText = Loc.T("开始备份"),
+                CloseButtonText = Loc.T("关闭"),
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = root,
             };
@@ -512,29 +513,29 @@ public static class ModPackDialogs
             }
             if (state.Delete is { } del)
             {
-                if (await ConfirmAsync(root, "删除备份", $"确定删除备份「{del.Name}」？此操作不可撤销。"))
+                if (await ConfirmAsync(root, Loc.T("删除备份"), Loc.T("确定删除备份「{0}」？此操作不可撤销。", del.Name)))
                     s.VersionBackup.Delete(dotMc, del.Id);
                 continue;
             }
             if (state.Restore is { } restore)
             {
-                var ok = await ConfirmAsync(root, "确认回档",
-                    $"将把「{restore.Name}」的内容覆盖回当前版本。\n回档前会先自动备份当前状态。");
+                var ok = await ConfirmAsync(root, Loc.T("确认回档"),
+                    Loc.T("将把「{0}」的内容覆盖回当前版本。\n回档前会先自动备份当前状态。", restore.Name));
                 if (ok)
                 {
                     try
                     {
-                        await RunWithProgressAsync(root, "正在回档", "后台回档",
+                        await RunWithProgressAsync(root, Loc.T("正在回档"), Loc.T("后台回档"),
                             async p =>
                             {
                                 await s.VersionBackup.RestoreAsync(dotMc, restore, isolated, p);
                                 return "ok";
                             }, indeterminate: true);
-                        await InfoAsync(root, "回档完成", $"已回档到「{restore.Name}」。");
+                        await InfoAsync(root, Loc.T("回档完成"), Loc.T("已回档到「{0}」。", restore.Name));
                     }
                     catch (Exception ex)
                     {
-                        await ErrorAsync(root, "回档失败", ex);
+                        await ErrorAsync(root, Loc.T("回档失败"), ex);
                     }
                 }
                 continue;
@@ -544,20 +545,20 @@ public static class ModPackDialogs
                 var req = gather();
                 if (req is null)
                 {
-                    await InfoAsync(root, "备份与回档", "请填写备份名称。");
+                    await InfoAsync(root, Loc.T("备份与回档"), Loc.T("请填写备份名称。"));
                     continue;
                 }
                 try
                 {
-                    var entry = await RunWithProgressAsync(root, "正在备份", "后台备份",
+                    var entry = await RunWithProgressAsync(root, Loc.T("正在备份"), Loc.T("后台备份"),
                         p => s.VersionBackup.BackupAsync(dotMc, req, p), indeterminate: true);
                     if (entry is not null)
-                        await InfoAsync(root, "备份完成",
-                            $"已创建备份「{entry.Name}」（{FormatSize(entry.SizeBytes)}，{entry.FileCount} 个文件）。");
+                        await InfoAsync(root, Loc.T("备份完成"),
+                            Loc.T("已创建备份「{0}」（{1}，{2} 个文件）。", entry.Name, FormatSize(entry.SizeBytes), entry.FileCount));
                 }
                 catch (Exception ex)
                 {
-                    await ErrorAsync(root, "备份失败", ex);
+                    await ErrorAsync(root, Loc.T("备份失败"), ex);
                 }
                 continue;
             }
@@ -570,28 +571,28 @@ public static class ModPackDialogs
         bool isolated, BackupPanelState state, Action close, out Func<VersionBackupRequest?> gather)
     {
         var panel = new StackPanel { Spacing = 10, MinWidth = 460, MaxWidth = 560 };
-        panel.Children.Add(new TextBlock { Text = "备份粒度", FontSize = 12, Opacity = 0.8 });
+        panel.Children.Add(new TextBlock { Text = Loc.T("备份粒度"), FontSize = 12, Opacity = 0.8 });
 
         var radios = new RadioButtons
         {
             Items =
             {
-                "最小（版本定义与启动器设置）",
-                "标准（该版本的内容）",
-                "完整（含共享 .minecraft 内容）",
+                Loc.T("最小（版本定义与启动器设置）"),
+                Loc.T("标准（该版本的内容）"),
+                Loc.T("完整（含共享 .minecraft 内容）"),
             },
             SelectedIndex = 1,
         };
         panel.Children.Add(radios);
 
-        var cbSaves = new CheckBox { Content = "世界存档", IsChecked = true };
-        var cbConfig = new CheckBox { Content = "配置", IsChecked = true };
-        var cbPack = new CheckBox { Content = "资源包" };
-        var cbShader = new CheckBox { Content = "光影" };
+        var cbSaves = new CheckBox { Content = Loc.T("世界存档"), IsChecked = true };
+        var cbConfig = new CheckBox { Content = Loc.T("配置"), IsChecked = true };
+        var cbPack = new CheckBox { Content = Loc.T("资源包") };
+        var cbShader = new CheckBox { Content = Loc.T("光影") };
         var attach = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         attach.Children.Add(new TextBlock
         {
-            Text = "附加内容",
+            Text = Loc.T("附加内容"),
             FontSize = 12,
             Opacity = 0.8,
             VerticalAlignment = VerticalAlignment.Center,
@@ -603,7 +604,7 @@ public static class ModPackDialogs
         panel.Children.Add(attach);
 
         var nameBox = new TextBox { Text = $"{versionId}-{DateTime.Now:yyyy-MM-dd_HHmmss}" };
-        panel.Children.Add(new TextBlock { Text = "备份名称", FontSize = 12, Opacity = 0.8 });
+        panel.Children.Add(new TextBlock { Text = Loc.T("备份名称"), FontSize = 12, Opacity = 0.8 });
         panel.Children.Add(nameBox);
 
         var estimate = new TextBlock { FontSize = 12, Opacity = 0.8 };
@@ -637,7 +638,7 @@ public static class ModPackDialogs
                 bytes += m.Bytes;
                 files += m.Count;
             }
-            estimate.Text = $"预计体积：约 {FormatSize(bytes)}（{files} 个文件）";
+            estimate.Text = Loc.T("预计体积：约 {0}（{1} 个文件）", FormatSize(bytes), files);
         }
 
         void ApplyGranularity(int index)
@@ -656,7 +657,7 @@ public static class ModPackDialogs
 
         panel.Children.Add(new TextBlock
         {
-            Text = "已有备份",
+            Text = Loc.T("已有备份"),
             FontSize = 12,
             Opacity = 0.8,
             Margin = new Thickness(0, 6, 0, 0),
@@ -664,7 +665,7 @@ public static class ModPackDialogs
         var entries = s.VersionBackup.List(dotMc, versionId);
         if (entries.Count == 0)
         {
-            panel.Children.Add(new TextBlock { Text = "暂无备份。", FontSize = 12, Opacity = 0.7 });
+            panel.Children.Add(new TextBlock { Text = Loc.T("暂无备份。"), FontSize = 12, Opacity = 0.7 });
         }
         else
         {
@@ -674,10 +675,10 @@ public static class ModPackDialogs
         }
 
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var openBtn = new Button { Content = "打开备份目录" };
+        var openBtn = new Button { Content = Loc.T("打开备份目录") };
         openBtn.Click += (_, _) => { state.OpenDir = true; close(); };
         tools.Children.Add(openBtn);
-        var rebuildBtn = new Button { Content = "重建索引" };
+        var rebuildBtn = new Button { Content = Loc.T("重建索引") };
         rebuildBtn.Click += (_, _) => { state.Rebuild = true; close(); };
         tools.Children.Add(rebuildBtn);
         panel.Children.Add(tools);
@@ -687,7 +688,7 @@ public static class ModPackDialogs
         gather = () =>
         {
             var name = nameBox.Text.Trim();
-            if (name.Length == 0) { hint.Text = "备份名称不能为空。"; return null; }
+            if (name.Length == 0) { hint.Text = Loc.T("备份名称不能为空。"); return null; }
             return new VersionBackupRequest(versionId, isolated, name, Tags(), cbSaves.IsChecked == true);
         };
         return panel;
@@ -719,10 +720,10 @@ public static class ModPackDialogs
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
         });
-        var restoreBtn = new Button { Content = "回档", FontSize = 12 };
+        var restoreBtn = new Button { Content = Loc.T("回档"), FontSize = 12 };
         restoreBtn.Click += (_, _) => { state.Restore = entry; close(); };
         row.Children.Add(restoreBtn);
-        var deleteBtn = new Button { Content = "删除", FontSize = 12 };
+        var deleteBtn = new Button { Content = Loc.T("删除"), FontSize = 12 };
         deleteBtn.Click += (_, _) => { state.Delete = entry; close(); };
         row.Children.Add(deleteBtn);
         return row;
@@ -804,7 +805,7 @@ public static class ModPackDialogs
     private static UIElement CreateProgressPanel(out TextBlock statusText, out ProgressBar bar)
     {
         var panel = new StackPanel { Spacing = 10, MinWidth = 300 };
-        statusText = new TextBlock { Text = "准备中…", TextWrapping = TextWrapping.Wrap, FontSize = 12 };
+        statusText = new TextBlock { Text = Loc.T("准备中…"), TextWrapping = TextWrapping.Wrap, FontSize = 12 };
         bar = new ProgressBar { Maximum = 100 };
         panel.Children.Add(statusText);
         panel.Children.Add(bar);
@@ -843,8 +844,8 @@ public static class ModPackDialogs
         {
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = "确定",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("确定"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = root,
         };
@@ -857,7 +858,7 @@ public static class ModPackDialogs
         {
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 },
-            CloseButtonText = "确定",
+            CloseButtonText = Loc.T("确定"),
             XamlRoot = root,
         };
         await dlg.ShowAsync();

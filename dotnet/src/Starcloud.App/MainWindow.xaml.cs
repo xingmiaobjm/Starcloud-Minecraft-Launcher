@@ -7,6 +7,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views;
 using Starcloud.Core.Services;
@@ -207,7 +208,7 @@ public sealed partial class MainWindow : Window
         var tip = new StackPanel { Spacing = 2 };
         tip.Children.Add(new TextBlock
         {
-            Text = logged ? session!.DisplayName : "未登录",
+            Text = logged ? session!.DisplayName : Loc.T("未登录"),
             FontWeight = FontWeights.SemiBold,
         });
         if (logged)
@@ -220,7 +221,7 @@ public sealed partial class MainWindow : Window
             });
             tip.Children.Add(new TextBlock
             {
-                Text = $"已登录 · {(session.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")}",
+                Text = Loc.T("已登录 · {0}", session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道")),
                 FontSize = 12,
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             });
@@ -229,7 +230,7 @@ public sealed partial class MainWindow : Window
         {
             tip.Children.Add(new TextBlock
             {
-                Text = "点击前往账户页登录 Starcloud ID",
+                Text = Loc.T("点击前往账户页登录 Starcloud ID"),
                 FontSize = 12,
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             });
@@ -238,7 +239,7 @@ public sealed partial class MainWindow : Window
     }
 
     private void UpdateInstanceText(string? versionId) =>
-        InstanceText.Text = string.IsNullOrEmpty(versionId) ? "未选择实例" : $"实例：{versionId}";
+        InstanceText.Text = string.IsNullOrEmpty(versionId) ? Loc.T("未选择实例") : Loc.T("实例：{0}", versionId);
 
     private static Brush StateBrush(NovaState state) => state switch
     {

@@ -1,0 +1,144 @@
+Cannot contain < > : " / \ | ? *
+Opacity
+Colored lighting
+Actions
+Action failed
+Test channel
+Test channel (local simulation, no real account needed)
+Any content works for the test channel (at least 4 characters)
+View JSON
+View evidence
+Morning Mist
+Conflict scan
+Conflict scan failed: {0}
+Something went wrong: {0}
+Window size
+Window size presets
+Window size is passed via --width/--height; the game default is used if unchanged.
+Window creation failures are usually caused by GPU drivers—try updating them first.
+Window height
+Restore window to follow global
+Window width
+Beds record your respawn point, but they explode in the Nether—handy as TNT.
+Create new account
+Create account
+This version does not support auto-joining servers, so this setting will not take effect.
+This version may not support window arguments (requires 1.13 or newer).
+This world comes from {0} and will be opened by {1}. Opening it across versions may trigger a world data upgrade, and the changes are irreversible.
+This world comes from {0} and shares the same game directory as {1}, so no copy is needed.
+Never launched
+Trading with villagers refreshes their profession level, and upgrading unlocks better goods.
+Storage
+Saves
+Package contents
+Open {0} folder
+Open Nova page
+Open Nova page (permission layer / action log / LLM settings)
+Open backup folder
+Open saves folder
+Open folder
+Failed to open folder: {0}
+Open logs folder
+Failed to open log: {0}
+Open log file
+Open world folder
+Open containing folder
+Open game folder
+When the resource page opens, cached content is shown instantly and automatically replaced once new content is fetched in the background. When off, the cache is neither read nor written.
+Back up your saves before a major version update, just in case.
+Atmosphere
+Hodgepodge
+Standby
+Current step
+Currently follows global: {0}
+In use
+Export…
+Export failed
+Export complete
+Export modpack
+Import
+Import failed
+Import complete
+Import modpack
+Sign in
+Sign in with Microsoft account
+Once you sign in with your Starcloud ID, I can help you find modpacks, fix crashes, and tune your FPS—just say the word.
+Sign in with Starcloud ID to access cloud models and online features
+Sign in with your Starcloud account to use more features
+Sign-in method
+Automatically create a Nova cloud model Key after signing in
+Waiting for authorization…
+Waiting for authorization… ({0})
+Waiting for the game window to appear…
+Click to go to the Accounts page and sign in with Starcloud ID
+Clicking the button on the left switches the memory allocation of version {0} to "Custom" and writes the recommended value (minimum 512 MB).
+Clicking the button on the left opens the folder containing the crash report.
+Clicking the button on the left opens the mods folder for this instance.
+Clicking the button on the left takes you to Settings to pick a suitable Java.
+Clicking the button on the left re-downloads and replaces missing or corrupted files for {0} (mods and saves are left untouched).
+Tune FPS
+Discard these changes
+Take action · run after confirmation
+Action log
+Action permission layer
+Isolated
+Isolated folder
+Isolated folder (versions/<version name>)
+Isolated folder (recommended)
+Failed to read saves: {0}
+Failed to read log: {0}
+Failed to read dropped content: {0}
+Failed to read installed versions: {0}
+Applies to all versions; a version-level variable with the same name overrides this.
+Multiplayer
+Extra JVM arguments
+Extra JVM arguments (one per line)
+Extra game arguments
+Send
+Found {0} conflicts. [{1}] {2} Suggestion: {3}
+Found {0} missing or corrupted files. Complete them now?
+Traditional Chinese (zh_TW)
+Reflection
+Back to version list
+Back to home
+Bloom
+Blocks
+Category
+Share
+Honey blocks slow you down and reduce fall damage, making them good landing pads.
+Provider presets
+Add-ons
+Copy
+Copy Key
+Copy version
+Copy and open verification site
+Copy and launch
+Copy to another version
+Copy failed
+Copy failed: {0}
+This version has no saves. Create a world first.
+This version has no usable files
+This version is running
+This version is running. Quit the game before backing up or rolling back.
+This version is running. Settings will take effect on the next launch.
+This folder is already in the list.
+Overview
+Over the past {0} seconds, CPU averaged {1:F0}% with noticeable jitter{2},
+Just now
+High
+Invalid format: expected host or host:port, with port 1–65535.
+Isolate
+Isolation mode will switch to "{0}", and there are no content folders to migrate.
+Isolation mode will switch to "{0}".\n\nThese folders will be moved from\n{1}\nto\n{2}\n\n
+Restore isolation mode to follow global
+Profile
+Each item follows the global settings by default; changes are saved immediately. Items with "Restore to global" can clear this version's override.
+Write something for this version…
+Just so you know: Highlight Capture is on, so I will watch for highlights this session and call you when there is something good.
+Follow global
+Follow global default
+Follow global settings
+Follow system
+Follow theme
+More actions
+Change icon

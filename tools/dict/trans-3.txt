@@ -1,0 +1,144 @@
+Failed to change icon
+Total {0}
+{0} results
+{0} files downloaded
+Shared
+Shared directory
+Shared directory (.minecraft)
+Building launch command…
+Advisor · suggestions only
+Close
+Close (pure frosted glass)
+Once turned off, the official recommended JVM arguments will no longer be added automatically
+Exit fullscreen
+Watching
+Manage
+Manage locally installed game versions
+Shaders
+Shader packs
+No models added yet
+No versions installed yet. Install one from the "Download" page.
+No game accounts yet
+Play with friends
+Core shaders
+Install in background
+Back up in background
+Export in background
+Import in background
+Roll back in background
+Welcome back, {0}
+Environment
+Environment variables
+Variable name
+Variable value
+Environment notice: {0}
+Cache
+Cache cleared
+In grayscale
+Resume following
+Upload failed: {0} (the copy is still at {1})
+Upload failed: {0}; the original save was backed up to {1}, and the copy is still at {2}
+Roll back
+Roll back failed
+Roll back complete
+Fetch official versions and loaders
+Fetching…
+Basic launch mode: no file verification or auto-repair. If it fails, launch from the home page.
+Aurora
+Loader
+The following issues were found. You can fix them before launching.
+Check failed: {0}
+Detect system Java
+Check for updates
+Check for mod conflicts
+Checking game file integrity…
+Checking runtime environment…
+Clip
+Minimal
+Simplified Chinese
+Simplified Chinese (zh_CN)
+Compress "{0}" into a backup in the backups folder. This may take a while. Continue?
+The contents of "{0}" will be restored over the current version.\nThe current state is backed up automatically first.
+Writes to the shared .minecraft directory; no new version entry will be created.
+Endpoint (Base URL, OpenAI-compatible)
+Connect a third-party LLM (OpenAI-compatible): pick a provider preset → enter your Key → choose a model. Three steps and you're connected.\nYou can add multiple models and click "Set as current" to switch anytime. Your Key is tried first → StarCloud cloud quota → local template fallback, so it never gets stuck. Keys are stored only on this device (launcher.settings.json).
+Screenshots
+Interface
+UI animations
+Interface language
+Today {0:HH:mm}
+Mods and configs only
+Copy only
+Switch only, don't move
+Economy
+Cartoon
+When enabled, the Nova overlay pops up automatically when the game launches, so you can ask about info (crafting recipes, progress, Wiki, etc.) right in-game without switching windows. The overlay shares the same conversation as Nova in the top bar.
+Enter fullscreen
+Start backup
+Start download
+Ready to play
+Tech
+{0} available · {1} packed · 
+Can be added
+Drag mods / resource packs / shaders / datapacks here to install them; disabling only renames them to .disabled and they can be restored anytime.
+Empty
+Creepers fear cats: keeping cats near your home scares them away.
+Snapshot
+Snapshot
+Width
+Width and height must both be values between 200 and 32767.
+Category
+Offline
+Offline login
+You can play in offline mode; switch between premium and offline accounts on the Accounts page.
+Offline account
+Offline account {0} added
+Fill in now
+Move now
+e.g. {0}-copy
+e.g. echo has exited
+e.g. echo ready to launch
+e.g. https://api.example.com/v1
+e.g. play.example.com or play.example.com:25565
+The two passwords do not match
+Bizarre
+Bubble columns under soul sand push you upward — a natural elevator.
+Browse for Java executable
+Browse java.exe…
+Browse…
+Leave blank to disable auto-connect.
+Leave blank to disable auto-connect; this version supports quickPlayMultiplayer.
+Path tracing
+Frosted glass intensity
+Frosted glass intensity follows theme
+Frosted glass mask intensity
+Adventure
+No file versions compatible with {0}
+No file versions compatible with {0} ({1})
+No files to check (disabled content is excluded from update checks).
+No file versions available
+No matching versions. Try adjusting your search or filters.
+No matching saves
+No other installed versions. Install one from the Download page first.
+No account? Sign up
+No resources found. Try a different keyword or filter.
+One argument per line
+One argument per line, e.g.\n-XX:+UseG1GC
+Password
+Password (any value on the test channel)
+Password must be at least 6 characters
+Name
+Duplicate names (later ones overwrite earlier ones):
+Blur intensity
+Model
+Model settings
+Mod conflicts
+With many mods, the first load is slower. This is normal — please be patient.
+Mod support
+Mod resources
+Magic
+Endermen take damage from water and won't teleport into it.
+Default
+Default version isolation mode
+Default window
+All off by default. When off, Nova won't see a single word on your screen; enabling it shows a confirmation and is recorded in the action log.

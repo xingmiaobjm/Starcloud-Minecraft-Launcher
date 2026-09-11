@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Models;
 using Starcloud.Core.Services;
@@ -197,7 +198,7 @@ public sealed partial class DownloadPage : Page
         {
             var installed = installedIds.Contains(v.Id);
             return new DownloadRow(v.Id, Describe(v),
-                installed ? "已安装" : "", installed ? InstalledBrush : null);
+                installed ? Loc.T("已安装") : "", installed ? InstalledBrush : null);
         }).ToList();
 
         // 正式版且未搜索时按大版本抽屉折叠；搜索或快照/远古版平铺
@@ -228,10 +229,10 @@ public sealed partial class DownloadPage : Page
 
     private static string TypeText(string type) => type switch
     {
-        "snapshot" => "快照",
+        "snapshot" => Loc.T("快照"),
         "old_beta" => "Beta",
         "old_alpha" => "Alpha",
-        _ => "正式版",
+        _ => Loc.T("正式版"),
     };
 
     // ════════════ 原版：版本详情（加载器选择） ════════════
@@ -271,7 +272,7 @@ public sealed partial class DownloadPage : Page
     {
         if (_detailId is not { } id) return;
         DetailStateText.Text = _s.Installer.IsInstalled(_s.Settings.DotMinecraft, id)
-            ? "已安装（重新下载将覆盖）" : "";
+            ? Loc.T("已安装（重新下载将覆盖）") : "";
     }
 
     private async Task LoadLoaderOptionsAsync(string id)
@@ -325,7 +326,7 @@ public sealed partial class DownloadPage : Page
         {
             var loaders = await _s.Fabric.ListLoadersAsync(id);
             return loaders
-                .Select(l => new LoaderBuild(l.Version, l.Loader.Stable ? null : "预览版", l.Loader.Stable))
+                .Select(l => new LoaderBuild(l.Version, l.Loader.Stable ? null : Loc.T("预览版"), l.Loader.Stable))
                 .ToList();
         }
         catch { return []; }
@@ -367,7 +368,7 @@ public sealed partial class DownloadPage : Page
             if (builds is null)
             {
                 rec.Visibility = Visibility.Collapsed;
-                count.Text = "全部版本";
+                count.Text = Loc.T("全部版本");
                 list.ItemsSource = null;
                 empty.Visibility = Visibility.Collapsed;
                 continue;
@@ -381,12 +382,14 @@ public sealed partial class DownloadPage : Page
             {
                 rec.Visibility = Visibility.Visible;
                 recVersion.Text = recBuild.Version;
-                recNote.Text = recBuild.Note ?? "稳定版";
-                recBadgeText.Text = picked == recBuild.Version ? "已选" : "推荐";
+                // Note 为 Core 产出的中文标记（"推荐"/"最新"/"最新稳定版"），按「源语言即键」取词
+                recNote.Text = recBuild.Note is { } note ? Loc.T(note) : Loc.T("稳定版");
+                recBadgeText.Text = picked == recBuild.Version ? Loc.T("已选") : Loc.T("推荐");
             }
-            count.Text = $"全部版本 ({builds.Count})";
+            count.Text = Loc.T("全部版本 ({0})", builds.Count);
             list.ItemsSource = builds.Select(b => new LoaderBuildRow(
-                b.Version, b.Note ?? (b.Stable ? "稳定版" : "预览版"), picked == b.Version)).ToList();
+                b.Version, b.Note is { } n ? Loc.T(n) : (b.Stable ? Loc.T("稳定版") : Loc.T("预览版")),
+                picked == b.Version)).ToList();
             empty.Visibility = builds.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -414,15 +417,15 @@ public sealed partial class DownloadPage : Page
         {
             var status = LoaderControls(kind).Status;
             if (_picked[kind] is { } p)
-                status.Text = kind == LoaderKind.Fabric ? $"{p} · 同装 Fabric API" : $"{p} · 将安装";
+                status.Text = kind == LoaderKind.Fabric ? Loc.T("{0} · 同装 Fabric API", p) : Loc.T("{0} · 将安装", p);
             else if (LoaderKeys.Any(k => _picked[k] is not null))
-                status.Text = "与所选加载器互斥";
+                status.Text = Loc.T("与所选加载器互斥");
             else if (_builds[kind] is null)
-                status.Text = "获取中…";
+                status.Text = Loc.T("获取中…");
             else if (_builds[kind]!.Count == 0)
-                status.Text = "无可用构建";
+                status.Text = Loc.T("无可用构建");
             else
-                status.Text = "可以添加";
+                status.Text = Loc.T("可以添加");
         }
     }
 
@@ -463,7 +466,7 @@ public sealed partial class DownloadPage : Page
         var url = _versions.FirstOrDefault(v => v.Id == id)?.Url;
         if (url is null)
         {
-            ErrorBar.Message = "清单中找不到该版本";
+            ErrorBar.Message = Loc.T("清单中找不到该版本");
             ErrorBar.IsOpen = true;
             return;
         }
@@ -473,7 +476,7 @@ public sealed partial class DownloadPage : Page
 
         await RunInstallAsync(async progress =>
         {
-            progress.Report(new BatchProgress($"下载原版 {id}", 0, 0, 0, 0, 0, null));
+            progress.Report(new BatchProgress(Loc.T("下载原版 {0}", id), 0, 0, 0, 0, 0, null));
             await _s.Installer.InstallVanillaAsync(id, url, _s.Settings, progress);
 
             // 加载器所需的 Java 大版本来自版本 JSON（Forge/NeoForge 官方安装器需要）
@@ -487,13 +490,13 @@ public sealed partial class DownloadPage : Page
 
             if (fabric is not null)
             {
-                progress.Report(new BatchProgress($"安装 Fabric {fabric}", 0, 0, 0, 0, 0, null));
+                progress.Report(new BatchProgress(Loc.T("安装 Fabric {0}", fabric), 0, 0, 0, 0, 0, null));
                 await _s.Installer.InstallFabricAsync(id, fabric, _s.Settings, progress);
 
                 // 选 Fabric 后自动同装 Fabric API（Modrinth P7dR8mSH），失败不阻塞主安装
                 try
                 {
-                    progress.Report(new BatchProgress("下载 Fabric API", 0, 0, 0, 0, 0, null));
+                    progress.Report(new BatchProgress(Loc.T("下载 Fabric API"), 0, 0, 0, 0, 0, null));
                     var apiVersions = await _s.Mods.ListVersionsAsync("P7dR8mSH", "fabric", id);
                     if (apiVersions.FirstOrDefault()?.PrimaryFile is { } api)
                     {
@@ -534,8 +537,8 @@ public sealed partial class DownloadPage : Page
             {
                 InstallProgress.IsIndeterminate = false;
                 InstallProgress.Value = p.Percentage;
-                ProgressText.Text = $"{p.Stage} {p.Percentage}% · {p.DoneFiles}/{p.TotalFiles} 文件 · " +
-                                    $"{p.SpeedBytesPerSec / 1024:F0} KB/s";
+                ProgressText.Text = Loc.T("{0} {1}% · {2}/{3} 文件 · {4:F0} KB/s",
+                    p.Stage, p.Percentage, p.DoneFiles, p.TotalFiles, p.SpeedBytesPerSec / 1024);
             }
             else
             {
@@ -545,7 +548,7 @@ public sealed partial class DownloadPage : Page
         try
         {
             await install(progress);
-            OkBar.Message = "安装完成";
+            OkBar.Message = Loc.T("安装完成");
             OkBar.IsOpen = true;
             _okTimer.Stop();
             _okTimer.Start();
@@ -593,7 +596,7 @@ public sealed partial class DownloadPage : Page
                     VersionCombo.Items.Add(v.Id);
             }
             catch { /* 清单读取失败时仍可自行输入版本 */ }
-            VersionCombo.Text = "全部";
+            VersionCombo.Text = Loc.T("全部");
         }
         finally { _suppress = false; }
 
@@ -604,7 +607,7 @@ public sealed partial class DownloadPage : Page
     private void RebuildFilterRows()
     {
         var section = CurrentCategory;
-        SearchTitle.Text = SectionInfo.SearchTitle;
+        SearchTitle.Text = Loc.T(SectionInfo.SearchTitle);
         LoaderRow.Visibility = section == "mod" ? Visibility.Visible : Visibility.Collapsed;
 
         CategoryCombo.Items.Clear();
@@ -615,7 +618,7 @@ public sealed partial class DownloadPage : Page
         if (cats is { Count: > 0 })
         {
             CategoryRow.Visibility = Visibility.Visible;
-            CategoryCombo.Items.Add(new ComboBoxItem { Content = "全部" });
+            CategoryCombo.Items.Add(new ComboBoxItem { Content = Loc.T("全部") });
             foreach (var c in cats)
                 CategoryCombo.Items.Add(new ComboBoxItem { Content = ChineseCategory(c), Tag = c });
             CategoryCombo.SelectedIndex = 0;
@@ -630,7 +633,7 @@ public sealed partial class DownloadPage : Page
     private string? ResolveGameVersion()
     {
         var text = VersionCombo.Text?.Trim();
-        return string.IsNullOrEmpty(text) || text == "全部" ? null : text;
+        return string.IsNullOrEmpty(text) || text == Loc.T("全部") ? null : text;
     }
 
     private string? ResolveCategory()
@@ -687,7 +690,7 @@ public sealed partial class DownloadPage : Page
         try
         {
             CommunitySearchBox.Text = "";
-            VersionCombo.Text = "全部";
+            VersionCombo.Text = Loc.T("全部");
             if (CategoryRow.Visibility == Visibility.Visible && CategoryCombo.Items.Count > 0)
                 CategoryCombo.SelectedIndex = 0;
             LoaderCombo.SelectedIndex = 0;
@@ -730,7 +733,7 @@ public sealed partial class DownloadPage : Page
             var result = await _s.Mods.SearchAsync(query, section, loader, gameVersion,
                 _offset, PageSize, index, category, ct, forceRefresh);
             _total = result.TotalHits;
-            var verb = SectionInfo.Verb;
+            var verb = Loc.T(SectionInfo.Verb);
             var rows = result.Hits.Select(h => new ModRow
             {
                 ProjectId = h.ProjectId,
@@ -747,7 +750,7 @@ public sealed partial class DownloadPage : Page
             }).ToList();
             ModList.ItemsSource = rows;
             EmptyHint.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            ResultCountText.Text = _total > 0 ? $"共 {FormatCount(_total)} 个结果" : "";
+            ResultCountText.Text = _total > 0 ? Loc.T("共 {0} 个结果", FormatCount(_total)) : "";
             PrevBtn.IsEnabled = _offset > 0 && rows.Count > 0;
             NextBtn.IsEnabled = _offset + rows.Count < _total && rows.Count > 0;
 
@@ -767,7 +770,7 @@ public sealed partial class DownloadPage : Page
         {
             if (!forceRefresh)
             {
-                ErrorBar.Message = $"搜索失败：{ex.Message}";
+                ErrorBar.Message = Loc.T("搜索失败：{0}", ex.Message);
                 ErrorBar.IsOpen = true;
             }
         }
@@ -817,13 +820,13 @@ public sealed partial class DownloadPage : Page
             var versions = await _s.Mods.ListVersionsAsync(row.ProjectId, loader, versionId);
             if (versions.Count == 0)
                 throw new InvalidOperationException(
-                    versionId is null ? "没有可用文件版本"
-                        : loader is null ? $"没有兼容 {versionId} 的文件版本"
-                        : $"没有兼容 {versionId}（{loader}）的文件版本");
+                    versionId is null ? Loc.T("没有可用文件版本")
+                        : loader is null ? Loc.T("没有兼容 {0} 的文件版本", versionId)
+                        : Loc.T("没有兼容 {0}（{1}）的文件版本", versionId, loader));
             var version = versions.FirstOrDefault(v =>
                 !string.Equals(v.VersionType, "alpha", StringComparison.OrdinalIgnoreCase)) ?? versions[0];
             if (version.PrimaryFile is not { } file)
-                throw new InvalidOperationException("该版本没有可用文件");
+                throw new InvalidOperationException(Loc.T("该版本没有可用文件"));
 
             // 2. 下载到库临时目录
             var tmpDir = Path.Combine(LauncherPaths.LibraryDir, ".tmp");
@@ -839,7 +842,7 @@ public sealed partial class DownloadPage : Page
                     version.GameVersions, version.Loaders, file.Url));
                 var libPath = Path.Combine(_s.ContentLibrary.DirFor("modpack"), archived.FileName);
                 var summary = await InstallMrPackAsync(libPath);
-                ShowOk($"{file.Filename} 已安装。{summary}");
+                ShowOk(Loc.T("{0} 已安装。{1}", file.Filename, summary));
                 return;
             }
 
@@ -852,7 +855,7 @@ public sealed partial class DownloadPage : Page
             var targets = await PickVersionsAsync(entry.Kind, row.Title);
             if (targets is null || targets.Count == 0)
             {
-                ShowOk($"{entry.FileName} 已存入资源库（未装载）。");
+                ShowOk(Loc.T("{0} 已存入资源库（未装载）。", entry.FileName));
                 if (_libLoaded) await RefreshLibraryAsync();
                 return;
             }
@@ -871,7 +874,7 @@ public sealed partial class DownloadPage : Page
                     await _s.ContentLibrary.InstallToVersionAsync(entry, id);
                 }
             }
-            ShowOk($"{file.Filename} 已装载到 {targets.Count} 个版本。");
+            ShowOk(Loc.T("{0} 已装载到 {1} 个版本。", file.Filename, targets.Count));
             if (_libLoaded) await RefreshLibraryAsync();
 
             // 7. Mod 类别 → 智能依赖提示
@@ -881,7 +884,7 @@ public sealed partial class DownloadPage : Page
         }
         catch (Exception ex)
         {
-            ErrorBar.Message = $"安装失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("安装失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
         finally
@@ -925,11 +928,11 @@ public sealed partial class DownloadPage : Page
         {
             await _s.ContentLibrary.RescanAsync();
             await RefreshLibraryAsync();
-            ShowOk("资源库已重扫。");
+            ShowOk(Loc.T("资源库已重扫。"));
         }
         catch (Exception ex)
         {
-            ErrorBar.Message = $"重扫失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("重扫失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
     }
@@ -955,7 +958,7 @@ public sealed partial class DownloadPage : Page
 
         if (entry.Kind == "modpack")
         {
-            ShowOk("整合包请在下载页使用「下载」按钮走新建版本流程。");
+            ShowOk(Loc.T("整合包请在下载页使用「下载」按钮走新建版本流程。"));
             return;
         }
 
@@ -964,7 +967,7 @@ public sealed partial class DownloadPage : Page
         if (targets is null) return;              // 取消
         if (targets.Count == 0)
         {
-            ShowOk($"{entry.FileName} 已保留在资源库（未装载）。");
+            ShowOk(Loc.T("{0} 已保留在资源库（未装载）。", entry.FileName));
             return;
         }
 
@@ -983,11 +986,11 @@ public sealed partial class DownloadPage : Page
                     await _s.ContentLibrary.InstallToVersionAsync(entry, versionId);
                 }
             }
-            ShowOk($"{entry.FileName} 已装载到 {targets.Count} 个版本。");
+            ShowOk(Loc.T("{0} 已装载到 {1} 个版本。", entry.FileName, targets.Count));
         }
         catch (Exception ex)
         {
-            ErrorBar.Message = $"装载失败：{ex.Message}";
+            ErrorBar.Message = Loc.T("装载失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
     }
@@ -1002,8 +1005,8 @@ public sealed partial class DownloadPage : Page
     /// <summary>资源类别 → 中文标签</summary>
     private static string KindLabel(string kind) => kind switch
     {
-        "mod" => "Mod", "resourcepack" => "资源包", "shader" => "光影",
-        "datapack" => "数据包", "modpack" => "整合包", _ => kind,
+        "mod" => "Mod", "resourcepack" => Loc.T("资源包"), "shader" => Loc.T("光影"),
+        "datapack" => Loc.T("数据包"), "modpack" => Loc.T("整合包"), _ => kind,
     };
 
     /// <summary>弹窗多选装载目标版本；取消返回 null，「暂不装载」返回空列表</summary>
@@ -1013,7 +1016,7 @@ public sealed partial class DownloadPage : Page
         var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
         panel.Children.Add(new TextBlock
         {
-            Text = $"把「{title}」（{KindLabel(kind)}）装载到哪些版本？",
+            Text = Loc.T("把「{0}」（{1}）装载到哪些版本？", title, KindLabel(kind)),
             TextWrapping = TextWrapping.Wrap,
         });
 
@@ -1022,7 +1025,7 @@ public sealed partial class DownloadPage : Page
         {
             panel.Children.Add(new TextBlock
             {
-                Text = "尚未安装任何版本，可稍后在「资源管理」中装载。",
+                Text = Loc.T("尚未安装任何版本，可稍后在「资源管理」中装载。"),
                 Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
             });
         }
@@ -1044,11 +1047,11 @@ public sealed partial class DownloadPage : Page
 
         var dlg = new ContentDialog
         {
-            Title = "装载到版本",
+            Title = Loc.T("装载到版本"),
             Content = panel,
-            PrimaryButtonText = "装载",
-            SecondaryButtonText = "暂不装载（仅入库）",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("装载"),
+            SecondaryButtonText = Loc.T("暂不装载（仅入库）"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -1070,7 +1073,7 @@ public sealed partial class DownloadPage : Page
         var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
         panel.Children.Add(new TextBlock
         {
-            Text = $"把数据包装载到「{versionId}」的哪个存档？",
+            Text = Loc.T("把数据包装载到「{0}」的哪个存档？", versionId),
             TextWrapping = TextWrapping.Wrap,
         });
 
@@ -1079,7 +1082,7 @@ public sealed partial class DownloadPage : Page
         {
             panel.Children.Add(new TextBlock
             {
-                Text = "该版本没有存档，请先创建世界。",
+                Text = Loc.T("该版本没有存档，请先创建世界。"),
                 Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
             });
         }
@@ -1093,10 +1096,10 @@ public sealed partial class DownloadPage : Page
 
         var dlg = new ContentDialog
         {
-            Title = "装载到存档",
+            Title = Loc.T("装载到存档"),
             Content = panel,
-            PrimaryButtonText = "装载",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("装载"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -1115,9 +1118,10 @@ public sealed partial class DownloadPage : Page
 
         var parts = new List<string>();
         if (report.Required.Count > 0)
-            parts.Add($"缺少 {report.Required.Count} 个前置：{string.Join("、", report.Required.Select(d => d.Title))}");
+            parts.Add(Loc.T("缺少 {0} 个前置：{1}", report.Required.Count,
+                string.Join("、", report.Required.Select(d => d.Title))));
         if (report.IncompatiblePresent.Count > 0)
-            parts.Add($"与已装不兼容：{string.Join("、", report.IncompatiblePresent)}");
+            parts.Add(Loc.T("与已装不兼容：{0}", string.Join("、", report.IncompatiblePresent)));
         ShowOk(string.Join("；", parts));
 
         if (report.Required.Count == 0) return;
@@ -1125,7 +1129,7 @@ public sealed partial class DownloadPage : Page
         var panel = new StackPanel { Spacing = 6, MinWidth = 320 };
         panel.Children.Add(new TextBlock
         {
-            Text = $"是否自动下载并装载以下前置到「{versionId}」？",
+            Text = Loc.T("是否自动下载并装载以下前置到「{0}」？", versionId),
             TextWrapping = TextWrapping.Wrap,
         });
         foreach (var dep in report.Required)
@@ -1133,10 +1137,10 @@ public sealed partial class DownloadPage : Page
 
         var dlg = new ContentDialog
         {
-            Title = "补全前置依赖",
+            Title = Loc.T("补全前置依赖"),
             Content = panel,
-            PrimaryButtonText = "一键补全",
-            CloseButtonText = "稍后",
+            PrimaryButtonText = Loc.T("一键补全"),
+            CloseButtonText = Loc.T("稍后"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -1181,9 +1185,9 @@ public sealed partial class DownloadPage : Page
     {
         var dlg = new ContentDialog
         {
-            Title = "安装整合包",
+            Title = Loc.T("安装整合包"),
             Content = CreateInstallPanel(out var statusText, out var bar),
-            CloseButtonText = "后台安装",
+            CloseButtonText = Loc.T("后台安装"),
             XamlRoot = Content.XamlRoot,
         };
         _ = dlg.ShowAsync();
@@ -1205,7 +1209,7 @@ public sealed partial class DownloadPage : Page
     private static UIElement CreateInstallPanel(out TextBlock statusText, out ProgressBar bar)
     {
         var panel = new StackPanel { Spacing = 10, MinWidth = 300 };
-        statusText = new TextBlock { Text = "准备中…", TextWrapping = TextWrapping.Wrap, FontSize = 12 };
+        statusText = new TextBlock { Text = Loc.T("准备中…"), TextWrapping = TextWrapping.Wrap, FontSize = 12 };
         bar = new ProgressBar { Maximum = 100 };
         panel.Children.Add(statusText);
         panel.Children.Add(bar);
@@ -1224,24 +1228,24 @@ public sealed partial class DownloadPage : Page
 
     private static string FormatCount(long n) => n switch
     {
-        >= 100_000_000 => $"{n / 100_000_000.0:0.#}亿",
-        >= 10_000 => $"{n / 10_000.0:0.#}万",
+        >= 100_000_000 => $"{n / 100_000_000.0:0.#}{Loc.T("亿")}",
+        >= 10_000 => $"{n / 10_000.0:0.#}{Loc.T("万")}",
         _ => n.ToString("N0", CultureInfo.InvariantCulture),
     };
 
     private static string FormatRelative(DateTime utc)
     {
         var t = DateTime.UtcNow - utc.ToUniversalTime();
-        return t.TotalMinutes < 1 ? "刚刚"
-            : t.TotalMinutes < 60 ? $"{(int)t.TotalMinutes} 分钟前"
-            : t.TotalHours < 24 ? $"{(int)t.TotalHours} 小时前"
-            : t.TotalDays < 30 ? $"{(int)t.TotalDays} 天前"
-            : t.TotalDays < 365 ? $"{(int)(t.TotalDays / 30)} 个月前"
-            : $"{(int)(t.TotalDays / 365)} 年前";
+        return t.TotalMinutes < 1 ? Loc.T("刚刚")
+            : t.TotalMinutes < 60 ? Loc.T("{0} 分钟前", (int)t.TotalMinutes)
+            : t.TotalHours < 24 ? Loc.T("{0} 小时前", (int)t.TotalHours)
+            : t.TotalDays < 30 ? Loc.T("{0} 天前", (int)t.TotalDays)
+            : t.TotalDays < 365 ? Loc.T("{0} 个月前", (int)(t.TotalDays / 30))
+            : Loc.T("{0} 年前", (int)(t.TotalDays / 365));
     }
 
     private static string ChineseCategory(string slug) =>
-        CategoryNames.TryGetValue(slug, out var name) ? name : slug;
+        CategoryNames.TryGetValue(slug, out var name) ? Loc.T(name) : slug;
 
     private static string DisplayLoader(string loader) => loader switch
     {

@@ -54,3 +54,6 @@ dotnet/AppPackages/
 /skills-lock.json
 /package.json
 /MC-Icons/
+
+# 本地化工具中间产物（由 tools/extract-loc-keys.ps1 生成，可随时重建）
+/loc-keys.txt

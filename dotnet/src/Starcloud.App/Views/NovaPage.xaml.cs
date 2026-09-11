@@ -4,6 +4,7 @@
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -17,6 +18,13 @@ public sealed partial class NovaPage : Page
     public NovaPage()
     {
         InitializeComponent();
+        // 输入控件 Header 无法用 XAML 附加属性本地化（Loc.Header 仅支持 ToggleSwitch/Expander）→ 在此赋值
+        PwdBox.Header = Loc.T("密码");
+        ChannelBox.Header = Loc.T("通道");
+        LlmPresetBox.Header = Loc.T("服务商预设");
+        LlmBaseUrlBox.Header = Loc.T("接入地址（Base URL，OpenAI 兼容）");
+        ProfileNameBox.Header = Loc.T("备注名");
+        LlmModelBox.Header = Loc.T("模型");
         Loaded += OnLoaded;
         Unloaded += (_, _) => _s.NovaRuntime.LogChanged -= OnLogChanged;
     }
@@ -49,7 +57,7 @@ public sealed partial class NovaPage : Page
         LoginForm.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
         AccountInfo.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
         if (session is not { } s) return;
-        UserSub.Text = $"{s.UserId} · {(s.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")} · Key {MaskKey(s.ApiKey)}";
+        UserSub.Text = $"{s.UserId} · {Loc.T(s.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")} · Key {MaskKey(s.ApiKey)}";
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
@@ -83,8 +91,8 @@ public sealed partial class NovaPage : Page
     private void ChannelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         PwdBox.PlaceholderText = ChannelBox.SelectedIndex == 1
-            ? "云端通道密码"
-            : "测试通道任意内容即可（至少 4 位）";
+            ? Loc.T("云端通道密码")
+            : Loc.T("测试通道任意内容即可（至少 4 位）");
     }
 
     private async void Logout_Click(object sender, RoutedEventArgs e)

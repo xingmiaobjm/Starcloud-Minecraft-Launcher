@@ -33,4 +33,9 @@
     <Content Include="Assets\Wallpapers\*.jpg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- 本地化词典（D3）：嵌入式资源，逻辑名 Starcloud.App.Strings.<lang>.json -->
+  <ItemGroup>
+    <EmbeddedResource Include="Strings\*.json" />
+  </ItemGroup>
+
 </Project>

@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Views;
@@ -20,14 +21,14 @@ public static class InstanceActions
     public static async Task<InstanceActionResult?> RenameAsync(XamlRoot xamlRoot,
         string dotMc, string oldId)
     {
-        var box = new TextBox { PlaceholderText = "新的版本名", Text = oldId };
+        var box = new TextBox { PlaceholderText = Loc.T("新的版本名"), Text = oldId };
         var hint = new TextBlock { Foreground = null, FontSize = 12, Opacity = 0.7 };
         var dlg = new ContentDialog
         {
-            Title = "重命名版本",
+            Title = Loc.T("重命名版本"),
             Content = new StackPanel { Spacing = 8, Children = { box, hint } },
-            PrimaryButtonText = "重命名",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("重命名"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = xamlRoot,
         };
@@ -36,8 +37,8 @@ public static class InstanceActions
             var name = box.Text.Trim();
             var invalid = name is "." or ".." ||
                 name.IndexOfAny(['<', '>', ':', '"', '/', '\\', '|', '?', '*']) >= 0;
-            hint.Text = name.Length == 0 ? "版本名不能为空"
-                : invalid ? "不能包含 < > : \" / \\ | ? *"
+            hint.Text = name.Length == 0 ? Loc.T("版本名不能为空")
+                : invalid ? Loc.T("不能包含 < > : \" / \\ | ? *")
                 : "";
         };
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return null;
@@ -59,26 +60,26 @@ public static class InstanceActions
     public static async Task<InstanceActionResult?> CopyAsync(XamlRoot xamlRoot,
         string dotMc, string sourceId, bool sourceIsolated)
     {
-        var box = new TextBox { PlaceholderText = $"例如 {sourceId}-copy" };
+        var box = new TextBox { PlaceholderText = Loc.T("例如 {0}-copy", sourceId) };
         var chk = new CheckBox
         {
-            Content = "同时复制 mods / 存档等隔离内容",
+            Content = Loc.T("同时复制 mods / 存档等隔离内容"),
             IsChecked = false,
             Visibility = sourceIsolated ? Visibility.Visible : Visibility.Collapsed,
         };
         var dlg = new ContentDialog
         {
-            Title = "复制版本",
+            Title = Loc.T("复制版本"),
             Content = new StackPanel { Spacing = 12, Children = { box, chk } },
-            PrimaryButtonText = "复制",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Loc.T("复制"),
+            CloseButtonText = Loc.T("取消"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = xamlRoot,
         };
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return null;
         var newId = box.Text.Trim();
         if (newId.Length == 0)
-            return new InstanceActionResult(sourceId, new ArgumentException("版本名不能为空"));
+            return new InstanceActionResult(sourceId, new ArgumentException(Loc.T("版本名不能为空")));
         try
         {
             InstanceLayout.CopyInstance(dotMc, sourceId, newId, chk.IsChecked == true);
@@ -105,7 +106,7 @@ public static class InstanceActions
         {
             Title = title,
             Content = error.Message,
-            CloseButtonText = "确定",
+            CloseButtonText = Loc.T("确定"),
             XamlRoot = xamlRoot,
         }.ShowAsync();
     }
@@ -127,7 +128,7 @@ public static class InstanceActions
         }
         catch (Exception ex)
         {
-            text = $"无法读取 {versionId}.json：{ex.Message}";
+            text = Loc.T("无法读取 {0}.json：{1}", versionId, ex.Message);
         }
 
         var view = new TextBox
@@ -143,7 +144,7 @@ public static class InstanceActions
         ScrollViewer.SetHorizontalScrollBarVisibility(view, ScrollBarVisibility.Auto);
         var openBtn = new Button
         {
-            Content = "打开所在文件夹",
+            Content = Loc.T("打开所在文件夹"),
             HorizontalAlignment = HorizontalAlignment.Right,
         };
         openBtn.Click += (_, _) =>
@@ -156,7 +157,7 @@ public static class InstanceActions
         {
             Title = $"{versionId}.json",
             Content = new StackPanel { Spacing = 8, Children = { view, openBtn } },
-            CloseButtonText = "关闭",
+            CloseButtonText = Loc.T("关闭"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = xamlRoot,
         };

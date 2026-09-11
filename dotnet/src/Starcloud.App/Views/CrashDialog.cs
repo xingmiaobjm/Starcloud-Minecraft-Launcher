@@ -9,6 +9,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -27,14 +28,14 @@ internal static class CrashDialog
 
         content.Children.Add(new TextBlock
         {
-            Text = diagnosis.Title,
+            Text = Loc.TCore(diagnosis.Title),
             FontSize = 16,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         });
         content.Children.Add(new TextBlock
         {
-            Text = diagnosis.Summary,
+            Text = Loc.TCore(diagnosis.Summary),
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
         });
@@ -46,7 +47,7 @@ internal static class CrashDialog
             {
                 tips.Children.Add(new TextBlock
                 {
-                    Text = "• " + tip,
+                    Text = "• " + Loc.TCore(tip),
                     FontSize = 13,
                     TextWrapping = TextWrapping.Wrap,
                 });
@@ -68,12 +69,12 @@ internal static class CrashDialog
                 MaxHeight = 140,
                 Visibility = Visibility.Collapsed,
             };
-            var toggle = new HyperlinkButton { Content = "查看证据", FontSize = 12 };
+            var toggle = new HyperlinkButton { Content = Loc.T("查看证据"), FontSize = 12 };
             toggle.Click += (_, _) =>
             {
                 var show = evidence.Visibility == Visibility.Collapsed;
                 evidence.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-                toggle.Content = show ? "收起证据" : "查看证据";
+                toggle.Content = show ? Loc.T("收起证据") : Loc.T("查看证据");
             };
             content.Children.Add(toggle);
             content.Children.Add(evidence);
@@ -81,7 +82,7 @@ internal static class CrashDialog
             {
                 content.Children.Add(new TextBlock
                 {
-                    Text = "证据来源：" + diagnosis.Source,
+                    Text = Loc.T("证据来源：") + Loc.TCore(diagnosis.Source),
                     FontSize = 12,
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
@@ -112,10 +113,10 @@ internal static class CrashDialog
 
         var dlg = new ContentDialog
         {
-            Title = $"游戏异常退出（退出码 {exitCode}）",
+            Title = Loc.T("游戏异常退出（退出码 {0}）", exitCode),
             Content = new ScrollViewer { Content = content, MaxHeight = 460 },
-            SecondaryButtonText = "让 Nova 看看",
-            CloseButtonText = "返回主页",
+            SecondaryButtonText = Loc.T("让 Nova 看看"),
+            CloseButtonText = Loc.T("返回主页"),
             XamlRoot = root,
         };
 
@@ -124,7 +125,7 @@ internal static class CrashDialog
         var fixing = false;
         var wantRestart = false;
         var wantSettings = false;
-        dlg.PrimaryButtonText = wantsFix ? diagnosis.FixLabel! : "重新启动";
+        dlg.PrimaryButtonText = wantsFix ? Loc.TCore(diagnosis.FixLabel) : Loc.T("重新启动");
 
         dlg.PrimaryButtonClick += async (_, args) =>
         {
@@ -138,7 +139,7 @@ internal static class CrashDialog
                 {
                     case FixOutcome.Done:
                         args.Cancel = true;
-                        dlg.PrimaryButtonText = "重新启动";
+                        dlg.PrimaryButtonText = Loc.T("重新启动");
                         restartMode = true;
                         break;
                     case FixOutcome.CloseToSettings:
@@ -154,7 +155,7 @@ internal static class CrashDialog
             catch (Exception ex)
             {
                 args.Cancel = true;
-                ShowStatus(status, "修复失败：" + ex.Message);
+                ShowStatus(status, Loc.T("修复失败：") + ex.Message);
             }
             finally
             {
@@ -201,25 +202,25 @@ internal static class CrashDialog
                 store.Set(versionId, profile);
                 store.Save();
                 LauncherLog.Write("crash", $"崩溃修复：{versionId} 内存档位改为 manual 512-{mb} MB");
-                ShowStatus(status, $"已把最大内存设为 {mb} MB，点击「重新启动」生效。");
+                ShowStatus(status, Loc.T("已把最大内存设为 {0} MB，点击「重新启动」生效。", mb));
                 return FixOutcome.Done;
             }
             case CrashFixKind.ReinstallVersion:
             {
-                ShowStatus(status, $"正在重新安装 {versionId}…");
+                ShowStatus(status, Loc.T("正在重新安装 {0}…", versionId));
                 bar.Visibility = Visibility.Visible;
                 try
                 {
                     var message = await s.Diagnostics.RepairAsync(versionId, s.Settings);
                     bar.Visibility = Visibility.Collapsed;
-                    ShowStatus(status, string.IsNullOrWhiteSpace(message) ? "已重新安装，可重新启动。" : message);
+                    ShowStatus(status, string.IsNullOrWhiteSpace(message) ? Loc.T("已重新安装，可重新启动。") : message);
                     LauncherLog.Write("crash", $"崩溃修复：重新安装 {versionId} → {message}");
                     return FixOutcome.Done;
                 }
                 catch (Exception ex)
                 {
                     bar.Visibility = Visibility.Collapsed;
-                    ShowStatus(status, "重新安装失败：" + ex.Message);
+                    ShowStatus(status, Loc.T("重新安装失败：") + ex.Message);
                     LauncherLog.Error("crash", $"重新安装 {versionId} 失败", ex);
                     return FixOutcome.Noop;
                 }
@@ -228,11 +229,11 @@ internal static class CrashDialog
                 OpenDir(Directory.Exists(Path.Combine(gameRoot, "crash-reports"))
                     ? Path.Combine(gameRoot, "crash-reports")
                     : Path.Combine(gameRoot, "logs"));
-                ShowStatus(status, "已打开崩溃报告目录。");
+                ShowStatus(status, Loc.T("已打开崩溃报告目录。"));
                 return FixOutcome.Done;
             case CrashFixKind.OpenModsFolder:
                 OpenDir(Path.Combine(gameRoot, "mods"));
-                ShowStatus(status, "已打开模组目录（启动器不会自动删除模组）。");
+                ShowStatus(status, Loc.T("已打开模组目录（启动器不会自动删除模组）。"));
                 return FixOutcome.Done;
             case CrashFixKind.ReinstallJavaHint:
                 return FixOutcome.CloseToSettings;
@@ -245,12 +246,12 @@ internal static class CrashDialog
     private static string FixExplain(CrashDiagnosis diagnosis, string versionId) => diagnosis.Fix switch
     {
         CrashFixKind.SetMemory =>
-            $"点击左侧按钮会把版本 {versionId} 的内存档位改为「自定义」并写入推荐值（最小 512 MB）。",
+            Loc.T("点击左侧按钮会把版本 {0} 的内存档位改为「自定义」并写入推荐值（最小 512 MB）。", versionId),
         CrashFixKind.ReinstallVersion =>
-            $"点击左侧按钮会重新下载并覆盖 {versionId} 的缺失/损坏文件（不会动 mods 与存档）。",
-        CrashFixKind.OpenCrashReport => "点击左侧按钮会打开崩溃报告所在目录。",
-        CrashFixKind.OpenModsFolder => "点击左侧按钮会打开该实例的 mods 目录。",
-        CrashFixKind.ReinstallJavaHint => "点击左侧按钮会带你到设置页选择合适的 Java。",
+            Loc.T("点击左侧按钮会重新下载并覆盖 {0} 的缺失/损坏文件（不会动 mods 与存档）。", versionId),
+        CrashFixKind.OpenCrashReport => Loc.T("点击左侧按钮会打开崩溃报告所在目录。"),
+        CrashFixKind.OpenModsFolder => Loc.T("点击左侧按钮会打开该实例的 mods 目录。"),
+        CrashFixKind.ReinstallJavaHint => Loc.T("点击左侧按钮会带你到设置页选择合适的 Java。"),
         _ => "",
     };
 

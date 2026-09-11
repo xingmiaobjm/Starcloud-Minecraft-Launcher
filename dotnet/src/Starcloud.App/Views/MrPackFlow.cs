@@ -1,5 +1,6 @@
 // 整合包安装后的联动：缺失的原版 + 加载器（fabric-loader / forge / neoforge）
 
+using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
 
@@ -52,7 +53,7 @@ internal static class MrPackFlow
         }
 
         return parts.Count > 0
-            ? "已联动安装 " + string.Join(" + ", parts)
-            : $"共下载 {result.DownloadedFiles} 个文件";
+            ? Loc.T("已联动安装 ") + string.Join(" + ", parts)
+            : Loc.T("共下载 {0} 个文件", result.DownloadedFiles);
     }
 }
