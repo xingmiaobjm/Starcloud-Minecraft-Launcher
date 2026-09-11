@@ -16,8 +16,10 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 启动器自身版本（当前为测试版）：标题栏「测试版 V0.2.1」标识的唯一来源 -->
+    <!-- 启动器自身版本（当前为测试版）：标题栏「测试版 V0.2.1」标识与安装包命名的唯一来源 -->
     <Version>0.2.1</Version>
+    <!-- 应用图标（占位符，由 tools/gen-app-icon.ps1 生成）：同时嵌入 exe 资源供资源管理器/安装器使用 -->
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +35,11 @@
   <!-- 内置壁纸（D1 自定义背景）：随输出目录发布，按 AppContext.BaseDirectory 解析 -->
   <ItemGroup>
     <Content Include="Assets\Wallpapers\*.jpg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- 应用图标：MainWindow 用 AppWindow.SetIcon 按 AppContext.BaseDirectory 加载，须随输出目录发布 -->
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 本地化词典（D3）：嵌入式资源，逻辑名 Starcloud.App.Strings.<lang>.json -->
