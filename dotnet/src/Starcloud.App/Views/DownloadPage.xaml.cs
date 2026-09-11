@@ -1196,50 +1196,10 @@ public sealed partial class DownloadPage : Page
         var result = await _s.MrPack.InstallAsync(mrpackPath, _s.Settings, progress: progress);
 
         // 依赖联动：缺失的原版 + 加载器（fabric-loader / forge / neoforge）
-        var game = result.GameVersion;
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(game))
-        {
-            if (!_s.Installer.IsInstalled(_s.Settings.DotMinecraft, game))
-            {
-                var entry = (await _s.Manifest.GetManifestAsync(false)).Versions
-                    .FirstOrDefault(v => v.Id == game);
-                if (entry is not null)
-                    await _s.Installer.InstallVanillaAsync(game, entry.Url, _s.Settings, progress);
-            }
-            parts.Add($"Minecraft {game}");
-
-            var javaMajor = 8;
-            try
-            {
-                var v = await _s.Installer.LoadVersionAsync(_s.Settings.DotMinecraft, game);
-                javaMajor = v.JavaVersion?.MajorVersion ?? 8;
-            }
-            catch { /* 读取失败按 Java 8 兜底，安装器会自动补齐运行时 */ }
-
-            if (result.Dependencies.TryGetValue("fabric-loader", out var fab))
-            {
-                await _s.Installer.InstallFabricAsync(game, fab, _s.Settings, progress);
-                parts.Add($"Fabric {fab}");
-            }
-            if (result.Dependencies.TryGetValue("forge", out var forge))
-            {
-                await _s.Forge.InstallViaInstallerAsync(
-                    ForgeInstallerService.ForgeInstallerUrl(game, forge), game, javaMajor, _s.Settings, progress);
-                parts.Add($"Forge {forge}");
-            }
-            if (result.Dependencies.TryGetValue("neoforge", out var neo))
-            {
-                await _s.Forge.InstallViaInstallerAsync(
-                    ForgeInstallerService.NeoForgeInstallerUrl(neo), game, javaMajor, _s.Settings, progress);
-                parts.Add($"NeoForge {neo}");
-            }
-        }
+        var summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, _s, progress);
 
         try { dlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
-        return parts.Count > 0
-            ? "已联动安装 " + string.Join(" + ", parts)
-            : $"共下载 {result.DownloadedFiles} 个文件";
+        return summary;
     }
 
     private static UIElement CreateInstallPanel(out TextBlock statusText, out ProgressBar bar)

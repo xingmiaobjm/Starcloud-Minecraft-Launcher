@@ -7,6 +7,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 
 namespace Starcloud.App.Views;
 
@@ -205,6 +208,56 @@ public sealed partial class VersionsPage : Page
             };
             await err.ShowAsync();
         }
+        RefreshList();
+    }
+
+    // ── 整合包导出 / 导入 / 备份回档（B 组：整合包与版本资产） ──
+
+    private async void Export_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is not { } row) return;
+        await ModPackDialogs.ExportAsync(Content.XamlRoot, _s, row);
+    }
+
+    private async void Import_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        picker.FileTypeFilter.Add(".mrpack");
+        picker.FileTypeFilter.Add(".zip");
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+        await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, file.Path);
+        RefreshList();
+    }
+
+    private async void Backup_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is not { } row) return;
+        await ModPackDialogs.BackupAsync(Content.XamlRoot, _s, row);
+    }
+
+    // 整页拖拽：.mrpack 或 .zip → 导入流程
+    private void Page_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "导入整合包";
+        e.DragUIOverride.IsCaptionVisible = true;
+    }
+
+    private async void Page_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        IReadOnlyList<IStorageItem> items;
+        try { items = await e.DataView.GetStorageItemsAsync(); }
+        catch { return; }
+        var file = items.OfType<StorageFile>().FirstOrDefault(f =>
+            f.Name.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase) ||
+            f.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        if (file is null) return;
+        await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, file.Path);
         RefreshList();
     }
 

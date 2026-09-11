@@ -93,6 +93,20 @@ public sealed record ContentFileRow(
     public string ToggleVerb => Enabled ? "停用" : "启用";
 }
 
+/// <summary>导出整合包的内容目录候选行（勾选状态可变）</summary>
+public sealed class ExportDirRow
+{
+    public string Name { get; init; } = "";
+    public string Detail { get; init; } = "";
+    public string Badge { get; init; } = "";
+    public bool IsStandard { get; init; }
+    public bool IsChecked { get; set; }
+}
+
+/// <summary>备份列表行</summary>
+public sealed record BackupRow(
+    string Id, string Name, string TimeText, string SizeText, string IncludesText);
+
 /// <summary>下载页版本列表模板选择：大版本分组行用抽屉模板，其余平铺</summary>
 public sealed class VersionRowTemplateSelector : DataTemplateSelector
 {

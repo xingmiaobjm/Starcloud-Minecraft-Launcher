@@ -325,6 +325,20 @@ public static class InstanceLayout
         _ => "mods",
     };
 
+    /// <summary>版本备份根目录（不放进版本目录，避免递归）</summary>
+    public static string BackupRoot(string dotMc) => Path.Combine(dotMc, "starcloud", "backups");
+
+    /// <summary>备份索引文件</summary>
+    public static string BackupIndexFile(string dotMc) =>
+        Path.Combine(BackupRoot(dotMc), "backups.json");
+
+    /// <summary>把任意名称变成可用文件名（去掉路径非法字符）</summary>
+    public static string SafeFileName(string name)
+    {
+        var cleaned = string.Concat(name.Split(Path.GetInvalidFileNameChars())).Trim();
+        return cleaned.Length > 0 ? cleaned : "backup";
+    }
+
     /// <summary>重命名版本：versions/&lt;old&gt;/ 整体移动 + 内部 json/jar 同步改名 + json id 字段写回</summary>
     public static void RenameInstance(string dotMc, string oldId, string newId)
     {
@@ -370,12 +384,16 @@ public static class InstanceLayout
         if (copyContent) CopyContentDirs(oldDir, newDir);
     }
 
+    /// <summary>版本名是否合法（非空、不含路径非法字符、不是 . / ..）</summary>
+    public static bool IsValidVersionId(string id) =>
+        !string.IsNullOrWhiteSpace(id) && id is not ("." or "..") &&
+        id.IndexOfAny(['<', '>', ':', '"', '/', '\\', '|', '?', '*']) < 0;
+
     private static void ValidateVersionId(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("版本名不能为空");
-        if (id is "." or ".." ||
-            id.IndexOfAny(['<', '>', ':', '"', '/', '\\', '|', '?', '*']) >= 0)
+        if (!IsValidVersionId(id))
             throw new ArgumentException("版本名不能包含 < > : \" / \\ | ? * 或路径符号");
     }
 

@@ -22,6 +22,8 @@ public sealed class AppServices
     public JavaService Java { get; }
     public ForgeInstallerService Forge { get; }
     public MrPackInstallerService MrPack { get; }
+    public ModPackExportService ModPackExport { get; }
+    public VersionBackupService VersionBackup { get; }
     public SaveService Saves { get; }
     public SaveLibraryService SaveLibrary { get; }
     public LaunchAccountService LaunchAccount { get; }
@@ -53,6 +55,8 @@ public sealed class AppServices
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
         MrPack = new MrPackInstallerService(Download);
+        ModPackExport = new ModPackExportService(Mods);
+        VersionBackup = new VersionBackupService();
         Saves = new SaveService();
         SaveLibrary = new SaveLibraryService(Manifest, Saves);
         LaunchAccount = new LaunchAccountService(Accounts, MicrosoftAuth, () => Settings);

@@ -13,6 +13,17 @@ public sealed record MrPackInstallResult(
     int DownloadedFiles,
     long TotalBytes);
 
+/// <summary>本地 .mrpack 的元信息（导入前预览用）</summary>
+public sealed record MrPackPackageInfo(
+    string Name,
+    string VersionId,
+    string GameVersion,
+    IReadOnlyDictionary<string, string> Dependencies,
+    int DownloadFileCount,
+    int OverrideFileCount,
+    long TotalBytes,
+    int FormatVersion);
+
 public sealed class MrPackInstallerService
 {
     private readonly DownloadService _downloader;
@@ -24,9 +35,44 @@ public sealed class MrPackInstallerService
         PropertyNameCaseInsensitive = true,
     };
 
-    /// <summary>安装 .mrpack 整合包到 .minecraft 根（mods/config/resourcepacks 等按包内相对路径落位）</summary>
+    /// <summary>读取 .mrpack 元信息（解压到临时目录后统计，不落地任何游戏文件）</summary>
+    public MrPackPackageInfo ReadPackageInfo(string mrpackPath)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "starcloud-mrpack", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            ZipFile.ExtractToDirectory(mrpackPath, tempDir, overwriteFiles: true);
+            var indexPath = Path.Combine(tempDir, "modrinth.index.json");
+            if (!File.Exists(indexPath))
+                throw new InvalidOperationException("不是有效的 .mrpack 整合包（缺少 modrinth.index.json）");
+            var index = JsonSerializer.Deserialize<MrPackIndex>(File.ReadAllText(indexPath), JsonOpts)
+                        ?? throw new InvalidOperationException("modrinth.index.json 解析失败");
+
+            var overridesDir = Path.Combine(tempDir, "overrides");
+            var overrideCount = Directory.Exists(overridesDir)
+                ? Directory.EnumerateFiles(overridesDir, "*", SearchOption.AllDirectories).Count()
+                : 0;
+
+            return new MrPackPackageInfo(
+                string.IsNullOrWhiteSpace(index.Name) ? Path.GetFileNameWithoutExtension(mrpackPath) : index.Name,
+                index.VersionId ?? "",
+                index.Dependencies.GetValueOrDefault("minecraft") ?? "",
+                index.Dependencies,
+                index.Files.Count(f => f.Downloads.Count > 0),
+                overrideCount,
+                index.Files.Sum(f => Math.Max(f.Size, 0)),
+                index.FormatVersion);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* 临时目录清理失败可忽略 */ }
+        }
+    }
+
+    /// <summary>安装 .mrpack 整合包（installRoot 为空时落 .minecraft 根；支持装进隔离实例目录）</summary>
     public async Task<MrPackInstallResult> InstallAsync(
-        string mrpackPath, LauncherSettings settings,
+        string mrpackPath, LauncherSettings settings, string? installRoot = null,
         IProgress<string>? status = null, IProgress<BatchProgress>? progress = null,
         CancellationToken ct = default)
     {
@@ -43,7 +89,7 @@ public sealed class MrPackInstallerService
             var index = JsonSerializer.Deserialize<MrPackIndex>(File.ReadAllText(indexPath), JsonOpts)
                         ?? throw new InvalidOperationException("modrinth.index.json 解析失败");
 
-            var dotMc = settings.DotMinecraft;
+            var dotMc = installRoot ?? settings.DotMinecraft;
             Directory.CreateDirectory(dotMc);
 
             // 1. 批量下载声明的文件（mod / resourcepack / shader 等，按 index 相对路径落位）
@@ -103,6 +149,12 @@ file sealed class MrPackIndex
 
     [JsonPropertyName("gameVersion")]
     public string GameVersion { get; set; } = "";
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("versionId")]
+    public string? VersionId { get; set; }
 
     [JsonPropertyName("dependencies")]
     public Dictionary<string, string> Dependencies { get; set; } = [];
