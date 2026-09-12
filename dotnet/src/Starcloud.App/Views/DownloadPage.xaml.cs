@@ -123,7 +123,12 @@ public sealed partial class DownloadPage : Page
         var isVanilla = CurrentCategory == "vanilla";
         VanillaPanel.Visibility = isVanilla ? Visibility.Visible : Visibility.Collapsed;
         CommunityPanel.Visibility = isVanilla ? Visibility.Collapsed : Visibility.Visible;
-        if (isVanilla) return;
+        if (isVanilla)
+        {
+            // 切回原版：取消在途社区搜索，过期结果不再回填到已隐藏的面板
+            _cts?.Cancel();
+            return;
+        }
 
         if (_communityInit)
         {
@@ -613,8 +618,9 @@ public sealed partial class DownloadPage : Page
 
     // ════════════ 社区资源 ════════════
 
-    private (string Tag, string SearchTitle, string Folder, string Verb) SectionInfo =>
-        Sections.FirstOrDefault(s => s.Tag == CurrentCategory);
+    /// <summary>按分区标签取分区元数据；非社区分区（如 "vanilla"）返回全 null 元组。</summary>
+    private static (string Tag, string SearchTitle, string Folder, string Verb) SectionInfoFor(string tag) =>
+        Sections.FirstOrDefault(s => s.Tag == tag);
 
     private Task EnsureCommunityAsync() => _communityInitTask ??= InitCommunityAsync();
 
@@ -649,7 +655,10 @@ public sealed partial class DownloadPage : Page
     private void RebuildFilterRows()
     {
         var section = CurrentCategory;
-        SearchTitle.Text = Loc.T(SectionInfo.SearchTitle);
+        var info = SectionInfoFor(section);
+        // 初始化社区资源期间用户切回原版：社区筛选行保持隐藏，无需重建
+        if (info.Tag is null) return;
+        SearchTitle.Text = Loc.T(info.SearchTitle);
         LoaderRow.Visibility = section == "mod" ? Visibility.Visible : Visibility.Collapsed;
 
         CategoryCombo.Items.Clear();
@@ -763,6 +772,10 @@ public sealed partial class DownloadPage : Page
 
         var query = CommunitySearchBox.Text?.Trim() ?? "";
         var section = CurrentCategory;
+        var info = SectionInfoFor(section);
+        // 已切回原版等非社区分区：本次搜索作废（搜索期间用户随时可能切走，分区信息必须在 await 前定下）
+        if (info.Tag is null) return;
+        var verb = Loc.T(info.Verb);
         var loader = ResolveLoader();
         var gameVersion = ResolveGameVersion();
         var category = ResolveCategory();
@@ -775,7 +788,6 @@ public sealed partial class DownloadPage : Page
             var result = await _s.Mods.SearchAsync(query, section, loader, gameVersion,
                 _offset, PageSize, index, category, ct, forceRefresh);
             _total = result.TotalHits;
-            var verb = Loc.T(SectionInfo.Verb);
             var rows = result.Hits.Select(h => new ModRow
             {
                 ProjectId = h.ProjectId,
@@ -847,7 +859,7 @@ public sealed partial class DownloadPage : Page
     private async void Install_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.DataContext is not ModRow row || _busy) return;
-        var info = SectionInfo;
+        var info = SectionInfoFor(CurrentCategory);   // 安装按钮只出现在社区列表，分区必为社区分区
         var versionId = ResolveGameVersion();   // 可为 null（全部）
         var loader = ResolveLoader();
 
