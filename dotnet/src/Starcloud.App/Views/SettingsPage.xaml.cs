@@ -451,6 +451,7 @@ public sealed partial class SettingsPage : Page
         try
         {
             _s.ResourceCache.ClearAll();
+            _s.IconCache.ClearAll();
         }
         catch (Exception ex)
         {

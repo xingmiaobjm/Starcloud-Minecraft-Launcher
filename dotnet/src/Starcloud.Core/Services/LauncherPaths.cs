@@ -35,6 +35,9 @@ public static class LauncherPaths
     /// <summary>资源列表磁盘缓存目录（一 key 一文件）</summary>
     public static string CacheDir => Path.Combine(DataDir, "cache");
 
+    /// <summary>社区资源图标磁盘缓存目录（一 URL 一图片文件）</summary>
+    public static string IconCacheDir => Path.Combine(CacheDir, "icons");
+
     /// <summary>启动器统一资源库目录</summary>
     public static string LibraryDir => Path.Combine(DataDir, "library");
 
@@ -58,6 +61,7 @@ public static class LauncherPaths
         Directory.CreateDirectory(LogsDir);
         Directory.CreateDirectory(GameLogsDir);
         Directory.CreateDirectory(CacheDir);
+        Directory.CreateDirectory(IconCacheDir);
         Directory.CreateDirectory(LibraryDir);
     }
 }

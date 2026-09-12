@@ -11,6 +11,7 @@ public sealed class AppServices
     public LauncherSettings Settings { get; private set; }
     public DownloadService Download { get; }
     public ResourceCacheService ResourceCache { get; }
+    public IconCacheService IconCache { get; }
     public ManifestService Manifest { get; }
     public InstallerService Installer { get; }
     public FabricService Fabric { get; }
@@ -54,6 +55,7 @@ public sealed class AppServices
         // 下载源命中情况写进启动器日志，用于确认多源竞速是否生效
         Download.Log = msg => LauncherLog.Write("download", msg);
         ResourceCache = new ResourceCacheService(() => Settings);
+        IconCache = new IconCacheService(Download, () => Settings);
         Manifest = new ManifestService(Download, ResourceCache);
         Installer = new InstallerService(Download);
         Fabric = new FabricService(Download);

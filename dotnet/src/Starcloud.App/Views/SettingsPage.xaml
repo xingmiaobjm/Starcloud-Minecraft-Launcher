@@ -295,7 +295,7 @@
 
                             <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="12">
-                                    <TextBlock loc:Loc.Text="资源列表缓存" Style="{StaticResource PclSectionTitle}" />
+                                    <TextBlock loc:Loc.Text="资源列表与图标缓存" Style="{StaticResource PclSectionTitle}" />
                                     <Grid ColumnSpacing="12">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -303,7 +303,7 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                                             <TextBlock loc:Loc.Text="启用资源列表拉取缓存" />
-                                            <TextBlock loc:Loc.Text="打开资源页时先用缓存瞬时展示，后台拉到新内容后自动替换。关闭后完全不读不写缓存。"
+                                            <TextBlock loc:Loc.Text="打开资源页时先用缓存瞬时展示，后台拉到新内容后自动替换；社区资源图标同样缓存到本地，命中后不再联网下载。关闭后完全不读不写缓存。"
                                                        FontSize="12" TextWrapping="Wrap"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </StackPanel>

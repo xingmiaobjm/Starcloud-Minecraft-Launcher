@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Models;
@@ -799,7 +798,7 @@ public sealed partial class DownloadPage : Page
                 LoadersText = string.Join(" / ", h.Loaders.Select(DisplayLoader)),
                 DownloadsText = $"\u2193 {FormatCount(h.Downloads)}",
                 UpdatedText = $"\u2191 {FormatRelative(h.DateModified)}",
-                Icon = string.IsNullOrEmpty(h.IconUrl) ? null : new BitmapImage(new Uri(h.IconUrl)),
+                Icon = RemoteIconHelper.Resolve(h.IconUrl),
                 ButtonText = verb,
             }).ToList();
             ModList.ItemsSource = rows;
@@ -1000,7 +999,7 @@ public sealed partial class DownloadPage : Page
             en.FileName,
             en.Author is null ? en.FileName : $"{en.Author} · {en.FileName}",
             FormatSize(en.SizeBytes), FormatRelative(en.DownloadedAt),
-            string.IsNullOrEmpty(en.IconUrl) ? null : new BitmapImage(new Uri(en.IconUrl)),
+            RemoteIconHelper.Resolve(en.IconUrl),
             KindLabel(en.Kind))).ToList();
     }
 

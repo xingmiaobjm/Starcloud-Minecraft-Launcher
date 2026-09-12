@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
+using Starcloud.App.Services;
 
 namespace Starcloud.App.Views;
 
@@ -144,6 +145,23 @@ public sealed class VersionRowTemplateSelector : DataTemplateSelector
 
     protected override DataTemplate SelectTemplateCore(object item, DependencyObject container) =>
         SelectTemplateCore(item);
+}
+
+/// <summary>
+/// 社区资源远程图标（Modrinth CDN）解析：优先本地磁盘缓存，命中直接读文件、不再发网络请求；
+/// 未命中先直连远程显示，同时后台落盘，供下次复用。
+/// </summary>
+public static class RemoteIconHelper
+{
+    public static ImageSource? Resolve(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        var cache = AppServices.Instance.IconCache;
+        if (cache.TryGetCachedPath(url) is { } local)
+            return VersionRowHelpers.ResolveIconSource(local);
+        cache.BeginCacheInBackground(url);
+        return VersionRowHelpers.ResolveIconSource(url);
+    }
 }
 
 /// <summary>版本行共用辅助（图标解析 / 时间格式化 / 类型推断）：版本页与详情页共用。</summary>
