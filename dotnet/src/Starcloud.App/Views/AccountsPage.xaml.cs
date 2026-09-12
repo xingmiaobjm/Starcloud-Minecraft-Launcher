@@ -393,13 +393,16 @@ public sealed partial class AccountsPage : Page
                 consecutiveFailures = 0;
                 _dq.TryEnqueue(() => statusText.Text = Loc.T("等待授权…（{0}）", message));
             }
-            catch (Exception) when (++consecutiveFailures < 3)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex) when (++consecutiveFailures < 3)
             {
                 // 网络波动：连续 3 次才终止
+                Starcloud.Core.Services.LauncherLog.Write("auth",
+                    $"轮询第 {consecutiveFailures} 次失败（继续重试）：{ex.GetType().Name}: {ex.Message}");
             }
-            catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
+                Starcloud.Core.Services.LauncherLog.Write("auth", $"轮询终止：{ex.GetType().Name}: {ex.Message}");
                 markCompleted();
                 _dq.TryEnqueue(() =>
                 {
