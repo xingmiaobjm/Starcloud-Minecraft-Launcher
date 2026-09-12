@@ -35,9 +35,9 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左侧分类（PCL2 式：原版游戏 + 社区资源分组） -->
+            <!-- 左侧分类（PCL2 式：原版游戏 + 社区资源分组）；不透明实色，与窗口框架统一 -->
             <Border Grid.Column="0" VerticalAlignment="Stretch"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    Background="{ThemeResource AppPaneBackgroundBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="8">
                 <ListView x:Name="CategoryList" SelectionMode="Single"

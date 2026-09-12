@@ -60,7 +60,7 @@
                     <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#5C666666" />
                     <!-- 卡片边框 #E2E2E2 -->
                     <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#FFE2E2E2" />
-                    <!-- 侧边栏：展开后不透明，浅色为近白实色（覆盖 NavigationView 窗格背景） -->
+                    <!-- 窗口框架（标题栏 / 左侧栏）：不透明实色，浅色为近白 -->
                     <SolidColorBrush x:Key="AppPaneBackgroundBrush" Color="#FFF6F6F6" />
                     <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FFF6F6F6" />
                     <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FFF6F6F6" />
@@ -93,7 +93,7 @@
                     <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#FFA0A0A0" />
                     <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#87A0A0A0" />
                     <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#57A0A0A0" />
-                    <!-- 侧边栏：展开后不透明，比背景 #111111 略微提亮形成层次 -->
+                    <!-- 窗口框架（标题栏 / 左侧栏）：不透明，比背景 #111111 略微提亮形成层次 -->
                     <SolidColorBrush x:Key="AppPaneBackgroundBrush" Color="#FF161616" />
                     <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FF161616" />
                     <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FF161616" />
