@@ -23,7 +23,7 @@
                 </StackPanel>
 
                 <!-- ═══ 账户：登录 Starcloud ID（云端模型与在线能力） ═══ -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="10">
@@ -68,7 +68,7 @@
                 </Border>
 
                 <!-- ═══ 模型设置：第三方 LLM 添加 + 多模型支持 ═══ -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="8">
@@ -172,7 +172,7 @@
                 </Border>
 
                 <!-- ═══ 游戏内辅助：浮窗查询资料 ═══ -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="4">
@@ -187,7 +187,7 @@
                 </Border>
 
                 <!-- ═══ 游戏记录记忆：战报 / 时刻统计 ═══ -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="6">
@@ -203,7 +203,7 @@
                 </Border>
 
                 <!-- ═══ 动手许可层：三档开关默认全关，开启 = 显式授权（先弹确认） ═══ -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="6">
@@ -236,7 +236,7 @@
                 </Border>
 
                 <!-- ═══ 动手流水：谁动了、动了什么、何时 ═══ -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="8">

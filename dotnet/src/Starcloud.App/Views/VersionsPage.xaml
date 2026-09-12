@@ -91,7 +91,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="12,8">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -132,7 +132,7 @@
 
         <!-- 本地版本列表 -->
         <Border Grid.Row="2"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="4">
             <Grid>

@@ -47,6 +47,15 @@ public static class LauncherPaths
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
 
+    /// <summary>自更新工作目录（下载缓存 / staging / 更新脚本），启动时清理</summary>
+    public static string UpdateDir => Path.Combine(DataDir, "update");
+
+    /// <summary>自更新下载目录（setup.exe / portable.zip 成品缓存）</summary>
+    public static string UpdateDownloadDir => Path.Combine(UpdateDir, "downloads");
+
+    /// <summary>便携版更新 staging 目录（解压新版文件，等应用退出后 robocopy 覆盖）</summary>
+    public static string UpdateStagingDir => Path.Combine(UpdateDir, "staging");
+
     /// <summary>启动器侧保存的游戏日志（每局一个文件）</summary>
     public static string GameLogsDir => Path.Combine(LogsDir, "game");
 
@@ -234,6 +243,15 @@ public sealed class LauncherSettings
     /// <summary>启动器界面语言：zh-CN（默认）/ en-US</summary>
     [JsonPropertyName("ui_language")]
     public string UiLanguage { get; set; } = "zh-CN";
+
+    // ── 自动更新（设计：auto-update-feature.md） ──
+    /// <summary>启动几秒后后台检查新版本，发现新版弹窗确认后更新；游戏运行时避让</summary>
+    [JsonPropertyName("auto_update_enabled")]
+    public bool AutoUpdateEnabled { get; set; } = true;
+
+    /// <summary>自定义更新清单地址（空 = 用 SelfUpdateService.DefaultManifestUrl 内置地址，便于测试指向本地服务器）</summary>
+    [JsonPropertyName("update_manifest_url")]
+    public string? UpdateManifestUrl { get; set; } = "";
 
     /// <summary>背景字段范围钳制（每次加载/保存前调用，避免脏数据导致 UI 越界）</summary>
     public void ClampBackgroundValues()

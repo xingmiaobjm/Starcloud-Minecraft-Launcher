@@ -17,7 +17,7 @@
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
     <!-- 启动器自身版本（当前为测试版）：标题栏「测试版 V0.2.1」标识与安装包命名的唯一来源 -->
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <!-- 应用图标（占位符，由 tools/gen-app-icon.ps1 生成）：同时嵌入 exe 资源供资源管理器/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>

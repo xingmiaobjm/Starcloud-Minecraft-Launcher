@@ -10,6 +10,7 @@
 # Produces (in releases\, which is git-ignored):
 #   Starcloud Minecraft Launcher_<version>_x64-portable-<stamp>.zip
 #   Starcloud Minecraft Launcher_<version>_x64-setup-<stamp>.exe
+#   latest.json                        (update manifest; upload together with the two artifacts)
 #
 # The launcher is unpackaged + self-contained (WindowsPackageType=None), so
 # "packaging" is: publish -> zip the folder -> wrap the same folder in NSIS.
@@ -53,9 +54,9 @@ if (-not $makensis) { throw "makensis.exe not found - install it with: winget in
 
 # --- 1. publish (self-contained, win-x64) ---
 if ($SkipPublish) {
-    Write-Host "[1/4] publish skipped (-SkipPublish)"
+    Write-Host "[1/5] publish skipped (-SkipPublish)"
 } else {
-    Write-Host "[1/4] dotnet publish -c Release -o $staging"
+    Write-Host "[1/5] dotnet publish -c Release -o $staging"
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
     & dotnet publish $appCsproj -c Release -o $staging -v q -nologo
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
@@ -72,7 +73,7 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $base  = "Starcloud Minecraft Launcher_${version}_x64"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $zipPath = Join-Path $outDir "$base-portable-$stamp.zip"
-Write-Host "[2/4] zip      -> $(Split-Path -Leaf $zipPath)"
+Write-Host "[2/5] zip      -> $(Split-Path -Leaf $zipPath)"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory(
     $staging, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
@@ -81,7 +82,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 # /INPUTCHARSET UTF8 is required: installer.nsi is UTF-8 without BOM and NSIS 3
 # otherwise reads it as ANSI (Chinese strings turn into mojibake).
 $setupPath = Join-Path $outDir "$base-setup-$stamp.exe"
-Write-Host "[3/4] makensis -> $(Split-Path -Leaf $setupPath)"
+Write-Host "[3/5] makensis -> $(Split-Path -Leaf $setupPath)"
 & $makensis /V2 /INPUTCHARSET UTF8 `
     "/DPRODUCT_VERSION=$version" `
     "/DPRODUCT_VERSION4=$($version).0" `
@@ -91,9 +92,31 @@ Write-Host "[3/4] makensis -> $(Split-Path -Leaf $setupPath)"
     $nsi
 if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
 
-# --- 4. summary ---
-Write-Host "[4/4] done"
-foreach ($p in @($zipPath, $setupPath)) {
+# --- 4. update manifest (latest.json) ---
+# Consumed by the launcher's self-update (SelfUpdateService): "file" is a bare
+# file name resolved relative to the manifest URL, so uploading = copying these
+# three files into the same directory on the server. Fill "notes" by hand.
+Write-Host "[4/5] manifest -> releases\latest.json"
+function Get-ArtifactInfo([string]$path) {
+    @{ file   = [IO.Path]::GetFileName($path)
+       sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+       size   = (Get-Item -LiteralPath $path).Length }
+}
+$manifest = [ordered]@{
+    version      = $version
+    notes        = ''
+    notes_en     = $null
+    published_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    setup        = Get-ArtifactInfo $setupPath
+    portable     = Get-ArtifactInfo $zipPath
+}
+$manifestPath = Join-Path $outDir 'latest.json'
+$manifest | ConvertTo-Json -Depth 4 |
+    Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
+# --- 5. summary ---
+Write-Host "[5/5] done"
+foreach ($p in @($zipPath, $setupPath, $manifestPath)) {
     if (-not (Test-Path -LiteralPath $p)) { throw "expected artifact missing: $p" }
     $mb = [math]::Round(((Get-Item -LiteralPath $p).Length / 1MB), 1)
     Write-Host "      $([System.IO.Path]::GetFileName($p))  ($mb MB)"

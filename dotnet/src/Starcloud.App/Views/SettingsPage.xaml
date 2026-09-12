@@ -45,7 +45,7 @@
 
             <!-- 左侧分类导航（PCL2 / LauncherX 式） -->
             <Border Grid.Column="0" VerticalAlignment="Stretch"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="8">
                 <ListView x:Name="CategoryList" SelectionMode="Single"
@@ -446,6 +446,36 @@
                                                   loc:Loc.Name="Nova 游戏内浮窗开关"
                                                   Toggled="OverlaySwitch_Toggled" />
                                 </Grid>
+                            </Border>
+
+                            <!-- 软件更新（设计：.trae/documents/auto-update-feature.md） -->
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock loc:Loc.Text="软件更新" Style="{StaticResource PclSectionTitle}" />
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="自动检查更新" FontWeight="SemiBold" />
+                                            <TextBlock loc:Loc.Text="启动几秒后后台检查新版本，发现新版本时询问是否更新；游戏运行期间不打扰。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="AutoUpdateSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                      loc:Loc.Name="自动检查更新开关"
+                                                      Toggled="AutoUpdateSwitch_Toggled" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
+                                                loc:Loc.Name="手动检查启动器更新"
+                                                Click="CheckUpdate_Click" />
+                                        <TextBlock x:Name="UpdateStatusText" VerticalAlignment="Center" FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
                             </Border>
                         </StackPanel>
 

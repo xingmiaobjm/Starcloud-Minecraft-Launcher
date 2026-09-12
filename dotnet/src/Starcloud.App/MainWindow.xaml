@@ -7,15 +7,32 @@
     xmlns:loc="using:Starcloud.App.Localization"
     Title="Starcloud Minecraft Launcher">
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <Grid.Resources>
+            <!-- 自绘窗口按钮（SVG 路径图标）：尺寸与系统 caption 一致（46x48），
+                 hover 走 Button 默认的浅色底，仅去圆角/描边；关闭按钮 hover 变红。 -->
+            <Style x:Key="CaptionButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="46" />
+                <Setter Property="Height" Value="48" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+        </Grid.Resources>
+
         <!-- 自定义背景（D1）：亚克力之下、内容之上的三层——清晰图 / 模糊层 / 毛玻璃遮罩 -->
-        <Grid x:Name="BackgroundLayer" Grid.RowSpan="3"
+        <Grid x:Name="BackgroundLayer" Grid.RowSpan="2"
               IsHitTestVisible="False" Visibility="Collapsed">
             <Image x:Name="BackgroundImage" Stretch="UniformToFill" Opacity="0.7" />
             <Border x:Name="BackgroundBlurHost" />
@@ -38,11 +55,10 @@
             </StackPanel>
         </Grid>
 
-        <!-- 顶栏右侧：NovaOrb（点击展开面板）+ 个人中心入口 -->
-        <StackPanel Orientation="Horizontal" Spacing="6"
-                    Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Center"
-                    Margin="0,0,140,0">
-            <Button x:Name="NovaOrb" Width="44" Height="36"
+        <!-- 顶栏右侧：NovaOrb（点击展开面板）+ 个人中心入口 + 自绘窗口按钮（关闭/最大化/最小化） -->
+        <StackPanel Orientation="Horizontal" Spacing="0"
+                    Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Stretch">
+            <Button x:Name="NovaOrb" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
                     Padding="0" CornerRadius="8"
                     Background="Transparent" BorderThickness="0"
                     loc:Loc.Name="Nova 助手"
@@ -50,7 +66,7 @@
                     Click="NovaOrb_Click">
                 <Grid Width="32" Height="32">
                     <Border CornerRadius="8"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
                     <FontIcon x:Name="NovaOrbGlyph" Glyph="&#xE99A;" FontSize="15"
@@ -62,7 +78,8 @@
                 </Grid>
             </Button>
 
-            <Button x:Name="AccountButton" Width="44" Height="36" Padding="0" CornerRadius="8"
+            <Button x:Name="AccountButton" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,8,0"
+                    Padding="0" CornerRadius="8"
                     Background="Transparent" BorderThickness="0"
                     loc:Loc.Name="个人中心"
                     loc:Loc.Tip="个人中心"
@@ -74,6 +91,103 @@
                     <FontIcon x:Name="AccountAvatarGlyph" Glyph="&#xE77B;" FontSize="15"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </Grid>
+            </Button>
+
+            <!-- 窗口按钮：系统 caption 已隐藏（见 MainWindow.xaml.cs），图标为内联 SVG 路径。
+                 几何体必须内联在 PathIcon.Data 里——放在 ResourceDictionary 再 StaticResource
+                 引用会在运行期抛 XamlParseException（Failed to assign to property 'PathIcon.Data'）。 -->
+            <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}"
+                    loc:Loc.Name="最小化" loc:Loc.Tip="最小化" Click="MinimizeButton_Click">
+                <PathIcon Width="10" Height="10">
+                    <PathIcon.Data>
+                        <PathGeometry>
+                            <PathFigure StartPoint="0,4.5" IsClosed="True">
+                                <LineSegment Point="10,4.5" />
+                                <LineSegment Point="10,5.5" />
+                                <LineSegment Point="0,5.5" />
+                            </PathFigure>
+                        </PathGeometry>
+                    </PathIcon.Data>
+                </PathIcon>
+            </Button>
+            <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButtonStyle}"
+                    loc:Loc.Name="最大化" loc:Loc.Tip="最大化" Click="MaximizeButton_Click">
+                <!-- 最大化 / 还原两个图标叠放，按窗口状态切显隐（见 UpdateMaximizeGlyph） -->
+                <Grid Width="10" Height="10">
+                    <PathIcon x:Name="MaximizeIcon" Width="10" Height="10">
+                        <PathIcon.Data>
+                            <PathGeometry>
+                                <PathFigure StartPoint="0,0" IsClosed="True">
+                                    <LineSegment Point="10,0" />
+                                    <LineSegment Point="10,10" />
+                                    <LineSegment Point="0,10" />
+                                </PathFigure>
+                                <PathFigure StartPoint="1,1" IsClosed="True">
+                                    <LineSegment Point="9,1" />
+                                    <LineSegment Point="9,9" />
+                                    <LineSegment Point="1,9" />
+                                </PathFigure>
+                            </PathGeometry>
+                        </PathIcon.Data>
+                    </PathIcon>
+                    <PathIcon x:Name="RestoreIcon" Width="10" Height="10" Visibility="Collapsed">
+                        <PathIcon.Data>
+                            <PathGeometry>
+                                <!-- 右上角窗口的左上露角 -->
+                                <PathFigure StartPoint="2,0" IsClosed="True">
+                                    <LineSegment Point="10,0" />
+                                    <LineSegment Point="10,8" />
+                                    <LineSegment Point="9,8" />
+                                    <LineSegment Point="9,1" />
+                                    <LineSegment Point="2,1" />
+                                </PathFigure>
+                                <!-- 左下角窗口（外框 + 内框挖空） -->
+                                <PathFigure StartPoint="0,2" IsClosed="True">
+                                    <LineSegment Point="8,2" />
+                                    <LineSegment Point="8,10" />
+                                    <LineSegment Point="0,10" />
+                                </PathFigure>
+                                <PathFigure StartPoint="1,3" IsClosed="True">
+                                    <LineSegment Point="7,3" />
+                                    <LineSegment Point="7,9" />
+                                    <LineSegment Point="1,9" />
+                                </PathFigure>
+                            </PathGeometry>
+                        </PathIcon.Data>
+                    </PathIcon>
+                </Grid>
+            </Button>
+            <Button x:Name="CloseButton" Style="{StaticResource CaptionButtonStyle}"
+                    loc:Loc.Name="关闭" loc:Loc.Tip="关闭" Click="CloseButton_Click">
+                <Button.Resources>
+                    <!-- 关闭按钮 hover/按下：红底白字（与系统一致） -->
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#C42B1C" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#B22A1C" />
+                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                </Button.Resources>
+                <PathIcon Width="10" Height="10">
+                    <PathIcon.Data>
+                        <PathGeometry>
+                            <PathFigure StartPoint="0,0" IsClosed="True">
+                                <LineSegment Point="1.2,0" />
+                                <LineSegment Point="10,8.8" />
+                                <LineSegment Point="10,10" />
+                                <LineSegment Point="8.8,10" />
+                                <LineSegment Point="0,1.2" />
+                            </PathFigure>
+                            <PathFigure StartPoint="8.8,0" IsClosed="True">
+                                <LineSegment Point="10,0" />
+                                <LineSegment Point="10,1.2" />
+                                <LineSegment Point="1.2,10" />
+                                <LineSegment Point="0,10" />
+                                <LineSegment Point="0,8.8" />
+                            </PathFigure>
+                        </PathGeometry>
+                    </PathIcon.Data>
+                </PathIcon>
             </Button>
         </StackPanel>
 
@@ -90,7 +204,9 @@
             <!-- 左侧导航栏底色：模板里 RootSplitView 用 {ThemeResource NavigationViewDefaultPaneBackground}
                  / NavigationViewExpandedPaneBackground 取色，这两个 key 由框架主题字典定义且优先级高于
                  应用级 ThemeDictionaries，只能在控件级资源里覆盖（否则侧栏仍透出亚克力）。
-                 取值与 App.xaml 的 AppPaneBackgroundBrush 一致：浅色 #F6F6F6，深色 #161616。 -->
+                 取值与 App.xaml 的 AppPaneBackgroundBrush 一致：浅色 #F6F6F6，深色 #161616。
+                 注意：内容区 NavigationViewContentBackground 保持框架默认（LayerFillColorDefaultBrush，半透明），
+                 让窗口的亚克力毛玻璃能从内容区透出来；一旦把它刷成不透明实色，整窗毛玻璃就没了。 -->
             <NavigationView.Resources>
                 <ResourceDictionary>
                     <ResourceDictionary.ThemeDictionaries>
@@ -103,6 +219,16 @@
                             <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FF161616" />
                         </ResourceDictionary>
                     </ResourceDictionary.ThemeDictionaries>
+
+                    <!-- 去掉模板自带的 1px 描边：它们用深色 Separator/Stroke 画色，
+                         在标题栏 / 侧栏 / 内容区交界处看起来就是一条条黑色拼接缝。
+                         ① RootSplitView 的四边描边（NavigationViewBorderThickness 默认 1）；
+                         ② ContentGrid 的上/左两道描边（默认 1,1,0,0）。 -->
+                    <Thickness x:Key="NavigationViewBorderThickness">0</Thickness>
+                    <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
+                    <!-- 内容区左上角默认有 8px 圆角（露出圆角外的亚克力），拉平以贴齐边框 -->
+                    <CornerRadius x:Key="NavigationViewContentGridCornerRadius">0</CornerRadius>
                 </ResourceDictionary>
             </NavigationView.Resources>
             <NavigationView.MenuItems>
@@ -151,17 +277,7 @@
             </Grid>
         </NavigationView>
 
-        <!-- 状态栏（实例指示） -->
-        <Border Grid.Row="2" Height="28" Padding="12,0"
-                Background="{ThemeResource LayerFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="0,1,0,0">
-            <Grid>
-                <TextBlock x:Name="InstanceText" FontSize="11" VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           loc:Loc.Text="未选择实例" />
-            </Grid>
-        </Border>
+        <!-- 状态栏（实例指示）已移除：底部不再有「未选择实例」条 -->
 
         <!-- ① Nova 面板（顶栏 NovaOrb 下方弹出，440px 毛玻璃）。
              注意：不要设 ShouldConstrainToRootBounds=False —— 那会命中 WinUI 的 IME bug（中文只出拼音字母），

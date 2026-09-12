@@ -30,7 +30,7 @@
             <Button x:Name="OpenLogDirBtn" loc:Loc.Text="打开日志目录" Click="OpenLogDir_Click" />
         </StackPanel>
 
-        <Border Grid.Row="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        <Border Grid.Row="2" Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">
             <ScrollViewer x:Name="LogScroll">

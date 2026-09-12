@@ -142,7 +142,7 @@
                         </Grid>
                         <!-- 最新版本（PCL2 式置顶卡片：最新正式版 / 最新预览版） -->
                         <Border x:Name="LatestCard" Grid.Row="1" Visibility="Collapsed"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                Background="{ThemeResource GlassCardBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="16" Padding="14,10">
                             <StackPanel Spacing="4">
@@ -194,7 +194,7 @@
                         </Border>
 
                         <Border Grid.Row="2"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                Background="{ThemeResource GlassCardBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="16" Padding="4">
                             <ListView x:Name="VersionList" SelectionMode="Single"
@@ -635,7 +635,7 @@
                                 </Expander>
 
                                 <!-- OptiFine（暂不支持安装） -->
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                <Border Background="{ThemeResource GlassCardBrush}"
                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         BorderThickness="1" CornerRadius="8" Padding="16,12"
                                         Opacity="0.6">
@@ -679,7 +679,7 @@
 
                     <!-- 筛选卡 -->
                     <Border Grid.Row="0"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" CornerRadius="16" Padding="16">
                         <StackPanel Spacing="12">
@@ -769,7 +769,7 @@
 
                     <!-- 结果列表 -->
                     <Border Grid.Row="1"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" CornerRadius="16" Padding="4">
                         <Grid>

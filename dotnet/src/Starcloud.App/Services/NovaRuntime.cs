@@ -461,7 +461,7 @@ public sealed record NovaChatMessage(
 
     public Brush Bubble => Role == "user"
         ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
-        : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+        : (Brush)Application.Current.Resources["GlassCardBrush"];
 
     public Brush TextBrush => Role == "user"
         ? (Brush)Application.Current.Resources["TextOnAccentFillColorPrimaryBrush"]

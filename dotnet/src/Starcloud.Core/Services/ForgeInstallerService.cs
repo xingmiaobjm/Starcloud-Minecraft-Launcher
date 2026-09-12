@@ -33,11 +33,11 @@ public sealed class ForgeInstallerService
         var builds = new List<string>();
         foreach (var tag in SplitVersions(meta))
         {
-            if (tag.StartsWith(prefix, StringComparison.Ordinal) &&
-                int.TryParse(tag[prefix.Length..], out _))
+            if (tag.StartsWith(prefix, StringComparison.Ordinal) && IsForgeBuildSuffix(tag[prefix.Length..]))
                 builds.Add(tag);
         }
-        builds.Reverse();   // metadata 为旧→新，倒序后新→旧
+        // maven-metadata 顺序不保证按时间，按构建号数字排序（新→旧）
+        builds.Sort((a, b) => CompareForgeBuilds(b[prefix.Length..], a[prefix.Length..]));
 
         string? recommended = null, latest = null;
         using (var doc = JsonDocument.Parse(promosJson))
@@ -56,6 +56,30 @@ public sealed class ForgeInstallerService
             .ToList();
     }
 
+    /// <summary>
+    /// Forge 构建号判定：现代形如 "47.4.5"（含点号），旧版形如 "10.13.4.1614-1.7.10" / "10.13.3.1401-1710ls"（带后缀）。
+    /// 原先用 int.TryParse 判定，现代构建号必然解析失败，导致列表恒为空。
+    /// </summary>
+    private static bool IsForgeBuildSuffix(string s)
+    {
+        if (s.Length == 0 || !char.IsAsciiDigit(s[0])) return false;
+        foreach (var c in s)
+            if (!char.IsAsciiDigit(c) && !char.IsAsciiLetter(c) && c != '.' && c != '-') return false;
+        return true;
+    }
+
+    /// <summary>Forge 构建号比较：忽略 "-" 后缀，逐段按数字比较，段数多者视为更新</summary>
+    private static int CompareForgeBuilds(string x, string y)
+    {
+        static int[] Key(string v) =>
+            v.Split('-')[0].Split('.').Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+        var xs = Key(x);
+        var ys = Key(y);
+        for (var i = 0; i < Math.Min(xs.Length, ys.Length); i++)
+            if (xs[i] != ys[i]) return xs[i].CompareTo(ys[i]);
+        return xs.Length.CompareTo(ys.Length);
+    }
+
     /// <summary>从 maven-metadata.xml 提取 &lt;version&gt; 标签内容</summary>
     private static IEnumerable<string> SplitVersions(string xml)
     {
@@ -71,14 +95,19 @@ public sealed class ForgeInstallerService
         }
     }
 
-    /// <summary>NeoForge 构建列表（按 MC 版本前缀过滤，新→旧；不适配的版本返回空）</summary>
+    /// <summary>
+    /// NeoForge 构建列表（按 MC 版本前缀过滤，新→旧；不适配的版本返回空）。
+    /// 1.20.1 的产物发布在 legacy 的 forge 构件下（版本号形如 1.20.1-47.1.106），其余在 neoforge 构件下。
+    /// </summary>
     public async Task<List<LoaderBuild>> ListNeoForgeBuildsAsync(string mcVersion, CancellationToken ct = default)
     {
         var prefix = NeoForgePrefix(mcVersion);
         if (prefix is null) return [];
 
+        var legacy = mcVersion == "1.20.1";
+        var artifact = legacy ? "forge" : "neoforge";
         var json = await _downloader.GetStringAsync(
-            "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge", ct);
+            $"https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/{artifact}", ct);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
@@ -90,10 +119,13 @@ public sealed class ForgeInstallerService
                 : default;
 
         if (items.Equals(default)) return [];
+        // legacy 构件版本号带 MC 前缀，展示与安装链接均只用构建号，故先剥离再排序
+        var skip = legacy ? mcVersion.Length + 1 : 0;
         var all = items
             .Select(i => i.ValueKind == JsonValueKind.String ? i.GetString() : null)
             .OfType<string>()
             .Where(v => v.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(v => v[skip..])
             .OrderByDescending(NeoForgeOrderKey)
             .ToList();
         return all
@@ -101,18 +133,20 @@ public sealed class ForgeInstallerService
             .ToList();
     }
 
-    /// <summary>NeoForge 版本号前缀：1.20.1 → "47.1."；其余 1.x.y → "x.y."（如 1.20.4 → "20.4."）</summary>
+    /// <summary>
+    /// NeoForge 版本号前缀：1.20.1 → "1.20.1-47.1."（legacy forge 构件）；
+    /// 其余 1.x[.y] → "x.y."（如 1.20.4 → "20.4."、1.21 → "21.0."）
+    /// </summary>
     private static string? NeoForgePrefix(string mcVersion)
     {
-        if (mcVersion == "1.20.1") return "47.1.";
-        if (mcVersion.StartsWith("1."))
-        {
-            var rest = mcVersion[2..];
-            var parts = rest.Split('.');
-            if (parts.Length >= 2 && int.TryParse(parts[0], out _) && int.TryParse(parts[1], out _))
-                return rest + ".";
-        }
-        return null;
+        if (mcVersion == "1.20.1") return "1.20.1-47.1.";
+        if (!mcVersion.StartsWith("1.", StringComparison.Ordinal)) return null;
+
+        var parts = mcVersion[2..].Split('.');
+        if (parts.Length is < 1 or > 2) return null;
+        if (!int.TryParse(parts[0], out _)) return null;
+        if (parts.Length == 2 && !int.TryParse(parts[1], out _)) return null;
+        return $"{parts[0]}.{(parts.Length == 2 ? parts[1] : "0")}.";
     }
 
     private static (int Major, int Minor, int Patch) NeoForgeOrderKey(string v)
@@ -127,8 +161,18 @@ public sealed class ForgeInstallerService
     public static string ForgeInstallerUrl(string mcVersion, string build) =>
         $"https://maven.minecraftforge.net/net/minecraftforge/forge/{mcVersion}-{build}/forge-{mcVersion}-{build}-installer.jar";
 
-    public static string NeoForgeInstallerUrl(string build) =>
-        $"https://maven.neoforged.net/releases/net/neoforged/neoforge/{build}/neoforge-{build}-installer.jar";
+    /// <summary>
+    /// NeoForge 安装器直链。1.20.1 产物在 legacy 的 forge 构件下（版本号形如 1.20.1-47.1.106），
+    /// 其余在 neoforge 构件下；build 若带 MC 前缀会自动剥离。
+    /// </summary>
+    public static string NeoForgeInstallerUrl(string mcVersion, string build)
+    {
+        var ver = build.StartsWith($"{mcVersion}-", StringComparison.Ordinal)
+            ? build[(mcVersion.Length + 1)..] : build;
+        return mcVersion == "1.20.1"
+            ? $"https://maven.neoforged.net/releases/net/neoforged/forge/{mcVersion}-{ver}/forge-{mcVersion}-{ver}-installer.jar"
+            : $"https://maven.neoforged.net/releases/net/neoforged/neoforge/{ver}/neoforge-{ver}-installer.jar";
+    }
 
     // ── 静默安装 ──
 

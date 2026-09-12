@@ -100,8 +100,9 @@ public sealed class ModRow
         Tags.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 }
 
-/// <summary>账户页卡片条目</summary>
-public sealed record AccountRow(string Uuid, string Username, string TypeText, bool IsDefault)
+/// <summary>账户页卡片条目（Avatar 为皮肤头像，加载失败 / 无网络时为 null，由 Initial 色块兜底）</summary>
+public sealed record AccountRow(
+    string Uuid, string Username, string TypeText, bool IsDefault, ImageSource? Avatar)
 {
     public string Initial => string.IsNullOrWhiteSpace(Username) ? "?" : Username[..1].ToUpperInvariant();
     public Visibility DefaultBadgeVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
@@ -162,6 +163,30 @@ public static class RemoteIconHelper
         cache.BeginCacheInBackground(url);
         return VersionRowHelpers.ResolveIconSource(url);
     }
+}
+
+/// <summary>
+/// 玩家皮肤头像（第三方服务 minotar.net，helm = 头部含帽子层）：微软账户用 UUID（不随改名失效），
+/// 离线账户用玩家名。复用社区图标的「缓存优先 + 直连兜底」逻辑；请求失败（无网络 / 名字不存在
+/// 返回 404）时 <see cref="Microsoft.UI.Xaml.Controls.Image"/> 不渲染，由底层的首字母色块自然兜底。
+/// 注：曾用 mc-heads.net，实测对本机微软档案间歇性返回 403（Cloudflare 拦截），故弃用。
+/// </summary>
+public static class AvatarHelper
+{
+    /// <summary>头像边长（像素）：128 供首页 72dip 大头像放大后仍清晰，列表小头像同源复用。</summary>
+    private const int Size = 128;
+
+    /// <summary>拼头像 URL；账户标识缺失返回 null（调用方保持首字母色块）。</summary>
+    public static string? UrlFor(string? type, string? uuid, string? username)
+    {
+        var id = type == "microsoft" ? uuid : username;
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        return $"https://minotar.net/helm/{Uri.EscapeDataString(id)}/{Size}";
+    }
+
+    /// <summary>解析账户头像；无标识 / 无网络 / 名字不存在时返回 null。</summary>
+    public static ImageSource? Resolve(string? type, string? uuid, string? username) =>
+        RemoteIconHelper.Resolve(UrlFor(type, uuid, username));
 }
 
 /// <summary>版本行共用辅助（图标解析 / 时间格式化 / 类型推断）：版本页与详情页共用。</summary>

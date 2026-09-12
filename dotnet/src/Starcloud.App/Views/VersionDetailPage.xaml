@@ -79,7 +79,7 @@
             </StackPanel>
 
             <!-- 概览卡片 -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16" Padding="16">
                 <StackPanel Spacing="12">
@@ -113,7 +113,7 @@
             </Border>
 
             <!-- 内容卡片：三分区文件管理（含启停 / 检查更新 / 冲突扫描 / 拖拽安装） -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16" Padding="16"
                     AllowDrop="True" DragOver="Content_DragOver" Drop="Content_Drop">
@@ -139,7 +139,7 @@
             </Border>
 
             <!-- 游戏设置卡片：全字段（未覆盖 = 跟随全局生效值） -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16" Padding="16">
                 <StackPanel Spacing="16">
@@ -378,7 +378,7 @@
             </Border>
 
             <!-- 操作卡片 -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16" Padding="16">
                 <StackPanel Spacing="12">

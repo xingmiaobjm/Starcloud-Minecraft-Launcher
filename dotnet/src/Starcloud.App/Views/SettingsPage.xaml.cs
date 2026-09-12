@@ -99,6 +99,7 @@ public sealed partial class SettingsPage : Page
             LanguageCombo.SelectedIndex =
                 string.Equals(s.UiLanguage, "en-US", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
+            AutoUpdateSwitch.IsOn = s.AutoUpdateEnabled;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
 
             // 背景与外观（D1）
@@ -556,6 +557,47 @@ public sealed partial class SettingsPage : Page
         _s.Settings.NovaOverlayEnabled = OverlaySwitch.IsOn;
         try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
         SavedBar.IsOpen = true;
+    }
+
+    // ── 通用：软件更新（设计：.trae/documents/auto-update-feature.md） ──
+
+    // 自动检查更新：切换即落盘（下次启动生效）
+    private void AutoUpdateSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.AutoUpdateEnabled = AutoUpdateSwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
+    // 手动检查更新：状态写进行内文本，有新版弹 UpdateDialog（弹窗内部自理下载与重启）
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateBtn.IsEnabled = false;
+        UpdateStatusText.Text = Loc.T("正在检查更新…");
+        try
+        {
+            var m = await _s.SelfUpdate.FetchManifestAsync();
+            if (!SelfUpdateService.IsNewerVersion(m.Version, SelfUpdateService.CurrentVersion()))
+            {
+                UpdateStatusText.Text = Loc.T("已是最新版本（{0}）", SelfUpdateService.CurrentVersion());
+                return;
+            }
+            UpdateStatusText.Text = "";
+            var xamlRoot = Content.XamlRoot;
+            if (xamlRoot is not null)
+                await UpdateDialog.ShowAsync(xamlRoot, m);
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = "";
+            ErrorBar.Message = Loc.T("检查失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            CheckUpdateBtn.IsEnabled = true;
+        }
     }
 
     // ── 通用：背景与外观（D1，设计 §8） ──

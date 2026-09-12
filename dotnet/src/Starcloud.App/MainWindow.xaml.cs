@@ -4,6 +4,7 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -28,6 +29,13 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
+        // 窗口按钮改为自绘（见 MainWindow.xaml）：隐藏系统 caption，保留边框（拖拽缩放仍可用），
+        // 顶栏 AppTitleBar 依旧是拖拽区（ExtendsContentIntoTitleBar 已开启）。
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+            presenter.SetBorderAndTitleBar(true, false);
+        SizeChanged += (_, _) => UpdateMaximizeGlyph(); // 最大化 / 还原（含 Win+↑ 等外部操作）后换图标
+        UpdateMaximizeGlyph();
+
         // 图标按 AppContext.BaseDirectory 解析：相对路径会跟随快捷方式的「起始位置」，从开始菜单启动时可能落空
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         Title = "Starcloud Minecraft Launcher";
@@ -44,7 +52,6 @@ public sealed partial class MainWindow : Window
         // Nova 内嵌（NOVA_INTEGRATION.md 五入口）：顶栏 Orb 随全局状态机联动
         var rt = AppServices.Instance.NovaRuntime;
         rt.StateChanged += OnNovaStateChanged;
-        rt.InstanceChanged += OnInstanceChanged;
         rt.OverlayToast += OnOverlayToast; // 浮窗一句话提醒 → TeachingTip（nova-overlay-plan.md T7）
         _toastResetTimer.IsRepeating = false;
         _toastResetTimer.Tick += (_, _) =>
@@ -54,7 +61,6 @@ public sealed partial class MainWindow : Window
         };
         NovaToastTip.Target = NovaOrb;
         ApplyNovaState(rt.State);
-        UpdateInstanceText(rt.CurrentInstance);
         RefreshAccountButton();
         Activated += (_, _) => RefreshAccountButton();
 
@@ -116,6 +122,29 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(VersionDetailPage), versionId,
             MotionService.TransitionFor(AppServices.Instance.Motion.Enabled, drillIn: true));
 
+    // ── 自绘窗口按钮（最小化 / 最大化-还原 / 关闭，见 MainWindow.xaml） ──
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e) =>
+        (AppWindow.Presenter as OverlappedPresenter)?.Minimize();
+
+    private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter p) return;
+        if (p.State == OverlappedPresenterState.Maximized) p.Restore();
+        else p.Maximize();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>最大化时显示「还原」图标，否则显示「最大化」图标（含 Win+↑、拖到屏幕顶端等外部操作）。</summary>
+    private void UpdateMaximizeGlyph()
+    {
+        var maximized = (AppWindow.Presenter as OverlappedPresenter)?.State == OverlappedPresenterState.Maximized;
+        MaximizeIcon.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
+        RestoreIcon.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(MaximizeButton, Loc.T(maximized ? "还原" : "最大化"));
+    }
+
     // ── Nova 内嵌（NOVA_INTEGRATION.md 五入口：① 顶栏 Orb） ──
 
     /// <summary>① NovaOrb：顶栏下方 8px 弹出面板，再点收回。</summary>
@@ -165,9 +194,6 @@ public sealed partial class MainWindow : Window
 
     private void OnNovaStateChanged(NovaState state) =>
         DispatcherQueue.TryEnqueue(() => ApplyNovaState(state));
-
-    private void OnInstanceChanged(string? versionId) =>
-        DispatcherQueue.TryEnqueue(() => UpdateInstanceText(versionId));
 
     // ── 浮窗提醒 → TeachingTip（8s 后自动收起） ──
 
@@ -249,9 +275,6 @@ public sealed partial class MainWindow : Window
         }
         ToolTipService.SetToolTip(AccountButton, tip);
     }
-
-    private void UpdateInstanceText(string? versionId) =>
-        InstanceText.Text = string.IsNullOrEmpty(versionId) ? Loc.T("未选择实例") : Loc.T("实例：{0}", versionId);
 
     private static Brush StateBrush(NovaState state) => state switch
     {

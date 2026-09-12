@@ -260,6 +260,17 @@ public sealed partial class HomePage : Page
         var name = acc?.Username ?? PlayerNameBox.Text.Trim();
         AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
+        AvatarImage.Source = ResolveAvatar(acc, name);
+    }
+
+    /// <summary>
+    /// 皮肤头像：覆盖首字母色块；未选账户 / 无网络 / 名字不存在时返回 null（露出色块）。
+    /// 手动输入的离线名不足 3 位不发请求，避免逐字敲键时产生无效请求。
+    /// </summary>
+    private static ImageSource? ResolveAvatar(StoredAccount? acc, string name)
+    {
+        if (acc is null && name.Length < 3) return null;
+        return AvatarHelper.Resolve(acc?.Type ?? "offline", acc?.Uuid, name);
     }
 
     private void AccountCombo_SelectionChanged(object s, SelectionChangedEventArgs e)

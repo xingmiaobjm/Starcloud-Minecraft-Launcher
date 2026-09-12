@@ -47,7 +47,7 @@ internal static class MrPackFlow
             if (result.Dependencies.TryGetValue("neoforge", out var neo))
             {
                 await s.Forge.InstallViaInstallerAsync(
-                    ForgeInstallerService.NeoForgeInstallerUrl(neo), game, javaMajor, s.Settings, progress);
+                    ForgeInstallerService.NeoForgeInstallerUrl(game, neo), game, javaMajor, s.Settings, progress);
                 parts.Add($"NeoForge {neo}");
             }
         }

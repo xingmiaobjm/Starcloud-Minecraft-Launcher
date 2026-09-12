@@ -34,7 +34,7 @@
 
                 <!-- 启动自检：版本 / 账户 / Java，未就绪项可一键跳转 -->
                 <Border x:Name="CheckCard" Visibility="Collapsed"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="2">
@@ -99,7 +99,7 @@
 
             <!-- 版本列表（弹性填充剩余高度） -->
             <Border Grid.Row="1"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16"
                     Padding="16">
@@ -244,7 +244,7 @@
 
         <!-- ═══ 右列：PCL2 式账户/启动卡（与窗口同高） ═══ -->
         <Border Grid.Column="1"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="20">
             <Grid RowSpacing="14">
@@ -276,9 +276,14 @@
                     <Border Width="72" Height="72" CornerRadius="12"
                             HorizontalAlignment="Center"
                             Background="{ThemeResource AccentFillColorDefaultBrush}">
-                        <TextBlock x:Name="AvatarText" Text="?" FontSize="28" FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Grid>
+                            <!-- 首字母兜底：未选账户 / 无网络 / 名字不存在时可见 -->
+                            <TextBlock x:Name="AvatarText" Text="?" FontSize="28" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <!-- 皮肤头像覆盖在色块上；加载失败不渲染，即露出下面的首字母 -->
+                            <Image x:Name="AvatarImage" Stretch="UniformToFill" />
+                        </Grid>
                     </Border>
                     <TextBlock x:Name="AccountNameText" loc:Loc.Text="未选择账户" FontWeight="SemiBold"
                                FontSize="17" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
@@ -368,7 +373,7 @@
                 </Grid>
 
                 <!-- 你知道吗（小贴士：静态池 + Nova 动态，见 LaunchTips.cs） -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="12,10"
                         Width="340" HorizontalAlignment="Center">

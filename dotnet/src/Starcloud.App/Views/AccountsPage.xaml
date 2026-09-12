@@ -40,7 +40,7 @@
 
         <!-- Starcloud ID 卡：未登录=登录表单，已登录=会话管理 -->
         <Border Grid.Row="2"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="20">
             <Grid>
@@ -98,9 +98,9 @@
             </Grid>
         </Border>
 
-        <!-- 保存的游戏账户（占剩余高度，ListView 自带滚动） -->
-        <Border Grid.Row="3"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        <!-- 保存的游戏账户（占剩余高度，ListView 自带滚动）；上方留白与 Starcloud ID 卡拉开距离 -->
+        <Border Grid.Row="3" Margin="0,16,0,0"
+                Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="16">
             <Grid RowSpacing="12">
@@ -151,11 +151,15 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <Border Width="40" Height="40" CornerRadius="20"
+                                        <Border Width="40" Height="40" CornerRadius="8"
                                                 Background="{ThemeResource AccentFillColorDefaultBrush}">
-                                            <TextBlock Text="{x:Bind Initial}" FontSize="17" FontWeight="SemiBold"
-                                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Grid>
+                                                <TextBlock Text="{x:Bind Initial}" FontSize="17" FontWeight="SemiBold"
+                                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <!-- 皮肤头像覆盖在色块上；加载失败不渲染，即露出下面的首字母 -->
+                                                <Image Source="{x:Bind Avatar}" Stretch="UniformToFill" />
+                                            </Grid>
                                         </Border>
                                         <StackPanel Spacing="4" VerticalAlignment="Center">
                                             <TextBlock Text="{x:Bind Username}" FontWeight="SemiBold"

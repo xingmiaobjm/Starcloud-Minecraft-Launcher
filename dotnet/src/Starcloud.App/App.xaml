@@ -14,9 +14,9 @@
             <CornerRadius x:Key="CardCornerRadius">16</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
 
-            <!-- 悬浮卡片：白卡片外观 + 悬浮轻微放大 / 按下轻微缩小（D2，动效可关闭） -->
+            <!-- 悬浮卡片：毛玻璃卡片 + 悬浮轻微放大 / 按下轻微缩小（D2，动效可关闭） -->
             <Style x:Key="ScHoverCard" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource GlassCardBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="8" />
@@ -71,6 +71,9 @@
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
+                    <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
+                    <AcrylicBrush x:Key="GlassCardBrush"
+                                  TintColor="#FFFFFF" TintOpacity="0.72" FallbackColor="#FFF9F9F9" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <!-- 主题强调色：#3DD322，悬浮 #2FBD6E -->
@@ -105,6 +108,9 @@
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
+                    <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
+                    <AcrylicBrush x:Key="GlassCardBrush"
+                                  TintColor="#2B2B2B" TintOpacity="0.75" FallbackColor="#FF1F1F1F" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

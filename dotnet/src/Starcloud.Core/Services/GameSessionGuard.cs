@@ -72,6 +72,14 @@ public sealed class GameSessionGuard
         return handle;
     }
 
+    /// <summary>当前 .minecraft 下是否有存活的 java 游戏进程（自更新检查避让，防止更新打断游戏中）</summary>
+    public static bool IsAnyGameAlive(string dotMc)
+    {
+        var file = LauncherPaths.GameSessionFile(dotMc);
+        var existing = ReadLock(file);
+        return existing is not null && IsAliveJavaProcess(existing.Pid);
+    }
+
     internal static void WriteLock(string file, GameSessionLock content)
     {
         try

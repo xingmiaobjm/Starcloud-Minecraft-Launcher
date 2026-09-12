@@ -47,6 +47,9 @@ public partial class App : Application
         MainWindow = new MainWindow();
         MainWindow.Activate();
 
+        // 自动更新：延迟几秒后台检查（游戏运行时避让），发现新版弹窗确认
+        _ = UpdateStartup.RunAsync();
+
         // 拉人即玩：starcloud://join?t=… 协议激活（未打包应用经命令行参数进入）
         var url = args.Arguments?.Trim();
         if (!string.IsNullOrEmpty(url) &&

@@ -561,7 +561,7 @@ public sealed partial class DownloadPage : Page
             if (neo is not null)
             {
                 await _s.Forge.InstallViaInstallerAsync(
-                    ForgeInstallerService.NeoForgeInstallerUrl(neo), id, javaMajor, _s.Settings, progress);
+                    ForgeInstallerService.NeoForgeInstallerUrl(id, neo), id, javaMajor, _s.Settings, progress);
             }
         });
     }

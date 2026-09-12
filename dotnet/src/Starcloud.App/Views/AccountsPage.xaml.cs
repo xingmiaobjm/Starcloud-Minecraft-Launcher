@@ -420,7 +420,8 @@ public sealed partial class AccountsPage : Page
     {
         var rows = _s.Accounts.Accounts
             .Select(a => new AccountRow(a.Uuid, a.Username,
-                a.Type == "microsoft" ? Loc.T("微软账户") : Loc.T("离线账户"), a.IsDefault))
+                a.Type == "microsoft" ? Loc.T("微软账户") : Loc.T("离线账户"), a.IsDefault,
+                AvatarHelper.Resolve(a.Type, a.Uuid, a.Username)))
             .ToList();
         AccountList.ItemsSource = rows;
         var empty = rows.Count == 0;

@@ -26,7 +26,7 @@
                 </Border>
 
                 <!-- 确认清单卡：动手前列给用户，点头才执行 -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="12" Padding="16,12"
                         Visibility="{x:Bind HasPlanVisible}">
@@ -77,7 +77,7 @@
 
         <!-- 对话流 -->
         <Border Grid.Row="0"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="8">
             <ListView x:Name="ChatList" SelectionMode="None" Padding="4"
