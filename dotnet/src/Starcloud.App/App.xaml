@@ -61,9 +61,9 @@
                     <!-- 卡片边框 #E2E2E2 -->
                     <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#FFE2E2E2" />
                     <!-- 窗口框架（标题栏 / 左侧栏）：不透明实色，浅色为近白 -->
+                    <!-- 说明：左侧导航栏的底色由 MainWindow.xaml 的 NavigationView.Resources 覆盖
+                         （NavigationView*PaneBackground 这两个 key 在这里覆盖不到模板） -->
                     <SolidColorBrush x:Key="AppPaneBackgroundBrush" Color="#FFF6F6F6" />
-                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FFF6F6F6" />
-                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FFF6F6F6" />
                     <!-- 语义状态：成功 #3DDC84，危险 #F44336 -->
                     <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
                     <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />
@@ -94,9 +94,8 @@
                     <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#87A0A0A0" />
                     <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#57A0A0A0" />
                     <!-- 窗口框架（标题栏 / 左侧栏）：不透明，比背景 #111111 略微提亮形成层次 -->
+                    <!-- 说明：左侧导航栏的底色由 MainWindow.xaml 的 NavigationView.Resources 覆盖 -->
                     <SolidColorBrush x:Key="AppPaneBackgroundBrush" Color="#FF161616" />
-                    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FF161616" />
-                    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FF161616" />
                     <!-- 语义状态：成功 #3DDC84，危险 #F44336 -->
                     <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
                     <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />

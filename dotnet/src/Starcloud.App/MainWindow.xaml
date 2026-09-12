@@ -87,6 +87,24 @@
             IsSettingsVisible="False"
             IsTitleBarAutoPaddingEnabled="False"
             SelectionChanged="Nav_SelectionChanged">
+            <!-- 左侧导航栏底色：模板里 RootSplitView 用 {ThemeResource NavigationViewDefaultPaneBackground}
+                 / NavigationViewExpandedPaneBackground 取色，这两个 key 由框架主题字典定义且优先级高于
+                 应用级 ThemeDictionaries，只能在控件级资源里覆盖（否则侧栏仍透出亚克力）。
+                 取值与 App.xaml 的 AppPaneBackgroundBrush 一致：浅色 #F6F6F6，深色 #161616。 -->
+            <NavigationView.Resources>
+                <ResourceDictionary>
+                    <ResourceDictionary.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Light">
+                            <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FFF6F6F6" />
+                            <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FFF6F6F6" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Dark">
+                            <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FF161616" />
+                            <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="#FF161616" />
+                        </ResourceDictionary>
+                    </ResourceDictionary.ThemeDictionaries>
+                </ResourceDictionary>
+            </NavigationView.Resources>
             <NavigationView.MenuItems>
                 <NavigationViewItem loc:Loc.Text="首页" Tag="home" Icon="Home" />
                 <NavigationViewItem loc:Loc.Text="版本" Tag="versions">
