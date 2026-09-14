@@ -14,6 +14,7 @@
 
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -140,6 +141,79 @@ public sealed class NovaService
         catch { /* 用户 Key 失效/欠费 → 降级本地兜底，不卡死 */ }
 
         return new NovaReply(LocalFallback(message), null, false, trim);
+    }
+
+    /// <summary>
+    /// 发送一句话给 Nova；能力指令走本地引擎，其余走 LLM 流式降级链。
+    /// 返回逐字增量；本地命中或失败时一次性 yield 完整文本。
+    /// </summary>
+    public async IAsyncEnumerable<string> ChatStreamAsync(
+        string message, LauncherSettings settings,
+        IReadOnlyList<NovaChatTurn>? history = null,
+        [EnumeratorCancellation] CancellationToken ct = default,
+        bool fullLog = false, int? maxTokens = null,
+        Action<NovaReply>? onFullReply = null)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            yield return "说一句人话就行，比如「崩了帮我看看」「找个 1.20.1 的优化整合包」。";
+            yield break;
+        }
+
+        var local = await RouteLocalAsync(message, settings, ct);
+        if (local is not null)
+        {
+            onFullReply?.Invoke(local);
+            yield return local.Text;
+            yield break;
+        }
+
+        var body = message.Trim();
+        var trim = fullLog ? CrashLogTrimmer.Passthrough(body) : CrashLogTrimmer.TrimCrashLog(body);
+        var sendHistory = TrimHistory(history, fullLog);
+
+        var session = _id.Current;
+        if (session is { Channel: StarcloudIdService.CloudChannel })
+        {
+            string? cloudError = null;
+            IAsyncEnumerable<string>? cloudStream = null;
+            try
+            {
+                if (await CloudLlmReadyAsync(ct))
+                    cloudStream = CloudChatStreamAsync(session, trim.Text, sendHistory, ct, fullLog, maxTokens);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (NovaCloudException ex) { cloudError = ex.Message; }
+            catch { /* 云端不可用 → 继续降级 */ }
+
+            if (cloudError is not null)
+            {
+                yield return cloudError;
+                yield break;
+            }
+
+            if (cloudStream is not null)
+            {
+                await foreach (var delta in cloudStream) yield return delta;
+                yield break;
+            }
+        }
+
+        IAsyncEnumerable<string>? userStream = null;
+        try
+        {
+            userStream = UserLlmChatStreamAsync(settings, trim.Text, sendHistory, ct, maxTokens);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { /* 用户 Key 失效/欠费 → 降级本地兜底 */ }
+
+        if (userStream is not null)
+        {
+            await foreach (var delta in userStream) yield return delta;
+            yield break;
+        }
+
+        yield return LocalFallback(message);
     }
 
     /// <summary>历史里的崩溃日志同样裁剪（只作用于发给模型的副本，本地会话仍保留原文）。</summary>
@@ -778,11 +852,12 @@ public sealed class NovaService
             .GetProperty("message").GetProperty("content").GetString();
     }
 
-    /// <summary>Nova 人格：少折腾多玩会；具体不空谈；确认后执行；不臆造事实。</summary>
+    /// <summary>Nova 人格：少折腾多玩会；具体不空谈；确认后执行；不臆造事实；简短回答。</summary>
     private const string SystemPrompt =
         "你是 Nova，Minecraft 启动器 StarCloud 内置的 AI 助手，被允许动手但克制：" +
         "给方案要具体到数值和步骤，不泛泛而谈；涉及改文件的方案先给确认清单等用户点头；" +
-        "不编造价格、日期和性能数据；语气简短、接地气，用简体中文。";
+        "不编造价格、日期和性能数据；回答尽量简短，能一句话说清的不写长篇；" +
+        "语气简短、接地气，用简体中文。";
 
     // ── LLM 降级链 · 第 2 级：StarCloud 云端（会话 API Key；服务未部署自动回退） ──
 
@@ -843,6 +918,80 @@ public sealed class NovaService
         };
         if (history is { Count: > 0 }) messages.AddRange(history);
         return messages;
+    }
+
+    /// <summary>
+    /// 向 StarCloud 云端 /v1/chat 发送流式请求，按 SSE 解析逐字增量。
+    /// 若服务端未返回 event-stream，则按原 JSON 路径一次性 yield text。
+    /// </summary>
+    private static async IAsyncEnumerable<string> CloudChatStreamAsync(
+        StarcloudSession session, string message,
+        IReadOnlyList<NovaChatTurn>? history, [EnumeratorCancellation] CancellationToken ct,
+        bool fullLog = false, int? maxTokens = null)
+    {
+        using var http = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/chat");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.ApiKey);
+        var body = JsonSerializer.Serialize(new
+        {
+            message,
+            messages = CloudMessages(history),
+            full_log = fullLog,
+            max_tokens = maxTokens,
+            stream = true,
+        }, JsonOpts);
+        req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            throw new NovaCloudException(DescribeCloudError(resp.StatusCode, json));
+        }
+
+        // 解析统一走 OpenAiSseClient（兼容 OpenAI chunk 与云端旧格式顶层 delta/text）
+        await foreach (var evt in OpenAiSseClient.ParseSseResponseAsync(resp, ct))
+        {
+            if (evt.ContentDelta is { Length: > 0 } d) yield return d;
+        }
+    }
+
+    /// <summary>
+    /// 向用户自填 Key 的 /chat/completions 发送流式请求，按 SSE 解析 OpenAI 兼容增量。
+    /// 若服务端未返回 event-stream，则按原 JSON 路径一次性 yield content。
+    /// </summary>
+    private static async IAsyncEnumerable<string> UserLlmChatStreamAsync(
+        LauncherSettings settings, string message,
+        IReadOnlyList<NovaChatTurn>? history, [EnumeratorCancellation] CancellationToken ct,
+        int? maxTokens = null)
+    {
+        var profile = settings.ActiveLlmProfile();
+        var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
+        var apiKey = profile?.ApiKey?.Trim();
+        var model = profile?.Model?.Trim();
+        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model))
+            yield break;
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        var messages = new List<object> { new { role = "system", content = SystemPrompt } };
+        if (history is { Count: > 0 })
+            messages.AddRange(history.Select(t => new { t.Role, t.Content }));
+        messages.Add(new { role = "user", content = message });
+
+        using var http = new HttpClient();
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        req.Content = new StringContent(
+            JsonSerializer.Serialize(new { model, messages, max_tokens = maxTokens, stream = true }, JsonOpts),
+            Encoding.UTF8, "application/json");
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+        resp.EnsureSuccessStatusCode();
+
+        await foreach (var evt in OpenAiSseClient.ParseSseResponseAsync(resp, cts.Token))
+        {
+            if (evt.ContentDelta is { Length: > 0 } d) yield return d;
+        }
     }
 
     /// <summary>云端返回的业务错误：Message 已是用户可读中文（规格 §3.4，不暴露原始 code）。</summary>
