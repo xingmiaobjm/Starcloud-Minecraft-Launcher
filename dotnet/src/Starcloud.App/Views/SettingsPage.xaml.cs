@@ -100,6 +100,7 @@ public sealed partial class SettingsPage : Page
                 string.Equals(s.UiLanguage, "en-US", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             AutoUpdateSwitch.IsOn = s.AutoUpdateEnabled;
+            WalkAnimSwitch.IsOn = s.AccountWalkAnimation;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
 
             // 背景与外观（D1）
@@ -296,8 +297,53 @@ public sealed partial class SettingsPage : Page
     /// <summary>用户选定的 java.exe；null = 自动（按版本 JSON 推荐的主版本匹配）。</summary>
     private string? _javaOverride;
 
-    private void JavaCombo_SelectionChanged(object s, SelectionChangedEventArgs e) =>
+    private void JavaCombo_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
         _javaOverride = (JavaCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        // 删除按钮只对启动器自己下载的运行时开放（系统/官方 Java 不能动）
+        JavaDeleteBtn.IsEnabled = _javaRuntimes.Any(rt =>
+            MatchesOverride(rt.Executable) && rt.Source == "launcher");
+    }
+
+    /// <summary>删除启动器下载的运行时（java/&lt;major&gt;/），系统与官方运行时不给删。</summary>
+    private async void DeleteJava_Click(object s, RoutedEventArgs e)
+    {
+        if (JavaCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string exe) return;
+        var rt = _javaRuntimes.FirstOrDefault(r =>
+            string.Equals(r.Executable, exe, StringComparison.OrdinalIgnoreCase));
+        if (rt is null || rt.Source != "launcher") return;
+
+        var dlg = new ContentDialog
+        {
+            Title = Loc.T("删除 Java 运行时"),
+            Content = Loc.T("将从启动器目录删除 Java {0}（{1}）。此操作不可撤销。", rt.MajorVersion, rt.Executable),
+            PrimaryButtonText = Loc.T("删除"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        JavaDeleteBtn.IsEnabled = false;
+        try
+        {
+            JavaService.RemoveRuntime(rt.MajorVersion);
+            if (MatchesOverride(rt.Executable)) _javaOverride = null;
+            _javaRuntimes.RemoveAll(r =>
+                string.Equals(r.Executable, rt.Executable, StringComparison.OrdinalIgnoreCase));
+            PopulateJavaCombo();
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("删除失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            JavaDeleteBtn.IsEnabled = _javaRuntimes.Any(x =>
+                MatchesOverride(x.Executable) && x.Source == "launcher");
+        }
+    }
 
     /// <summary>重建下拉：自动项 + 已搜索运行时 +（必要时）手动添加的自定义项，并恢复当前选择。</summary>
     private void PopulateJavaCombo()
@@ -555,6 +601,15 @@ public sealed partial class SettingsPage : Page
     {
         if (!_loaded) return;
         _s.Settings.NovaOverlayEnabled = OverlaySwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
+    // 账户页玩家走路动画：切换即落盘（下次进入账户页生效）
+    private void WalkAnimSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.AccountWalkAnimation = WalkAnimSwitch.IsOn;
         try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
         SavedBar.IsOpen = true;
     }

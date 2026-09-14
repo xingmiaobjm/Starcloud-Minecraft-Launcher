@@ -38,6 +38,7 @@ public sealed class AppServices
     public NovaActionLog NovaLog { get; }
     public NovaMomentsService NovaMoments { get; }
     public NovaInviteService NovaInvites { get; }
+    public NovaToolRegistry NovaTools { get; }
     public NovaService Nova { get; }
     public NovaRuntime NovaRuntime { get; }
 
@@ -85,8 +86,11 @@ public sealed class AppServices
         NovaLog = new NovaActionLog();
         NovaMoments = new NovaMomentsService();
         NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download);
+        // Agent 工具注册表先于 Nova 建（Nova 持有 Agent 循环，工具复用上面的服务）
+        NovaTools = new NovaToolRegistry(Manifest, Installer, Forge, Fabric, Mods, ContentLibrary,
+            () => Settings, SaveSettings);
         Nova = new NovaService(StarcloudId, Mods, Diagnostics, ModConflicts, NovaPermissions,
-            NovaLog, NovaMoments, NovaInvites, Saves);
+            NovaLog, NovaMoments, NovaInvites, Saves, NovaTools);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
         SelfUpdate = new SelfUpdateService(() => Settings);

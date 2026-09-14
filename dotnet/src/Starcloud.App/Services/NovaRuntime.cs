@@ -10,6 +10,7 @@
 // 命中高光 → CandidateProposed → 全局消息流追加候选卡（克制：一句话 + 一个按钮），点头才转正。
 
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -119,7 +120,7 @@ public sealed class NovaRuntime
         _ => Loc.T("离线"),
     };
 
-    // ── 对话（入口 ①④② 共用：SendAsync → ChatAsync → 消息流） ──
+    // ── 对话（入口 ①④② 共用：SendAsync → ChatStreamAsync → 消息流） ──
 
     /// <summary>
     /// 发送一句话。<paramref name="fullLog"/> = 用户在对话页打开了「发送完整日志」，
@@ -134,23 +135,49 @@ public sealed class NovaRuntime
             AddAssistant(Loc.T("先在侧栏 Nova 页登录 Starcloud ID，我才能上线干活。"));
             return;
         }
+        await RunTurnAsync(input, fullLog);
+    }
 
+    /// <summary>
+    /// 一轮对话的核心：user 气泡（可选回显）→ 流式接收（文本增量 + 工具状态行 + 确认卡）→ 记历史。
+    /// Agent 确认清单执行/取消后的总结轮也走这里（echoUser=false，指令进历史不进气泡）。
+    /// </summary>
+    private async Task RunTurnAsync(string input, bool fullLog = false, bool echoUser = true)
+    {
         _busy = true;
         RefreshState();
         Messages.Add(new NovaChatMessage("user", input, Now()));
         _history.Add(new NovaChatTurn("user", input));
+        if (!echoUser) Messages.RemoveAt(Messages.Count - 1); // 隐藏指令：进历史但不显示气泡
+
+        var msg = new NovaChatMessage("assistant", "", Now());
+        Messages.Add(msg);
         try
         {
-            var reply = await _s.Nova.ChatAsync(input, _s.Settings, _history, fullLog: fullLog);
-            var msg = new NovaChatMessage("assistant", reply.Text, Now());
-            if (reply.Plan is not null) msg = msg with { Plan = reply.Plan };
-            Messages.Add(msg);
-            _history.Add(new NovaChatTurn("assistant", reply.Text));
+            var stream = _s.Nova.ChatStreamAsync(
+                input, _s.Settings, _history,
+                fullLog: fullLog,
+                onFullReply: reply =>
+                {
+                    if (reply.Plan is not null) msg.Plan = reply.Plan;
+                },
+                onToolStarted: (tool, args) =>
+                {
+                    // 工具状态行：只读工具立即执行的过程透明化，留在气泡里可回看
+                    RunOnUi(() => msg.Content += $"\n→ {Loc.T("正在执行")} {tool} {args}\n");
+                });
+            await foreach (var delta in stream)
+            {
+                var d = delta;
+                RunOnUi(() => msg.Content += d);
+            }
+
+            _history.Add(new NovaChatTurn("assistant", msg.Content));
             if (_history.Count > 20) _history.RemoveRange(0, _history.Count - 20);
         }
         catch (Exception ex)
         {
-            AddAssistant(Loc.T("出错了：{0}", ex.Message));
+            RunOnUi(() => msg.Content = Loc.T("出错了：{0}", ex.Message));
         }
         finally
         {
@@ -158,6 +185,10 @@ public sealed class NovaRuntime
             RefreshState();
         }
     }
+
+    /// <summary>Agent 确认清单执行/取消后：把结果回喂历史，再跑一轮出总结（不回显指令气泡）。</summary>
+    private Task ResumeAfterPlanAsync(string instruction, bool fullLog = false) =>
+        _busy ? Task.CompletedTask : RunTurnAsync(instruction, fullLog, echoUser: false);
 
     /// <summary>实例右键「问 Nova」：把带实例上下文的一句话送进输入框</summary>
     public void RequestInput(string text) => RunOnUi(() => InputRequested?.Invoke(text));
@@ -167,20 +198,34 @@ public sealed class NovaRuntime
     public async Task ConfirmPlanAsync(NovaChatMessage msg)
     {
         if (msg.Plan is not { } plan || msg.PlanState != "pending") return;
+        var (result, ok) = ("", false);
         try
         {
-            var result = await _s.NovaLog.ExecuteConfirmedAsync(plan);
-            ReplaceMessage(msg, msg with { PlanState = "done", ResultText = result });
+            result = await _s.NovaLog.ExecuteConfirmedAsync(plan);
+            msg.PlanState = "done";
+            msg.ResultText = result;
+            ok = true;
         }
         catch (Exception ex)
         {
-            ReplaceMessage(msg, msg with { PlanState = "failed", ResultText = ex.Message });
+            msg.PlanState = "failed";
+            msg.ResultText = ex.Message;
         }
         finally
         {
             LogChanged?.Invoke();
         }
         RefreshState();
+
+        // Agent 清单执行完 → 结果回喂历史，让 Nova 出一句总结/下一步建议
+        if (ok)
+            await ResumeAfterPlanAsync(Loc.T(
+                "[系统] 用户已确认执行「{0}」，执行结果：{1}。请用一两句话告诉用户结果和下一步（没有就直接说完成）。",
+                plan.Title, result));
+        else
+            await ResumeAfterPlanAsync(Loc.T(
+                "[系统] 用户确认的「{0}」执行失败：{1}。请简短说明原因和手动补救办法。",
+                plan.Title, msg.ResultText));
     }
 
     public void CancelPlan(NovaChatMessage msg)
@@ -190,9 +235,11 @@ public sealed class NovaRuntime
         // 时刻候选卡被划掉 = 不要这个候选
         if (_candidatePlans.Remove(plan.Id, out var candidateId))
             _s.NovaMoments.Dismiss(candidateId);
-        ReplaceMessage(msg, msg with { PlanState = "cancelled" });
+        msg.PlanState = "cancelled";
         LogChanged?.Invoke();
         RefreshState();
+        _ = ResumeAfterPlanAsync(Loc.T(
+            "[系统] 用户取消了「{0}」，没有执行任何动作。简短回应即可，不要重复推销这个操作。", plan.Title));
     }
 
     // ── 时刻候选（入口 ①⑤：克制提案——一句话 + 一个按钮） ──
@@ -207,7 +254,7 @@ public sealed class NovaRuntime
             _ => Task.FromResult(AcceptCandidateText(c.Id)));
         _candidatePlans[plan.Id] = c.Id;
 
-        var msg = new NovaChatMessage("assistant", c.Caption, Now(), Plan: plan);
+        var msg = new NovaChatMessage("assistant", c.Caption, Now(), plan: plan);
         Messages.Add(msg);
         RefreshState();
     }
@@ -342,7 +389,7 @@ public sealed class NovaRuntime
             Loc.T("游戏体检"),
             [new NovaActionItem(Loc.T("跑一次游戏体检"), Loc.T("CPU 均值 {0:F0}% · {1} 秒窗口", e.CpuAvgPercent, e.WindowSeconds))],
             ct => RunCheckupAsync(ct));
-        Messages.Add(new NovaChatMessage("assistant", text, Now(), Plan: plan));
+        Messages.Add(new NovaChatMessage("assistant", text, Now(), plan: plan));
 
         OverlayToast?.Invoke(new NovaOverlayToast(
             Loc.T("Nova：疑似卡顿（CPU {0:F0}%），点浮窗看详情", e.CpuAvgPercent), e));
@@ -377,7 +424,7 @@ public sealed class NovaRuntime
         try
         {
             var plan = await _s.NovaInvites.BuildJoinPlanAsync(token, _s.Settings);
-            Messages.Add(new NovaChatMessage("assistant", plan.Title, Now(), Plan: plan));
+            Messages.Add(new NovaChatMessage("assistant", plan.Title, Now(), plan: plan));
         }
         catch (Exception ex)
         {
@@ -426,12 +473,6 @@ public sealed class NovaRuntime
     private void AddAssistant(string text) =>
         Messages.Add(new NovaChatMessage("assistant", text, Now()));
 
-    private void ReplaceMessage(NovaChatMessage oldMsg, NovaChatMessage newMsg)
-    {
-        var idx = Messages.IndexOf(oldMsg);
-        if (idx >= 0) Messages[idx] = newMsg;
-    }
-
     private void RunOnUi(Action action)
     {
         var dq = _dq;
@@ -448,10 +489,80 @@ public sealed class NovaRuntime
 /// Plan 非空 = 确认清单卡，PlanState 跟踪 pending/done/cancelled/failed。
 /// 定义在 Runtime 层：Nova 页 / 顶栏面板 / 底部对话条共用同一份模型与模板。
 /// </summary>
-public sealed record NovaChatMessage(
-    string Role, string Content, string TimeText,
-    NovaPlan? Plan = null, string PlanState = "pending", string ResultText = "")
+public sealed class NovaChatMessage : INotifyPropertyChanged
 {
+    private string _content;
+    private NovaPlan? _plan;
+    private string _planState;
+    private string _resultText;
+
+    public NovaChatMessage(
+        string role, string content, string timeText,
+        NovaPlan? plan = null, string planState = "pending", string resultText = "")
+    {
+        Role = role;
+        _content = content;
+        TimeText = timeText;
+        _plan = plan;
+        _planState = planState;
+        _resultText = resultText;
+    }
+
+    public string Role { get; }
+    public string TimeText { get; }
+
+    public string Content
+    {
+        get => _content;
+        set
+        {
+            if (_content == value) return;
+            _content = value;
+            OnPropertyChanged(nameof(Content));
+        }
+    }
+
+    public NovaPlan? Plan
+    {
+        get => _plan;
+        set
+        {
+            if (_plan == value) return;
+            _plan = value;
+            OnPropertyChanged(nameof(Plan));
+            OnPropertyChanged(nameof(TextVisible));
+            OnPropertyChanged(nameof(HasPlanVisible));
+            OnPropertyChanged(nameof(PlanButtonsVisible));
+            OnPropertyChanged(nameof(PlanStateVisible));
+        }
+    }
+
+    public string PlanState
+    {
+        get => _planState;
+        set
+        {
+            if (_planState == value) return;
+            _planState = value;
+            OnPropertyChanged(nameof(PlanState));
+            OnPropertyChanged(nameof(PlanButtonsVisible));
+            OnPropertyChanged(nameof(PlanStateVisible));
+            OnPropertyChanged(nameof(PlanStateText));
+        }
+    }
+
+    public string ResultText
+    {
+        get => _resultText;
+        set
+        {
+            if (_resultText == value) return;
+            _resultText = value;
+            OnPropertyChanged(nameof(ResultText));
+            OnPropertyChanged(nameof(PlanStateText));
+        }
+    }
+
     public HorizontalAlignment Align => Role == "user"
         ? HorizontalAlignment.Right : HorizontalAlignment.Left;
 
@@ -485,4 +596,9 @@ public sealed record NovaChatMessage(
         "failed" => Loc.T("执行失败（已记入动手流水）：{0}", ResultText),
         _ => "",
     };
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string propertyName)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

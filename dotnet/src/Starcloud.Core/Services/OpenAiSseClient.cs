@@ -84,7 +84,7 @@ public static class OpenAiSseClient
     /// </summary>
     public static async IAsyncEnumerable<SseEvent> StreamChatAsync(
         HttpClient http, string url, string apiKey, string model,
-        IReadOnlyList<object> messages, IReadOnlyList<object>? tools = null,
+        IReadOnlyList<object> messages, object? tools = null,
         int? maxTokens = null, [EnumeratorCancellation] CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, url);

@@ -253,6 +253,9 @@
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Button loc:Loc.Text="下载 Java 21（Temurin）" Click="DownloadJava_Click" />
                                         <Button loc:Loc.Text="下载 Java 8（Temurin）" Click="DownloadJava8_Click" />
+                                        <Button x:Name="JavaDeleteBtn" loc:Loc.Text="删除选中运行时"
+                                                loc:Loc.Name="删除选中运行时" Click="DeleteJava_Click"
+                                                IsEnabled="False" />
                                     </StackPanel>
                                     <ProgressBar x:Name="JavaProgress" Visibility="Collapsed" />
                                 </StackPanel>
@@ -426,6 +429,23 @@
                                                       loc:Loc.Name="毛玻璃强度跟随主题"
                                                       Toggled="MaskFollowTheme_Toggled" />
                                     </StackPanel>
+
+                                    <!-- 账户页玩家 3D 形象：走路动画开关 -->
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="账户页走路动画" FontWeight="SemiBold" />
+                                            <TextBlock loc:Loc.Text="关闭后，账户页右侧的玩家形象将保持站立姿势。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="WalkAnimSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                      loc:Loc.Name="账户页走路动画开关"
+                                                      Toggled="WalkAnimSwitch_Toggled" />
+                                    </Grid>
                                 </StackPanel>
                             </Border>
 
@@ -484,7 +504,7 @@
 
                 <!-- 固定底部保存 -->
                 <Button Grid.Row="2" loc:Loc.Text="保存设置" HorizontalAlignment="Right" MinWidth="120"
-                        Style="{StaticResource AccentButtonStyle}" Click="Save_Click" />
+                        Style="{StaticResource AccentButtonStyle}" FontWeight="Bold" Click="Save_Click" />
             </Grid>
         </Grid>
     </Grid>

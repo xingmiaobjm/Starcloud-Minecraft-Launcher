@@ -54,6 +54,7 @@ public sealed class NovaService
     private readonly NovaMomentsService _moments;
     private readonly NovaInviteService _invites;
     private readonly SaveService _saves;
+    private readonly NovaAgentLoop? _agent;
 
     /// <summary>最近一次体检结果（用于「修复 <版本号>」的指代解析）</summary>
     private DiagReport? _lastDiag;
@@ -72,7 +73,8 @@ public sealed class NovaService
         StarcloudIdService id, ModrinthService mods,
         GameDiagnosticsService diag, ModConflictService conflicts,
         NovaPermissionStore permissions, NovaActionLog log,
-        NovaMomentsService moments, NovaInviteService invites, SaveService saves)
+        NovaMomentsService moments, NovaInviteService invites, SaveService saves,
+        NovaToolRegistry? tools = null)
     {
         _id = id;
         _mods = mods;
@@ -83,6 +85,7 @@ public sealed class NovaService
         _moments = moments;
         _invites = invites;
         _saves = saves;
+        if (tools is not null) _agent = new NovaAgentLoop(this, tools);
     }
 
     /// <summary>同步当前实例上下文（供「体检 / 找整合包 / 搬家」等能力指代使用）</summary>
@@ -152,7 +155,8 @@ public sealed class NovaService
         IReadOnlyList<NovaChatTurn>? history = null,
         [EnumeratorCancellation] CancellationToken ct = default,
         bool fullLog = false, int? maxTokens = null,
-        Action<NovaReply>? onFullReply = null)
+        Action<NovaReply>? onFullReply = null,
+        Action<string, string>? onToolStarted = null)
     {
         if (string.IsNullOrWhiteSpace(message))
         {
@@ -171,6 +175,32 @@ public sealed class NovaService
         var body = message.Trim();
         var trim = fullLog ? CrashLogTrimmer.Passthrough(body) : CrashLogTrimmer.TrimCrashLog(body);
         var sendHistory = TrimHistory(history, fullLog);
+
+        // Agent 循环优先（本地能力路由之后）：LLM 具备工具调用能力时让 Nova 真正动手——
+        // 只读工具立即执行、写操作出 NovaPlan 确认清单。零事件（无可用通道）→ 回退纯文本链。
+        if (_agent is not null)
+        {
+            var agentStarted = false;
+            await foreach (var evt in _agent.RunAsync(trim.Text, settings, sendHistory, maxTokens, ct))
+            {
+                agentStarted = true;
+                switch (evt)
+                {
+                    case AgentTextDelta d:
+                        yield return d.Delta;
+                        break;
+                    case AgentToolStarted t:
+                        // UI 状态行：让用户看到 Nova 正在干什么（只读工具立即执行的透明化）
+                        onToolStarted?.Invoke(t.Tool, t.ArgsPreview);
+                        break;
+                    case AgentPlanProposed p:
+                        // 文本增量已进气泡，这里只把确认清单挂到消息上（UI 渲染确认卡）
+                        onFullReply?.Invoke(new NovaReply(p.Text, p.Plan, true, trim));
+                        break;
+                }
+            }
+            if (agentStarted) yield break;
+        }
 
         var session = _id.Current;
         if (session is { Channel: StarcloudIdService.CloudChannel })
@@ -853,7 +883,7 @@ public sealed class NovaService
     }
 
     /// <summary>Nova 人格：少折腾多玩会；具体不空谈；确认后执行；不臆造事实；简短回答。</summary>
-    private const string SystemPrompt =
+    internal const string SystemPrompt =
         "你是 Nova，Minecraft 启动器 StarCloud 内置的 AI 助手，被允许动手但克制：" +
         "给方案要具体到数值和步骤，不泛泛而谈；涉及改文件的方案先给确认清单等用户点头；" +
         "不编造价格、日期和性能数据；回答尽量简短，能一句话说清的不写长篇；" +
@@ -996,6 +1026,81 @@ public sealed class NovaService
 
     /// <summary>云端返回的业务错误：Message 已是用户可读中文（规格 §3.4，不暴露原始 code）。</summary>
     private sealed class NovaCloudException(string message) : Exception(message);
+
+    // ── Agent 循环 · LLM 通道（带 tools 的流式调用） ──
+
+    /// <summary>
+    /// Agent 循环的一次流式调用：云端优先（服务端按 OpenAI chunk 兼容格式改造后支持 tools），
+    /// 云端不可用回退用户自填 Key（OpenAI 兼容，原生支持 tools）。
+    /// 两个通道都不可用时零事件返回，调用方回退纯文本链。
+    /// </summary>
+    internal async IAsyncEnumerable<SseEvent> AgentLlmStreamAsync(
+        IReadOnlyList<object> messages, string toolsJson,
+        int? maxTokens, LauncherSettings settings,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        // 1. 云端通道：/v1/chat 收 OpenAI 风格 messages + tools（服务端改造后生效；
+        //    未改造时多数报 4xx/解析不出 tool_calls → 静默回退用户 Key，旧格式文本也不炸）
+        HttpResponseMessage? cloudResp = null;
+        var session = _id.Current;
+        // HttpClient 必须活到整个迭代结束（响应内容是流式的，提前释放会掐断 SSE）
+        using var cloudHttp = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+        if (session is { Channel: StarcloudIdService.CloudChannel })
+        {
+            try
+            {
+                using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                probeCts.CancelAfter(TimeSpan.FromSeconds(5));
+                if (await CloudLlmReadyAsync(probeCts.Token))
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/chat");
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.ApiKey);
+                    req.Content = new StringContent(
+                        JsonSerializer.Serialize(
+                            new
+                            {
+                                messages,
+                                tools = JsonSerializer.Deserialize<JsonElement>(toolsJson),
+                                max_tokens = maxTokens,
+                                stream = true,
+                            }, JsonOpts),
+                        Encoding.UTF8, "application/json");
+                    var resp = await cloudHttp.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                    if (resp.IsSuccessStatusCode) cloudResp = resp; else resp.Dispose();
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { /* 探活超时 → 回退 */ }
+            catch { /* 云端不可用 → 回退 */ }
+
+            if (cloudResp is not null)
+            {
+                using (cloudResp)
+                {
+                    await foreach (var evt in OpenAiSseClient.ParseSseResponseAsync(cloudResp, ct))
+                        yield return evt;
+                }
+                yield break;
+            }
+        }
+
+        // 2. 用户自填 Key 通道（OpenAI 兼容 /chat/completions + tools）
+        var profile = settings.ActiveLlmProfile();
+        var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
+        var apiKey = profile?.ApiKey?.Trim();
+        var model = profile?.Model?.Trim();
+        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model))
+            yield break; // 无可用通道 → 零事件，上层回退纯文本链
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linked.CancelAfter(TimeSpan.FromSeconds(120)); // 工具轮往返更长，放宽到 2 分钟
+        using var userHttp = new HttpClient();
+        await foreach (var evt in OpenAiSseClient.StreamChatAsync(
+            userHttp, $"{baseUrl}/chat/completions", apiKey, model,
+            messages, JsonSerializer.Deserialize<JsonElement>(toolsJson), maxTokens, linked.Token))
+        {
+            yield return evt;
+        }
+    }
 
     /// <summary>把服务端错误信封 <c>{ error: { code, message } }</c> 翻译成一句人话。</summary>
     private static string DescribeCloudError(HttpStatusCode status, string json)
