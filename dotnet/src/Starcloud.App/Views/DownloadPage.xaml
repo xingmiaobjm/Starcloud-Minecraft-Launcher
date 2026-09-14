@@ -634,6 +634,89 @@
                                     </StackPanel>
                                 </Expander>
 
+                                <!-- Quilt -->
+                                <Expander x:Name="QuiltExpander" HorizontalAlignment="Stretch"
+                                          HorizontalContentAlignment="Stretch">
+                                    <Expander.Header>
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Quilt" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock x:Name="QuiltStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                    </Expander.Header>
+                                    <StackPanel Spacing="10" Padding="4,4,4,8">
+                                        <Button x:Name="QuiltRecBtn" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch" CornerRadius="8"
+                                                Padding="12,9" BorderThickness="1"
+                                                Click="QuiltRec_Click">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock x:Name="QuiltRecVersion" FontWeight="SemiBold" />
+                                                    <TextBlock x:Name="QuiltRecNote" FontSize="11"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <Border x:Name="QuiltRecBadge" Grid.Column="1"
+                                                        Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                                        CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                    <TextBlock x:Name="QuiltRecBadgeText" loc:Loc.Text="推荐" FontSize="11"
+                                                               Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                                </Border>
+                                            </Grid>
+                                        </Button>
+                                        <TextBlock x:Name="QuiltCountText" loc:Loc.Text="全部版本 (0)" FontSize="13"
+                                                   FontWeight="SemiBold" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <ListView x:Name="QuiltBuildList" SelectionMode="None"
+                                                  IsItemClickEnabled="True" ItemClick="QuiltBuild_Click"
+                                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="48" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,1" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="local:LoaderBuildRow">
+                                                    <Grid Padding="10,7" ColumnSpacing="12"
+                                                          CornerRadius="8"
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{x:Bind Version}" FontWeight="SemiBold" />
+                                                            <TextBlock Text="{x:Bind Sub}" FontSize="11"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        </StackPanel>
+                                                        <Border Grid.Column="1" Visibility="{x:Bind SelectedVisibility}"
+                                                                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                                CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                            <TextBlock loc:Loc.Text="已选" FontSize="11"
+                                                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <TextBlock x:Name="QuiltEmptyText" loc:Loc.Text="暂无可用构建" Visibility="Collapsed"
+                                                   FontSize="12" Margin="4,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                </Expander>
+
                                 <!-- OptiFine（暂不支持安装） -->
                                 <Border Background="{ThemeResource GlassCardBrush}"
                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -658,11 +741,11 @@
                             <TextBlock x:Name="DetailStateText" HorizontalAlignment="Center" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Button x:Name="StartBtn" HorizontalAlignment="Center" Padding="30,10"
-                                    CornerRadius="24" Style="{StaticResource AccentButtonStyle}"
+                                    CornerRadius="24" Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
                                     Click="StartDownload_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <FontIcon Glyph="&#xE896;" FontSize="16" />
-                                    <TextBlock loc:Loc.Text="开始下载" FontSize="15" FontWeight="SemiBold" />
+                                    <TextBlock loc:Loc.Text="开始下载" FontSize="15" FontWeight="Bold" />
                                 </StackPanel>
                             </Button>
                         </StackPanel>
@@ -744,7 +827,7 @@
                                 <!-- 操作按钮 -->
                                 <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Spacing="8">
                                     <Button x:Name="SearchBtn" MinWidth="110"
-                                            Style="{ThemeResource AccentButtonStyle}" Click="SearchBtn_Click">
+                                            Style="{ThemeResource AccentButtonStyle}" FontWeight="Bold" Click="SearchBtn_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon Glyph="&#xE721;" FontSize="14" />
                                             <TextBlock loc:Loc.Text="搜索" />

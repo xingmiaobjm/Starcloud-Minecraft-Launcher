@@ -38,6 +38,11 @@ internal static class MrPackFlow
                 await s.Installer.InstallFabricAsync(game, fab, s.Settings, progress);
                 parts.Add($"Fabric {fab}");
             }
+            if (result.Dependencies.TryGetValue("quilt-loader", out var quilt))
+            {
+                await s.Installer.InstallQuiltAsync(game, quilt, s.Settings, progress);
+                parts.Add($"Quilt {quilt}");
+            }
             if (result.Dependencies.TryGetValue("forge", out var forge))
             {
                 await s.Forge.InstallViaInstallerAsync(

@@ -31,17 +31,18 @@ public sealed partial class DownloadPage : Page
     private string? _detailId;
     private bool _busy;
 
-    // ── 详情页加载器（Forge/NeoForge/Fabric 抽屉三选一） ──
-    private enum LoaderKind { Forge, NeoForge, Fabric }
+    // ── 详情页加载器（Forge/NeoForge/Fabric/Quilt 抽屉互斥选装） ──
+    private enum LoaderKind { Forge, NeoForge, Fabric, Quilt }
 
     private static readonly LoaderKind[] LoaderKeys =
-        [LoaderKind.Forge, LoaderKind.NeoForge, LoaderKind.Fabric];
+        [LoaderKind.Forge, LoaderKind.NeoForge, LoaderKind.Fabric, LoaderKind.Quilt];
 
     private static readonly Dictionary<LoaderKind, (string Name, string CacheKind)> LoaderInfo = new()
     {
         [LoaderKind.Forge] = ("Forge", "forge"),
         [LoaderKind.NeoForge] = ("NeoForge", "neoforge"),
         [LoaderKind.Fabric] = ("Fabric", "fabric"),
+        [LoaderKind.Quilt] = ("Quilt", "quilt"),
     };
 
     // 每个加载器的构建列表（null = 拉取中）与已选构建（null = 不安装）
@@ -335,17 +336,19 @@ public sealed partial class DownloadPage : Page
         }
         if (_detailId == id) RefreshLoaderUI();
 
-        // 并行拉取三家加载器的构建列表（失败时保留缓存或按无处理）
+        // 并行拉取四家加载器的构建列表（失败时保留缓存或按无处理）
         var forgeTask = SafeBuildsAsync(() => _s.Forge.ListForgeBuildsAsync(id));
         var neoTask = SafeBuildsAsync(() => _s.Forge.ListNeoForgeBuildsAsync(id));
         var fabricTask = SafeFabricBuildsAsync(id);
-        await Task.WhenAll(forgeTask, neoTask, fabricTask);
+        var quiltTask = SafeQuiltBuildsAsync(id);
+        await Task.WhenAll(forgeTask, neoTask, fabricTask, quiltTask);
 
         // 详情可能已被切换（用户快速返回再进入），仅当仍是当前详情时才应用
         if (_detailId != id) return;
         ApplyBuilds(LoaderKind.Forge, forgeTask.Result, id);
         ApplyBuilds(LoaderKind.NeoForge, neoTask.Result, id);
         ApplyBuilds(LoaderKind.Fabric, fabricTask.Result, id);
+        ApplyBuilds(LoaderKind.Quilt, quiltTask.Result, id);
     }
 
     /// <summary>应用拉取结果：成功则写缓存并覆盖，失败且无缓存按无处理</summary>
@@ -378,7 +381,19 @@ public sealed partial class DownloadPage : Page
         catch { return []; }
     }
 
-    // ════════════ 加载器抽屉渲染与互斥（Forge / NeoForge / Fabric 三选一） ════════════
+    private async Task<List<LoaderBuild>> SafeQuiltBuildsAsync(string id)
+    {
+        try
+        {
+            var loaders = await _s.Fabric.ListQuiltLoadersAsync(id);
+            return loaders
+                .Select(l => new LoaderBuild(l.Version, l.Loader.Stable ? null : Loc.T("预览版"), l.Loader.Stable))
+                .ToList();
+        }
+        catch { return []; }
+    }
+
+    // ════════════ 加载器抽屉渲染与互斥（Forge / NeoForge / Fabric / Quilt 互斥选装） ════════════
 
     private (Button Rec, TextBlock RecVersion, TextBlock RecNote, Border RecBadge, TextBlock RecBadgeText,
              TextBlock Count, ListView List, TextBlock Empty, TextBlock Status) LoaderControls(
@@ -389,6 +404,8 @@ public sealed partial class DownloadPage : Page
         LoaderKind.NeoForge => (NeoForgeRecBtn, NeoForgeRecVersion, NeoForgeRecNote, NeoForgeRecBadge,
                                 NeoForgeRecBadgeText, NeoForgeCountText, NeoForgeBuildList,
                                 NeoForgeEmptyText, NeoForgeStatus),
+        LoaderKind.Quilt => (QuiltRecBtn, QuiltRecVersion, QuiltRecNote, QuiltRecBadge, QuiltRecBadgeText,
+                             QuiltCountText, QuiltBuildList, QuiltEmptyText, QuiltStatus),
         _ => (FabricRecBtn, FabricRecVersion, FabricRecNote, FabricRecBadge, FabricRecBadgeText,
               FabricCountText, FabricBuildList, FabricEmptyText, FabricStatus),
     };
@@ -479,6 +496,7 @@ public sealed partial class DownloadPage : Page
     private void ForgeRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.Forge);
     private void NeoForgeRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.NeoForge);
     private void FabricRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.Fabric);
+    private void QuiltRec_Click(object s, RoutedEventArgs e) => PickRec(LoaderKind.Quilt);
 
     private void PickRec(LoaderKind kind)
     {
@@ -496,6 +514,9 @@ public sealed partial class DownloadPage : Page
 
     private void FabricBuild_Click(object s, ItemClickEventArgs e) =>
         PickBuildRow(LoaderKind.Fabric, e.ClickedItem);
+
+    private void QuiltBuild_Click(object s, ItemClickEventArgs e) =>
+        PickBuildRow(LoaderKind.Quilt, e.ClickedItem);
 
     private void PickBuildRow(LoaderKind kind, object clicked)
     {
@@ -519,6 +540,7 @@ public sealed partial class DownloadPage : Page
         var fabric = _picked.GetValueOrDefault(LoaderKind.Fabric);
         var forge = _picked.GetValueOrDefault(LoaderKind.Forge);
         var neo = _picked.GetValueOrDefault(LoaderKind.NeoForge);
+        var quilt = _picked.GetValueOrDefault(LoaderKind.Quilt);
 
         await RunInstallAsync(async progress =>
         {
@@ -562,6 +584,11 @@ public sealed partial class DownloadPage : Page
             {
                 await _s.Forge.InstallViaInstallerAsync(
                     ForgeInstallerService.NeoForgeInstallerUrl(id, neo), id, javaMajor, _s.Settings, progress);
+            }
+            if (quilt is not null)
+            {
+                progress.Report(new BatchProgress(Loc.T("安装 Quilt {0}", quilt), 0, 0, 0, 0, 0, null));
+                await _s.Installer.InstallQuiltAsync(id, quilt, _s.Settings, progress);
             }
         });
     }

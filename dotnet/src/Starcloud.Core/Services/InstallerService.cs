@@ -74,10 +74,22 @@ public sealed class InstallerService
     }
 
     /// <summary>安装 Fabric：拉 loader profile 合并保存，再装全量内容</summary>
-    public async Task InstallFabricAsync(string mcVersion, string loaderVersion,
-        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default)
+    public Task InstallFabricAsync(string mcVersion, string loaderVersion,
+        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default) =>
+        InstallLoaderProfileAsync(mcVersion, loaderVersion, settings, progress, ct,
+            "meta.fabricmc.net", "v2");
+
+    /// <summary>安装 Quilt：meta v3 profile 与 Fabric v2 同构，复用同一合并管线</summary>
+    public Task InstallQuiltAsync(string mcVersion, string loaderVersion,
+        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default) =>
+        InstallLoaderProfileAsync(mcVersion, loaderVersion, settings, progress, ct,
+            "meta.quiltmc.org", "v3");
+
+    private async Task InstallLoaderProfileAsync(string mcVersion, string loaderVersion,
+        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct,
+        string metaHost, string metaApi)
     {
-        var profileUrl = $"https://meta.fabricmc.net/v2/versions/loader/{mcVersion}/{loaderVersion}/profile/json";
+        var profileUrl = $"https://{metaHost}/{metaApi}/versions/loader/{mcVersion}/{loaderVersion}/profile/json";
         var profileJson = await _downloader.GetStringAsync(profileUrl, ct);
         var profile = JsonSerializer.Deserialize<FabricProfile>(profileJson)
                       ?? throw new InvalidOperationException("Fabric profile 解析失败");
