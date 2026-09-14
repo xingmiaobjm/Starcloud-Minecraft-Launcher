@@ -62,6 +62,10 @@ public sealed class NovaService
     /// <summary>当前实例上下文（VersionsPage/HomePage 选中时同步；回退 settings.LastVersion）</summary>
     private string? _currentInstance;
 
+    // 共享 HttpClient：每条消息 new 一个会烧端口 + 每次重做 TLS 握手（性能修复）
+    private static readonly HttpClient SharedHttp = new();
+    private static readonly HttpClient CloudHttp = new() { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -868,7 +872,7 @@ public sealed class NovaService
             messages.AddRange(history.Select(t => new { t.Role, t.Content }));
         messages.Add(new { role = "user", content = message });
 
-        using var http = new HttpClient();
+        var http = SharedHttp;
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
@@ -901,7 +905,7 @@ public sealed class NovaService
         cts.CancelAfter(TimeSpan.FromSeconds(5));
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+            var http = CloudHttp;
             var json = await http.GetStringAsync("/v1/health", cts.Token);
             using var doc = JsonDocument.Parse(json);
             return doc.RootElement.TryGetProperty("llm_active", out var active)
@@ -919,7 +923,7 @@ public sealed class NovaService
         IReadOnlyList<NovaChatTurn>? history, CancellationToken ct,
         bool fullLog = false, int? maxTokens = null)
     {
-        using var http = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+        var http = CloudHttp;
         using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/chat");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.ApiKey);
         req.Content = new StringContent(
@@ -959,7 +963,7 @@ public sealed class NovaService
         IReadOnlyList<NovaChatTurn>? history, [EnumeratorCancellation] CancellationToken ct,
         bool fullLog = false, int? maxTokens = null)
     {
-        using var http = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+        var http = CloudHttp;
         using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/chat");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.ApiKey);
         var body = JsonSerializer.Serialize(new
@@ -1009,7 +1013,7 @@ public sealed class NovaService
             messages.AddRange(history.Select(t => new { t.Role, t.Content }));
         messages.Add(new { role = "user", content = message });
 
-        using var http = new HttpClient();
+        var http = SharedHttp;
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
@@ -1043,8 +1047,8 @@ public sealed class NovaService
         //    未改造时多数报 4xx/解析不出 tool_calls → 静默回退用户 Key，旧格式文本也不炸）
         HttpResponseMessage? cloudResp = null;
         var session = _id.Current;
-        // HttpClient 必须活到整个迭代结束（响应内容是流式的，提前释放会掐断 SSE）
-        using var cloudHttp = new HttpClient { BaseAddress = new Uri(StarcloudIdService.CloudBaseUrl) };
+        // HttpClient 复用共享实例（响应内容是流式的，静态实例生命周期覆盖整个迭代）
+        var cloudHttp = CloudHttp;
         if (session is { Channel: StarcloudIdService.CloudChannel })
         {
             try
@@ -1093,7 +1097,7 @@ public sealed class NovaService
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linked.CancelAfter(TimeSpan.FromSeconds(120)); // 工具轮往返更长，放宽到 2 分钟
-        using var userHttp = new HttpClient();
+        var userHttp = SharedHttp;
         await foreach (var evt in OpenAiSseClient.StreamChatAsync(
             userHttp, $"{baseUrl}/chat/completions", apiKey, model,
             messages, JsonSerializer.Deserialize<JsonElement>(toolsJson), maxTokens, linked.Token))
