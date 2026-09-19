@@ -6,6 +6,11 @@ using Xunit;
 
 namespace Starcloud.Core.Tests;
 
+/// <summary>
+/// 通知中心与任务总线都是进程内单例：本类与 <see cref="TaskCenterServiceTests"/>
+/// 共用同一个 xUnit 集合，保证两者串行执行（否则任务收尾会在断言中途写入通知）。
+/// </summary>
+[Collection("进程内单例")]
 public class NotificationCenterTests
 {
     private static NotificationCenter Fresh()

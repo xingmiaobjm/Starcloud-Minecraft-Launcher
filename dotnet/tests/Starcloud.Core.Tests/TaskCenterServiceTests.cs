@@ -6,6 +6,8 @@ using Xunit;
 
 namespace Starcloud.Core.Tests;
 
+/// <summary>与 <see cref="NotificationCenterTests"/> 同集合：任务收尾会写通知中心，二者必须串行。</summary>
+[Collection("进程内单例")]
 public class TaskCenterServiceTests
 {
     private static TaskCenterService Fresh()
