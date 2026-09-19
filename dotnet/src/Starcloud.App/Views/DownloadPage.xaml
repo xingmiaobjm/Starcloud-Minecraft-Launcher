@@ -232,6 +232,7 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     local:HoverShadowBehavior.IsEnabled="True"
+                                    local:HoverShadowBehavior.Carrier="{Binding ElementName=LatestReleaseShadow}"
                                     Click="LatestTile_Click">
                                 <Grid ColumnSpacing="14">
                                     <Grid.ColumnDefinitions>
@@ -239,6 +240,20 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
+                                    <!-- 阴影载体：比瓦片略大，悬停时在背后投出阴影 -->
+                                    <!-- 阴影层：三层同心圆角矩形，悬停时整层淡入（不参与布局） -->
+                                    <Grid x:Name="LatestReleaseShadow" Grid.ColumnSpan="3" Opacity="0"
+                                          IsHitTestVisible="False">
+                                        <Border CornerRadius="18" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform><ScaleTransform ScaleX="1.016" ScaleY="1.16" /></Border.RenderTransform>
+                                        </Border>
+                                        <Border CornerRadius="17" Background="#17000000" RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform><ScaleTransform ScaleX="1.008" ScaleY="1.08" /></Border.RenderTransform>
+                                        </Border>
+                                        <Border CornerRadius="16" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform><ScaleTransform ScaleX="1.003" ScaleY="1.04" /></Border.RenderTransform>
+                                        </Border>
+                                    </Grid>
                                     <Grid Width="44" Height="44" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE7B8;" FontSize="22"
                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -267,6 +282,7 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     local:HoverShadowBehavior.IsEnabled="True"
+                                    local:HoverShadowBehavior.Carrier="{Binding ElementName=LatestSnapshotShadow}"
                                     Click="LatestTile_Click">
                                 <Grid ColumnSpacing="14">
                                     <Grid.ColumnDefinitions>
@@ -274,6 +290,18 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
+                                    <Grid x:Name="LatestSnapshotShadow" Grid.ColumnSpan="3" Opacity="0"
+                                          IsHitTestVisible="False">
+                                        <Border CornerRadius="18" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform><ScaleTransform ScaleX="1.016" ScaleY="1.16" /></Border.RenderTransform>
+                                        </Border>
+                                        <Border CornerRadius="17" Background="#17000000" RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform><ScaleTransform ScaleX="1.008" ScaleY="1.08" /></Border.RenderTransform>
+                                        </Border>
+                                        <Border CornerRadius="16" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform><ScaleTransform ScaleX="1.003" ScaleY="1.04" /></Border.RenderTransform>
+                                        </Border>
+                                    </Grid>
                                     <Grid Width="44" Height="44" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE7B8;" FontSize="22"
                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -316,8 +344,21 @@
                                         <Grid Margin="2,2" CornerRadius="10"
                                               Background="{ThemeResource ControlFillColorSecondaryBrush}"
                                               local:HoverShadowBehavior.IsEnabled="True"
+                                              local:HoverShadowBehavior.Carrier="{Binding ElementName=RowShadow}"
                                               local:RowHoverBehavior.IsEnabled="True"
                                               local:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
+                                            <!-- 阴影载体：行卡背后一层，悬停时投出阴影 -->
+                                            <Grid x:Name="RowShadow" Opacity="0" IsHitTestVisible="False">
+                                                <Border CornerRadius="14" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
+                                                    <Border.RenderTransform><ScaleTransform ScaleX="1.012" ScaleY="1.2" /></Border.RenderTransform>
+                                                </Border>
+                                                <Border CornerRadius="13" Background="#17000000" RenderTransformOrigin="0.5,0.5">
+                                                    <Border.RenderTransform><ScaleTransform ScaleX="1.006" ScaleY="1.1" /></Border.RenderTransform>
+                                                </Border>
+                                                <Border CornerRadius="12" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
+                                                    <Border.RenderTransform><ScaleTransform ScaleX="1.002" ScaleY="1.05" /></Border.RenderTransform>
+                                                </Border>
+                                            </Grid>
                                             <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
                                             <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
                                                     IsHitTestVisible="False"
@@ -358,10 +399,23 @@
                                                     Background="Transparent" BorderThickness="0"
                                                     Margin="2,2" Padding="0" CornerRadius="10"
                                                     local:HoverShadowBehavior.IsEnabled="True"
+                                                    local:HoverShadowBehavior.Carrier="{Binding ElementName=HeaderShadow}"
                                                     local:RowHoverBehavior.IsEnabled="True"
                                                     local:RowHoverBehavior.Overlay="{Binding ElementName=HeaderHover}">
                                                 <Grid CornerRadius="10"
                                                       Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                    <!-- 阴影载体：组头卡片背后一层 -->
+                                                    <Grid x:Name="HeaderShadow" Opacity="0" IsHitTestVisible="False">
+                                                        <Border CornerRadius="14" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
+                                                            <Border.RenderTransform><ScaleTransform ScaleX="1.012" ScaleY="1.2" /></Border.RenderTransform>
+                                                        </Border>
+                                                        <Border CornerRadius="13" Background="#17000000" RenderTransformOrigin="0.5,0.5">
+                                                            <Border.RenderTransform><ScaleTransform ScaleX="1.006" ScaleY="1.1" /></Border.RenderTransform>
+                                                        </Border>
+                                                        <Border CornerRadius="12" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
+                                                            <Border.RenderTransform><ScaleTransform ScaleX="1.002" ScaleY="1.05" /></Border.RenderTransform>
+                                                        </Border>
+                                                    </Grid>
                                                     <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
                                                     <Border x:Name="HeaderHover" CornerRadius="10" Opacity="0"
                                                             IsHitTestVisible="False"
@@ -411,8 +465,20 @@
                                                             <Grid Margin="2,2" CornerRadius="10"
                                                                   Background="{ThemeResource ControlFillColorSecondaryBrush}"
                                                                   local:HoverShadowBehavior.IsEnabled="True"
+                                                                  local:HoverShadowBehavior.Carrier="{Binding ElementName=ChildShadow}"
                                                                   local:RowHoverBehavior.IsEnabled="True"
                                                                   local:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
+                                                                <Grid x:Name="ChildShadow" Opacity="0" IsHitTestVisible="False">
+                                                                    <Border CornerRadius="14" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
+                                                                        <Border.RenderTransform><ScaleTransform ScaleX="1.012" ScaleY="1.2" /></Border.RenderTransform>
+                                                                    </Border>
+                                                                    <Border CornerRadius="13" Background="#17000000" RenderTransformOrigin="0.5,0.5">
+                                                                        <Border.RenderTransform><ScaleTransform ScaleX="1.006" ScaleY="1.1" /></Border.RenderTransform>
+                                                                    </Border>
+                                                                    <Border CornerRadius="12" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
+                                                                        <Border.RenderTransform><ScaleTransform ScaleX="1.002" ScaleY="1.05" /></Border.RenderTransform>
+                                                                    </Border>
+                                                                </Grid>
                                                                 <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
                                                                 <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
                                                                         IsHitTestVisible="False"

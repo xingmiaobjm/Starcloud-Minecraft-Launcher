@@ -1,43 +1,33 @@
-// 悬浮抬升阴影附加属性：鼠标移入时元素「浮起」并在下方承接面上投出阴影，移出落回。
+// 悬浮阴影附加属性：鼠标移入时元素「浮起」、背后的阴影层渐显，移出归零。
 //
-// 用合成层的 CompositionProjectedShadow（投影阴影）：阴影画在**承接面**（Receiver）上，
-// 而不是画在元素自己身上——这是相对于 ThemeShadow / SetElementChildVisual 的关键差别，
-// 后者在当前 WinUI 3 版本下要么不渲染（承接面推断不成立），要么会把阴影糊在元素内容之上。
+// 实现取向（在 ThemeShadow / CompositionProjectedShadow / DropShadow 三种合成阴影都试过、
+// 本机要么不渲染要么图层不对之后定的）：**阴影本身就是 XAML 元素**。
+// 调用方在卡片背后放一层「阴影层」（几个同心半透明圆角矩形，靠 RenderTransform 缩放外扩、
+// 不参与布局），本行为只做一件事——把这一层的合成 Opacity 在 0/1 之间做动画。
 //
-// 承接面取法：优先用 Receiver 附加属性显式指定（顶栏按钮 → 标题栏），
-// 未指定时向上找最近一个"有底色"的祖先（版本行 → 所在卡片）。
+// 组件层只做「已知在本项目里稳定生效」的事：合成 Opacity/Translation 动画（界面里其它
+// 淡入淡出、错峰入场、交叉过渡都用它，实测生效），不碰任何需要推断承接面的阴影 API。
 //
-// 抬升高度走合成层 Translation（独立动画，不触发布局）；阴影不透明度同属合成动画。
-// 动效关闭时完全不接线（零开销），任一环节失败静默放弃该元素。
+// 动效关闭时直接到位（该显示就显示、该隐藏就隐藏），任一环节失败静默降级。
 
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Services;
 
 namespace Starcloud.App.Views;
 
-/// <summary>悬浮抬升阴影：悬停时沿 Z 轴抬起并在承接面上投出阴影，同时轻微上移 1px，移出归零。</summary>
+/// <summary>悬浮抬升阴影：悬停时背后的阴影层渐显、元素轻微上移，移出归零。</summary>
 public static class HoverShadowBehavior
 {
-    /// <summary>悬停抬升高度（px）：越大阴影偏移越明显</summary>
-    private const float HoverLiftZ = 44f;
-
-    /// <summary>悬停时的微量上移（px）：配合阴影一起读作"浮起"</summary>
+    /// <summary>悬停时元素的微量上移（px）</summary>
     private const float HoverLiftY = -1f;
-
-    /// <summary>模糊半径倍率（0~1）：越大越散</summary>
-    private const float ShadowBlurMultiplier = 0.72f;
 
     private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(170);
     private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(140);
-
-    private const int MaxReceiverSearchDepth = 8;
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -52,19 +42,28 @@ public static class HoverShadowBehavior
 
     public static void SetIsEnabled(DependencyObject element, bool value) => element.SetValue(IsEnabledProperty, value);
 
-    /// <summary>阴影承接元素（阴影画在它上面）；不指定时向上找最近的有底色祖先</summary>
-    public static readonly DependencyProperty ReceiverProperty =
+    /// <summary>阴影层元素（卡片背后那层）：悬停时它的 Opacity 由 0 渐显到 1</summary>
+    public static readonly DependencyProperty CarrierProperty =
         DependencyProperty.RegisterAttached(
-            "Receiver",
+            "Carrier",
             typeof(FrameworkElement),
             typeof(HoverShadowBehavior),
-            new PropertyMetadata(null));
+            new PropertyMetadata(null, OnCarrierChanged));
 
-    public static FrameworkElement? GetReceiver(DependencyObject element) =>
-        (FrameworkElement?)element.GetValue(ReceiverProperty);
+    public static FrameworkElement? GetCarrier(DependencyObject element) =>
+        (FrameworkElement?)element.GetValue(CarrierProperty);
 
-    public static void SetReceiver(DependencyObject element, FrameworkElement? value) =>
-        element.SetValue(ReceiverProperty, value);
+    public static void SetCarrier(DependencyObject element, FrameworkElement? value) =>
+        element.SetValue(CarrierProperty, value);
+
+    /// <summary>载体是绑定来的，可能在 IsEnabled 之后才解析出值——解析到就再试一次接线</summary>
+    private static void OnCarrierChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not FrameworkElement fe || e.NewValue is not FrameworkElement) return;
+        if (!GetIsEnabled(fe)) return;
+        Unwire(fe);
+        Wire(fe);
+    }
 
     private static void OnIsEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -77,42 +76,27 @@ public static class HoverShadowBehavior
     {
         var state = States.GetOrCreateValue(element);
         if (state.Wired) return;
-        if (!AppServices.Instance.Motion.Enabled) return; // 动效关闭：零开销
+        if (GetCarrier(element) is not { } layer)
+        {
+            // 阴影层还没解析出来（绑定晚于 IsEnabled）：挂一次性 Loaded 兜底重试
+            element.Loaded -= RetryOnLoaded;
+            element.Loaded += RetryOnLoaded;
+            return;
+        }
 
         try
         {
-            var casterVisual = ElementCompositionPreview.GetElementVisual(element);
+            state.Visual = ElementCompositionPreview.GetElementVisual(element);
+            state.LayerVisual = ElementCompositionPreview.GetElementVisual(layer);
+            state.Compositor = state.Visual.Compositor;
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
-            state.Visual = casterVisual;
-            state.Compositor = casterVisual.Compositor;
-
-            var receiverElement = ResolveReceiver(element);
-            if (receiverElement is null) return;              // 没有承接面：宁可不投影，也不糊在元素上
-            var receiverVisual = ElementCompositionPreview.GetElementVisual(receiverElement);
-
-            var shadow = state.Compositor!.CreateProjectedShadow();
-            shadow.BlurRadiusMultiplier = ShadowBlurMultiplier;
-            // 阴影方向由光源决定：给一个从左上打来的远景光，阴影自然落在右下
-            var light = state.Compositor.CreateDistantLight();
-            light.Direction = new Vector3(0.35f, 0.55f, -1f);
-            light.CoordinateSpace = receiverVisual;
-            shadow.LightSource = light;
-
-            var caster = state.Compositor.CreateProjectedShadowCaster();
-            caster.CastingVisual = casterVisual;
-            var receiver = state.Compositor.CreateProjectedShadowReceiver();
-            receiver.ReceivingVisual = receiverVisual;
-            shadow.Casters.InsertAtTop(caster);
-            shadow.Receivers.Add(receiver);
-
-            state.Shadow = shadow;
-            state.Light = light;
-            state.Caster = caster;
-            state.Receiver = receiver;
+            state.Layer = layer;
+            state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
         }
         catch
         {
             state.Visual = null;
+            state.LayerVisual = null;
             state.Compositor = null;
             return;
         }
@@ -123,6 +107,15 @@ public static class HoverShadowBehavior
         state.Wired = true;
     }
 
+    private static void RetryOnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        fe.Loaded -= RetryOnLoaded;
+        if (!GetIsEnabled(fe)) return;
+        if (States.TryGetValue(fe, out var s) && s.Wired) return;
+        Wire(fe);
+    }
+
     private static void Unwire(FrameworkElement element)
     {
         if (!States.TryGetValue(element, out var state) || !state.Wired) return;
@@ -131,59 +124,50 @@ public static class HoverShadowBehavior
         element.Unloaded -= OnUnloaded;
         state.Wired = false;
         ResetState(state);
-        state.Shadow = null;
-        state.Light = null;
-        state.Caster = null;
-        state.Receiver = null;
     }
 
-    /// <summary>
-    /// 承接面：显式 Receiver → 最近的有可见底色的祖先 → 一路向上一路记，最后取窗口内容根。
-    /// 取根元素是因为内容区（下载页等）的容器多半没有自己的底色，页底其实是窗口合成背景；
-    /// 把阴影投在根元素的合成面上，视觉上正好落在元素「身后」。
-    /// </summary>
-    private static FrameworkElement? ResolveReceiver(FrameworkElement element)
+    /// <summary>阴影层不透明度 + 元素上移：都是合成动画，不触发布局</summary>
+    private static void Animate(State state, bool hovered, TimeSpan duration)
     {
-        if (GetReceiver(element) is { } explicitReceiver) return explicitReceiver;
         try
         {
-            FrameworkElement? lastAncestor = null;
-            var current = VisualTreeHelper.GetParent(element) as FrameworkElement;
-            for (var depth = 0; current is not null && depth < MaxReceiverSearchDepth; depth++)
+            if (state.Compositor is not { } compositor) return;
+            var ease = compositor.CreateCubicBezierEasingFunction(
+                new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+
+            if (state.LayerVisual is { } layerVisual)
             {
-                if (HasPaintedBackground(current)) return current;    // 有可见底色 = 能接住阴影
-                lastAncestor = current;
-                current = VisualTreeHelper.GetParent(current) as FrameworkElement;
+                var fade = compositor.CreateScalarKeyFrameAnimation();
+                fade.Duration = duration;
+                fade.InsertKeyFrame(1f, hovered ? 1f : 0f, ease);
+                layerVisual.StartAnimation("Opacity", fade);
             }
-            return lastAncestor;
+
+            if (state.Visual is { } visual)
+            {
+                var lift = compositor.CreateVector3KeyFrameAnimation();
+                lift.Duration = duration;
+                lift.InsertKeyFrame(1f, hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero, ease);
+                visual.StartAnimation("Translation", lift);
+            }
         }
         catch
         {
-            return null;
+            // 静默：动效失败不影响功能
         }
     }
 
-    /// <summary>该元素是否涂了「可见」底色（透明底会被投影裁掉，不能当承接面）</summary>
-    private static bool HasPaintedBackground(FrameworkElement element)
-    {
-        var brush = element switch
-        {
-            Border border => border.Background,
-            Panel panel => panel.Background,
-            Control control => control.Background,
-            _ => null,
-        };
-        if (brush is null || brush.Opacity <= 0) return false;
-        if (brush is SolidColorBrush solid) return solid.Color.A > 0;
-        return true;   // 亚克力 / 渐变 / 主题刷：按可见处理
-    }
-
-    /// <summary>复位到常态（容器回收 / 卸载时调用，避免残留抬升与阴影）</summary>
+    /// <summary>复位到常态（容器回收 / 卸载时调用）</summary>
     private static void ResetState(State state)
     {
         state.Hovered = false;
         try
         {
+            if (state.LayerVisual is { } layerVisual)
+            {
+                layerVisual.StopAnimation("Opacity");
+                layerVisual.Opacity = 0f;
+            }
             if (state.Visual is { } visual)
             {
                 visual.StopAnimation("Translation");
@@ -192,42 +176,22 @@ public static class HoverShadowBehavior
         }
         catch
         {
-            // 静默：无动效不影响功能
-        }
-    }
-
-    private static void AnimateLift(State state, bool hovered, TimeSpan duration)
-    {
-        try
-        {
-            if (state.Visual is not { } visual || state.Compositor is not { } compositor) return;
-            var target = hovered ? new Vector3(0f, HoverLiftY, HoverLiftZ) : Vector3.Zero;
-            var anim = compositor.CreateVector3KeyFrameAnimation();
-            anim.Duration = duration;
-            anim.InsertKeyFrame(1f, target, Ease(compositor));
-            visual.StartAnimation("Translation", anim);
-        }
-        catch
-        {
             // 静默
         }
     }
-
-    private static CompositionEasingFunction Ease(Compositor compositor) =>
-        compositor.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
 
     private static void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = true;
-        AnimateLift(s, true, HoverIn);
+        Animate(s, true, HoverIn);
     }
 
     private static void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = false;
-        AnimateLift(s, false, HoverOut);
+        Animate(s, false, HoverOut);
     }
 
     private static void OnUnloaded(object sender, RoutedEventArgs e)
@@ -240,10 +204,8 @@ public static class HoverShadowBehavior
     {
         public Compositor? Compositor;
         public Visual? Visual;
-        public CompositionProjectedShadow? Shadow;
-        public DistantLight? Light;
-        public CompositionProjectedShadowCaster? Caster;
-        public CompositionProjectedShadowReceiver? Receiver;
+        public Visual? LayerVisual;
+        public FrameworkElement? Layer;
         public bool Wired;
         public bool Hovered;
     }
