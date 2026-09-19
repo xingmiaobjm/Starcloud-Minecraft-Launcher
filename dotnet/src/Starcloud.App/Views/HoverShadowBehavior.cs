@@ -340,9 +340,9 @@ public static class HoverShadowBehavior
         var h = element.ActualHeight;
         if (w <= 0 || h <= 0) return;
 
-        // 以短边为基准 → 像素上是正圆；系数放大到 1.15 让衰减铺得更开（羽化更柔）
-        // 系数 1.35 + 下限 36px：衰减铺得更开，羽化更柔
-        var radiusPx = Math.Max(36d, Math.Min(w, h) * 1.35);
+        // 半径按对角线取：卡片再大也能覆盖到边缘与角落（近处深、远处浅），不会出现"离光标远的那一侧没被染到"。
+        // 小元素（按钮/图标卡）用下限兜底，保持"一束光"的紧凑手感。
+        var radiusPx = Math.Max(36d, 0.6 * Math.Sqrt(w * w + h * h));
         brush.RadiusX = radiusPx / w;
         brush.RadiusY = radiusPx / h;
 
