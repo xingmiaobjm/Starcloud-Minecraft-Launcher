@@ -126,15 +126,24 @@ public static class ExpandBehavior
         {
             element.Height = from;
 
-            var animation = new DoubleAnimation
+            // 高度是依赖型属性，只能用 XAML Storyboard（合成层拿不到），所以开 EnableDependentAnimation。
+            // 曲线用 SplineDoubleKeyFrame 直接写 Fluent 关键样条本体，不再用内置缓动类近似。
+            var animation = new DoubleAnimationUsingKeyFrames
             {
-                From = from,
-                To = to,
                 Duration = duration,
-                EnableDependentAnimation = true, // 高度是依赖型属性，不开这个动画会被忽略
-                // 指数缓出近似 Fluent 的 Fast Out, Slow In（XAML 动画只能用内置缓动类）
-                EasingFunction = new ExponentialEase { Exponent = 4, EasingMode = EasingMode.EaseOut },
+                EnableDependentAnimation = true, // 不开这个，依赖型属性上的动画会被直接忽略
             };
+            animation.KeyFrames.Add(new LinearDoubleKeyFrame
+            {
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+                Value = from,
+            });
+            animation.KeyFrames.Add(new SplineDoubleKeyFrame
+            {
+                KeyTime = KeyTime.FromTimeSpan(duration),
+                Value = to,
+                KeySpline = to >= from ? MotionFx.CreateEnterSpline() : MotionFx.CreateExitSpline(),
+            });
             var storyboard = new Storyboard();
             Storyboard.SetTarget(animation, element);
             Storyboard.SetTargetProperty(animation, "Height");

@@ -7,10 +7,13 @@
 // 不经过 UI 线程排版，列表滚动或数据回填时不会互相打架。
 
 using System.Numerics;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Media.Animation;
 using Starcloud.App.Views;
+using Windows.Foundation;
 
 namespace Starcloud.App.Services;
 
@@ -34,6 +37,38 @@ public static class MotionFx
 
     /// <summary>默认退场时长（退场必须比入场快，读起来才利落）</summary>
     public const int ExitMs = 140;
+
+    /// <summary>
+    /// XAML <see cref="Storyboard"/> 用的 Fluent 进场样条（Fast Out, Slow In）。
+    /// 依赖型属性（如高度）上不了合成层，只能用 <see cref="SplineDoubleKeyFrame"/> 直接写样条本体。
+    /// </summary>
+    public static KeySpline CreateEnterSpline() => new()
+    {
+        ControlPoint1 = new Point(0.1, 0.9),
+        ControlPoint2 = new Point(0.2, 1),
+    };
+
+    /// <summary>XAML <see cref="Storyboard"/> 用的 Fluent 退场样条（Slow Out, Fast In）。</summary>
+    public static KeySpline CreateExitSpline() => new()
+    {
+        ControlPoint1 = new Point(0.7, 0),
+        ControlPoint2 = new Point(1, 0.5),
+    };
+
+    /// <summary>合成层 Fluent 进场缓动（Fast Out, Slow In）。</summary>
+    public static CompositionEasingFunction EnterEase(Compositor compositor) =>
+        compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
+
+    /// <summary>合成层 Fluent 退场缓动（Slow Out, Fast In）。</summary>
+    public static CompositionEasingFunction ExitEase(Compositor compositor) =>
+        compositor.CreateCubicBezierEasingFunction(ExitControl1, ExitControl2);
+
+    /// <summary>
+    /// 合成层 Fluent 控件缓动（ControlFastOutSlowIn，<c>(0.16,1)/(0.3,1)</c>）：
+    /// 用于小控件、指示器这类"要比表面更快收尾"的位移。
+    /// </summary>
+    public static CompositionEasingFunction ControlEase(Compositor compositor) =>
+        compositor.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
 
     /// <summary>
     /// 淡入 + 位移到位。
@@ -64,8 +99,8 @@ public static class MotionFx
             visual.StopAnimation("Opacity");
             visual.StopAnimation("Translation");
 
-            // 透明度与位移都走 Fluent 入场曲线（同样是当量缓动，只是用关键帧配合错峰延迟）
-            var ease = compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
+            // 透明度与位移都走 Fluent 入场曲线（关键帧 + 错峰延迟）
+            var ease = EnterEase(compositor);
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
             fade.DelayTime = TimeSpan.FromMilliseconds(delayMs);
@@ -102,7 +137,7 @@ public static class MotionFx
             }
 
             var compositor = visual.Compositor;
-            var ease = compositor.CreateCubicBezierEasingFunction(ExitControl1, ExitControl2);
+            var ease = ExitEase(compositor);
 
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
@@ -115,7 +150,7 @@ public static class MotionFx
         }
     }
 
-    /// <summary>只做淡入、不做位移：用于"高度已经在动，再叠位移就会显得多余/拖尾"的场景（如抽屉展开）。</summary>
+    /// <summary>只做淡入、不做位移：用于"高度已经在动，再叠位移就会显得多余/拖尾"的场景。</summary>
     public static void FadeIn(FrameworkElement element, int durationMs = EnterMs, int delayMs = 0)
     {
         try
@@ -130,7 +165,7 @@ public static class MotionFx
 
             var compositor = visual.Compositor;
             visual.StopAnimation("Opacity");
-            var ease = compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
+            var ease = EnterEase(compositor);
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
             fade.DelayTime = TimeSpan.FromMilliseconds(delayMs);

@@ -138,13 +138,19 @@ public static class RowHoverBehavior
             state.Lift?.Stop();
             transform.Y = 0; // 基准值保持 0：视觉位置完全由动画的 From/To 决定
 
-            var slide = new DoubleAnimation
+            // 曲线与合成层动效同源：往"上浮"方向走用进场样条，往回收用退场样条
+            var slide = new DoubleAnimationUsingKeyFrames { Duration = duration };
+            slide.KeyFrames.Add(new LinearDoubleKeyFrame
             {
-                From = from,
-                To = lift,
-                Duration = duration,
-                EasingFunction = new ExponentialEase { Exponent = 4, EasingMode = EasingMode.EaseOut },
-            };
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+                Value = from,
+            });
+            slide.KeyFrames.Add(new SplineDoubleKeyFrame
+            {
+                KeyTime = KeyTime.FromTimeSpan(duration),
+                Value = lift,
+                KeySpline = lift >= from ? MotionFx.CreateEnterSpline() : MotionFx.CreateExitSpline(),
+            });
             var storyboard = new Storyboard();
             Storyboard.SetTarget(slide, element);
             Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(TranslateTransform.Y)");
@@ -201,9 +207,8 @@ public static class RowHoverBehavior
         }
     }
 
-    /// <summary>收尾平缓的 expo-out：起步快、末段慢，悬浮手感不"生硬"</summary>
-    private static CompositionEasingFunction Ease(Compositor compositor) =>
-        compositor.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+    /// <summary>收尾平缓的 Fluent 控件曲线：起步快、末段慢，悬浮手感不"生硬"</summary>
+    private static CompositionEasingFunction Ease(Compositor compositor) => MotionFx.ControlEase(compositor);
 
     private static void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {

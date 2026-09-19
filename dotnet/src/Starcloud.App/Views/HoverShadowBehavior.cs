@@ -227,8 +227,7 @@ public static class HoverShadowBehavior
         try
         {
             if (state.Compositor is not { } compositor) return;
-            var ease = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+            var ease = MotionFx.ControlEase(compositor);
 
             if (state.LayerVisual is { } layerVisual)
             {
@@ -243,9 +242,7 @@ public static class HoverShadowBehavior
                 // 抬升：Fluent 曲线（进场快出慢收、移出慢出快收），不回弹也不拖尾
                 var lift = compositor.CreateVector3KeyFrameAnimation();
                 lift.Duration = duration;
-                var curve = hovered
-                    ? compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f))
-                    : compositor.CreateCubicBezierEasingFunction(new Vector2(0.7f, 0f), new Vector2(1f, 0.5f));
+                var curve = hovered ? MotionFx.EnterEase(compositor) : MotionFx.ExitEase(compositor);
                 lift.InsertKeyFrame(1f, hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero, curve);
                 visual.StartAnimation("Translation", lift);
             }

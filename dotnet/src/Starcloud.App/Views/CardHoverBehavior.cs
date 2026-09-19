@@ -110,8 +110,7 @@ public static class CardHoverBehavior
         {
             if (state.Visual is not { } visual || state.Compositor is not { } compositor) return;
             UpdateCenter(element, visual);
-            var easing = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1.0f));
+            var easing = MotionFx.EnterEase(compositor);
 
             var scaleAnim = compositor.CreateVector3KeyFrameAnimation();
             scaleAnim.Duration = Duration;

@@ -275,8 +275,7 @@ public sealed partial class DownloadPage : Page
             var compositor = visual.Compositor;
             var anim = compositor.CreateVector3KeyFrameAnimation();
             anim.Duration = TimeSpan.FromMilliseconds(260);
-            anim.InsertKeyFrame(1f, target, compositor.CreateCubicBezierEasingFunction(
-                new System.Numerics.Vector2(0.16f, 1f), new System.Numerics.Vector2(0.3f, 1f)));
+            anim.InsertKeyFrame(1f, target, MotionFx.ControlEase(compositor));
             visual.StartAnimation("Translation", anim);
         }
         catch
@@ -460,8 +459,7 @@ public sealed partial class DownloadPage : Page
             var compositor = visual.Compositor;
             var anim = compositor.CreateScalarKeyFrameAnimation();
             anim.Duration = TimeSpan.FromMilliseconds(220);
-            anim.InsertKeyFrame(1f, angle, compositor.CreateCubicBezierEasingFunction(
-                new System.Numerics.Vector2(0.16f, 1f), new System.Numerics.Vector2(0.3f, 1f)));
+            anim.InsertKeyFrame(1f, angle, MotionFx.ControlEase(compositor));
             visual.StartAnimation("RotationAngleInDegrees", anim);
         }
         catch
