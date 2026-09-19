@@ -140,8 +140,10 @@
                                 </ListView.ItemContainerStyle>
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:VersionRow">
-                                        <Border CornerRadius="4" Padding="10,7"
+                                        <Border CornerRadius="4"
                                                 local:CardHoverBehavior.IsEnabled="True"
+                                                local:HoverShadowBehavior.IsEnabled="True"
+                                                local:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
                                                 RightTapped="VersionRow_RightTapped">
                                             <Border.ContextFlyout>
                                                 <MenuFlyout>
@@ -169,7 +171,23 @@
                                                     </MenuFlyoutItem>
                                                 </MenuFlyout>
                                             </Border.ContextFlyout>
-                                            <Grid ColumnSpacing="8">
+                                            <Grid>
+                                                <!-- 跟随光标的卡片内阴影：只画落在本行内的那一段（文字在它之上） -->
+                                                <Border x:Name="VersionRowGlow" CornerRadius="4" Opacity="0"
+                                                        IsHitTestVisible="False">
+                                                    <Border.Background>
+                                                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                                             RadiusX="0.2" RadiusY="0.5">
+                                                            <GradientStop Color="#28000000" Offset="0" />
+                                                            <GradientStop Color="#1F000000" Offset="0.18" />
+                                                            <GradientStop Color="#16000000" Offset="0.40" />
+                                                            <GradientStop Color="#0D000000" Offset="0.62" />
+                                                            <GradientStop Color="#05000000" Offset="0.82" />
+                                                            <GradientStop Color="#00000000" Offset="1" />
+                                                        </RadialGradientBrush>
+                                                    </Border.Background>
+                                                </Border>
+                                                <Grid ColumnSpacing="8" Padding="10,7">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
@@ -180,6 +198,7 @@
                                                 <TextBlock Grid.Column="1" Text="{x:Bind SizeText}"
                                                            FontSize="11" VerticalAlignment="Center"
                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </Grid>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
@@ -203,9 +222,25 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Padding="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Button Grid.Column="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        local:HoverShadowBehavior.IsEnabled="True"
+                        local:HoverShadowBehavior.Carrier="{Binding ElementName=TileDownloadGlow}"
                         loc:Loc.Name="下载版本" Click="TileDownload_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Grid>
+                        <Border x:Name="TileDownloadGlow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
+                            <Border.Background>
+                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                     RadiusX="0.2" RadiusY="0.5">
+                                    <GradientStop Color="#28000000" Offset="0" />
+                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                    <GradientStop Color="#00000000" Offset="1" />
+                                </RadialGradientBrush>
+                            </Border.Background>
+                        </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="12" Padding="16">
                         <FontIcon Glyph="&#xE896;" FontSize="18"
                                   Foreground="{ThemeResource BrandBlueBrush}" />
                         <StackPanel Spacing="4">
@@ -214,10 +249,27 @@
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
+                    </Grid>
                 </Button>
-                <Button Grid.Column="1" Padding="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Button Grid.Column="1" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        local:HoverShadowBehavior.IsEnabled="True"
+                        local:HoverShadowBehavior.Carrier="{Binding ElementName=TileModsGlow}"
                         loc:Loc.Name="模组资源" Click="TileMods_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Grid>
+                        <Border x:Name="TileModsGlow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
+                            <Border.Background>
+                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                     RadiusX="0.2" RadiusY="0.5">
+                                    <GradientStop Color="#28000000" Offset="0" />
+                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                    <GradientStop Color="#00000000" Offset="1" />
+                                </RadialGradientBrush>
+                            </Border.Background>
+                        </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="12" Padding="16">
                         <FontIcon Glyph="&#xE71D;" FontSize="18"
                                   Foreground="{ThemeResource BrandBlueBrush}" />
                         <StackPanel Spacing="4">
@@ -226,10 +278,27 @@
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
+                    </Grid>
                 </Button>
-                <Button Grid.Column="2" Padding="16" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Button Grid.Column="2" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        local:HoverShadowBehavior.IsEnabled="True"
+                        local:HoverShadowBehavior.Carrier="{Binding ElementName=TileMultiGlow}"
                         loc:Loc.Name="好友联机" Click="TileMultiplayer_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Grid>
+                        <Border x:Name="TileMultiGlow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
+                            <Border.Background>
+                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                     RadiusX="0.2" RadiusY="0.5">
+                                    <GradientStop Color="#28000000" Offset="0" />
+                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                    <GradientStop Color="#00000000" Offset="1" />
+                                </RadialGradientBrush>
+                            </Border.Background>
+                        </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="12" Padding="16">
                         <FontIcon Glyph="&#xE716;" FontSize="18"
                                   Foreground="{ThemeResource BrandBlueBrush}" />
                         <StackPanel Spacing="4">
@@ -238,6 +307,7 @@
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
+                    </Grid>
                 </Button>
             </Grid>
         </Grid>

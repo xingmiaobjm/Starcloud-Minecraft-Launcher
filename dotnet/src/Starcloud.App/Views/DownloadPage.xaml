@@ -245,11 +245,11 @@
                                             Opacity="0" IsHitTestVisible="False">
                                         <Border.Background>
                                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                                <GradientStop Color="#3E000000" Offset="0" />
-                                                <GradientStop Color="#30000000" Offset="0.18" />
-                                                <GradientStop Color="#22000000" Offset="0.40" />
-                                                <GradientStop Color="#14000000" Offset="0.62" />
-                                                <GradientStop Color="#08000000" Offset="0.82" />
+                                                <GradientStop Color="#28000000" Offset="0" />
+                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                <GradientStop Color="#05000000" Offset="0.82" />
                                                 <GradientStop Color="#00000000" Offset="1" />
                                             </RadialGradientBrush>
                                         </Border.Background>
@@ -294,11 +294,11 @@
                                             Opacity="0" IsHitTestVisible="False">
                                         <Border.Background>
                                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                                <GradientStop Color="#3E000000" Offset="0" />
-                                                <GradientStop Color="#30000000" Offset="0.18" />
-                                                <GradientStop Color="#22000000" Offset="0.40" />
-                                                <GradientStop Color="#14000000" Offset="0.62" />
-                                                <GradientStop Color="#08000000" Offset="0.82" />
+                                                <GradientStop Color="#28000000" Offset="0" />
+                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                <GradientStop Color="#05000000" Offset="0.82" />
                                                 <GradientStop Color="#00000000" Offset="1" />
                                             </RadialGradientBrush>
                                         </Border.Background>
@@ -357,11 +357,11 @@
                                                     IsHitTestVisible="False">
                                                 <Border.Background>
                                                     <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                                        <GradientStop Color="#3E000000" Offset="0" />
-                                                        <GradientStop Color="#30000000" Offset="0.18" />
-                                                        <GradientStop Color="#22000000" Offset="0.40" />
-                                                        <GradientStop Color="#14000000" Offset="0.62" />
-                                                        <GradientStop Color="#08000000" Offset="0.82" />
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
                                                         <GradientStop Color="#00000000" Offset="1" />
                                                     </RadialGradientBrush>
                                                 </Border.Background>
@@ -416,11 +416,11 @@
                                                             IsHitTestVisible="False">
                                                         <Border.Background>
                                                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                                                <GradientStop Color="#3E000000" Offset="0" />
-                                                                <GradientStop Color="#30000000" Offset="0.18" />
-                                                                <GradientStop Color="#22000000" Offset="0.40" />
-                                                                <GradientStop Color="#14000000" Offset="0.62" />
-                                                                <GradientStop Color="#08000000" Offset="0.82" />
+                                                                <GradientStop Color="#28000000" Offset="0" />
+                                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                                <GradientStop Color="#05000000" Offset="0.82" />
                                                                 <GradientStop Color="#00000000" Offset="1" />
                                                             </RadialGradientBrush>
                                                         </Border.Background>
@@ -482,11 +482,11 @@
                                                                         IsHitTestVisible="False">
                                                                     <Border.Background>
                                                                         <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                                                            <GradientStop Color="#3E000000" Offset="0" />
-                                                                            <GradientStop Color="#30000000" Offset="0.18" />
-                                                                            <GradientStop Color="#22000000" Offset="0.40" />
-                                                                            <GradientStop Color="#14000000" Offset="0.62" />
-                                                                            <GradientStop Color="#08000000" Offset="0.82" />
+                                                                            <GradientStop Color="#28000000" Offset="0" />
+                                                                            <GradientStop Color="#1F000000" Offset="0.18" />
+                                                                            <GradientStop Color="#16000000" Offset="0.40" />
+                                                                            <GradientStop Color="#0D000000" Offset="0.62" />
+                                                                            <GradientStop Color="#05000000" Offset="0.82" />
                                                                             <GradientStop Color="#00000000" Offset="1" />
                                                                         </RadialGradientBrush>
                                                                     </Border.Background>
