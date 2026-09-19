@@ -233,7 +233,8 @@ public static class HoverShadowBehavior
         var h = element.ActualHeight;
         if (w <= 0 || h <= 0) return;
 
-        var radiusPx = Math.Max(14d, Math.Min(w, h) * 0.85);   // 以短边为基准 → 像素上是正圆
+        // 以短边为基准 → 像素上是正圆；系数放大到 1.15 让衰减铺得更开（羽化更柔）
+        var radiusPx = Math.Max(18d, Math.Min(w, h) * 1.15);
         brush.RadiusX = radiusPx / w;
         brush.RadiusY = radiusPx / h;
 

@@ -75,8 +75,10 @@
                     <Border x:Name="NovaShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#4A000000" Offset="0" />
-                                <GradientStop Color="#1A000000" Offset="0.45" />
+                                <GradientStop Color="#38000000" Offset="0" />
+                                <GradientStop Color="#26000000" Offset="0.28" />
+                                <GradientStop Color="#15000000" Offset="0.55" />
+                                <GradientStop Color="#08000000" Offset="0.78" />
                                 <GradientStop Color="#00000000" Offset="1" />
                             </RadialGradientBrush>
                         </Border.Background>
@@ -107,8 +109,10 @@
                     <Border x:Name="TaskCenterShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#4A000000" Offset="0" />
-                                <GradientStop Color="#1A000000" Offset="0.45" />
+                                <GradientStop Color="#38000000" Offset="0" />
+                                <GradientStop Color="#26000000" Offset="0.28" />
+                                <GradientStop Color="#15000000" Offset="0.55" />
+                                <GradientStop Color="#08000000" Offset="0.78" />
                                 <GradientStop Color="#00000000" Offset="1" />
                             </RadialGradientBrush>
                         </Border.Background>
@@ -141,8 +145,10 @@
                     <Ellipse x:Name="AccountShadow" Opacity="0" IsHitTestVisible="False">
                         <Ellipse.Fill>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#4A000000" Offset="0" />
-                                <GradientStop Color="#1A000000" Offset="0.45" />
+                                <GradientStop Color="#38000000" Offset="0" />
+                                <GradientStop Color="#26000000" Offset="0.28" />
+                                <GradientStop Color="#15000000" Offset="0.55" />
+                                <GradientStop Color="#08000000" Offset="0.78" />
                                 <GradientStop Color="#00000000" Offset="1" />
                             </RadialGradientBrush>
                         </Ellipse.Fill>
