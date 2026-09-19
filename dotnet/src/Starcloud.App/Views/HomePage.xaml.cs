@@ -456,16 +456,10 @@ public sealed partial class HomePage : Page
         ClearLogBuffer();
         LaunchLogToggle.IsChecked = _s.Settings.ShowGameLogOnLaunch; // 触发 LaunchLogToggle_Changed 同步可见性
         _logTimer.Start();
-        LaunchOverlay.Opacity = 0;
+        // 启动页进场：并入统一的 MotionFx（合成层淡入 + 轻微上移），不再自绘 Storyboard
+        MotionFx.Reset(LaunchOverlay);
         LaunchOverlay.Visibility = Visibility.Visible;
-
-        // 150ms 淡入（克制，spec §3.6）
-        var fadeIn = new Storyboard();
-        var anim = new DoubleAnimation { From = 0, To = 1, Duration = new Duration(TimeSpan.FromMilliseconds(150)) };
-        Storyboard.SetTarget(anim, LaunchOverlay);
-        Storyboard.SetTargetProperty(anim, "Opacity");
-        fadeIn.Children.Add(anim);
-        fadeIn.Begin();
+        MotionFx.FadeSlideIn(LaunchOverlay, 14f);
 
         ApplyStage(LaunchStage.VerifyingCredentials);
 
@@ -477,11 +471,18 @@ public sealed partial class HomePage : Page
 
     /// <summary>收起启动页回主页（spec §3.4）：状态机回 Idle，可选右栏状态文字。
     /// 不清 _cancelRequested：取消杀进程后 Exited 回调仍需感知（标记由 ShowOverlay 复位）。</summary>
-    private void HideOverlay(string? statusText)
+    private async void HideOverlay(string? statusText)
     {
         _logTimer.Stop();
         ApplyStage(LaunchStage.Idle);
+        // 退场也走同一套：先淡出再收起（不直接消失）
+        if (_s.Motion.Enabled)
+        {
+            MotionFx.FadeOut(LaunchOverlay, 140);
+            await Task.Delay(160);
+        }
         LaunchOverlay.Visibility = Visibility.Collapsed;
+        MotionFx.Reset(LaunchOverlay);
         if (statusText is not null)
         {
             StatusText.Text = statusText;

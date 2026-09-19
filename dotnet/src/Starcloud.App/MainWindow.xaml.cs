@@ -690,6 +690,9 @@ public sealed partial class MainWindow : Window
         // 面板比窗口还高时会被 Popup 裁掉输入行：限高，超出部分交给面板内部滚动
         NovaPanelHost.MaxHeight = Math.Max(240, root.ActualHeight - NovaPopup.VerticalOffset - 12);
         NovaPopup.IsOpen = true;
+        // 面板进场：与全应用同一套合成层淡入 + 轻微上移
+        MotionFx.Reset(NovaPanelHost);
+        MotionFx.FadeSlideIn(NovaPanelHost, 10f, MotionFx.EnterMs);
     }
 
     /// <summary>入口③「问 Nova」承接：展开顶栏 Nova 面板接收上下文输入（不跳页，少折腾）。</summary>
