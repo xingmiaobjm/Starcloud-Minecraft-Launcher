@@ -38,6 +38,7 @@ public sealed class AppServices
     public ModConflictService ModConflicts { get; }
     public NovaPermissionStore NovaPermissions { get; }
     public NovaActionLog NovaLog { get; }
+    public RecordingService Recording { get; }
     public NovaMomentsService NovaMoments { get; }
     public NovaInviteService NovaInvites { get; }
     public NovaToolRegistry NovaTools { get; }
@@ -91,6 +92,7 @@ public sealed class AppServices
         ModConflicts = new ModConflictService();
         NovaPermissions = new NovaPermissionStore();
         NovaLog = new NovaActionLog();
+        Recording = new RecordingService(NovaPermissions, NovaLog);
         NovaMoments = new NovaMomentsService();
         NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download,
             AgentJarPath, () => PluginHost);

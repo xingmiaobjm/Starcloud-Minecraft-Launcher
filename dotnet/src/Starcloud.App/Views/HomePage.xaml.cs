@@ -848,7 +848,7 @@ public sealed partial class HomePage : Page
         _runningStart = _launchStartedAt;
         ApplyStage(LaunchStage.WaitingWindow); // 窗口出现由 _windowTimer 轮询（§3.3）
 
-        // Nova 时刻：游戏启动即开观察会话（未授权捕捉则静默）；浮窗监测需要 pid
+        // Nova 时刻：游戏启动即开观察会话（未授权录屏则静默）；浮窗监测需要 pid
         _s.NovaRuntime.OnGameLaunched(versionId, session.Id);
         App.RunningVersionId = versionId;
         new InstanceSettingsStore(dotMc).TouchPlayed(versionId); // 记录版本档案「上次启动」

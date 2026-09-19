@@ -4,9 +4,9 @@
 //   ④ 底部可折叠对话条  ⑤ 状态栏「Nova: 待命/思考中/有提案/观察中/离线」
 //
 // 状态机（NOVA_INTEGRATION.md 9.1）：
-//   Idle 待命 → Thinking 思考中 → HasPlan 有提案（含时刻候选）→ Observing 观察中（时刻捕捉开启）→ Offline 离线
+//   Idle 待命 → Thinking 思考中 → HasPlan 有提案（含时刻候选）→ Observing 观察中（录屏许可开启）→ Offline 离线
 //
-// 时刻联动（NovaMomentsService）：游戏启动且「时刻捕捉」授权开启 → StartSession + 5 秒观察循环；
+// 时刻联动（NovaMomentsService）：游戏启动且「录屏」许可开启 → StartSession + 5 秒观察循环 + 自动录屏；
 // 命中高光 → CandidateProposed → 全局消息流追加候选卡（克制：一句话 + 一个按钮），点头才转正。
 
 using System.Collections.ObjectModel;
@@ -25,7 +25,7 @@ public enum NovaState
     Idle,       // 待命（灰）
     Thinking,   // 思考中（紫）
     HasPlan,    // 有提案（黄，含未处理的时刻候选）
-    Observing,  // 观察中（绿，时刻捕捉开启）
+    Observing,  // 观察中（绿，录屏/时刻观察开启）
     Offline,    // 离线（暗灰，未登录 Starcloud ID）
 }
 
@@ -301,20 +301,22 @@ public sealed class NovaRuntime
             }
         }
 
-        if (!_s.NovaPermissions.IsOn(NovaPermissionStore.Capture))
+        if (!_s.NovaPermissions.IsOn(NovaPermissionStore.Recording))
         {
             RefreshState();
-            return; // 未授权捕捉：不观察不说话（克制）
+            return; // 未授权录屏：不观察不说话（克制）
         }
 
         StartObserving();
-        AddAssistant(Loc.T("跟你说一声：时刻捕捉开着，我会留意这一局的高光，有料会喊你。"));
+        AddAssistant(Loc.T("跟你说一声：录屏开着，这一局我会从显卡缓冲区录下来并留意高光。"));
+        _s.Recording.BeginAutoRecording(versionId, gamePid);
         RefreshState();
     }
 
     public async Task OnGameExitedAsync()
     {
         _watcher?.Stop(); // 一局结束，监测即停
+        await _s.Recording.OnGameExitedAsync(); // 收尾录像（写完 moov 才可播放）
         StopObserving();
         if (_s.NovaMoments.IsSessionActive)
         {

@@ -1,4 +1,4 @@
-// Nova 动手许可层（设计文档第 4 节）：三档手动开关（捕捉/剪辑/分享）默认全部关闭，
+// Nova 动手许可层（设计文档第 4 节）：手动开关默认关闭，
 // 开启 = 显式授权（开启命令进确认清单）；越界即停的边界写入每档开关描述。
 // 可审计流水（nova_actions）：谁动了、动了什么、何时，全部记录，保证「能动手且每次都能被看到干了啥」。
 
@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>单档许可开关（Key: capture/clip/share）</summary>
+/// <summary>单档许可开关（Key: recording）</summary>
 public sealed record NovaPermission(
     [property: JsonPropertyName("key")] string Key,
     [property: JsonPropertyName("on")] bool Enabled,
@@ -16,9 +16,8 @@ public sealed record NovaPermission(
 /// <summary>许可层持久化（%APPDATA%/starcloud-launcher/nova.permissions.json）</summary>
 public sealed class NovaPermissionStore
 {
-    public const string Capture = "capture"; // 捕捉：后台识别并暂存高光/事件，不碰非游戏窗口
-    public const string Clip = "clip";       // 剪辑：把片段剪成 5~15s 短视频/GIF，剪完先预览不直接发
-    public const string Share = "share";     // 分享：生成分享卡发到预设群/好友，每条先弹确认才发
+    /// <summary>录屏：游戏运行时从显卡缓冲区采集画面并硬件编码落盘，不碰非游戏窗口</summary>
+    public const string Recording = "recording";
 
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
@@ -49,9 +48,7 @@ public sealed class NovaPermissionStore
     /// <summary>开关的展示名与边界说明（越界即停）</summary>
     public static (string Title, string Boundary) Describe(string key) => key switch
     {
-        Capture => ("捕捉", "只观察游戏画面并暂存高光片段，不碰非游戏窗口"),
-        Clip => ("剪辑", "把暂存片段剪成 5~15s 短视频/GIF，剪完先给你预览，不直接发布"),
-        Share => ("分享", "生成分享卡发送前每条先弹确认，你点头才发"),
+        Recording => ("录屏", "只在游戏运行时从显卡缓冲区采集画面并硬件编码，录到本地磁盘；不碰非游戏窗口"),
         _ => (key, ""),
     };
 

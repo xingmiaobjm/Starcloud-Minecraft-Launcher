@@ -202,36 +202,37 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ═══ 动手许可层：三档开关默认全关，开启 = 显式授权（先弹确认） ═══ -->
+                <!-- ═══ 录屏许可：默认关闭，开启 = 显式授权（先弹确认），开启后游戏启动即自动录 ═══ -->
                 <Border Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="动手许可层" FontWeight="SemiBold" FontSize="13" />
-                        <TextBlock loc:Loc.Text="默认全部关闭。没开 = Nova 一个字也不看你的屏幕；开启会弹确认并记入流水。"
+                        <TextBlock loc:Loc.Text="录屏" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock loc:Loc.Text="默认关闭。没开 = Nova 一个字也不看你的屏幕；开启会弹确认并记入流水。"
                                    FontSize="11" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <ToggleSwitch x:Name="CaptureSwitch" Tag="capture"
-                                      loc:Loc.OnContent="捕捉" loc:Loc.OffContent="捕捉"
+                        <ToggleSwitch x:Name="RecordingSwitch" Tag="recording"
+                                      loc:Loc.OnContent="录屏许可" loc:Loc.OffContent="录屏许可"
                                       Toggled="Permission_Toggled" Margin="0,2,0,0" />
-                        <TextBlock loc:Loc.Text="只观察游戏画面并暂存高光片段，不碰非游戏窗口"
+                        <TextBlock loc:Loc.Text="只在游戏运行时从显卡缓冲区采集画面并硬件编码，录到本地磁盘；不碰非游戏窗口"
                                    FontSize="11" Opacity="0.7" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Margin="0,-6,0,4" />
-                        <ToggleSwitch x:Name="ClipSwitch" Tag="clip"
-                                      loc:Loc.OnContent="剪辑" loc:Loc.OffContent="剪辑"
-                                      Toggled="Permission_Toggled" Margin="0,0,0,0" />
-                        <TextBlock loc:Loc.Text="把片段剪成 5~15s 短视频/GIF，剪完先预览，不直接发"
-                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Margin="0,-6,0,4" />
-                        <ToggleSwitch x:Name="ShareSwitch" Tag="share"
-                                      loc:Loc.OnContent="分享" loc:Loc.OffContent="分享"
-                                      Toggled="Permission_Toggled" />
-                        <TextBlock loc:Loc.Text="生成分享卡发到预设群/好友，每条先弹确认，确认才发"
-                                   FontSize="11" Opacity="0.7" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Margin="0,-6,0,0" />
+                        <!-- 手动录制：游戏没开时录主显示器，游戏开着时录游戏窗口 -->
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="RecordNowBtn" loc:Loc.Text="立即录屏"
+                                    Click="RecordNow_Click" />
+                            <Button x:Name="OpenRecordingsBtn" Grid.Column="1" loc:Loc.Text="录像目录"
+                                    Click="OpenRecordings_Click" />
+                        </Grid>
+                        <TextBlock x:Name="RecordingStatusText" FontSize="11" TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </Border>
 

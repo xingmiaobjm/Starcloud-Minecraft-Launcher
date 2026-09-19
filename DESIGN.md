@@ -218,3 +218,40 @@
 - **分类切换**：左侧分类（原版游戏 / 社区资源五类）切换时两块面板交叉过渡——
   新面板从下方 18px 浮入（260ms），旧面板淡出（150ms）后收起，不做整页闪烁
 - **列表 ↔ 详情**：进入详情从下方 22px 浮入，返回时列表从上方 14px 落回
+
+## 13. 录屏（显卡缓冲区采集 + 硬件编码）
+
+Nova 只做**录屏**一件事：剪辑与分享能力已删除，许可层只剩一个「录屏」开关（默认关闭，
+开启弹确认并写可审计流水）。实现落在 `Services/Recording/`：
+
+- **取帧**：Windows.Graphics.Capture（WGC）。帧是 DWM 直接共享给本进程的 D3D11 纹理，
+  画面不经过 GDI 抓屏，也不受窗口遮挡影响——这是"从显卡缓冲区采集"的实际含义。
+  捕获目标用 `IGraphicsCaptureItemInterop` 从 HWND / HMONITOR 造，不走系统选择器：
+  游戏启动自动录时录**游戏窗口**，手动「立即录屏」时录**主显示器**。
+- **编码**：Media Foundation `IMFSinkWriter` + `MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS`，
+  优先命中驱动注册的硬件 H.264 MFT（NVENC / Quick Sync / AMF），找不到才退回软编；
+  用到的硬件编码器在启动时枚举并写进启动器日志与 Nova 页状态行。
+- **节拍**：WGC 按画面变化推帧，静止画面收不到回调。所以不用 `FrameArrived`，
+  改用编码线程按 1/fps 主动 `TryGetNextFrame()`，没有新帧就重复上一帧——
+  视频时长与真实时长始终一致，不会出现"静止时时间轴停住"。
+- **落盘**：`%APPDATA%/starcloud-launcher/recordings/Starcloud-<版本|manual>-<时间戳>.mp4`，
+  停止时 `Finalize` 写完 moov 才可播放；中途失败会把原因回传给状态行而不是静默。
+- **游戏联动**：`NovaRuntime.OnGameLaunched` 起录（等窗口出现，最多 30s），
+  `OnGameExitedAsync` 收尾停录；未授权或窗口始终没出现就这一局不录。
+
+实现注意（踩过的坑，改这块之前先看）：
+
+- **`MFCreateSinkWriterFromURL` 在 `mfreadwrite.dll`**，不在 `mfplat.dll`，DLL 写错只会
+  在运行时抛 EntryPointNotFoundException。
+- **ComImport 接口不要用继承声明**：`IMFSample : IMFAttributes` 在本机没有按 COM 规则
+  把基接口方法排在前面，`IMFSample.AddBuffer` 会落到 `IMFAttributes.GetString` 的槽位上，
+  报 `MF_E_ATTRIBUTENOTFOUND (0xC00D36E6)`——报错点看着像"加缓冲区失败"，实际是槽位错位。
+  所以 `IMFMediaType` / `IMFSample` 里把 IMFAttributes 的 30 个方法**显式抄了一遍**。
+- **输入像素格式**用 `MFVideoFormat_ARGB32`（MF 里就是 BGRA 内存序、自上而下），
+  并显式给 `MF_MT_DEFAULT_STRIDE`，避免 MF 按 DIB 习惯把画面理解成倒过来的。
+- 帧在交给编码器前会经 `CanvasBitmap` 落到系统内存（WGC 纹理 → CPU 缓冲）。
+  真正零拷贝的 GPU 通路（`MFCreateDXGISurfaceBuffer` + `MF_SINK_WRITER_D3D_MANAGER`
+  + 编码器 `MF_SA_D3D11_AWARE`）是下一步优化，能省掉这次拷贝。
+
+验证方式：录 6 秒主显示器 → 文件 178 帧 / 2560×1600 / H.264 / 5.93s，用 ffmpeg 抽帧目视
+确认画面方向与内容正确。

@@ -289,8 +289,8 @@ public sealed class NovaService
         if (lower.Contains("整合包") || lower.Contains("modpack"))
             return new NovaReply(await FindModpacksTextAsync(input, settings, ct), null, false);
 
-        if (lower.Contains("时刻") || lower.Contains("捕捉") || lower.Contains("剪辑") ||
-            lower.Contains("分享") || lower.Contains("录像"))
+        if (lower.Contains("时刻") || lower.Contains("录屏") || lower.Contains("录像") ||
+            lower.Contains("录制"))
             return new NovaReply(MomentsOverviewText(), null, false);
 
         if (lower.Contains("你好") || lower.Contains("您好") || lower.Contains("在吗") ||
@@ -569,19 +569,17 @@ public sealed class NovaService
         return string.Join(' ', s.Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim();
     }
 
-    // ── Nova 时刻概览（阶段三「主动」：观察已上线，帧剪辑待视觉通路） ──
+    // ── Nova 时刻概览（阶段三「主动」：日志观察 + 硬件录屏） ──
     private string MomentsOverviewText()
     {
-        var (capT, capB) = NovaPermissionStore.Describe(NovaPermissionStore.Capture);
-        var (clipT, clipB) = NovaPermissionStore.Describe(NovaPermissionStore.Clip);
-        var (shT, shB) = NovaPermissionStore.Describe(NovaPermissionStore.Share);
+        var (recT, recB) = NovaPermissionStore.Describe(NovaPermissionStore.Recording);
 
         var sb = new StringBuilder();
         sb.AppendLine(_moments.IsSessionActive
             ? $"我正在观察 {_moments.SessionVersion} 的游戏日志（从 {_moments.SessionStart:HH:mm} 开始），" +
               "达成进度/完成挑战/翻车瞬间都会被我注意到。"
             : "当前没有进行中的游戏会话；游戏启动后我自动开始观察。");
-        sb.AppendLine("帧剪辑（视觉通路）还在开发中，现在记录的是文字时刻卡——坐标、时间、事件都真实可查。");
+        sb.AppendLine("时刻卡记录的是文字事实（坐标、时间、事件）；画面由录屏保存成 mp4，两者对得上时间。");
 
         var pending = _moments.Candidates.Where(c => c.State == "proposed").ToList();
         if (pending.Count > 0)
@@ -595,8 +593,8 @@ public sealed class NovaService
             sb.AppendLine($"已收藏 {_moments.Moments.Count} 个时刻；说「战报」看最近一局的汇总。");
         }
 
-        sb.Append("动手许可层三档开关（默认全关，开启 = 显式授权）：\n" +
-                  $"• {capT}：{capB}\n• {clipT}：{clipB}\n• {shT}：{shB}");
+        sb.Append("动手许可层（默认全关，开启 = 显式授权）：\n" +
+                  $"• {recT}：{recB}");
         return sb.ToString();
     }
 
@@ -796,7 +794,8 @@ public sealed class NovaService
         "3. 兼容侦探 —— 「检查模组冲突」，回复「处理冲突」我把停用清单列给你确认\n" +
         "4. 开箱即玩 —— 「开箱即玩」，我按你的机器生成傻瓜配置，确认后一键应用\n" +
         "5. 找整合包 —— 「找个 1.20.1 的优化整合包」\n" +
-        "第三阶段「Nova 时刻」（高光剪辑）与第四阶段「游戏内在场」在开发中（规划中）。";
+        "6. 录屏 —— 「开始录屏」，从显卡缓冲区采集 + 硬件编码落盘（需先在 Nova 页开启录屏许可）\n" +
+        "第四阶段「游戏内在场」在开发中（规划中）。";
 
     private static string LocalFallback(string message) =>
         $"这句我没听懂（「{TrimForEcho(message)}」）。我能动手的范围：崩了帮我看看 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找整合包。" +

@@ -2,6 +2,8 @@
 // 账户（登录 / 退出）/ 模型设置（第三方 LLM 添加 + 多模型档案切换）/ 游戏内辅助浮窗 /
 // 游戏记录记忆（战报 / 时刻统计）/ 动手许可层（开启先弹确认）/ 可审计流水 / 能力路线。
 
+using System.Diagnostics;
+using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Starcloud.App.Localization;
@@ -26,26 +28,30 @@ public sealed partial class NovaPage : Page
         ProfileNameBox.Header = Loc.T("备注名");
         LlmModelBox.Header = Loc.T("模型");
         Loaded += OnLoaded;
-        Unloaded += (_, _) => _s.NovaRuntime.LogChanged -= OnLogChanged;
+        Unloaded += (_, _) =>
+        {
+            _s.NovaRuntime.LogChanged -= OnLogChanged;
+            _s.Recording.StatusChanged -= OnRecordingStatusChanged;
+        };
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         // 确认执行 / 取消 / 授权开关都会写流水 → 流水卡片跟着刷新
         _s.NovaRuntime.LogChanged += OnLogChanged;
+        _s.Recording.StatusChanged += OnRecordingStatusChanged;
         UpdateAccountState();
 
         // 许可层开关回显（默认关闭；代码设置期间抑制 Toggled）
         _toggling = true;
-        CaptureSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Capture);
-        ClipSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Clip);
-        ShareSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Share);
+        RecordingSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Recording);
         OverlaySwitch.IsOn = _s.Settings.NovaOverlayEnabled;
         _toggling = false;
 
         RefreshProfiles();
         RefreshMemory();
         RefreshLog();
+        RefreshRecording();
     }
 
     private void OnLogChanged() => DispatcherQueue.TryEnqueue(RefreshLog);
@@ -328,6 +334,64 @@ public sealed partial class NovaPage : Page
         ts.IsOn = on; // UI 开关同步到已确认状态（还原动作只是等待确认，不代表结果）
         _toggling = false;
         RefreshLog();
+    }
+
+    // ── 录屏：许可开关 + 手动起停 + 状态播报 ──
+    private void OnRecordingStatusChanged() => DispatcherQueue.TryEnqueue(RefreshRecording);
+
+    private void RefreshRecording()
+    {
+        var status = _s.Recording.Snapshot();
+        RecordNowBtn.Content = status.Active ? Loc.T("停止录屏") : Loc.T("立即录屏");
+        RecordingStatusText.Text = status.Active
+            ? status.Describe()
+            : BuildIdleRecordingText();
+    }
+
+    private string BuildIdleRecordingText()
+    {
+        if (!RecordingService.IsSupported) return Loc.T("这台系统不支持硬件录屏（需要 Windows 10 1903 及以上）。");
+        var encoders = _s.Recording.HardwareEncoders;
+        if (encoders.Count > 0)
+            return Loc.T("硬件编码器：{0}。录像存到：{1}", string.Join(" / ", encoders),
+                RecordingService.OutputDirectory);
+        return Loc.T("没检测到硬件编码器，会退回软件编码（更吃 CPU）。录像存到：{0}",
+            RecordingService.OutputDirectory);
+    }
+
+    private async void RecordNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_s.Recording.IsRecording)
+        {
+            var path = await _s.Recording.StopAsync();
+            RecordingStatusText.Text = path.Length > 0
+                ? Loc.T("已停止，录像已保存：{0}", path)
+                : Loc.T("已停止。");
+            RefreshLog();
+            return;
+        }
+
+        if (_s.Recording.StartManual(out var message)) RefreshLog();
+        RecordingStatusText.Text = message;
+        RefreshRecording();
+    }
+
+    private void OpenRecordings_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(RecordingService.OutputDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{RecordingService.OutputDirectory}\"",
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            RecordingStatusText.Text = Loc.T("打开录像目录失败：{0}", ex.Message);
+        }
     }
 
     // ── 可审计流水 ──

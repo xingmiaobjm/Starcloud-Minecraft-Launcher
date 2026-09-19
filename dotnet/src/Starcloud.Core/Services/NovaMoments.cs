@@ -5,7 +5,8 @@
 //   战报卡：下机后生成「这盘干了啥」总结（时长 / 进度 / 挑战 / 死亡 / 高光统计）
 //   存储：%APPDATA%/starcloud-launcher/nova.moments.json（时刻 + 战报 + 待处理候选池）
 //
-//   视觉通路说明（不臆造事实）：帧采集与画面剪辑依赖游戏内通路（规划中）。候选片段先按
+//   视觉通路说明（不臆造事实）：画面由 App 侧录屏（显卡缓冲区采集 + 硬件编码）保存成 mp4，
+//   这里只做文字时刻卡与时间戳对齐，不臆造画面内容。候选片段先按
 //   「事件前 25 秒 ~ 事件后 5 秒」规则标注范围，卡片预览区以占位呈现——不伪造画面数据；
 //   坐标 / 装备信息仅在日志可解析时填充，解析不到就留空。
 
@@ -41,7 +42,7 @@ public sealed record NovaMomentCandidate(
 
 /// <summary>
 /// Nova 时刻卡片（NOVA_INTEGRATION.md 第 6 节：解说语 / 事件标签 / 坐标 / 时间戳 / 片段范围）。
-/// Coordinate 为空 = 日志不可解析，UI 不显示坐标行；画面剪辑待视觉通路就绪后接入。
+/// Coordinate 为空 = 日志不可解析，UI 不显示坐标行；对应画面在当次录屏的同一时间点。
 /// </summary>
 public sealed record NovaMoment(
     [property: JsonPropertyName("id")] string Id,

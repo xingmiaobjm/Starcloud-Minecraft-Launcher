@@ -63,6 +63,8 @@ dotnet/
         │   ├── MotionService.cs      # 界面动效总开关（跟随系统 / 始终开启 / 关闭）
         │   ├── PluginService.cs      # 插件加载/启用/权限与免责声明确认
         │   ├── NovaRuntime.cs        # Nova 会话运行时（流式增量 + Agent 事件消费）
+        │   ├── RecordingService.cs   # 录屏服务（许可闸门 + 目标选择 + 游戏生命周期联动）
+        │   └── Recording/            # 录屏底层：MediaFoundation 互操作 + WGC 硬件采集与编码
         │   └── DxgiNative.cs         # DXGI 适配器查询（显存与适配器信息）
         ├── Localization/
         │   └── Loc.cs                # 本地化服务：Loc.T / Loc.TCore + 11 个 XAML 附加属性
