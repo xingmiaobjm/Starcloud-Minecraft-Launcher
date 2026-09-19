@@ -2,7 +2,7 @@
 
 > 2026-09-06 起项目全面转向 .NET：核心逻辑以纯 C# 重写（`dotnet/`），
 > 界面使用 WinUI 3（Windows App SDK 1.8）。旧 Tauri/Rust + Preact 实现保留在
-> `src/`、`src-tauri/`、`ui/` 目录仅作参考，不再维护。
+> `legacy/` 目录仅作参考，不再维护。
 
 ## 1. 总览
 
@@ -29,28 +29,41 @@
 dotnet/
 ├── Starcloud.slnx
 └── src/
-    ├── Starcloud.Core/               # 纯 C# 类库（无 UI 依赖）
+    ├── Starcloud.Core/               # 纯 C# 类库（无 UI 依赖，跨平台版共用）
     │   ├── Models/
     │   │   └── Minecraft.cs          # Mojang JSON 数据模型（清单/版本/资产/参数）
-    │   └── Services/                 # 26 个服务，按域分组
-    │       ├── 路径/设置：LauncherPaths、InstanceSettings（版本隔离布局 + 生效启动配置）
-    │       ├── 下载/清单：DownloadService、ManifestService、LoaderBuildCache
-    │       ├── 安装：InstallerService、ForgeInstallerService、MrPackInstallerService
-    │       ├── 启动：GameLauncher、LaunchAccountService、LaunchPreflightService
-    │       ├── 账户：AccountService、StarcloudIdService
-    │       ├── Java/ModLoader：JavaService、FabricService
-    │       ├── 内容管理：ModrinthService、ModConflictService、SaveService、
-    │       │             SaveLibraryService、PendingWorldStore、GameDiagnosticsService
-    │       └── Nova：NovaService、NovaPermissions、NovaMoments、NovaInviteService、
-    │                 NovaFpsWatcher
+    │   ├── Plugins/                  # 插件宿主：清单/权限校验 + JS 沙箱与 Python 子进程运行时
+    │   └── Services/                 # 48 个服务，按域分组
+    │       ├── 路径/平台：LauncherPaths、InstanceSettings（版本隔离布局 + 生效启动配置）、
+    │       │             Platform（OS 能力抽象，跨平台分支的单一入口）
+    │       ├── 下载/清单：DownloadService、ChunkedFileDownloader、ManifestService、
+    │       │             DownloadSource、LoaderBuildCache、ResourceCacheService
+    │       ├── 安装：InstallerService、ForgeInstallerService、MrPackInstallerService、
+    │       │         ModPackExportService、VersionBackupService
+    │       ├── 启动：GameLauncher、LaunchAccountService、LaunchPreflightService、
+    │       │         GameSession、GameSessionGuard
+    │       ├── 账户：AccountService（含 AccountStore / MicrosoftAuthService）、
+    │       │         YggdrasilService、StarcloudIdService
+    │       ├── Java/ModLoader：JavaService、FabricService、SystemMemory、MemoryAdvisor
+    │       ├── 内容管理：ModrinthService、ContentLibraryService、ModConflictService、
+    │       │             SaveService、SaveLibraryService、PendingWorldStore、IconCacheService
+    │       ├── 诊断：EnvironmentCheckService、GameDiagnosticsService、CrashAnalysisService、
+    │       │         CrashLogTrimmer、LauncherLog
+    │       ├── 任务：TaskCenterService（全局任务总线：下载/启动/Java 搜索统一登记）
+    │       └── Nova：NovaService、NovaTools、NovaAgentLoop、OpenAiSseClient、
+    │                 NovaPermissions、NovaMoments、NovaInviteService、NovaFpsWatcher
     └── Starcloud.App/                # WinUI 3 前台（WindowsPackageType=None）
         ├── App.xaml / App.xaml.cs
-        ├── MainWindow.xaml(.cs)      # 亚克力 + 自定义背景层 + NavigationView 壳
-        ├── Assets/Wallpapers/        # 内置壁纸（6 张 jpg，随输出目录发布）
+        ├── MainWindow.xaml(.cs)      # 亚克力 + 自定义背景层 + NavigationView 壳 + 调度中心抽屉
+        ├── Assets/                   # 内置壁纸 / 3D 皮肤模型 / authlib-injector / 插件 SDK
+        ├── Interop/                  # SwapChainPanel 原生互操作（3D 皮肤视图）
         ├── Services/
         │   ├── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
         │   ├── AppearanceService.cs  # 主题应用 + 内置壁纸清单 + 毛玻璃遮罩解析
-        │   └── MotionService.cs      # 界面动效总开关（跟随系统 / 始终开启 / 关闭）
+        │   ├── MotionService.cs      # 界面动效总开关（跟随系统 / 始终开启 / 关闭）
+        │   ├── PluginService.cs      # 插件加载/启用/权限与免责声明确认
+        │   ├── NovaRuntime.cs        # Nova 会话运行时（流式增量 + Agent 事件消费）
+        │   └── DxgiNative.cs         # DXGI 适配器查询（显存与适配器信息）
         ├── Localization/
         │   └── Loc.cs                # 本地化服务：Loc.T / Loc.TCore + 11 个 XAML 附加属性
         ├── Strings/
@@ -63,7 +76,13 @@ dotnet/
             ├── VersionDetailPage.xaml(.cs) # 版本详情（隔离设置/Mod/存档/导出）
             ├── SavesPage.xaml(.cs)         # 存档跨版本聚合 + 复制启动
             ├── DownloadPage.xaml(.cs)      # 版本列表 + 安装进度
-            ├── AccountsPage.xaml(.cs)      # 离线/微软/Starcloud ID 账户
+            ├── AccountsPage.xaml(.cs)      # 微软 / 第三方 / Starcloud ID 账户
+            ├── AuthDialogs.cs              # 就地登录对话框（微软设备码 / 第三方密码）
+            ├── PluginsPage.xaml(.cs)       # 插件管理（安装/启停/权限与免责声明确认）
+            ├── PluginPanelPage.xaml(.cs)   # 插件面板宿主（WebView 承载插件 panel.html）
+            ├── ContentDownloadDialog.xaml(.cs) # 内容库安装对话框（Mod/整合包/资源包等）
+            ├── Skin3DView.cs               # 3D 皮肤预览（SwapChainPanel + 模型渲染）
+            ├── ThemedDialog.cs             # 主题一致的对话框基类
             ├── NovaPage.xaml(.cs)          # Nova 助手页
             ├── NovaChatView.xaml(.cs)      # Nova 对话视图（页面内嵌与浮窗共用）
             ├── NovaOverlayWindow.xaml(.cs) # Nova 浮窗窗口
@@ -85,8 +104,12 @@ dotnet/
 | `DownloadService` | HttpClient（MaxConnectionsPerServer=64）；单文件下载（SHA1 校验 + 指数退避重试 + `.sc-tmp` 临时文件）；批量并发下载（`SemaphoreSlim` + URL 去重 + 同大小跳过 + 进度/速度/ETA 回调）；Adoptium v3 API 解析 `binary.package.link` | — |
 | `ManifestService` | 官方清单 `piston-meta.mojang.com/mc/game/version_manifest_v2.json` 获取 + 本地缓存（缓存优先，损坏回源）；扫描 `versions/<id>/<id>.json` 列出已安装版本 | DownloadService |
 | `InstallerService` | 原版安装（版本 JSON + client jar + 库 + natives 解压 + 资源索引与对象）；Fabric 安装（拉取 meta.fabricmc.net profile 合并保存）；`inheritsFrom` 递归加载与 `MergeVersions`；`RulesAllow`（os:windows 规则判定） | DownloadService |
-| `GameLauncher` | 离线 UUID（MD5("OfflinePlayer:name") 按 UUID v3 打补丁）；启动命令行构建（新旧两代参数格式、`${var}` 替换、内置 G1GC 优化、classpath 拼接、引号转义）；`Process.Start` 启动 | InstallerService |
-| `AccountStore` | 账户存储（`accounts.json`）：离线账户添加、微软账户增改、默认账户切换 | GameLauncher.OfflineUuid |
+| `GameLauncher` | 启动命令行构建（新旧两代参数格式、`${var}` 替换、内置 G1GC 优化、classpath 拼接、引号转义）；第三方账户追加 `-javaagent:authlib-injector.jar=<base>` 与 `--userType`；`Process.Start` 启动 | InstallerService |
+| `AccountStore` | 账户存储（`accounts.json`，仅存身份信息：uuid/username/type/默认标记/第三方服务器地址，**不落盘任何令牌**）；微软与第三方账户增改、默认账户切换 | — |
+| `YggdrasilService` | 第三方认证（authlib-injector / Yggdrasil）：认证服务器地址解析（`serverLocation` 别名跳转，最多 3 跳）、`authenticate` 换票、皮肤 textures 解析；地址由用户填写，仓库不硬编码第三方认证服务 | — |
+| `LaunchAccountService` | 启动前账户解析：命中内存会话则产出 `LaunchCredentials`，未命中抛 `AccountLoginRequiredException` 触发就地登录 | AccountStore |
+| `TaskCenterService` | 全局任务总线：长任务登记（标题/进度/速度/分源贡献），UI 定时快照刷新；保留最近 60 条 | — |
+| `Platform` | OS 能力抽象（路径/内存/终端/包管理器等差异集中在此，供跨平台版复用） | — |
 | `MicrosoftAuthService` | 微软设备码 OAuth：`StartDeviceCodeAsync` → `PollAsync`（pending/success/error）→ XBL → XSTS → `login_with_xbox` → profile。client_id 为官方启动器 `00000000402b5328` | — |
 | `JavaService` | 系统 Java 检测（PATH/JAVA_HOME + `java -version` 解析主版本，兼容 1.8 旧格式）；Adoptium JDK 下载解压到 `java/<major>/`（含子目录上提） | DownloadService |
 | `FabricService` | `meta.fabricmc.net/v2/versions/loader/<mc>` 查询可用 loader 版本 | DownloadService |
@@ -198,10 +221,10 @@ JavaService.ListRuntimesAsync（启动器下载的 + 系统 PATH/JAVA_HOME）
 ## 7. 已知限制
 
 - 仅 Windows（WinUI 3 约束）；x64。
-- 离线账户 auth_access_token 固定为占位值（离线模式约定）；微软令牌不做自动刷新，
-  过期需重新设备码登录。
-- Quilt / OptiFine 未接入（原版、Fabric、Forge、NeoForge 已支持）。
-- 插件系统、Terracotta 联机为旧 Tauri 架构特性，.NET 版暂未实现。
+- 鉴权令牌（微软 access/refresh token、第三方 access token）只存内存不落盘：应用重启后
+  首次启动游戏需要重新登录；密码只作请求参数，不落盘、不写日志。
+- OptiFine 未接入（原版、Fabric、Quilt、Forge、NeoForge 已支持）。
+- Terracotta 联机为旧 Tauri 架构特性，.NET 版暂未实现。
 
 ## 8. 本地化层（D3）
 

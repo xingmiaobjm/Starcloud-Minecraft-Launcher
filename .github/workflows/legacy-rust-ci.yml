@@ -1,10 +1,20 @@
-name: CI
+name: Legacy Rust CI
+
+# 旧 Rust + Tauri 实现的构建检查（代码已归档在 legacy/，不再随新版本演进）。
+# 仅当 legacy/ 或本工作流自身被改动时触发；Windows 主产品与跨平台版的 CI 见
+# crossplatform-ci.yml（及后续新增的 dotnet 工作流）。
 
 on:
   push:
     branches: [main, master]
+    paths:
+      - "legacy/**"
+      - ".github/workflows/legacy-rust-ci.yml"
   pull_request:
     branches: [main, master]
+    paths:
+      - "legacy/**"
+      - ".github/workflows/legacy-rust-ci.yml"
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,6 +30,7 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+        working-directory: legacy
 
   clippy:
     name: Clippy
@@ -30,7 +41,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: legacy
       - run: cargo clippy --all-targets -- -D warnings
+        working-directory: legacy
 
   test:
     name: Test
@@ -39,7 +53,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: legacy
       - run: cargo test --workspace
+        working-directory: legacy
 
   build:
     name: Build (release)
@@ -48,4 +65,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: legacy
       - run: cargo build --release --workspace
+        working-directory: legacy

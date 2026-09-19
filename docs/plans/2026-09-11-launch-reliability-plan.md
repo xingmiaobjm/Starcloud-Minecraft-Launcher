@@ -1,7 +1,7 @@
 # 启动可靠性（崩溃诊断 · 实时日志 · 环境体检 · 自动重试）实现计划
 
 日期：2026-09-11
-设计文档：docs/superpowers/specs/2026-09-11-launch-reliability-design.md
+设计文档：docs/designs/2026-09-11-launch-reliability-design.md
 所属：PCL2 平替第 C 组（启动可靠性）
 
 构建命令（每个任务完成后执行）：
@@ -366,8 +366,8 @@ public static EffectiveLaunch Resolve(string dotMc, string versionId, VersionPro
 docs/USER_MANUAL.md
 docs/API.md
 docs/ARCHITECTURE.md
-docs/superpowers/specs/2026-09-11-launch-reliability-design.md
-docs/superpowers/plans/2026-09-11-launch-reliability-plan.md
+docs/designs/2026-09-11-launch-reliability-design.md
+docs/plans/2026-09-11-launch-reliability-plan.md
 dotnet/src/Starcloud.Core/Services/LauncherLog.cs
 dotnet/src/Starcloud.Core/Services/GameSession.cs
 dotnet/src/Starcloud.Core/Services/GameSessionGuard.cs

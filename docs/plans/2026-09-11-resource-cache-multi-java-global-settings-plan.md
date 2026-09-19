@@ -1,7 +1,7 @@
 # 资源缓存 · 多 Java · 全局设置实现计划
 
 日期：2026-09-11
-设计文档：docs/superpowers/specs/2026-09-11-resource-cache-multi-java-global-settings-design.md（commit fef724b）
+设计文档：docs/designs/2026-09-11-resource-cache-multi-java-global-settings-design.md（commit fef724b）
 
 构建命令：先 `Stop-Process -Name Starcloud.App -Force -ErrorAction SilentlyContinue`，
 再 `dotnet build dotnet\src\Starcloud.App\Starcloud.App.csproj -v q -nologo`

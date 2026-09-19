@@ -1,7 +1,7 @@
 # 启动前自动补全（Launch Preflight）实现计划
 
 日期：2026-09-08
-设计文档：docs/superpowers/specs/2026-09-08-launch-preflight-design.md（commit 498e373）
+设计文档：docs/designs/2026-09-08-launch-preflight-design.md（commit 498e373）
 
 构建命令：`dotnet build dotnet\src\Starcloud.App\Starcloud.App.csproj -v q -nologo`
 （每个任务完成后构建验证，目标 0 警告 0 错误）

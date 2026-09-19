@@ -1,7 +1,7 @@
 # 存档跨版本管理实现计划
 
 日期：2026-09-10
-设计文档：docs/superpowers/specs/2026-09-10-saves-cross-version-design.md（commit e9fe241）
+设计文档：docs/designs/2026-09-10-saves-cross-version-design.md（commit e9fe241）
 
 构建命令：先 `Stop-Process -Name Starcloud.App -Force -ErrorAction SilentlyContinue`，
 再 `dotnet build dotnet\src\Starcloud.App\Starcloud.App.csproj -v q -nologo`

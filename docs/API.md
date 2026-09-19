@@ -153,17 +153,17 @@ public sealed record LaunchOptions(
     int MinMemoryMb, int MaxMemoryMb,
     string? JavaExecutable,     // null → "java"（依赖 PATH）
     List<string> ExtraJvmArgs,
-    bool UseBuiltinJvmArgs);
+    bool UseBuiltinJvmArgs,
+    string? AgentJarPath = null, // 第三方账户：authlib-injector.jar 绝对路径
+    string? AgentBase = null);   // 第三方账户：认证服务器 base（注入为 -javaagent:<jar>=<base>）
 
 public sealed class GameLauncher
 {
     public GameLauncher(InstallerService installer);
 
-    // 离线 UUID：MD5("OfflinePlayer:"+name)，按 UUID v3 打补丁（与 Java 一致）
-    public static Guid OfflineUuid(string playerName);
-
     // 构建 "java.exe <jvm args> <mainClass> <game args>" 完整命令行
-    // 支持新旧两代参数格式、${var} 替换、内置 G1GC、classpath 拼接
+    // 支持新旧两代参数格式、${var} 替换、内置 G1GC、classpath 拼接；
+    // 缺凭证直接抛 AccountLoginRequiredException（不再有离线兜底 UUID）
     public Task<string> BuildCommandLineAsync(MinecraftVersion version,
         LaunchOptions options, CancellationToken ct = default);
 
@@ -184,15 +184,23 @@ public sealed class GameLauncher
 文件 `Services/AccountService.cs`。
 
 ```csharp
+// 只持久化身份信息：令牌一律不落盘（合规要求）
 public sealed class StoredAccount
 {
-    public string Uuid { get; set; }        // 离线：OfflineUuid；微软：profile id
+    public string Uuid { get; set; }              // 微软：profile id；第三方：Yggdrasil 档案 id
     public string Username { get; set; }
-    public string Type { get; set; }        // "offline" | "microsoft"
-    public string? AccessToken { get; set; }
-    public string? RefreshToken { get; set; }
+    public string Type { get; set; }              // "microsoft" | "external"
     public bool IsDefault { get; set; }
+
+    // 第三方（external）账户专属
+    public string? ServerBase { get; set; }       // 解析后的认证服务器真实 base
+    public string? ServerAlias { get; set; }      // 用户填写的原始地址
+    public string? ServerName { get; set; }       // 别名服务器展示名
+    public string ClientToken { get; set; }       // 设备标识（非鉴权令牌，可落盘）
 }
+
+// 会话凭证：仅内存，进程退出即失效
+public sealed record AccountSession(string AccessToken, string? RefreshToken = null, string? Xuid = null);
 
 public sealed class AccountStore
 {
@@ -202,9 +210,14 @@ public sealed class AccountStore
     public static AccountStore Load();
     public void Save();
 
-    public StoredAccount AddOffline(string username);       // 同名去重
-    public StoredAccount AddOrUpdateMicrosoft(string uuid,  // 按 uuid 去重，登录后设默认
-        string username, string accessToken, string? refreshToken);
+    // Load() 会静默清除历史遗留的离线账户并回写（合规）
+    public StoredAccount AddOrUpdateMicrosoft(string uuid, string username); // 按 uuid 去重
+    public StoredAccount AddOrUpdateExternal(string uuid, string username,
+        string serverBase, string serverAlias, string? serverName);          // clientToken 首次生成后固定
+
+    public void SetSession(string uuid, AccountSession session);  // 仅内存
+    public AccountSession? GetSession(string uuid);               // 未登录返回 null
+
     public void Remove(string uuid);                        // 自动迁移默认账户
     public void SetDefault(string uuid);
 }
@@ -214,7 +227,7 @@ public sealed class MicrosoftAuthService
     public record DeviceCodeInfo(string UserCode, string DeviceCode,
         string VerificationUri, int Interval);
     public record LoginResult(string Username, string Uuid,
-        string AccessToken, string? RefreshToken);
+        string AccessToken, string? RefreshToken, string? Xuid = null);
 
     // 设备码申请（client_id = 官方启动器 00000000402b5328）
     public Task<DeviceCodeInfo> StartDeviceCodeAsync(CancellationToken ct = default);

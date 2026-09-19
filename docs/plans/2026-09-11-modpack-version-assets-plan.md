@@ -1,7 +1,7 @@
 # 整合包导出 · 本地整合包导入 · 版本备份与回档 实现计划
 
 日期：2026-09-11
-设计文档：docs/superpowers/specs/2026-09-11-modpack-version-assets-design.md（commit 8db189a）
+设计文档：docs/designs/2026-09-11-modpack-version-assets-design.md（commit 8db189a）
 所属：PCL2 平替第 B 组（整合包与版本资产）
 
 构建命令（每个任务完成后执行）：

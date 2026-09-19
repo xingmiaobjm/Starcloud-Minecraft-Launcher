@@ -1,6 +1,6 @@
 # 界面打磨与动效实现计划（D 组 ②：UI Polish & Motion）
 
-> 设计：`docs/superpowers/specs/2026-09-11-ui-polish-motion-design.md`
+> 设计：`docs/designs/2026-09-11-ui-polish-motion-design.md`
 > 目标：两个项目 `dotnet build` **0 警告 0 错误**；整组完成后一次性提交。
 
 ## 任务分解

@@ -1,7 +1,7 @@
 # 统一资源库 · 下载装载 · 资源管理 · 版本内容管理 实现计划
 
 日期：2026-09-11
-设计文档：docs/superpowers/specs/2026-09-11-content-library-design.md（commit 26070db）
+设计文档：docs/designs/2026-09-11-content-library-design.md（commit 26070db）
 所属：PCL2 平替第 A 组（内容管理）
 
 构建命令（每个任务完成后执行）：

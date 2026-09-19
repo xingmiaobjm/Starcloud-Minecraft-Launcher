@@ -1,7 +1,7 @@
 # Nova 游戏内浮窗（在场阶段）实现计划
 
 > 日期：2026-09-08
-> 设计规格：`docs/superpowers/specs/2026-09-08-nova-overlay-design.md`（已批准）
+> 设计规格：`docs/designs/2026-09-08-nova-overlay-design.md`（已批准）
 > 技术栈：.NET 8 / WinUI 3 / Windows App SDK 1.8（未打包 `WindowsPackageType=None`）
 > 构建命令：`dotnet build dotnet\src\Starcloud.App\Starcloud.App.csproj -v q -nologo`（0 警告 0 错误）
 

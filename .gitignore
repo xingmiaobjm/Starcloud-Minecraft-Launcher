@@ -1,23 +1,4 @@
-# Rust
-/target
-**/*.rs.bk
-Cargo.lock.orig
-
-# 前端 (Tauri GUI)
-ui/node_modules
-ui/dist
-src-tauri/target
-src-tauri/gen
-
-# 日志与运行时数据
-*.log
-logs/
-launcher_data/
-plugins/
-
-# 打包产物归档（releases/ 存放所有历史安装包）
-/releases/
-
+# ─────────────────────────── 仓库级 ───────────────────────────
 # 本地环境
 .env
 .env.local
@@ -26,34 +7,66 @@ plugins/
 .DS_Store
 Thumbs.db
 
-# .NET / WinUI 3
+# 阶段改动备份（开发约定：动工前把涉及文件复制到 backups/<日期>-<阶段>/）
+/backups/
+
+# 打包产物归档（releases/ 存放所有历史安装包，体积大不入库）
+/releases/
+
+# 日志与运行时数据
+*.log
+logs/
+launcher_data/
+# 插件运行时数据目录（本地运行产生）；注意用前导斜杠限定根目录，
+# 否则会连带忽略源码目录 dotnet/src/Starcloud.Core/Plugins/
+/plugins/
+/legacy/plugins/
+
+# ─────────────────── dotnet/  Windows 主产品 ───────────────────
 dotnet/**/bin/
 dotnet/**/obj/
+dotnet/**/bin_verify/
 dotnet/.vs/
 dotnet/**/*.user
 dotnet/AppPackages/
 
-# 临时构建与调试输出
-/build_log.txt
-/build_output.txt
-/launch_output.txt
-/tauri_build_log.txt
-/src-tauri/cargo_build_log.txt
-/test_output.txt
-/stdout.txt
-/stderr.txt
-/ui/mirror_test_out.txt
-/adoptium_response.json
-/glass-check.png
+# ─────────────────── crossplatform/  跨平台版 ───────────────────
+crossplatform/**/bin/
+crossplatform/**/obj/
+crossplatform/**/*.user
+crossplatform/.vs/
 
-# 本地工具状态与素材库
+# ─────────────── legacy/  旧 Rust + Tauri 实现（仅参考） ───────────────
+/legacy/target/
+/legacy/node_modules/
+/legacy/ui/node_modules/
+/legacy/ui/dist/
+/legacy/src-tauri/target/
+/legacy/src-tauri/gen/
+/legacy/package.json
+**/*.rs.bk
+legacy/Cargo.lock.orig
+
+# ─────────────────── 本地工具状态与素材库 ───────────────────
 /.agents/
 /.impeccable/
 /.superpowers/
 /.trae/
 /skills-lock.json
-/package.json
 /MC-Icons/
+
+# ─────────────────── 临时构建与调试输出（可随时重建） ───────────────────
+/build_log.txt
+/build_output.txt
+/launch_output.txt
+/tauri_build_log.txt
+/legacy/src-tauri/cargo_build_log.txt
+/test_output.txt
+/stdout.txt
+/stderr.txt
+/legacy/ui/mirror_test_out.txt
+/adoptium_response.json
+/glass-check.png
 
 # 本地化工具中间产物（由 tools/extract-loc-keys.ps1 生成，可随时重建）
 /loc-keys.txt

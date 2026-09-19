@@ -1,7 +1,7 @@
 # 启动页覆盖层（Launch Overlay）实现计划
 
 日期：2026-09-09
-设计文档：docs/superpowers/specs/2026-09-09-launch-overlay-design.md（commit 09ba716）
+设计文档：docs/designs/2026-09-09-launch-overlay-design.md（commit 09ba716）
 
 构建命令：先 `Stop-Process -Name Starcloud.App -Force -ErrorAction SilentlyContinue`，
 再 `dotnet build dotnet\src\Starcloud.App\Starcloud.App.csproj -v q -nologo`

@@ -1,7 +1,7 @@
 # 版本管理增强（A 阶段）实现计划
 
 日期：2026-09-09
-设计文档：docs/superpowers/specs/2026-09-09-version-management-design.md（commit 322346e，
+设计文档：docs/designs/2026-09-09-version-management-design.md（commit 322346e，
 含计划期微修：memory_min 对齐现有全局设置、新增 last_played_at 元数据字段）
 
 构建命令：先 `Stop-Process -Name Starcloud.App -Force -ErrorAction SilentlyContinue`，
