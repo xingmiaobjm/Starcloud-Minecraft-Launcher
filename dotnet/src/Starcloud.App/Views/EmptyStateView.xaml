@@ -13,7 +13,9 @@
         <TextBlock x:Name="SubtitleText" FontSize="12" HorizontalAlignment="Center"
                    TextAlignment="Center" TextWrapping="Wrap"
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        <Button x:Name="ActionButton" Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
+        <!-- 默认折叠：显示与否由 ActionText 的变更回调决定（不设默认值会在无文案时留下 accent 空按钮） -->
+        <Button x:Name="ActionButton" Visibility="Collapsed"
+                Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
                 HorizontalAlignment="Center" Margin="0,4,0,0"
                 Click="ActionButton_Click" />
     </StackPanel>
