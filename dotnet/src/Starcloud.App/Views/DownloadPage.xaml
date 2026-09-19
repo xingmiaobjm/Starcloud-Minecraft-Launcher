@@ -325,15 +325,10 @@
                             </Button>
                         </Grid>
 
-                        <!-- 列表宿主：透明背景让它能收到整片区域的指针事件（行事件会冒泡上来）。
-                             它只跟踪指针位置，光斑由各张卡片自己画——于是光斑在卡片间连续，却不会落到卡片之间的背景上 -->
-                        <Grid x:Name="VersionListHost" Grid.Row="2" Background="Transparent"
-                              local:HoverShadowBehavior.IsEnabled="True"
-                              local:HoverShadowBehavior.IsGroupHost="True">
-                            <Border
-                                    Background="{ThemeResource GlassCardBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="16" Padding="4">
+                        <Border Grid.Row="2"
+                                Background="{ThemeResource GlassCardBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="16" Padding="4">
                             <ListView x:Name="VersionList" SelectionMode="Single"
                                       IsItemClickEnabled="True" ItemClick="VersionList_ItemClick">
                                 <ListView.ItemContainerStyle>
@@ -357,19 +352,18 @@
                                             <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
                                                     IsHitTestVisible="False"
                                                     Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                            <!-- 内阴影层：只画落在本行内的那一段光斑（被卡片圆角裁剪，文字在它之上） -->
+                                            <!-- 内阴影层：行内自上而下渐深，悬停时叠在高亮层之上 -->
                                             <Border x:Name="RowShadow" CornerRadius="10" Opacity="0"
                                                     IsHitTestVisible="False">
                                                 <Border.Background>
-                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
-                                                                         RadiusX="0.2" RadiusY="0.5">
+                                                    <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
                                                         <GradientStop Color="#3E000000" Offset="0" />
                                                         <GradientStop Color="#30000000" Offset="0.18" />
                                                         <GradientStop Color="#22000000" Offset="0.40" />
                                                         <GradientStop Color="#14000000" Offset="0.62" />
                                                         <GradientStop Color="#08000000" Offset="0.82" />
                                                         <GradientStop Color="#00000000" Offset="1" />
-                                                    </RadialGradientBrush>
+                                                    </LinearGradientBrush>
                                                 </Border.Background>
                                             </Border>
                                             <Grid Padding="12,9" ColumnSpacing="14">
@@ -417,19 +411,18 @@
                                                     <Border x:Name="HeaderHover" CornerRadius="10" Opacity="0"
                                                             IsHitTestVisible="False"
                                                             Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                    <!-- 内阴影层：只画落在本行内的那一段光斑 -->
+                                                    <!-- 内阴影层：组头内部自上而下渐深，悬停时叠在高亮层之上 -->
                                                     <Border x:Name="HeaderShadow" CornerRadius="10" Opacity="0"
                                                             IsHitTestVisible="False">
                                                         <Border.Background>
-                                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
-                                                                                 RadiusX="0.2" RadiusY="0.5">
+                                                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
                                                                 <GradientStop Color="#3E000000" Offset="0" />
                                                                 <GradientStop Color="#30000000" Offset="0.18" />
                                                                 <GradientStop Color="#22000000" Offset="0.40" />
                                                                 <GradientStop Color="#14000000" Offset="0.62" />
                                                                 <GradientStop Color="#08000000" Offset="0.82" />
                                                                 <GradientStop Color="#00000000" Offset="1" />
-                                                            </RadialGradientBrush>
+                                                            </LinearGradientBrush>
                                                         </Border.Background>
                                                     </Border>
                                                     <Grid Padding="13,11" ColumnSpacing="10">
@@ -484,19 +477,18 @@
                                                                 <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
                                                                         IsHitTestVisible="False"
                                                                         Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                                <!-- 内阴影层：只画落在本行内的那一段光斑 -->
+                                                                <!-- 内阴影层：行内自上而下渐深 -->
                                                                 <Border x:Name="ChildShadow" CornerRadius="10" Opacity="0"
                                                                         IsHitTestVisible="False">
                                                                     <Border.Background>
-                                                                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
-                                                                                             RadiusX="0.2" RadiusY="0.5">
+                                                                        <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
                                                                             <GradientStop Color="#3E000000" Offset="0" />
                                                                             <GradientStop Color="#30000000" Offset="0.18" />
                                                                             <GradientStop Color="#22000000" Offset="0.40" />
                                                                             <GradientStop Color="#14000000" Offset="0.62" />
                                                                             <GradientStop Color="#08000000" Offset="0.82" />
                                                                             <GradientStop Color="#00000000" Offset="1" />
-                                                                        </RadialGradientBrush>
+                                                                        </LinearGradientBrush>
                                                                     </Border.Background>
                                                                 </Border>
                                                                 <Grid Padding="12,9" ColumnSpacing="14">
@@ -530,10 +522,8 @@
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListView.Resources>
-                                </ListView>
-                            </Border>
-
-                        </Grid>
+                            </ListView>
+                        </Border>
                     </Grid>
 
                     <!-- 详情视图（PCL2 式：标题行 + 加载器抽屉 + 底部开始下载） -->
