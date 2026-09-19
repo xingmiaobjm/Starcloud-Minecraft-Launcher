@@ -39,6 +39,18 @@ public static class MotionFx
     public const int ExitMs = 140;
 
     /// <summary>
+    /// 框架 PointerOver 的标准时长。WinUI 3 自己的 <c>VisualTransition</c>／状态切换都取这一档（167ms），
+    /// 拿不准指针反馈该用多久时就对齐它。
+    /// </summary>
+    public const int PointerOverMs = 167;
+
+    /// <summary>指针悬停淡入时长（Fluent Normal 档；比 PointerOverMs 再缓一档，避免"啪一下"亮起来）</summary>
+    public const int HoverFadeInMs = 200;
+
+    /// <summary>指针悬停淡出时长（Fluent Slow 档，刻意比淡入长，退出来才有可见的尾迹）</summary>
+    public const int HoverFadeOutMs = 300;
+
+    /// <summary>
     /// XAML <see cref="Storyboard"/> 用的 Fluent 进场样条（Fast Out, Slow In）。
     /// 依赖型属性（如高度）上不了合成层，只能用 <see cref="SplineDoubleKeyFrame"/> 直接写样条本体。
     /// </summary>
@@ -55,6 +67,13 @@ public static class MotionFx
         ControlPoint2 = new Point(1, 0.5),
     };
 
+    /// <summary>XAML <see cref="Storyboard"/> 用的匀称淡入淡出样条，与 <see cref="FadeEase"/> 同形。</summary>
+    public static KeySpline CreateFadeSpline() => new()
+    {
+        ControlPoint1 = new Point(0.33, 0),
+        ControlPoint2 = new Point(0.67, 1),
+    };
+
     /// <summary>合成层 Fluent 进场缓动（Fast Out, Slow In）。</summary>
     public static CompositionEasingFunction EnterEase(Compositor compositor) =>
         compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
@@ -69,6 +88,15 @@ public static class MotionFx
     /// </summary>
     public static CompositionEasingFunction ControlEase(Compositor compositor) =>
         compositor.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+
+    /// <summary>
+    /// 纯明暗交叉淡入淡出用的缓动：匀称的缓入缓出，中途斜率最大。
+    /// <para>Fluent 的进场/退场样条都是"起步极快"型（30% 时间就走完 87%），用在阴影、高亮这类
+    /// <b>纯明暗渐变</b>上会退化成"啪一下没了"——这正是悬停阴影显得生硬的原因；
+    /// 匀称淡出才能让整个淡出过程被看见。内容进出场仍用 EnterEase/ExitEase。</para>
+    /// </summary>
+    public static CompositionEasingFunction FadeEase(Compositor compositor) =>
+        compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 0f), new Vector2(0.67f, 1f));
 
     /// <summary>
     /// 淡入 + 位移到位。

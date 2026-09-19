@@ -19,7 +19,14 @@ public static class CardHoverBehavior
 {
     private const float HoverScale = 1.012f;
     private const float PressedScale = 0.985f;
-    private static readonly TimeSpan Duration = TimeSpan.FromMilliseconds(120);
+    /// <summary>
+    /// 120ms 配"起步极快"的曲线会变成一次跳变，看着生硬。
+    /// 拉长到 Fluent Normal 档（200ms）并换成匀称曲线，放大才是个能被看见的过程。
+    /// </summary>
+    private static readonly TimeSpan Duration = TimeSpan.FromMilliseconds(MotionFx.HoverFadeInMs);
+
+    /// <summary>按压反馈要比悬停更快：按下去必须立刻有反应，等 200ms 就成了"没反应"</summary>
+    private static readonly TimeSpan PressDuration = TimeSpan.FromMilliseconds(100);
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -105,15 +112,18 @@ public static class CardHoverBehavior
     }
 
     private static void Animate(FrameworkElement element, State state, float scale)
+        => Animate(element, state, scale, Duration);
+
+    private static void Animate(FrameworkElement element, State state, float scale, TimeSpan duration)
     {
         try
         {
             if (state.Visual is not { } visual || state.Compositor is not { } compositor) return;
             UpdateCenter(element, visual);
-            var easing = MotionFx.EnterEase(compositor);
+            var easing = MotionFx.FadeEase(compositor);
 
             var scaleAnim = compositor.CreateVector3KeyFrameAnimation();
-            scaleAnim.Duration = Duration;
+            scaleAnim.Duration = duration;
             scaleAnim.InsertKeyFrame(1f, new Vector3(scale, scale, 1f), easing);
             visual.StartAnimation("Scale", scaleAnim);
         }
@@ -150,21 +160,21 @@ public static class CardHoverBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Pressed = true;
-        Animate(fe, s, PressedScale);
+        Animate(fe, s, PressedScale, PressDuration);
     }
 
     private static void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Pressed = false;
-        Animate(fe, s, s.Hovered ? HoverScale : 1f);
+        Animate(fe, s, s.Hovered ? HoverScale : 1f, PressDuration);
     }
 
     private static void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Pressed = false;
-        Animate(fe, s, s.Hovered ? HoverScale : 1f);
+        Animate(fe, s, s.Hovered ? HoverScale : 1f, PressDuration);
     }
 
     private static void OnSizeChanged(object sender, SizeChangedEventArgs e)

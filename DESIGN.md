@@ -168,9 +168,19 @@
 - 退场 **Slow Out, Fast In** = `cubic-bezier(0.7, 0, 1, 0.5)`（`MotionFx.ExitControl1/2`）
 - 控件级小位移用更快的 `ControlFastOutSlowIn` = `cubic-bezier(0.16, 1, 0.3, 1)`
 
-不能直接给 `CompositionEasingFunction` 的地方（XAML `Storyboard` / `EnableDependentAnimation` 的
-依赖型属性）用内置 `ExponentialEase { Exponent = 4, EasingMode = EaseOut }` 近似进场曲线。
-时长分档同样对齐 Fluent：小控件 100–150ms、中等表面 200–250ms，**退场永远比入场短**。
+上不了合成层的地方（`EnableDependentAnimation` 的依赖型属性，如抽屉高度）用
+`DoubleAnimationUsingKeyFrames` + `SplineDoubleKeyFrame` 把同一条样条写进 XAML 动画，
+不做"内置缓动类近似"。时长分档同样对齐 Fluent：小控件 100–150ms、中等表面 200–250ms。
+
+**指针悬停反馈单独一档**，因为它不是"内容进出场"而是"亮度 + 微位移的交叉过渡"：
+
+- 曲线用 `MotionFx.FadeEase` = `cubic-bezier(0.33, 0, 0.67, 1)`（匀称的缓入缓出，中途最快）。
+  Fluent 的 Enter/Exit 样条都是"起步极快"型（30% 时间走完 87%），套在阴影、高亮这类**纯明暗渐变**上
+  会退化成"啪一下没了"——悬停显得生硬、卡顿正是这个原因。
+- 时长：淡入 200ms（`HoverFadeInMs`，Fluent Normal 档）、淡出 300ms（`HoverFadeOutMs`，Fluent Slow 档），
+  淡出刻意比淡入长，退出来才有可见的尾迹；按压反馈另走 100ms，按下去必须立刻有反应。
+- 参照值：WinUI 3 框架自己的 `VisualTransition`／状态切换取 167ms（`MotionFx.PointerOverMs`），
+  控制模板的 `BrushTransition` 取 83ms——两者都是"起步极快"，所以本项目的悬停刻意不照抄这两档。
 
 | 场景 | 实现 | 时长 / 曲线 |
 | --- | --- | --- |
@@ -178,8 +188,9 @@
 | 内容退场 | `MotionFx.FadeOut`：只动 `Opacity` | 140ms / 退场曲线 |
 | 列表首屏入场 | `MotionFx.StaggerIn`：第 i 项延迟 `min(i,9)×26ms`，最多 12 项 | 进场曲线 |
 | 抽屉展开 / 收起 | `ExpandBehavior`：高度 `0 ↔ 自然高度`（`EnableDependentAnimation`）+ 内容淡入上移 12px + 箭头旋转 | 展开 250ms / 收起 150ms / 内容 200ms，进场曲线 |
-| 悬停抬升（卡片内阴影） | `HoverShadowBehavior`：合成 `Translation` 抬升 + 贴光标的径向高光 | 进 110ms / 出 260ms，各自对应方向的 Fluent 曲线 |
-| 行悬停 | `RowHoverBehavior`：合成 `Translation.Z` 抬升 + 覆盖层淡入 | 进 170ms / 出 140ms（进场曲线） |
+| 悬停抬升（卡片内阴影） | `HoverShadowBehavior`：合成 `Translation` 抬升 + 贴光标的径向高光 | 进 200ms / 出 300ms，`FadeEase` |
+| 行悬停 | `RowHoverBehavior`：合成 `Translation.Z` 抬升 + 覆盖层淡入 | 进 200ms / 出 300ms，`FadeEase`；按压 100ms |
+| 卡片悬停缩放 | `CardHoverBehavior`：合成 `Scale`（悬停 1.012 / 按压 0.985） | 悬停 200ms / 按压 100ms，`FadeEase` |
 | 分段控件选中指示器 | 合成 `Translation.X` 平移品牌色药丸 | 260ms / 进场曲线 |
 
 ## 12. 下载页（下载原版）

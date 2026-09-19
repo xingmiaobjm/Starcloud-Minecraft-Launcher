@@ -29,11 +29,14 @@ public static class HoverShadowBehavior
     /// <summary>悬停时元素的微量上移（px）</summary>
     private const float HoverLiftY = -1f;
 
-    /// <summary>淡入要快：跨行时新的光斑立刻接上，避免出现"空白帧"</summary>
-    private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(110);
+    /// <summary>
+    /// 淡入 200ms：原先 110ms 配上"起步极快"的曲线，阴影几乎是"啪一下"亮起来，
+    /// 跨行移动时会看成闪一下。Fluent Normal 档 + 匀称曲线，亮起有个过程但依然跟手。
+    /// </summary>
+    private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(MotionFx.HoverFadeInMs);
 
-    /// <summary>淡出要慢：旧行的光斑慢慢退，和新行交叠成一团连续的暗晕</summary>
-    private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(260);
+    /// <summary>淡出 300ms：比淡入长，旧行的光斑慢慢退，和新行交叠成一团连续的暗晕</summary>
+    private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(MotionFx.HoverFadeOutMs);
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -227,7 +230,9 @@ public static class HoverShadowBehavior
         try
         {
             if (state.Compositor is not { } compositor) return;
-            var ease = MotionFx.ControlEase(compositor);
+            // 悬停反馈是"亮度 + 微位移"的交叉过渡，不是内容进出场：两个方向都用匀称的 FadeEase，
+            // 只有时长分快慢（进 200ms / 出 300ms），这样淡出过程看得见，也不会有"停顿后突然消失"。
+            var ease = MotionFx.FadeEase(compositor);
 
             if (state.LayerVisual is { } layerVisual)
             {
@@ -239,11 +244,10 @@ public static class HoverShadowBehavior
 
             if (state.Visual is { } visual)
             {
-                // 抬升：Fluent 曲线（进场快出慢收、移出慢出快收），不回弹也不拖尾
+                // 抬升：与阴影同一条曲线、同一时长，两者不会一个先停一个还在走
                 var lift = compositor.CreateVector3KeyFrameAnimation();
                 lift.Duration = duration;
-                var curve = hovered ? MotionFx.EnterEase(compositor) : MotionFx.ExitEase(compositor);
-                lift.InsertKeyFrame(1f, hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero, curve);
+                lift.InsertKeyFrame(1f, hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero, ease);
                 visual.StartAnimation("Translation", lift);
             }
         }

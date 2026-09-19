@@ -27,8 +27,8 @@ public static class RowHoverBehavior
     private const double HoverLift = -2d;  // 悬停：上浮 2px
     private const double PressedDrop = 1d; // 按下：下压 1px
 
-    private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(170);
-    private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(140);
+    private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(MotionFx.HoverFadeInMs);
+    private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(MotionFx.HoverFadeOutMs);
     private static readonly TimeSpan PressIn = TimeSpan.FromMilliseconds(100);
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
@@ -138,7 +138,8 @@ public static class RowHoverBehavior
             state.Lift?.Stop();
             transform.Y = 0; // 基准值保持 0：视觉位置完全由动画的 From/To 决定
 
-            // 曲线与合成层动效同源：往"上浮"方向走用进场样条，往回收用退场样条
+            // 与高亮层、阴影层同一条曲线、同一时长：行悬停是"亮度 + 微位移"的交叉过渡，
+            // 用匀称的 FadeEase；进出场样条只留给内容进出场。
             var slide = new DoubleAnimationUsingKeyFrames { Duration = duration };
             slide.KeyFrames.Add(new LinearDoubleKeyFrame
             {
@@ -149,7 +150,7 @@ public static class RowHoverBehavior
             {
                 KeyTime = KeyTime.FromTimeSpan(duration),
                 Value = lift,
-                KeySpline = lift >= from ? MotionFx.CreateEnterSpline() : MotionFx.CreateExitSpline(),
+                KeySpline = MotionFx.CreateFadeSpline(),
             });
             var storyboard = new Storyboard();
             Storyboard.SetTarget(slide, element);
@@ -207,8 +208,8 @@ public static class RowHoverBehavior
         }
     }
 
-    /// <summary>收尾平缓的 Fluent 控件曲线：起步快、末段慢，悬浮手感不"生硬"</summary>
-    private static CompositionEasingFunction Ease(Compositor compositor) => MotionFx.ControlEase(compositor);
+    /// <summary>高亮层淡入淡出：与阴影、位移同一条匀称曲线</summary>
+    private static CompositionEasingFunction Ease(Compositor compositor) => MotionFx.FadeEase(compositor);
 
     private static void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
