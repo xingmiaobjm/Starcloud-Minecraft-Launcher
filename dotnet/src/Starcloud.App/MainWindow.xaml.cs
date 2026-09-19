@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
 
         // 调度中心：Changed 可能在后台线程触发，仅置脏标志，UI 由 300ms 定时器统一刷新
         Starcloud.Core.Services.TaskCenterService.Instance.Changed += () => _taskDirty = true;
+        NotificationCenter.Instance.Changed += () => _taskDirty = true;
         _taskRefresh.Tick += (_, _) => RefreshTaskRows();
         _taskRefresh.Start();
 
@@ -84,11 +85,14 @@ public sealed partial class MainWindow : Window
         AppServices.Instance.PluginHost.NotifyRequested += (pluginId, title, message) =>
             DispatcherQueue.TryEnqueue(() =>
             {
-                PluginNotifyTip.Title = string.IsNullOrWhiteSpace(title) ? pluginId : title;
+                var heading = string.IsNullOrWhiteSpace(title) ? pluginId : title;
+                PluginNotifyTip.Title = heading;
                 PluginNotifyTip.Message = message;
                 PluginNotifyTip.IsOpen = true;
                 pluginNotifyTimer.Stop();
                 pluginNotifyTimer.Start();
+                // 同一份通知也进历史流水（右下角提示会消失，历史通知留着可查）
+                NotificationCenter.Instance.Info($"{heading}：{message}");
             });
 
         // 外观（D1）：主题在启动时即生效（修历史 bug：设置页回填时 _loaded=false 导致主题被忽略）
@@ -166,9 +170,6 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.GetForCurrentThread().CreateTimer();
     private volatile bool _taskDirty;
 
-    /// <summary>任务分区：进行中（卡片 + 进度）与已完成（一行结果，视觉收敛）</summary>
-    private enum TaskGroup { Running, Done }
-
     private void TaskCenterBtn_Click(object sender, RoutedEventArgs e) => ToggleTaskPanel();
 
     private void TaskCenterClose_Click(object sender, RoutedEventArgs e) => ToggleTaskPanel();
@@ -183,9 +184,10 @@ public sealed partial class MainWindow : Window
         if (TaskCenterOverlay.Visibility == Visibility.Visible) ToggleTaskPanel();
     }
 
-    private void TaskClearDone_Click(object sender, RoutedEventArgs e)
+    /// <summary>清空历史通知（调度队列不受影响）</summary>
+    private void NoticeClear_Click(object sender, RoutedEventArgs e)
     {
-        Starcloud.Core.Services.TaskCenterService.Instance.ClearFinished();
+        NotificationCenter.Instance.Clear();
         _taskDirty = true;
         RefreshTaskRows();
     }
@@ -237,86 +239,156 @@ public sealed partial class MainWindow : Window
         {
             if (!_taskDirty) return;
             _taskDirty = false;
-            var tc = Starcloud.Core.Services.TaskCenterService.Instance;
+            var tc = TaskCenterService.Instance;
+            var nc = NotificationCenter.Instance;
 
             var running = tc.RunningCount;
             TaskBadgeText.Text = running.ToString();
             TaskBadge.Visibility = running > 0 ? Visibility.Visible : Visibility.Collapsed;
 
             if (TaskCenterOverlay.Visibility != Visibility.Visible) return;
-            var tasks = tc.Snapshot();
-            var runningTasks = tasks.Where(t => t.State == AppTaskState.Running).ToList();
-            var doneTasks = tasks.Where(t => t.State != AppTaskState.Running).ToList();
+            var queue = tc.Snapshot().Where(t => t.State == AppTaskState.Running).ToList();
+            var notices = nc.Snapshot().Take(MaxShownNotices).ToList();
 
             TaskSummaryText.Text = running > 0
-                ? Loc.T("{0} 个任务进行中，共 {1} 条", running, tasks.Count)
-                : Loc.T("共 {0} 条记录", tasks.Count);
+                ? Loc.T("{0} 个任务进行中 · {1} 条通知", running, nc.Count)
+                : Loc.T("{0} 条通知", nc.Count);
 
-            SyncTaskHost(TaskRunningHost, runningTasks, TaskGroup.Running);
-            SyncTaskHost(TaskDoneHost, doneTasks, TaskGroup.Done);
-
-            TaskRunningHeader.Text = Loc.T("进行中 · {0}", runningTasks.Count);
-            TaskRunningHeader.Visibility = runningTasks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            TaskDoneHeader.Text = Loc.T("已完成 · {0}", doneTasks.Count);
-            TaskDoneHeader.Visibility = doneTasks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            TaskClearDoneBtn.Visibility = doneTasks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            TaskEmptyState.Visibility = tasks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            SyncQueueRows(queue);
+            SyncNoticeRows(notices);
+            QueueEmptyHost.Visibility = queue.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            NoticeClearBtn.Visibility = nc.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch { /* 面板刷新失败不影响主流程，下个 tick 重试 */ }
     }
 
-    /// <summary>同步一个任务分区：按 Id 复用行控件（避免重建打断不定态动画），
-    /// 仅在任务换区（进行中 ↔ 已完成）时丢弃旧行按目标形态重建。</summary>
-    private void SyncTaskHost(StackPanel host, List<AppTask> tasks, TaskGroup group)
+    /// <summary>调度队列：按 Task.Id 复用任务卡（重建会打断不定态动画，内容就地更新）</summary>
+    private void SyncQueueRows(List<AppTask> tasks)
     {
         var ids = tasks.Select(t => t.Id).ToHashSet();
-        foreach (var kv in _rows.Where(kv => kv.Value.Group != group && ids.Contains(kv.Key)).ToList())
-        {
-            kv.Value.Host.Children.Remove(kv.Value.Root);
-            _rows.Remove(kv.Key);
-        }
-
         var index = 0;
         foreach (var t in tasks)
         {
             if (!_rows.TryGetValue(t.Id, out var r))
             {
-                r = BuildTaskRow(t, group);
-                r.Host = host;
+                r = BuildTaskRow(t);
                 _rows[t.Id] = r;
-                host.Children.Insert(Math.Min(index, host.Children.Count), r.Root);
+                TaskRunningHost.Children.Insert(Math.Min(index, TaskRunningHost.Children.Count), r.Root);
             }
             else
             {
-                var pos = host.Children.IndexOf(r.Root);
+                var pos = TaskRunningHost.Children.IndexOf(r.Root);
                 if (pos >= 0 && pos != index)
                 {
-                    host.Children.RemoveAt(pos);
-                    host.Children.Insert(index, r.Root);
+                    TaskRunningHost.Children.RemoveAt(pos);
+                    TaskRunningHost.Children.Insert(index, r.Root);
                 }
             }
             UpdateTaskRow(r, t);
             index++;
         }
 
-        // 已消失的行：被「清除已完成」清掉、或超出服务端保留条数
-        foreach (var kv in _rows.Where(kv => kv.Value.Host == host && !ids.Contains(kv.Key)).ToList())
+        // 任务结束（转入历史通知）或超出保留条数：撤掉队列里的卡片
+        foreach (var kv in _rows.Where(kv => !ids.Contains(kv.Key)).ToList())
         {
-            host.Children.Remove(kv.Value.Root);
+            TaskRunningHost.Children.Remove(kv.Value.Root);
             _rows.Remove(kv.Key);
         }
     }
+
+    /// <summary>历史通知：按 Notice.Id 复用行控件（通知不可变，只在增删时动列表）</summary>
+    private void SyncNoticeRows(List<AppNotice> notices)
+    {
+        var ids = notices.Select(n => n.Id).ToHashSet();
+        var index = 0;
+        foreach (var n in notices)
+        {
+            if (!_noticeRows.TryGetValue(n.Id, out var row))
+            {
+                row = BuildNoticeRow(n);
+                _noticeRows[n.Id] = row;
+                NoticeHost.Children.Insert(Math.Min(index, NoticeHost.Children.Count), row);
+            }
+            else
+            {
+                var pos = NoticeHost.Children.IndexOf(row);
+                if (pos >= 0 && pos != index)
+                {
+                    NoticeHost.Children.RemoveAt(pos);
+                    NoticeHost.Children.Insert(index, row);
+                }
+            }
+            index++;
+        }
+
+        foreach (var kv in _noticeRows.Where(kv => !ids.Contains(kv.Key)).ToList())
+        {
+            NoticeHost.Children.Remove(kv.Value);
+            _noticeRows.Remove(kv.Key);
+        }
+    }
+
+    /// <summary>历史通知行：[时间] [级别] [文案]；级别只用系统语义色，文案超三行截断并给 ToolTip</summary>
+    private Border BuildNoticeRow(AppNotice n)
+    {
+        var time = new TextBlock
+        {
+            Text = n.Time.ToString("HH:mm:ss"), FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Top,
+            Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
+        };
+        var levelText = Loc.T(n.Level switch
+        {
+            NoticeLevel.Warning => "警告",
+            NoticeLevel.Error => "错误",
+            _ => "信息",
+        });
+        var level = new TextBlock
+        {
+            Text = levelText, FontSize = 11, Margin = new Thickness(10, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Foreground = LevelBrush(n.Level),
+        };
+        var message = Loc.TCore(n.Message);
+        var text = new TextBlock
+        {
+            Text = message, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxLines = 3,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = ThemedBrush("TextFillColorPrimaryBrush"),
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(time, 0);
+        Grid.SetColumn(level, 1);
+        Grid.SetColumn(text, 2);
+        grid.Children.Add(time);
+        grid.Children.Add(level);
+        grid.Children.Add(text);
+
+        ToolTipService.SetToolTip(grid, message);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(grid, $"{n.Time:HH:mm:ss} {levelText} {message}");
+        return new Border { Padding = new Thickness(2, 1, 2, 1), Child = grid };
+    }
+
+    /// <summary>通知级别配色：仅作状态信号（信息 = 强调色、警告 = 警示色、错误 = 严重色）</summary>
+    private Brush? LevelBrush(NoticeLevel level) => level switch
+    {
+        NoticeLevel.Warning => ThemedBrush("SystemFillColorCautionBrush"),
+        NoticeLevel.Error => ThemedBrush("SystemFillColorCriticalBrush"),
+        _ => ThemedBrush("SystemFillColorAttentionBrush"),
+    };
 
     /// <summary>已构建任务行的可更新控件引用（按 Task.Id 缓存，跨刷新复用）。
     /// 进度条为自绘（Star 列宽 = 比例，直接布局无动画）——WinUI ProgressBar 的值变化自带
     /// 缓动动画，300ms 刷新节奏下动画永远在追赶，这就是进度条抽搐的根因。</summary>
     private sealed class TaskRowRefs
     {
-        public TaskGroup Group;
-        public StackPanel Host = null!;
-        public Border Root = null!;               // 行容器：进行中 = 卡片，已完成 = 纯文本行
+        public Border Root = null!;               // 任务卡容器
         public Microsoft.UI.Xaml.Shapes.Ellipse Dot = null!;
-        public TextBlock Value = null!;           // 右对齐的关键数字：百分比 / 速度 / 结果
+        public TextBlock Value = null!;           // 右对齐的关键数字：百分比 / 速度 / 阶段
         public Border Track = null!;            // 主进度条底槽（圆角）
         public Microsoft.UI.Xaml.Shapes.Rectangle Fill = null!;
         public ColumnDefinition FillCol = null!; // 填充列（Star 宽 = 进度比例）
@@ -328,11 +400,16 @@ public sealed partial class MainWindow : Window
         public StackPanel Legend = null!;        // 贡献带图例：源名 + 体积 + 占比
     }
 
+    /// <summary>调度队列的行缓存（Task.Id → 行控件）与历史通知的行缓存（Notice.Id → 行控件）</summary>
     private readonly Dictionary<string, TaskRowRefs> _rows = [];
+    private readonly Dictionary<long, Border> _noticeRows = [];
 
-    /// <summary>构建任务行骨架。进行中 = 卡片（状态点 + 标题 + 关键数字 + 自绘进度条 +
-    /// 详情 + 多源贡献带）；已完成 = 一行结果（视觉收敛，不与进行中抢注意力）。</summary>
-    private TaskRowRefs BuildTaskRow(AppTask t, TaskGroup group)
+    /// <summary>历史通知最多渲染的条数（服务端保留 200 条，面板只展示最近这些）</summary>
+    private const int MaxShownNotices = 50;
+
+    /// <summary>构建任务卡骨架：状态点 + 标题 + 右对齐关键数字 + 自绘进度条 + 详情 + 多源贡献带。
+    /// 只有「正在执行」的任务才会出现在调度队列里，因此这里只有一种形态。</summary>
+    private TaskRowRefs BuildTaskRow(AppTask t)
     {
         var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
         {
@@ -370,95 +447,73 @@ public sealed partial class MainWindow : Window
         var body = new StackPanel { Spacing = 7 };
         body.Children.Add(head);
 
-        var refs = new TaskRowRefs { Root = root, Dot = dot, Value = value, Group = group };
+        var refs = new TaskRowRefs { Root = root, Dot = dot, Value = value };
 
-        if (group == TaskGroup.Running)
+        refs.FillCol = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
+        refs.RestCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
+        refs.Fill = new Microsoft.UI.Xaml.Shapes.Rectangle
         {
-            refs.FillCol = new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) };
-            refs.RestCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
-            refs.Fill = new Microsoft.UI.Xaml.Shapes.Rectangle
-            {
-                Fill = ThemedBrush("AccentFillColorDefaultBrush"),
-                RadiusX = 2, RadiusY = 2, HorizontalAlignment = HorizontalAlignment.Stretch,
-            };
-            var barGrid = new Grid();
-            barGrid.ColumnDefinitions.Add(refs.FillCol);
-            barGrid.ColumnDefinitions.Add(refs.RestCol);
-            barGrid.Children.Add(refs.Fill);
-            refs.Track = new Border
-            {
-                Height = 4, CornerRadius = new CornerRadius(2),
-                Background = ThemedBrush("ControlStrongFillColorDefaultBrush"),
-                Child = barGrid,
-            };
-            refs.Ind = new ProgressBar { MinHeight = 4, IsIndeterminate = true, Visibility = Visibility.Collapsed };
-            var barHost = new Grid { Margin = new Thickness(0, 1, 0, 0) };
-            barHost.Children.Add(refs.Track);
-            barHost.Children.Add(refs.Ind);
+            Fill = ThemedBrush("AccentFillColorDefaultBrush"),
+            RadiusX = 2, RadiusY = 2, HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var barGrid = new Grid();
+        barGrid.ColumnDefinitions.Add(refs.FillCol);
+        barGrid.ColumnDefinitions.Add(refs.RestCol);
+        barGrid.Children.Add(refs.Fill);
+        refs.Track = new Border
+        {
+            Height = 4, CornerRadius = new CornerRadius(2),
+            Background = ThemedBrush("ControlStrongFillColorDefaultBrush"),
+            Child = barGrid,
+        };
+        refs.Ind = new ProgressBar { MinHeight = 4, IsIndeterminate = true, Visibility = Visibility.Collapsed };
+        var barHost = new Grid { Margin = new Thickness(0, 1, 0, 0) };
+        barHost.Children.Add(refs.Track);
+        barHost.Children.Add(refs.Ind);
 
-            refs.Detail = new TextBlock
-            {
-                FontSize = 11, Visibility = Visibility.Collapsed,
-                Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-            refs.MirrorCaption = new TextBlock
-            {
-                Text = Loc.T("各源贡献"), FontSize = 11, Visibility = Visibility.Collapsed,
-                Margin = new Thickness(0, 3, 0, 0),
-                Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
-            };
-            refs.Ribbon = new Grid { Height = 6, ColumnSpacing = 3, Visibility = Visibility.Collapsed };
-            refs.Legend = new StackPanel
-            {
-                Spacing = 3, Margin = new Thickness(0, 3, 0, 0), Visibility = Visibility.Collapsed,
-            };
+        refs.Detail = new TextBlock
+        {
+            FontSize = 11, Visibility = Visibility.Collapsed,
+            Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        refs.MirrorCaption = new TextBlock
+        {
+            Text = Loc.T("各源贡献"), FontSize = 11, Visibility = Visibility.Collapsed,
+            Margin = new Thickness(0, 3, 0, 0),
+            Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
+        };
+        refs.Ribbon = new Grid { Height = 6, ColumnSpacing = 3, Visibility = Visibility.Collapsed };
+        refs.Legend = new StackPanel
+        {
+            Spacing = 3, Margin = new Thickness(0, 3, 0, 0), Visibility = Visibility.Collapsed,
+        };
 
-            body.Children.Add(barHost);
-            body.Children.Add(refs.Detail);
-            body.Children.Add(refs.MirrorCaption);
-            body.Children.Add(refs.Ribbon);
-            body.Children.Add(refs.Legend);
+        body.Children.Add(barHost);
+        body.Children.Add(refs.Detail);
+        body.Children.Add(refs.MirrorCaption);
+        body.Children.Add(refs.Ribbon);
+        body.Children.Add(refs.Legend);
 
-            // 只有进行中的任务有材质卡片：活跃的工作"有实体"，历史记录只是文字
-            root.Background = ThemedBrush("LayerFillColorDefaultBrush");
-            root.BorderBrush = ThemedBrush("CardStrokeColorDefaultBrush");
-            root.BorderThickness = new Thickness(1);
-        }
+        // 队列里的任务卡带材质面：正在执行的工作「有实体」
+        root.Background = ThemedBrush("LayerFillColorDefaultBrush");
+        root.BorderBrush = ThemedBrush("CardStrokeColorDefaultBrush");
+        root.BorderThickness = new Thickness(1);
 
         root.Child = body;
         return refs;
     }
 
-    /// <summary>就地更新行内容（不重建控件，保证 indeterminate 动画连续）。
-    /// 状态色一律取主题语义刷：品牌 accent 只表示「进行中」，成功/失败走系统语义色。</summary>
+    /// <summary>就地更新任务卡内容（不重建控件，保证 indeterminate 动画连续）。
+    /// 队列里只有正在执行的任务，状态点与进度一律用品牌 accent（主题切换后自愈）。</summary>
     private void UpdateTaskRow(TaskRowRefs r, AppTask t)
     {
-        r.Dot.Fill = t.State switch
-        {
-            AppTaskState.Running => ThemedBrush("AccentFillColorDefaultBrush"),
-            AppTaskState.Completed => ThemedBrush("SystemFillColorSuccessBrush"),
-            AppTaskState.Failed => ThemedBrush("SystemFillColorCriticalBrush"),
-            _ => ThemedBrush("TextFillColorDisabledBrush"),
-        };
+        r.Dot.Fill = ThemedBrush("AccentFillColorDefaultBrush");
 
-        // 无障碍：整行播报任务名，帮助文本给出当前进度/结果
+        // 无障碍：整卡播报任务名，帮助文本给出当前进度 / 阶段
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(r.Root, t.Title);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(
             r.Root, string.IsNullOrEmpty(t.Detail) ? "" : t.Detail);
-
-        if (t.State != AppTaskState.Running)
-        {
-            // 已完成：一行结果即可，不再重复表达进度
-            r.Value.Text = string.IsNullOrEmpty(t.Detail) ? Loc.T("完成") : t.Detail;
-            r.Value.FontSize = 12;
-            r.Value.FontWeight = FontWeights.Normal;
-            r.Value.Foreground = t.State == AppTaskState.Failed
-                ? ThemedBrush("SystemFillColorCriticalBrush")
-                : ThemedBrush("TextFillColorSecondaryBrush");
-            ToolTipService.SetToolTip(r.Root, string.IsNullOrEmpty(t.Detail) ? t.Title : t.Detail);
-            return;
-        }
 
         // 进行中：右上给出关键数字（确定进度 = 百分比；否则 = 速度 / 阶段文本）
         var pct = t.Progress is { } p ? (int)Math.Floor(Math.Clamp(p, 0, 1) * 100) : (int?)null;

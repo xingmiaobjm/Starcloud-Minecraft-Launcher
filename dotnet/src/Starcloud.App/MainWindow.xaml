@@ -311,7 +311,8 @@
         </NavigationView>
 
         <!-- 调度中心（右侧任务抽屉）：左遮罩（点击关闭）+ 432px 面板。
-             结构 = 标题行（标题 / 清除已完成 / 关闭）→ 状态行 → 两段任务列表（进行中、已完成）。
+             结构 = 标题行（标题 / 关闭）→ 状态行 → 两段：调度队列（正在跑的任务）+ 历史通知（时间流水）。
+             任务结束不留在队列里，而是落成一条带时间的通知。
              Esc 走 KeyboardAccelerator（不依赖焦点）；Tab 由 TabFocusNavigation="Cycle" 锁在抽屉内；
              入场动效由 MotionService 开关控制（关闭动效时不加任何转场）。 -->
         <!-- KeyboardAcceleratorPlacementMode="Hidden"：加速键照常生效，但不渲染顶部的「Esc」键位提示徽标 -->
@@ -338,7 +339,6 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xE9F5;" FontSize="15"
@@ -346,13 +346,7 @@
                             <TextBlock loc:Loc.Text="调度中心" FontSize="17" FontWeight="SemiBold"
                                        VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button x:Name="TaskClearDoneBtn" Grid.Column="1" Visibility="Collapsed"
-                                loc:Loc.Text="清除已完成" FontSize="12" Padding="10,4"
-                                MinWidth="0" MinHeight="0" VerticalAlignment="Center"
-                                Background="Transparent" BorderThickness="0"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Click="TaskClearDone_Click" />
-                        <Button x:Name="TaskCenterCloseBtn" Grid.Column="2"
+                        <Button x:Name="TaskCenterCloseBtn" Grid.Column="1"
                                 Padding="8" MinWidth="0" MinHeight="0" VerticalAlignment="Center"
                                 Background="Transparent" BorderThickness="0"
                                 loc:Loc.Name="关闭" Click="TaskCenterClose_Click">
@@ -369,20 +363,32 @@
                     <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
                                   Padding="0,0,6,0" loc:Loc.Name="任务列表">
                         <StackPanel>
-                            <TextBlock x:Name="TaskRunningHeader" Visibility="Collapsed"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       Margin="2,0,0,6"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <!-- 调度队列：正在执行的任务卡（进度 / 速度 / 多源贡献带） -->
+                            <TextBlock loc:Loc.Text="调度队列" FontSize="14" FontWeight="SemiBold"
+                                       Margin="2,0,0,8" />
                             <StackPanel x:Name="TaskRunningHost" Spacing="2" />
-                            <TextBlock x:Name="TaskDoneHeader" Visibility="Collapsed"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       Margin="2,16,0,6"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <StackPanel x:Name="TaskDoneHost" Spacing="2" />
-                            <local:EmptyStateView x:Name="TaskEmptyState" Visibility="Collapsed"
-                                                  Margin="0,48,0,24" Glyph="&#xE9F5;"
-                                                  loc:Loc.Title="这里会显示任务进度"
-                                                  loc:Loc.Subtitle="安装版本、下载资源或启动游戏时，进度会实时出现在这里。" />
+
+                            <!-- 队列为空：极简空态（图标 + 无） -->
+                            <StackPanel x:Name="QueueEmptyHost" Spacing="8" Margin="0,30,0,26">
+                                <FontIcon Glyph="&#xE8FD;" FontSize="22" HorizontalAlignment="Center"
+                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                <TextBlock loc:Loc.Text="无" FontSize="13" HorizontalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+
+                            <!-- 历史通知：任务收尾与启动器提示的时间流水 -->
+                            <Grid Margin="2,20,0,8">
+                                <TextBlock loc:Loc.Text="历史通知" FontSize="14" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="NoticeClearBtn" HorizontalAlignment="Right"
+                                        Visibility="Collapsed" loc:Loc.Text="清空通知"
+                                        FontSize="12" Padding="8,2" MinWidth="0" MinHeight="0"
+                                        VerticalAlignment="Center"
+                                        Background="Transparent" BorderThickness="0"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Click="NoticeClear_Click" />
+                            </Grid>
+                            <StackPanel x:Name="NoticeHost" Spacing="7" />
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

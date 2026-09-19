@@ -78,5 +78,10 @@
   "建议保留最新版本 {0}，其余停用（回复「处理冲突」可自动完成）": "Recommended: keep the newest version {0} and disable the rest (reply \"handle conflicts\" to do this automatically)",
   "文件损坏": "Corrupted file",
   "{0} 无法读取（{1}）": "{0} cannot be read ({1})",
-  "删除后重新下载这些模组": "Delete and re-download these mods"
+  "删除后重新下载这些模组": "Delete and re-download these mods",
+  "{0} 完成（{1}）": "{0} finished ({1})",
+  "{0} 完成": "{0} finished",
+  "{0} 失败（{1}）": "{0} failed ({1})",
+  "{0} 已取消": "{0} canceled",
+  "{0}：{1}": "{0}: {1}"
 }

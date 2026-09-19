@@ -95,6 +95,28 @@ public sealed class TaskCenterService
             try { task.Cts.Cancel(); } catch { /* 已释放 */ }
             Changed?.Invoke();
         }
+        // 历史通知：任务结束不再留在队列里，而是落成一条带时间的记录（锁外调用，避免与通知中心交叉持锁）
+        NotifyFinished(task, state);
+    }
+
+    /// <summary>任务收尾 → 通知文案（Core 产出简体中文，UI 经 Loc.TCore 本地化）</summary>
+    private static void NotifyFinished(AppTask task, AppTaskState state)
+    {
+        var notices = NotificationCenter.Instance;
+        switch (state)
+        {
+            case AppTaskState.Completed:
+                notices.Info(string.IsNullOrEmpty(task.Detail) || task.Detail == "完成"
+                    ? $"{task.Title} 完成"
+                    : $"{task.Title} 完成（{task.Detail}）");
+                break;
+            case AppTaskState.Failed:
+                notices.Error($"{task.Title} 失败（{task.Detail}）");
+                break;
+            case AppTaskState.Cancelled:
+                notices.Warn($"{task.Title} 已取消");
+                break;
+        }
     }
 
     /// <summary>请求取消任务（下载流 / 阶段循环会在下一个检查点退出）</summary>
@@ -121,16 +143,6 @@ public sealed class TaskCenterService
             _racingBytes.Clear();
         }
         Changed?.Invoke();
-    }
-
-    /// <summary>清除已结束的任务记录（完成 / 失败 / 取消），进行中的任务保留。
-    /// 返回被清除的条数，便于 UI 判断是否需要刷新。</summary>
-    public int ClearFinished()
-    {
-        int removed;
-        lock (_gate) removed = _tasks.RemoveAll(t => t.State != AppTaskState.Running);
-        if (removed > 0) Changed?.Invoke();
-        return removed;
     }
 
     /// <summary>运行中任务数（悬浮按钮徽标）</summary>

@@ -12,6 +12,7 @@ public class TaskCenterServiceTests
     {
         var tc = TaskCenterService.Instance;
         tc.ClearAll();
+        NotificationCenter.Instance.Clear();
         return tc;
     }
 
@@ -80,30 +81,41 @@ public class TaskCenterServiceTests
     }
 
     [Fact]
-    public void ClearFinished_RemovesFinishedButKeepsRunning()
+    public void Complete_AppendsInfoNotice()
     {
         var tc = Fresh();
-        var running = tc.Begin("资源下载");
-        var done = tc.Begin("安装 1.21.4");
-        tc.Complete(done);
+        var task = tc.Begin("搜索 Java");
 
-        var removed = tc.ClearFinished();
+        tc.Complete(task, "扫描完成");
 
-        Assert.Equal(1, removed);
-        var snapshot = tc.Snapshot();
-        Assert.Single(snapshot);
-        Assert.Same(running, snapshot[0]);
-        Assert.Equal(1, tc.RunningCount);
+        var notice = Assert.Single(NotificationCenter.Instance.Snapshot());
+        Assert.Equal(NoticeLevel.Info, notice.Level);
+        Assert.Equal("搜索 Java 完成（扫描完成）", notice.Message);
     }
 
     [Fact]
-    public void ClearFinished_NoHistory_ReturnsZeroAndKeepsTasks()
+    public void Fail_AppendsErrorNotice()
     {
         var tc = Fresh();
-        tc.Begin("资源下载");
+        var task = tc.Begin("安装 1.21.4");
 
-        Assert.Equal(0, tc.ClearFinished());
-        Assert.Single(tc.Snapshot());
+        tc.Fail(task, "连接超时");
+
+        var notice = Assert.Single(NotificationCenter.Instance.Snapshot());
+        Assert.Equal(NoticeLevel.Error, notice.Level);
+        Assert.Equal("安装 1.21.4 失败（连接超时）", notice.Message);
+    }
+
+    [Fact]
+    public void Complete_Twice_AppendsSingleNotice()
+    {
+        var tc = Fresh();
+        var task = tc.Begin("资源下载");
+
+        tc.Complete(task);
+        tc.Complete(task);
+
+        Assert.Single(NotificationCenter.Instance.Snapshot());
     }
 
     [Fact]

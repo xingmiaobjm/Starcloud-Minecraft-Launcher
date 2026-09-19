@@ -126,15 +126,20 @@
   徽标只表示「有几件事在做」，不做动画，避免顶栏一直闪
 - **抽屉**：432px 固定宽，`AppPaneBackgroundBrush` 实色面 + 左侧 1px
   `CardStrokeColorDefaultBrush` 描边；左侧遮罩 `#5A000000` 点击即关
-- **结构（三段）**：标题行（accent 着色 E9F5 图标 + 「调度中心」17 SemiBold +
-  「清除已完成」文本按钮 + 关闭按钮）→ 状态行（11px secondary，如「3 个任务进行中，共 5 条」）
-  → 任务列表
-- **任务列表 = 两个语义分区**，分区标题 13 SemiBold secondary（「进行中 · N」/「已完成 · N」）：
-  - **进行中**：材质卡片（圆角 8、`LayerFillColorDefaultBrush` + 1px 描边、内边距 12/10）。
-    行内自上而下：状态点（accent）→ 标题（13 SemiBold）与右对齐关键数字（13 SemiBold）同行 →
-    4px 自绘进度条 → 详情（11px secondary）→ 多源贡献带
-  - **已完成**：**无卡片的纯文本行**（同一行：状态点 + 标题 + 右对齐结果）。
-    活跃的工作「有实体」，历史只是记录，二者不抢注意力
+- **结构（两段）**：标题行（accent 着色 E9F5 图标 + 「调度中心」17 SemiBold + 关闭按钮）→
+  状态行（11px secondary，如「2 个任务进行中 · 7 条通知」）→ **调度队列** + **历史通知**
+- **调度队列**（标题 14 SemiBold primary）：只放**正在执行**的任务卡
+  （圆角 8、`LayerFillColorDefaultBrush` + 1px 描边、内边距 12/10）。卡内自上而下：
+  状态点（accent）→ 标题（13 SemiBold）与右对齐关键数字（13 SemiBold）同行 →
+  4px 自绘进度条 → 详情（11px secondary）→ 多源贡献带。
+  队列为空时是**极简空态**：E8FD 字形 22px（tertiary）+「无」13px（secondary），居中留白
+- **历史通知**（标题 14 SemiBold primary，右侧「清空通知」文本按钮）：一条时间流水，
+  行内三列 = `HH:mm:ss`（11px tertiary）+ 级别（11px，信息 `SystemFillColorAttentionBrush` /
+  警告 `SystemFillColorCautionBrush` / 错误 `SystemFillColorCriticalBrush`）+ 文案（12px primary，
+  最多三行、超出用 CharacterEllipsis 并给 ToolTip），最新在最前，面板最多渲染最近 50 条
+- **任务结束不留队列**：`TaskCenterService` 收尾时向 `NotificationCenter` 落一条通知
+  （完成 = 信息、失败 = 错误、取消 = 警告），插件通知除右下角浮条外同样进流水；
+  通知只保留本次会话（内存 200 条），面板提供「清空通知」
 - **状态点 / 进度色只用语义刷**：进行中 `AccentFillColorDefaultBrush`（浅色主题黄、深色主题绿，
   随 `App.xaml` 的 accent 覆盖走）、完成 `SystemFillColorSuccessBrush`、
   失败 `SystemFillColorCriticalBrush`、取消 `TextFillColorDisabledBrush`；
