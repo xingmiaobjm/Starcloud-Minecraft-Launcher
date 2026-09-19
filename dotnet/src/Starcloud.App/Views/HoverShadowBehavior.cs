@@ -97,8 +97,9 @@ public static class HoverShadowBehavior
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
             state.Layer = layer;
             state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
-            state.Brush = ResolveBrush(layer);
-            ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
+            (state.Radial, state.Linear) = ResolveBrushes(layer);
+            if (state.Radial is not null)
+                ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
         }
         catch
         {
@@ -241,7 +242,7 @@ public static class HoverShadowBehavior
     /// </summary>
     private static void ApplyLight(FrameworkElement element, State state, double x, double y)
     {
-        if (state.Brush is not { } brush) return;
+        if (state.Radial is not { } brush) return;   // 线性层（列表行）不跟随光标
         var w = element.ActualWidth;
         var h = element.ActualHeight;
         if (w <= 0 || h <= 0) return;
@@ -270,19 +271,32 @@ public static class HoverShadowBehavior
         public Visual? Visual;
         public Visual? LayerVisual;
         public FrameworkElement? Layer;
-        public RadialGradientBrush? Brush;
+        public RadialGradientBrush? Radial;
+        public LinearGradientBrush? Linear;
         public bool Wired;
         public bool Hovered;
     }
 
-    /// <summary>取阴影层上那个径向渐变刷（卡片用 Border.Background，圆形头像用 Shape.Fill）</summary>
-    private static RadialGradientBrush? ResolveBrush(FrameworkElement layer) => layer switch
+    /// <summary>
+    /// 取阴影层上的渐变刷：径向 = 光斑跟随光标（按钮/瓦片，元素小、裁切看不出）；
+    /// 线性 = 整面纵向内阴影（列表行，横向均匀，避免被行边界裁出断面）。
+    /// </summary>
+    private static (RadialGradientBrush? Radial, LinearGradientBrush? Linear) ResolveBrushes(FrameworkElement layer)
     {
-        Border border => border.Background as RadialGradientBrush,
-        Microsoft.UI.Xaml.Shapes.Shape shape => shape.Fill as RadialGradientBrush,
-        Panel panel => panel.Background as RadialGradientBrush,
-        _ => null,
-    };
+        var brush = layer switch
+        {
+            Border border => border.Background,
+            Microsoft.UI.Xaml.Shapes.Shape shape => shape.Fill,
+            Panel panel => panel.Background,
+            _ => null,
+        };
+        return brush switch
+        {
+            RadialGradientBrush radial => (radial, null),
+            LinearGradientBrush linear => (null, linear),
+            _ => (null, null),
+        };
+    }
 
     /// <summary>元素尺寸变化后按新尺寸重算半径（否则宽高比一变又会被拉成椭圆）</summary>
     private static void OnSizeChanged(object sender, SizeChangedEventArgs e)
