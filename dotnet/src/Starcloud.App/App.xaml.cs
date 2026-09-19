@@ -47,6 +47,13 @@ public partial class App : Application
         MainWindow = new MainWindow();
         MainWindow.Activate();
 
+        // 插件系统：后台加载所有已启用插件（JS 同步加载 / Python 起子进程，不阻塞 UI）
+        _ = Task.Run(() =>
+        {
+            try { AppServices.Instance.Plugins.LoadEnabledAtStartup(); }
+            catch { /* 插件加载失败不阻塞启动 */ }
+        });
+
         // 自动更新：延迟几秒后台检查（游戏运行时避让），发现新版弹窗确认
         _ = UpdateStartup.RunAsync();
 

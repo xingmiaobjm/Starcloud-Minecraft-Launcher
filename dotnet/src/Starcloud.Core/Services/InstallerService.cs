@@ -25,6 +25,16 @@ public sealed class InstallerService
     public bool IsInstalled(string dotMinecraft, string id) =>
         File.Exists(VersionJsonPath(dotMinecraft, id));
 
+    /// <summary>
+    /// 生成不冲突的版本 id：已存在时追加 -2、-3…，允许本地并存多个相同版本。
+    /// </summary>
+    public string UniqueVersionId(string dotMinecraft, string id)
+    {
+        if (!IsInstalled(dotMinecraft, id)) return id;
+        for (var i = 2; ; i++)
+            if (!IsInstalled(dotMinecraft, $"{id}-{i}")) return $"{id}-{i}";
+    }
+
     /// <summary>加载版本 JSON（含一层 inheritsFrom 合并，如 Fabric 继承原版）</summary>
     public async Task<MinecraftVersion> LoadVersionAsync(string dotMinecraft, string id,
         CancellationToken ct = default)
@@ -95,7 +105,8 @@ public sealed class InstallerService
                       ?? throw new InvalidOperationException("Fabric profile 解析失败");
 
         var dotMc = settings.DotMinecraft;
-        var id = profile.Id;
+        // 同名版本并存：id 冲突时自动追加 -2、-3…（merged 元数据沿用新 id）
+        var id = UniqueVersionId(dotMc, profile.Id);
         Directory.CreateDirectory(VersionDir(dotMc, id));
 
         // 读取原版版本 JSON 并合并
@@ -124,7 +135,7 @@ public sealed class InstallerService
             (client.Url, VersionJarPath(dotMc, id), client.Sha1, client.Size),
         };
 
-        // 库（含规则过滤 + windows natives）
+        // 库（含规则过滤 + 当前平台 natives）
         var versionDir = VersionDir(dotMc, id);
         var nativesDir = Path.Combine(versionDir, "natives");
         var nativesJobs = new List<(DownloadableFile File, string Dest, ExtractSpec? Extract)>();
@@ -136,8 +147,7 @@ public sealed class InstallerService
                 files.Add((artifact.Url, Path.Combine(dotMc, "libraries", artifact.Path ?? ""),
                     artifact.Sha1, artifact.Size));
             }
-            if (dl?.Classifiers is not null &&
-                dl.Classifiers.TryGetValue("natives-windows", out var native))
+            if (NativesOf(dl) is { } native)
             {
                 nativesJobs.Add((native,
                     Path.Combine(dotMc, "libraries", native.Path ?? ""), lib.Extract));
@@ -189,22 +199,33 @@ public sealed class InstallerService
         }
     }
 
-    /// <summary>解压 natives jar 中的 dll 到 natives 目录（受 extract.exclude 过滤）</summary>
+    /// <summary>解压 natives jar 中的本机库（.dll/.so/.dylib）到 natives 目录（受 extract.exclude 过滤）</summary>
     public static void ExtractNatives(string nativesJarPath, string nativesDir, ExtractSpec? extract)
     {
         using var zip = System.IO.Compression.ZipFile.OpenRead(nativesJarPath);
         foreach (var entry in zip.Entries)
         {
-            if (!entry.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!PlatformInfo.IsNativeArtifact(entry.FullName)) continue;
             if (extract?.Exclude?.Any(e => entry.FullName.Contains(e)) == true) continue;
             var target = Path.Combine(nativesDir, Path.GetFileName(entry.FullName));
             entry.ExtractToFile(target, overwrite: true);
         }
     }
 
-    /// <summary>Minecraft 库规则判定（os: windows）</summary>
-    public static bool RulesAllow(List<OsRule>? rules)
+    /// <summary>从 classifiers 里取当前平台的 natives（按候选键顺序回退）；无对应平台键时返回 null</summary>
+    public static DownloadableFile? NativesOf(LibraryDownloads? downloads,
+        IReadOnlyList<string>? candidates = null)
     {
+        if (downloads?.Classifiers is not { } classifiers) return null;
+        foreach (var key in candidates ?? PlatformInfo.NativesClassifierCandidates)
+            if (classifiers.TryGetValue(key, out var file)) return file;
+        return null;
+    }
+
+    /// <summary>Minecraft 库规则判定（默认按当前平台 os.name；osName 显式传入便于跨平台单测）</summary>
+    public static bool RulesAllow(List<OsRule>? rules, string? osName = null)
+    {
+        osName ??= PlatformInfo.MojangOsName;
         if (rules is null || rules.Count == 0) return true;
         var allowed = false;
         foreach (var rule in rules)
@@ -212,7 +233,7 @@ public sealed class InstallerService
             // 带 features 的规则：启动器未启用任何 feature，不匹配（杜绝 --demo 等试玩参数）
             if (rule.Features is { Count: > 0 }) continue;
             var matches = rule.Os is null || rule.Os.Name is null ||
-                          rule.Os.Name.Equals("windows", StringComparison.OrdinalIgnoreCase);
+                          rule.Os.Name.Equals(osName, StringComparison.OrdinalIgnoreCase);
             // 32 位专用规则在 64 位进程上不匹配（如 -Xss1M）
             if (matches && rule.Os?.Arch == "x86" && Environment.Is64BitProcess) matches = false;
             if (!matches) continue;

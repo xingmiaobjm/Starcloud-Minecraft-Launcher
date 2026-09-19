@@ -1,5 +1,5 @@
 // 多源分片竞速下载器：同一文件切分片 → 多源并行拉取 → 按偏移写入 → 整文件 SHA1 校验
-// 设计见 docs/superpowers/specs/2026-09-12-multi-source-download-design.md §3.2 / §4.1
+// 设计见 docs/designs/2026-09-12-multi-source-download-design.md §3.2 / §4.1
 
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -79,6 +79,7 @@ public sealed class ChunkedFileDownloader
         var attempts = Math.Max(1, maxRetries);
         var queue = new ConcurrentQueue<(long Start, long Length)>(plan);
 
+        TaskCenterService.Instance.ReportRacingBegin(size);
         try
         {
             using (var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.Write, FileShare.None,
@@ -91,14 +92,21 @@ public sealed class ChunkedFileDownloader
                 }, ct));
                 await Task.WhenAll(workers);
             }
+            // 完整性闸门：分片重试只会计多不会计少，成功字节 < 文件大小 = 有分片静默缺失，
+            // 绝不能当成功落盘 → 抛错走调用方的整文件退化（断点续传）
+            if (usage.Values.Sum() < size)
+                throw new IOException(
+                    $"分片不完整：成功 {usage.Values.Sum() / 1048576.0:F1} MB / 应为 {size / 1048576.0:F1} MB");
 
             VerifyAndCommit(tmp, destFile, sha1);
         }
         catch
         {
             TryDelete(tmp);
+            TaskCenterService.Instance.ReportRacingEnd(false);
             throw;
         }
+        TaskCenterService.Instance.ReportRacingEnd(true);
 
         Log?.Invoke($"分片竞速 {Path.GetFileName(destFile)}（{size / 1024.0 / 1024.0:F1}MB / {plan.Count} 片）："
                     + string.Join(" / ", usage.OrderByDescending(kv => kv.Value)
@@ -144,7 +152,17 @@ public sealed class ChunkedFileDownloader
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, target);
         req.Headers.Range = new RangeHeaderValue(chunk.Start, chunk.Start + chunk.Length - 1);
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        HttpResponseMessage resp;
+        try
+        {
+            using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            conn.CancelAfter(TimeSpan.FromSeconds(20)); // 连接 + 响应头超时
+            resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IOException($"连接 {DownloadSourceRegistry.Name(kind)} 20 秒无响应");
+        }
 
         if (resp.StatusCode == HttpStatusCode.OK)
         {
@@ -167,19 +185,33 @@ public sealed class ChunkedFileDownloader
             long remaining = chunk.Length;
             while (remaining > 0)
             {
-                var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), ct);
-                if (read <= 0) throw new IOException($"分片响应提前结束（{DownloadSourceRegistry.Name(kind)}）");
+                // 空闲超时：15 秒读不到字节判死重试该分片（禁用总时长限制后防止连接卡死永久挂起）
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                idle.CancelAfter(TimeSpan.FromSeconds(15));
+                int read;
+                try
+                {
+                    read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), idle.Token);
+                    if (read <= 0) throw new IOException($"分片响应提前结束（{DownloadSourceRegistry.Name(kind)}）");
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    throw new IOException($"分片 15 秒无数据（{DownloadSourceRegistry.Name(kind)}）");
+                }
                 await RandomAccess.WriteAsync(handle, buffer.AsMemory(0, read), offset, ct);
                 offset += read;
                 remaining -= read;
                 usage.AddOrUpdate(kind, read, (_, v) => v + read);
                 onBytes?.Invoke(read);
+                TaskCenterService.Instance.ReportSourceBytes(DownloadSourceRegistry.Name(kind), read);
             }
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+        // 分片整体成功 → 按分片长度计入进度（去重，不受重试重复字节影响）
+        TaskCenterService.Instance.ReportChunkDone(chunk.Length);
         return true;
     }
 

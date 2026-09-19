@@ -1,5 +1,5 @@
 // 启动前环境体检弹窗：列出 Block/Warn 项，可逐项一键修复，或仍然启动 / 取消
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §6.3
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §6.3
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -29,7 +29,7 @@ internal static class EnvCheckDialogs
         foreach (var issue in report.Issues)
             panel.Children.Add(CreateRow(root, issue, fixAsync));
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("运行环境检查"),
             Content = new ScrollViewer { Content = panel, MaxHeight = 420 },

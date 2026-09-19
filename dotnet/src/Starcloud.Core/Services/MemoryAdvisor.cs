@@ -1,5 +1,5 @@
 // 智能内存推荐：物理内存 + 模组数量 + 光影 → 建议最大内存
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §8.2
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §8.2
 
 namespace Starcloud.Core.Services;
 

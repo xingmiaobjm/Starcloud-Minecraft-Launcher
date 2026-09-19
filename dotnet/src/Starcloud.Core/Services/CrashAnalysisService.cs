@@ -1,5 +1,5 @@
 // 崩溃诊断：离线确定性规则匹配（不依赖 LLM，秒级出结果），配合一键修复
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §7
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §7
 
 namespace Starcloud.Core.Services;
 

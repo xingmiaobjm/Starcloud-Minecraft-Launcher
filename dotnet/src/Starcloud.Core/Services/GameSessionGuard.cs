@@ -1,5 +1,5 @@
 // 跨进程游戏会话锁：同一 .minecraft（实例目录）下只允许一局游戏在跑
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §8.3
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §8.3
 
 using System.Diagnostics;
 using System.Text.Json;

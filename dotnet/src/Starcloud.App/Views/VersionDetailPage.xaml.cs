@@ -1,5 +1,5 @@
 // 版本详情子页：概览 / 内容 / 操作卡片（设置卡片由 T6 填充）
-// 计划：docs/superpowers/plans/2026-09-09-version-management-plan.md T5
+// 计划：docs/plans/2026-09-09-version-management-plan.md T5
 
 using System.Diagnostics;
 using System.IO;
@@ -113,7 +113,9 @@ public sealed partial class VersionDetailPage : Page
         WidthBox.Header = Loc.T("宽");
         HeightBox.Header = Loc.T("高");
 
-        // 内容：Mod / 资源包光影 / 存档三分区
+        // 内容：Mod / 资源包 / 光影包 / 存档 四分类（芯片切换独立界面）
+        SetSection(0); // 每次进入默认落在「概览」
+        SetCategory(0);
         ContentPanelFill(gameRoot);
 
         LoadSettingsCard(profile, running);
@@ -198,28 +200,68 @@ public sealed partial class VersionDetailPage : Page
         UpdateJavaHint();
     }
 
-    // ── 内容卡片：Mod / 资源包光影 / 存档三分区 ──
+    // ── 内容卡片：Mod / 资源包 / 光影包 / 存档 四分类 ──
 
-    /// <summary>填充三个内容分区（先渲染，再异步标注「无法解析」）。</summary>
-    private void ContentPanelFill(string gameRoot)
+    /// <summary>后台收集的四分类数据（目录枚举与文件大小统计不占用 UI 线程）。</summary>
+    private sealed record ContentData(
+        string ModsDir, List<ContentFileRow> ModRows,
+        string PacksDir, List<ContentFileRow> PackRows,
+        string ShadersDir, List<ContentFileRow> ShaderRows,
+        string SavesDir, List<(string Save, List<ContentFileRow> Rows)> Saves);
+
+    /// <summary>当前列表显示所依据的 broken 集合（null = 未标注任何「无法解析」）。</summary>
+    private HashSet<string>? _displayedBroken;
+
+    /// <summary>冲突扫描结果缓存（避免启停/删除 mod 后全量重扫 jar）。</summary>
+    private ModConflictReport? _cachedReport;
+    private string? _reportStamp;
+    private DateTime _reportAt;
+
+    /// <summary>填充三个内容分区（IO 后台收集；先渲染，再异步标注「无法解析」）。</summary>
+    private async void ContentPanelFill(string gameRoot) =>
+        await ContentPanelFillAsync(gameRoot, broken: null);
+
+    private async Task ContentPanelFillAsync(string gameRoot, HashSet<string>? broken)
     {
         _contentGameRoot = gameRoot;
-        BuildContentSections(gameRoot, broken: null);
-        _ = AnnotateBrokenModsAsync(gameRoot);
+        _displayedBroken = broken;
+        var data = await Task.Run(() => CollectContentData(gameRoot));
+        if (!string.Equals(gameRoot, _contentGameRoot, StringComparison.OrdinalIgnoreCase)) return;
+        BuildContentSections(data, broken);
+        if (broken is null) _ = AnnotateBrokenModsAsync(gameRoot);
     }
 
-    /// <summary>重建三分区；broken 非空时把对应 Mod 行状态改为「无法解析」。</summary>
-    private void BuildContentSections(string gameRoot, HashSet<string>? broken)
+    private static ContentData CollectContentData(string gameRoot)
+    {
+        var modsDir = Path.Combine(gameRoot, "mods");
+        var packsDir = Path.Combine(gameRoot, "resourcepacks");
+        var shadersDir = Path.Combine(gameRoot, "shaderpacks");
+        var saves = new List<(string Save, List<ContentFileRow> Rows)>();
+        var savesDir = Path.Combine(gameRoot, "saves");
+        if (Directory.Exists(savesDir))
+        {
+            foreach (var save in Directory.EnumerateDirectories(savesDir))
+                saves.Add((Path.GetFileName(save),
+                    BuildFileRows(Path.Combine(save, "datapacks"), "datapack")));
+        }
+        return new ContentData(modsDir, BuildFileRows(modsDir, "mod"),
+            packsDir, BuildFileRows(packsDir, "resourcepack"),
+            shadersDir, BuildFileRows(shadersDir, "shader"),
+            savesDir, saves);
+    }
+
+    /// <summary>重建四分类；broken 非空时把对应 Mod 行状态改为「无法解析」。</summary>
+    private void BuildContentSections(ContentData d, HashSet<string>? broken)
     {
         ModSection.Children.Clear();
         PackSection.Children.Clear();
+        ShaderSection.Children.Clear();
         SaveSection.Children.Clear();
         _contentRows.Clear();
 
         // Mod（含 .disabled）
-        var modsDir = Path.Combine(gameRoot, "mods");
-        ModSection.Children.Add(SectionHeader(Loc.T("Mod 模组"), modsDir));
-        foreach (var row in BuildFileRows(modsDir, "mod"))
+        ModSection.Children.Add(SectionHeader(Loc.T("Mod 模组"), d.ModRows.Count));
+        foreach (var row in d.ModRows)
         {
             var shown = broken is not null && broken.Contains(row.FileName)
                 ? row with { StatusText = Loc.T("无法解析") }
@@ -227,57 +269,77 @@ public sealed partial class VersionDetailPage : Page
             _contentRows.Add(shown);
             ModSection.Children.Add(BuildFileRow(shown));
         }
-        ModSection.Children.Add(OpenDirRow(modsDir));
+        ModSection.Children.Add(OpenDirRow(d.ModsDir));
 
-        // 资源包 + 光影
-        foreach (var (dir, kind, label) in new[]
+        // 资源包
+        PackSection.Children.Add(SectionHeader(Loc.T("资源包"), d.PackRows.Count));
+        foreach (var row in d.PackRows)
         {
-            ("resourcepacks", "resourcepack", Loc.T("资源包")),
-            ("shaderpacks", "shader", Loc.T("光影包")),
-        })
-        {
-            var path = Path.Combine(gameRoot, dir);
-            PackSection.Children.Add(SectionHeader(label, path));
-            foreach (var row in BuildFileRows(path, kind))
-            {
-                _contentRows.Add(row);
-                PackSection.Children.Add(BuildFileRow(row));
-            }
-            PackSection.Children.Add(OpenDirRow(path));
+            _contentRows.Add(row);
+            PackSection.Children.Add(BuildFileRow(row));
         }
+        PackSection.Children.Add(OpenDirRow(d.PacksDir));
+
+        // 光影包
+        ShaderSection.Children.Add(SectionHeader(Loc.T("光影包"), d.ShaderRows.Count));
+        foreach (var row in d.ShaderRows)
+        {
+            _contentRows.Add(row);
+            ShaderSection.Children.Add(BuildFileRow(row));
+        }
+        ShaderSection.Children.Add(OpenDirRow(d.ShadersDir));
 
         // 存档（每个存档下的数据包）
-        var savesDir = Path.Combine(gameRoot, "saves");
-        SaveSection.Children.Add(SectionHeader(Loc.T("存档"), savesDir));
-        if (Directory.Exists(savesDir))
+        SaveSection.Children.Add(SectionHeader(Loc.T("存档"), d.Saves.Count));
+        foreach (var (save, rows) in d.Saves)
         {
-            foreach (var save in Directory.EnumerateDirectories(savesDir))
+            SaveSection.Children.Add(new TextBlock
             {
-                var dpDir = Path.Combine(save, "datapacks");
-                SaveSection.Children.Add(new TextBlock
-                {
-                    Text = Path.GetFileName(save),
-                    FontSize = 13,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    Margin = new Thickness(0, 6, 0, 0),
-                });
-                foreach (var row in BuildFileRows(dpDir, "datapack"))
-                {
-                    _contentRows.Add(row);
-                    SaveSection.Children.Add(BuildFileRow(row));
-                }
+                Text = save,
+                FontSize = 13,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(0, 6, 0, 0),
+            });
+            foreach (var row in rows)
+            {
+                _contentRows.Add(row);
+                SaveSection.Children.Add(BuildFileRow(row));
             }
         }
-        SaveSection.Children.Add(OpenDirRow(savesDir));
+        SaveSection.Children.Add(OpenDirRow(d.SavesDir));
     }
 
-    /// <summary>用 mod 扫描结果标注无法解析的 jar（异步，不阻塞首屏）。</summary>
+    /// <summary>mods 目录指纹（最后写入时间 + 文件数），用于判断扫描缓存是否仍有效。</summary>
+    private string ModsStamp()
+    {
+        var dir = Path.Combine(_s.Settings.DotMinecraft, "mods");
+        if (!Directory.Exists(dir)) return "none";
+        long count = 0;
+        try { count = Directory.EnumerateFiles(dir).LongCount(); } catch { }
+        return $"{Directory.GetLastWriteTimeUtc(dir):O}|{count}";
+    }
+
+    /// <summary>冲突报告：60 秒内且 mods 目录未变化时复用缓存，否则全量重扫。</summary>
+    private async Task<ModConflictReport> GetReportAsync(bool force)
+    {
+        var stamp = ModsStamp();
+        if (!force && _cachedReport is not null && _reportStamp == stamp &&
+            DateTime.Now - _reportAt < TimeSpan.FromSeconds(60))
+            return _cachedReport;
+        var report = await _s.ModConflicts.ScanAsync(_s.Settings.DotMinecraft);
+        _cachedReport = report;
+        _reportStamp = stamp;
+        _reportAt = DateTime.Now;
+        return report;
+    }
+
+    /// <summary>用 mod 扫描结果标注无法解析的 jar（异步，不阻塞首屏；与已显示结果一致时不重建）。</summary>
     private async Task AnnotateBrokenModsAsync(string gameRoot)
     {
         ModConflictReport report;
         try
         {
-            report = await _s.ModConflicts.ScanAsync(_s.Settings.DotMinecraft);
+            report = await GetReportAsync(force: false);
         }
         catch
         {
@@ -288,14 +350,15 @@ public sealed partial class VersionDetailPage : Page
             .Where(m => m.Error is not null)
             .Select(m => m.FileName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (broken.Count == 0) return;
-        BuildContentSections(gameRoot, broken);
+        // 与当前显示的标注状态一致则跳过，避免整列表闪烁重绘
+        var current = _displayedBroken ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (current.SetEquals(broken)) return;
+        await ContentPanelFillAsync(gameRoot, broken.Count == 0 ? null : broken);
     }
 
-    /// <summary>分区标题（名称 + 现有条目数）。</summary>
-    private static TextBlock SectionHeader(string label, string dir)
+    /// <summary>分区标题（名称 + 条目数）。</summary>
+    private static TextBlock SectionHeader(string label, int count)
     {
-        var count = Directory.Exists(dir) ? Directory.EnumerateFileSystemEntries(dir).Count() : 0;
         return new TextBlock
         {
             Text = Loc.T("{0}（{1}）", label, count),
@@ -453,7 +516,7 @@ public sealed partial class VersionDetailPage : Page
     private async void DeleteFile_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not ContentFileRow row) return;
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("删除内容文件"),
             Content = Loc.T("确定要删除 {0} 吗？此操作不可恢复。", row.FileName),
@@ -483,6 +546,167 @@ public sealed partial class VersionDetailPage : Page
         ContentInfoBar.IsOpen = true;
     }
 
+    // ── 分区导航（概览 / Mod 管理 / 游戏设置 / 启动参数） ──
+
+    private void Nav_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string t && int.TryParse(t, out var i))
+            SetSection(i);
+    }
+
+    private void SetSection(int index)
+    {
+        Visibility V(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+        SecOverview.Visibility = V(index == 0);
+        SecContent.Visibility = V(index == 1);
+        SecSettings.Visibility = V(index == 2);
+        SecArgs.Visibility = V(index == 3);
+
+        StyleNav(NavOverview, index == 0);
+        StyleNav(NavContent, index == 1);
+        StyleNav(NavSettings, index == 2);
+        StyleNav(NavArgs, index == 3);
+    }
+
+    /// <summary>按页面实际主题取主题字典画刷：先查 App 覆盖（Light/Dark），再查 WinUI 默认
+    /// （XamlControlsResources 的 Default=Dark 惯例），最后回退 Application 索引器。</summary>
+    private Microsoft.UI.Xaml.Media.Brush ThemedBrush(string key)
+    {
+        var dictKeys = ActualTheme == ElementTheme.Dark ? new[] { "Dark", "Default" } : new[] { "Light" };
+        var root = Application.Current.Resources;
+        foreach (var dictKey in dictKeys)
+        {
+            if (root.ThemeDictionaries.TryGetValue(dictKey, out var d) && d is Microsoft.UI.Xaml.ResourceDictionary rd &&
+                rd.TryGetValue(key, out var v) && v is Microsoft.UI.Xaml.Media.Brush br)
+                return br;
+            foreach (var md in root.MergedDictionaries)
+                if (md.ThemeDictionaries.TryGetValue(dictKey, out var d2) && d2 is Microsoft.UI.Xaml.ResourceDictionary rd2 &&
+                    rd2.TryGetValue(key, out var v2) && v2 is Microsoft.UI.Xaml.Media.Brush br2)
+                    return br2;
+        }
+        return (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[key];
+    }
+
+    /// <summary>导航项选中态：accent 背景 + 黑字加粗（accent 面必须黑字）；未选中交回默认模板配色。</summary>
+    private void StyleNav(Button b, bool selected)
+    {
+        if (selected)
+        {
+            b.Background = ThemedBrush("AccentFillColorDefaultBrush");
+            b.Foreground = ThemedBrush("TextOnAccentFillColorPrimaryBrush");
+            b.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+        }
+        else
+        {
+            b.ClearValue(Button.BackgroundProperty);
+            b.ClearValue(Button.ForegroundProperty);
+            b.ClearValue(Button.FontWeightProperty);
+        }
+        // FontIcon 不一定跟随按钮 Foreground，显式同步，确保黄底黑图标
+        if (b.Content is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is Microsoft.UI.Xaml.Controls.FontIcon fi)
+        {
+            if (selected) fi.Foreground = b.Foreground;
+            else fi.ClearValue(Microsoft.UI.Xaml.Controls.FontIcon.ForegroundProperty);
+        }
+    }
+
+    // ── 内容分类芯片（Mod / 资源包 / 光影包 / 存档 四个独立界面） ──
+
+    private int _contentCategory;
+
+    private void Cat_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string t && int.TryParse(t, out var i))
+        {
+            SetCategory(i);
+            if (i <= 2) _ = OpenDownloadDialogAsync(i); // Mod / 资源包 / 光影包 → 弹出下载窗口（PCL2 式）
+        }
+    }
+
+    /// <summary>打开对应分类的下载弹窗（搜索 Modrinth → 选择 → 安装到当前版本）。</summary>
+    private async Task OpenDownloadDialogAsync(int category)
+    {
+        var kind = category switch { 1 => "resourcepack", 2 => "shader", _ => "mod" };
+        var loader = ContentLibraryService.ResolveLoader(_versionId, out _);
+        var loaderForSearch = category == 0 && loader != "vanilla" ? loader : null;
+        var dialog = new ContentDownloadDialog(_s, kind, loaderForSearch,
+            ContentLibraryService.ResolveMc(_versionId), _versionId,
+            () => ContentPanelFill(_contentGameRoot));
+        dialog.XamlRoot = XamlRoot;
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>切换当前分类界面：四个分区互斥显示，芯片同步选中态。</summary>
+    private void SetCategory(int index)
+    {
+        _contentCategory = index;
+        Visibility V(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+        ModSection.Visibility = V(index == 0);
+        PackSection.Visibility = V(index == 1);
+        ShaderSection.Visibility = V(index == 2);
+        SaveSection.Visibility = V(index == 3);
+        ModTools.Visibility = V(index == 0); // 检查更新 / 冲突扫描仅针对 Mod
+
+        StyleChip(CatMods, index == 0);
+        StyleChip(CatPacks, index == 1);
+        StyleChip(CatShaders, index == 2);
+        StyleChip(CatSaves, index == 3);
+
+        // 切换分区：内容淡入 + 轻微上移，一次性播放（PlayStoryboard 不驻留 Composition 动画）
+        var section = index switch
+        {
+            0 => (FrameworkElement)ModSection,
+            1 => PackSection,
+            2 => ShaderSection,
+            _ => SaveSection,
+        };
+        PlayFadeIn(section);
+    }
+
+    /// <summary>对刚显示的分区播放 220ms 淡入上移动画（Apple 式轻过渡，30fps 无压力）。</summary>
+    private static void PlayFadeIn(FrameworkElement section)
+    {
+        var t = new TranslateTransform { Y = 10 };
+        section.RenderTransform = t;
+        var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        var opacity = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            From = 0, To = 1, Duration = new Duration(TimeSpan.FromMilliseconds(220)),
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase
+                { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(opacity, section);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(opacity, "Opacity");
+        var rise = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            From = 10, To = 0, Duration = new Duration(TimeSpan.FromMilliseconds(220)),
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase
+                { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(rise, t);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(rise, "Y");
+        sb.Children.Add(opacity);
+        sb.Children.Add(rise);
+        sb.Begin();
+    }
+
+    /// <summary>芯片选中态：accent 实底 + 黑字加粗；未选中交回 ChipStyle 默认配色。</summary>
+    private void StyleChip(Button b, bool selected)
+    {
+        if (selected)
+        {
+            b.Background = ThemedBrush("AccentFillColorDefaultBrush");
+            b.Foreground = ThemedBrush("TextOnAccentFillColorPrimaryBrush");
+            b.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+        }
+        else
+        {
+            b.ClearValue(Button.BackgroundProperty);
+            b.ClearValue(Button.ForegroundProperty);
+            b.ClearValue(Button.FontWeightProperty);
+        }
+    }
+
     // ── 检查更新 / 冲突扫描 ──
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
@@ -499,8 +723,9 @@ public sealed partial class VersionDetailPage : Page
         CheckUpdateBtn.IsEnabled = false;
         try
         {
-            var outdated = new List<string>();
-            foreach (var row in rows)
+            // 并行检查（限流 4），N 个 Mod 时比串行快数倍
+            var outdated = new System.Collections.Concurrent.ConcurrentBag<string>();
+            await Parallel.ForEachAsync(rows, new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (row, ct) =>
             {
                 try
                 {
@@ -512,12 +737,13 @@ public sealed partial class VersionDetailPage : Page
                 {
                     // 单个文件失败不影响其它文件
                 }
-            }
+            });
+            var found = outdated.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
             ShowContentInfo(
-                outdated.Count == 0
+                found.Count == 0
                     ? Loc.T("已检查 {0} 个文件，都是最新版本。", rows.Count)
-                    : Loc.T("{0} 个文件可更新：{1}。可到下载页搜索同名资源安装新版本。", outdated.Count, string.Join("、", outdated)),
-                outdated.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
+                    : Loc.T("{0} 个文件可更新：{1}。可到下载页搜索同名资源安装新版本。", found.Count, string.Join("、", found)),
+                found.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
         }
         finally
         {
@@ -530,7 +756,7 @@ public sealed partial class VersionDetailPage : Page
         ScanConflictBtn.IsEnabled = false;
         try
         {
-            var report = await _s.ModConflicts.ScanAsync(_s.Settings.DotMinecraft);
+            var report = await GetReportAsync(force: true);
             if (report.Conflicts.Count == 0)
             {
                 ShowContentInfo(Loc.T("已扫描 {0} 个模组，未发现冲突。", report.ScannedCount), InfoBarSeverity.Success);
@@ -637,7 +863,10 @@ public sealed partial class VersionDetailPage : Page
 
     private void ApplyIcon(string? iconPath)
     {
-        if (iconPath is null)
+        // 无手动图标时按版本 id 推断：加载器专属图标，原版落到草方块等类型图标
+        var source = iconPath is not null ? new BitmapImage(new Uri(iconPath))
+            : VersionRowHelpers.LoaderIcon(_versionId);
+        if (source is null)
         {
             IconImage.Source = null;
             IconImage.Visibility = Visibility.Collapsed;
@@ -645,7 +874,7 @@ public sealed partial class VersionDetailPage : Page
         }
         else
         {
-            IconImage.Source = new BitmapImage(new Uri(iconPath));
+            IconImage.Source = source;
             IconImage.Visibility = Visibility.Visible;
             IconFallback.Visibility = Visibility.Collapsed;
         }
@@ -701,7 +930,7 @@ public sealed partial class VersionDetailPage : Page
             var report = await _s.Preflight.CheckAsync(dotMc, _versionId);
             if (!report.NeedsRepair)
             {
-                await new ContentDialog
+                await new ThemedDialog
                 {
                     Title = Loc.T("验证文件"),
                     Content = Loc.T("一切正常，未发现缺失或损坏的文件。"),
@@ -712,7 +941,7 @@ public sealed partial class VersionDetailPage : Page
             }
             if (report.VersionJsonBroken && !report.CanAutoRestoreJson)
             {
-                await new ContentDialog
+                await new ThemedDialog
                 {
                     Title = Loc.T("验证文件"),
                     Content = Loc.T("版本 JSON 缺失或损坏且无法自动恢复，请到下载页重新安装。"),
@@ -723,7 +952,7 @@ public sealed partial class VersionDetailPage : Page
             }
 
             var count = report.Issues.Count + (report.VersionJsonBroken ? 1 : 0);
-            var confirm = new ContentDialog
+            var confirm = new ThemedDialog
             {
                 Title = Loc.T("验证文件"),
                 Content = Loc.T("发现 {0} 个缺失或损坏的文件，立即补全吗？", count),
@@ -737,7 +966,7 @@ public sealed partial class VersionDetailPage : Page
             // 进度对话框（无按钮，完成后 Hide）
             var bar = new Microsoft.UI.Xaml.Controls.ProgressBar { Minimum = 0, Maximum = 100 };
             var step = new TextBlock { FontSize = 12, Opacity = 0.7 };
-            var progressDlg = new ContentDialog
+            var progressDlg = new ThemedDialog
             {
                 Title = Loc.T("正在补全缺失文件"),
                 Content = new StackPanel { Spacing = 8, Children = { bar, step } },
@@ -755,7 +984,7 @@ public sealed partial class VersionDetailPage : Page
             {
                 await _s.Preflight.EnsureReadyAsync(dotMc, _versionId, report, _s.Settings, progress);
                 progressDlg.Hide();
-                await new ContentDialog
+                await new ThemedDialog
                 {
                     Title = Loc.T("验证文件"),
                     Content = Loc.T("补全完成，文件已恢复完整。"),
@@ -767,7 +996,7 @@ public sealed partial class VersionDetailPage : Page
             {
                 progressDlg.Hide();
                 var listed = string.Join("\n", ex.FailedFiles.Take(5).Select(f => "• " + f.Path));
-                await new ContentDialog
+                await new ThemedDialog
                 {
                     Title = Loc.T("补全失败"),
                     Content = Loc.T("以下文件补全失败：\n{0}", listed),
@@ -833,7 +1062,7 @@ public sealed partial class VersionDetailPage : Page
             ? Loc.T("版本 {0} 正在运行，请先停止游戏再删除。", _versionId)
             : Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", _versionId)
               + (isolated ? Loc.T("\n注意：独立目录下的 mods / 存档等也将一并删除。") : "");
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("删除版本"),
             Content = message,
@@ -896,7 +1125,7 @@ public sealed partial class VersionDetailPage : Page
             : Loc.T("隔离方式将切换为「{0}」。\n\n以下目录将从\n{1}\n移动到\n{2}\n\n",
                   IsolationName(target), fromRoot, toRoot)
               + string.Join("\n", movable.Select(d => "• " + d));
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("切换版本隔离"),
             Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
@@ -1134,7 +1363,7 @@ public sealed partial class VersionDetailPage : Page
             var rt = await JavaService.ProbeAsync(file.Path);
             if (rt is null)
             {
-                await new ContentDialog
+                await new ThemedDialog
                 {
                     Title = Loc.T("无法识别的 Java"),
                     Content = Loc.T("未能从该文件解析出 Java 版本：\n{0}", file.Path),

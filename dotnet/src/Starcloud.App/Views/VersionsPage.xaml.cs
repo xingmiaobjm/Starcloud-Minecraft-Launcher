@@ -1,5 +1,5 @@
 // 版本页：本地已安装版本列表（搜索/分类过滤、实例档案徽章、右键/「…」完整菜单）
-// 计划：docs/superpowers/plans/2026-09-09-version-management-plan.md T4/T7
+// 计划：docs/plans/2026-09-09-version-management-plan.md T4/T7
 
 using System.Diagnostics;
 using System.IO;
@@ -182,7 +182,7 @@ public sealed partial class VersionsPage : Page
         var row = (s as FrameworkElement)?.DataContext as LocalVersionRow ?? RowOf(s);
         if (row is null) return;
         var running = App.RunningVersionId == row.Id;
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("删除版本"),
             Content = running
@@ -201,7 +201,7 @@ public sealed partial class VersionsPage : Page
         }
         catch (Exception ex)
         {
-            var err = new ContentDialog
+            var err = new ThemedDialog
             {
                 Title = Loc.T("删除失败"),
                 Content = ex.Message,

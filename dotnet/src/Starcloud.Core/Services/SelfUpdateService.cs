@@ -26,6 +26,16 @@ public enum UpdateInstallForm
     Portable,
 }
 
+/// <summary>当前平台的自更新能力（跨平台迁移设计：macOS/Linux 打包形态在 Phase 5 落地）</summary>
+public enum UpdateCapability
+{
+    /// <summary>退出后脚本静默升级 + 自动重启（Windows NSIS / 便携）</summary>
+    SilentInstall,
+
+    /// <summary>仅检查与下载新版本，由用户手动安装（macOS dmg / Linux deb·AppImage）</summary>
+    ManualDownload,
+}
+
 /// <summary>更新产物（安装器或便携包），file 为相对清单 URL 的文件名</summary>
 public sealed record UpdateArtifact(
     [property: JsonPropertyName("file")] string File,
@@ -44,6 +54,10 @@ public sealed record UpdateManifest(
 public sealed class SelfUpdateService
 {
     private const string MainExe = "Starcloud.App.exe";
+
+    /// <summary>当前平台自更新能力：Windows 支持静默升级；macOS/Linux 引导用户手动下载安装</summary>
+    public static UpdateCapability Capability =>
+        OperatingSystem.IsWindows() ? UpdateCapability.SilentInstall : UpdateCapability.ManualDownload;
 
     /// <summary>内置清单地址（发布前确认服务器已部署该文件）</summary>
     public const string DefaultManifestUrl =

@@ -503,6 +503,13 @@ public sealed class ContentLibraryService
             var parts = versionId.Split('-');
             return parts.Length >= 2 ? parts[1] : versionId;
         }
+        // fabric-loader-{加载器版本}-{MC版本}：MC 版本是最后一段（不能整串返回，否则筛选永远匹配不上）
+        if (versionId.StartsWith("fabric-loader-", StringComparison.OrdinalIgnoreCase) ||
+            versionId.StartsWith("quilt-loader-", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = versionId.Split('-');
+            return parts.Length >= 3 ? parts[^1] : versionId;
+        }
         return versionId;
     }
 }

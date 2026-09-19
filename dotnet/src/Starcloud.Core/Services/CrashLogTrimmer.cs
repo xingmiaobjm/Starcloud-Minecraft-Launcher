@@ -1,6 +1,6 @@
 // 崩溃日志文本裁剪 —— 发送给 Nova（云端 / 用户自填 LLM）前丢弃与病因无关的段落。
 //
-// 依据官网规格 docs/superpowers/specs/2026-09-11-launcher-crash-log-truncation-design.md：
+// 依据官网规格 docs/designs/2026-09-11-launcher-crash-log-truncation-design.md：
 //   全保留：崩溃头部（Description / Time / 签名行）/ Caused by:（可多层）/ -- System Details -- / Suspected Mods
 //   保留前 N：at ... 调用栈（HeadLines=300）/ -- Affected level --（AffectedLevelLines=40）
 //   丢弃：-- Mod List -- / Loaded Mods / -- Fabric Mods -- / -- GC -- / -- JVM -- / -- Memory --

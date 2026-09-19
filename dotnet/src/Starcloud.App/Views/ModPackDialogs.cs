@@ -1,5 +1,5 @@
 // 整合包与版本资产对话框（导出 / 导入 / 备份回档）：由 VersionsPage 入口调用
-// 计划：docs/superpowers/plans/2026-09-11-modpack-version-assets-plan.md T7/T8/T9
+// 计划：docs/plans/2026-09-11-modpack-version-assets-plan.md T7/T8/T9
 
 using System.Diagnostics;
 using System.IO;
@@ -169,7 +169,7 @@ public static class ModPackDialogs
         panel.Children.Add(summary);
         RefreshSummary();
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("导出整合包"),
             Content = panel,
@@ -370,7 +370,7 @@ public static class ModPackDialogs
         string targetId;
         while (true)
         {
-            var dlg = new ContentDialog
+            var dlg = new ThemedDialog
             {
                 Title = Loc.T("导入整合包"),
                 Content = BuildPanel(),
@@ -399,7 +399,7 @@ public static class ModPackDialogs
         }
         var installRoot = isolated ? Path.Combine(dotMc, "versions", targetId) : dotMc;
 
-        var progressDlg = new ContentDialog
+        var progressDlg = new ThemedDialog
         {
             Title = Loc.T("导入整合包"),
             Content = CreateProgressPanel(out var statusText, out var bar),
@@ -490,7 +490,7 @@ public static class ModPackDialogs
             var state = new BackupPanelState();
             ContentDialog? dlg = null;
             var panel = BuildBackupPanel(s, dotMc, row.Id, isolated, state, () => dlg?.Hide(), out var gather);
-            dlg = new ContentDialog
+            dlg = new ThemedDialog
             {
                 Title = Loc.T("备份与回档 · {0}", row.Id),
                 Content = panel,
@@ -817,7 +817,7 @@ public static class ModPackDialogs
         string closeText, Func<IProgress<string>, Task<T>> work, bool indeterminate = false)
         where T : class
     {
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = title,
             Content = CreateProgressPanel(out var statusText, out var bar),
@@ -840,7 +840,7 @@ public static class ModPackDialogs
 
     private static async Task<bool> ConfirmAsync(XamlRoot root, string title, string message)
     {
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
@@ -854,7 +854,7 @@ public static class ModPackDialogs
 
     private static async Task InfoAsync(XamlRoot root, string title, string message)
     {
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 },

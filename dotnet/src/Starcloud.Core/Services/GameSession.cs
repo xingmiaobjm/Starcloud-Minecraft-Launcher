@@ -1,5 +1,5 @@
 // 单次游戏会话：进程包装 + stdout/stderr 重定向落盘 + 实时行事件
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §4.2
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §4.2
 
 using System.Diagnostics;
 using System.Text;

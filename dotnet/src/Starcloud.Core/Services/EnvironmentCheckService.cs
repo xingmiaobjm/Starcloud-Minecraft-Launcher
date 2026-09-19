@@ -1,5 +1,5 @@
 // 启动前环境体检：轻量本地检查（不联网、不枚举杀软、不做 SHA1）
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §6
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §6
 
 namespace Starcloud.Core.Services;
 

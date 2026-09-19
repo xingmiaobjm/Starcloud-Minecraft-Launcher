@@ -1,5 +1,5 @@
 // 崩溃诊断弹窗：结构化结论 + 证据 + 建议 + 一键修复 / 重新启动 / 问 Nova
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §7.4
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §7.4
 //
 // 注意：WinUI 同一时刻只允许一个 ContentDialog，故修复动作（重装进度、内存写入说明）
 // 一律在弹窗内以行内状态呈现，不再嵌套二级对话框。
@@ -111,7 +111,7 @@ internal static class CrashDialog
         content.Children.Add(status);
         content.Children.Add(bar);
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("游戏异常退出（退出码 {0}）", exitCode),
             Content = new ScrollViewer { Content = content, MaxHeight = 460 },

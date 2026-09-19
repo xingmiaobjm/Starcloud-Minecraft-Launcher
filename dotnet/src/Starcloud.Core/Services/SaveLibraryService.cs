@@ -1,5 +1,5 @@
 // 存档库聚合：跨版本（共享根 + 各隔离版本根）扫描全部存档
-// 设计：docs/superpowers/specs/2026-09-10-saves-cross-version-design.md
+// 设计：docs/designs/2026-09-10-saves-cross-version-design.md
 
 namespace Starcloud.Core.Services;
 

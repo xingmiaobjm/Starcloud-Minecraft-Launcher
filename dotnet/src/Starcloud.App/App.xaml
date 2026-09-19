@@ -9,17 +9,17 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 大圆角：控件（按钮/输入框）8，卡片 16，弹出层 12 -->
-            <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
-            <CornerRadius x:Key="CardCornerRadius">16</CornerRadius>
-            <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
+            <!-- 大圆角：控件（按钮/输入框）12，卡片 20，弹出层 16 -->
+            <CornerRadius x:Key="ControlCornerRadius">12</CornerRadius>
+            <CornerRadius x:Key="CardCornerRadius">20</CornerRadius>
+            <CornerRadius x:Key="OverlayCornerRadius">16</CornerRadius>
 
             <!-- 悬浮卡片：毛玻璃卡片 + 悬浮轻微放大 / 按下轻微缩小（D2，动效可关闭） -->
             <Style x:Key="ScHoverCard" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource GlassCardBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="CornerRadius" Value="12" />
                 <Setter Property="Padding" Value="16" />
                 <Setter Property="local:CardHoverBehavior.IsEnabled" Value="True" />
             </Style>

@@ -97,7 +97,7 @@ public sealed partial class NovaPage : Page
 
     private async void Logout_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = "退出登录",
             Content = "退出后将删除本地保存的会话与 API Key。Nova 的可审计流水会保留。确定退出吗？",
@@ -249,7 +249,7 @@ public sealed partial class NovaPage : Page
     private async void ProfileDelete_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string id }) return;
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = "删除模型",
             Content = "删除后该模型的 API Key 也会从本机移除，确定吗？",
@@ -310,7 +310,7 @@ public sealed partial class NovaPage : Page
         _toggling = false;
 
         var (title, boundary) = NovaPermissionStore.Describe(key);
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = on ? $"授权开启「{title}」" : $"关闭「{title}」许可",
             Content = on
@@ -340,7 +340,7 @@ public sealed partial class NovaPage : Page
 
     private async void ClearLog_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = "清空动手流水",
             Content = "流水是「Nova 能动手但每次都能被看到干了啥」的凭证。清空后不可恢复，确定吗？",

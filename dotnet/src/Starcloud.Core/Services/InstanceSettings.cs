@@ -1,5 +1,5 @@
 // 每版本实例档案（version-settings.json）+ 目录布局 + 启动层叠合并
-// 设计：docs/superpowers/specs/2026-09-09-version-management-design.md
+// 设计：docs/designs/2026-09-09-version-management-design.md
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

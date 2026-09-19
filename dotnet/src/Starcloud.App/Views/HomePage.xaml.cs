@@ -23,7 +23,7 @@ public sealed partial class HomePage : Page
     private GameSession? _gameProcess;
     private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
 
-    // ── 启动可靠性（设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md） ──
+    // ── 启动可靠性（设计：docs/designs/2026-09-11-launch-reliability-design.md） ──
     private LaunchOptions? _activeOptions;      // 本局启动参数（退出收尾命令复用）
     private Func<Task>? _relaunch;              // 启动闭包：占会话锁 + 预检 + 拉起（自动重试复用）
     private GameSessionHandle? _sessionHandle;  // 防双开会话锁（退出/失败/取消都要释放）
@@ -36,7 +36,7 @@ public sealed partial class HomePage : Page
     private int _logPending;                                                        // 待刷新行数（免无谓刷新）
     private readonly DispatcherTimer _logTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
 
-    // ── 启动页状态机（设计：docs/superpowers/specs/2026-09-09-launch-overlay-design.md §3.2） ──
+    // ── 启动页状态机（设计：docs/designs/2026-09-09-launch-overlay-design.md §3.2） ──
     private enum LaunchStage
     {
         Idle, VerifyingCredentials, EnvChecking, Retrying, CheckingFiles, RepairingFiles,
@@ -44,6 +44,7 @@ public sealed partial class HomePage : Page
     }
 
     private LaunchStage _stage;
+    private Starcloud.Core.Services.AppTask? _launchTask;   // 调度中心：游戏启动任务
     private bool _cancelRequested;  // 取消标记：未拉起→阶段边界退出；已拉起→Exited 回调收层
     private double _climbTo = 100;  // 氛围进度爬升上限（到区间顶即停）
     private long _runningStart;     // 进程拉起时刻（算本局时长）
@@ -63,7 +64,7 @@ public sealed partial class HomePage : Page
 
     private void Initialize()
     {
-        SetMode(_s.Settings.LastUsername is { } u && u.StartsWith("ms:") ? "microsoft" : "offline");
+        SetMode(_s.Settings.LastUsername is { } u && u.StartsWith("ext:") ? "external" : "microsoft");
         LoadVersions();
         RefreshAccounts();
         RefreshGuide();
@@ -100,12 +101,15 @@ public sealed partial class HomePage : Page
     {
         _s.LaunchAccount.Mode = mode;
         ModeMsBtn.IsChecked = mode == "microsoft";
-        ModeOfflineBtn.IsChecked = mode == "offline";
+        ModeExternalBtn.IsChecked = mode == "external";
+        // 选中项黄底加粗，未选中恢复常规
+        ModeMsBtn.FontWeight = mode == "microsoft" ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
+        ModeExternalBtn.FontWeight = mode == "external" ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
         RefreshAccounts();
     }
 
     private void ModeMs_Click(object s, RoutedEventArgs e) => SetMode("microsoft");
-    private void ModeOffline_Click(object s, RoutedEventArgs e) => SetMode("offline");
+    private void ModeExternal_Click(object s, RoutedEventArgs e) => SetMode("external");
 
     // ── 版本列表 ──
     private void LoadVersions()
@@ -142,7 +146,16 @@ public sealed partial class HomePage : Page
         RefreshGuide();
     }
 
-    private void VersionList_SelectionChanged(object s, SelectionChangedEventArgs e) => UpdateVersionMeta();
+    private void VersionList_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        // 记录主界面当前选中的版本：下载页的 Mod / 资源包 / 光影 / 数据包直接装入该版本
+        if (VersionList.SelectedItem is VersionRow row && _s.Settings.LastVersion != row.Id)
+        {
+            _s.Settings.LastVersion = row.Id;
+            _s.Settings.Save();
+        }
+        UpdateVersionMeta();
+    }
 
     private void UpdateVersionMeta()
     {
@@ -197,7 +210,7 @@ public sealed partial class HomePage : Page
     {
         var id = (sender as FrameworkElement)?.Tag as string;
         if (string.IsNullOrEmpty(id)) return;
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("删除版本"),
             Content = Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", id),
@@ -228,13 +241,12 @@ public sealed partial class HomePage : Page
     // ── 账户 ──
     private void RefreshAccounts()
     {
-        var msAccounts = _s.Accounts.Accounts.Where(a => a.Type == "microsoft").ToList();
-        var offlineAccounts = _s.Accounts.Accounts.Where(a => a.Type == "offline").ToList();
-        var list = _s.LaunchAccount.Mode == "microsoft" ? msAccounts : offlineAccounts;
+        // 只列出当前模式的账户（microsoft / external）
+        var list = _s.Accounts.Accounts
+            .Where(a => a.Type == _s.LaunchAccount.Mode)
+            .ToList();
 
         var def = _s.Accounts.Default;
-        var showInput = _s.LaunchAccount.Mode == "offline" && list.Count == 0;
-        PlayerNameBox.Visibility = showInput ? Visibility.Visible : Visibility.Collapsed;
         AccountCombo.Visibility = list.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         if (list.Count > 0)
@@ -247,7 +259,9 @@ public sealed partial class HomePage : Page
         }
         else
         {
-            AccountNameText.Text = _s.LaunchAccount.Mode == "microsoft" ? Loc.T("尚无正版账户") : Loc.T("输入玩家名");
+            AccountNameText.Text = _s.LaunchAccount.Mode == "microsoft"
+                ? Loc.T("尚无正版账户")
+                : Loc.T("尚无第三方账户，请先到账户页登录");
             AvatarText.Text = "?";
         }
         RefreshNameFromSelection();
@@ -257,7 +271,7 @@ public sealed partial class HomePage : Page
     {
         var uuid = AccountCombo.SelectedValue as string;
         var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid);
-        var name = acc?.Username ?? PlayerNameBox.Text.Trim();
+        var name = acc?.Username ?? "";
         AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
         AvatarImage.Source = ResolveAvatar(acc, name);
@@ -265,41 +279,57 @@ public sealed partial class HomePage : Page
 
     /// <summary>
     /// 皮肤头像：覆盖首字母色块；未选账户 / 无网络 / 名字不存在时返回 null（露出色块）。
-    /// 手动输入的离线名不足 3 位不发请求，避免逐字敲键时产生无效请求。
     /// </summary>
     private static ImageSource? ResolveAvatar(StoredAccount? acc, string name)
     {
-        if (acc is null && name.Length < 3) return null;
-        return AvatarHelper.Resolve(acc?.Type ?? "offline", acc?.Uuid, name);
+        if (acc is null) return null;
+        return AvatarHelper.Resolve(acc.Type, acc.Uuid, name, acc.ServerBase);
     }
 
     private void AccountCombo_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
         if (AccountCombo.SelectedValue is string uuid)
             _s.Accounts.SetDefault(uuid);
-        _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
-        RefreshNameFromSelection();
-    }
-
-    private void PlayerName_TextChanged(object s, TextChangedEventArgs e)
-    {
-        _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
         RefreshNameFromSelection();
     }
 
     // ── 启动页状态机：ApplyStage 集中驱动（launch-overlay-design.md §3.2 表） ──
 
-    /// <summary>统一驱动标题 / 步骤文字 / 进度条 / 按钮可见性 / 错误行，避免散落赋值。</summary>
+    /// <summary>统一驱动标题 / 步骤文字 / 进度条 / 按钮可见性 / 错误行，避免散落赋值。
+    /// 同时把阶段同步到调度中心（悬浮任务面板可见启动进度）。</summary>
     private void ApplyStage(LaunchStage stage)
     {
         _stage = stage;
         _stageTimer.Stop();
         LaunchErrorText.Visibility = stage == LaunchStage.Failed ? Visibility.Visible : Visibility.Collapsed;
 
+        // 调度中心同步：首次进入启动流程时登记任务，终态收尾
+        var tc = Starcloud.Core.Services.TaskCenterService.Instance;
+        if (stage != LaunchStage.Idle && _launchTask is null)
+            _launchTask = tc.Begin(Loc.T("启动游戏 {0}", LaunchVersionText.Text));
+        if (_launchTask is not null)
+        {
+            switch (stage)
+            {
+                case LaunchStage.Running:
+                    tc.Complete(_launchTask, Loc.T("游戏运行中"));
+                    _launchTask = null;
+                    break;
+                case LaunchStage.Exited:
+                    tc.Complete(_launchTask, Loc.T("游戏已退出"));
+                    _launchTask = null;
+                    break;
+                case LaunchStage.Failed:
+                    tc.Fail(_launchTask, LaunchErrorText.Text is { Length: > 0 } m ? m : Loc.T("启动失败"));
+                    _launchTask = null;
+                    break;
+            }
+        }
+
         switch (stage)
         {
             case LaunchStage.VerifyingCredentials:
-                SetStageUi(Loc.T("正在启动"), Loc.T("验证 Microsoft 凭据…"), 0, 10);
+                SetStageUi(Loc.T("正在启动"), Loc.T("验证账户凭据…"), 0, 10);
                 break;
             case LaunchStage.EnvChecking:
                 SetStageUi(Loc.T("正在启动"), Loc.T("检查运行环境…"), 0, 10);
@@ -356,6 +386,12 @@ public sealed partial class HomePage : Page
                 break;
         }
 
+        // 调度中心：阶段文本/进度刷新后同步（此时 UI 值已是新阶段）
+        if (_launchTask is not null)
+            tc.Update(_launchTask,
+                progress: LaunchProgress.IsIndeterminate ? null : LaunchProgress.Value / 100.0,
+                detail: LaunchStageStepText.Text);
+
         // 按钮：启动中只留「取消」；Running/Exited/Failed 只留「返回主页」
         var launching = stage is >= LaunchStage.VerifyingCredentials and <= LaunchStage.WaitingWindow;
         LaunchCancelBtn.Visibility = launching ? Visibility.Visible : Visibility.Collapsed;
@@ -400,13 +436,18 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>进入启动页（spec §3.4）：赋版本/登录方式 → 静态贴士 → 淡入 → 进入凭据阶段。</summary>
-    private void ShowOverlay(string versionId, bool isMicrosoft)
+    private void ShowOverlay(string versionId, string mode)
     {
         _cancelRequested = false;
         LaunchCancelBtn.Content = Loc.T("取消");
         LaunchCancelBtn.IsEnabled = true;
         LaunchVersionText.Text = versionId;
-        LaunchLoginModeText.Text = isMicrosoft ? Loc.T("正版登录") : Loc.T("离线登录");
+        LaunchLoginModeText.Text = mode switch
+        {
+            "microsoft" => Loc.T("正版登录"),
+            "external" => Loc.T("第三方登录"),
+            _ => Loc.T("正版登录"),
+        };
         LaunchTipText.Text = LaunchTips.Next();
         LaunchErrorText.Text = "";
         _retryCount = 0;
@@ -587,26 +628,14 @@ public sealed partial class HomePage : Page
     /// <summary>统一启动入口：主页按钮与版本列表页「启动」均走此流程。</summary>
     private async Task StartLaunchAsync(string versionId)
     {
-        // 前置校验（spec §3.4）：玩家名不合法在进覆盖层前拦截
-        if (_s.LaunchAccount.Mode != "microsoft")
-        {
-            _s.LaunchAccount.OfflineName = PlayerNameBox.Text.Trim();
-            if (_s.Accounts.Default is null && string.IsNullOrWhiteSpace(_s.LaunchAccount.OfflineName))
-            {
-                LocalErrorBar.Message = Loc.T("请输入离线玩家名或选择账户");
-                LocalErrorBar.IsOpen = true;
-                return;
-            }
-        }
-
         LaunchBtn.IsEnabled = false;
         GlobalErrorBar.IsOpen = false;
-        ShowOverlay(versionId, _s.LaunchAccount.Mode == "microsoft");
+        ShowOverlay(versionId, _s.LaunchAccount.Mode);
         try
         {
-            var player = await _s.LaunchAccount.ResolveAsync();
-            var playerName = player.Name;
-            var cred = player.Credentials;
+            // 共享就地登录流程：会话内无凭证（token 不落盘）时弹登录框，登录后自动重试
+            var player = await AuthDialogs.EnsurePlayableAccountAsync(XamlRoot, _s);
+            if (player is null) { HideOverlay(null); return; } // 用户取消登录
             if (_cancelRequested) { HideOverlay("已取消启动"); return; }
 
             // 层叠合并（版本管理设计）：全局设置 + 版本档案覆盖 → 生效启动参数
@@ -617,13 +646,25 @@ public sealed partial class HomePage : Page
                 InstanceLayout.IsIsolated(profile, _s.Settings));
             var eff = InstanceLayout.Resolve(dotMc, versionId, profile, _s.Settings,
                 MemoryAdvisor.Probe(gameRoot)); // auto 内存档位按实际模组数推荐（spec §8.2）
+
+            // 第三方账户：注入 authlib-injector（Assets 内置 jar + 用户自己的认证服务器）
+            string? agentJar = null;
+            if (player.ExternalBase is not null)
+            {
+                agentJar = AppServices.AgentJarPath()
+                    ?? throw new InvalidOperationException(
+                        "authlib-injector 组件缺失，无法启动第三方账户，请重新安装启动器");
+            }
+
             var options = new LaunchOptions(
-                versionId, playerName, eff.GameRoot, dotMc,
+                versionId, player.Name, eff.GameRoot, dotMc,
                 eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs,
-                _s.Settings.UseBuiltinJvmArgs, cred,
+                _s.Settings.UseBuiltinJvmArgs, player.Credentials,
                 eff.ServerAddress, eff.Language, eff.LanguageOverride,
                 eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars,
-                eff.PreCmd, eff.PostCmd);
+                eff.PreCmd, eff.PostCmd,
+                AgentJarPath: agentJar, AgentBase: player.ExternalBase,
+                PluginHook: _s.PluginHost);
             _activeOptions = options;
 
             // 启动前环境体检（spec §6）：Block 弹窗由用户决定是否继续，Warn 只提示不阻断
@@ -720,7 +761,7 @@ public sealed partial class HomePage : Page
                     .Select(f => "• " + f.Path));
                 if (ex.FailedFiles.Count > 5)
                     listed += Loc.T("\n等 {0} 个文件", ex.FailedFiles.Count);
-                var dialog = new ContentDialog
+                var dialog = new ThemedDialog
                 {
                     Title = "补全失败",
                     Content = listed,
@@ -748,7 +789,7 @@ public sealed partial class HomePage : Page
             if (pre.ExitCode != 0)
             {
                 var tail = pre.Output.Length > 600 ? "…" + pre.Output[^600..] : pre.Output;
-                var dialog = new ContentDialog
+                var dialog = new ThemedDialog
                 {
                     Title = "启动前命令失败",
                     Content = $"退出码 {pre.ExitCode}\n{tail}",
@@ -786,8 +827,9 @@ public sealed partial class HomePage : Page
         _s.NovaRuntime.OnGameLaunched(versionId, session.Id);
         App.RunningVersionId = versionId;
         new InstanceSettingsStore(dotMc).TouchPlayed(versionId); // 记录版本档案「上次启动」
-        _s.Settings.LastUsername = options.Credentials is not null
-            ? "ms:" + options.PlayerName : options.PlayerName;
+        _s.Settings.LastUsername = options.Credentials is { } c && c.UserType == "mojang"
+            ? "ext:" + options.PlayerName
+            : "ms:" + options.PlayerName;
         _s.Settings.LastVersion = versionId;
         _s.Settings.Save();
         LauncherLog.Write("launch", $"已拉起 {versionId}（pid {session.Pid}，退出码待定）");
@@ -926,7 +968,7 @@ public sealed partial class HomePage : Page
                 restartAsync: async () =>
                 {
                     if (_relaunch is null) return;
-                    ShowOverlay(versionId, _s.LaunchAccount.Mode == "microsoft"); // 复位状态机
+                    ShowOverlay(versionId, _s.LaunchAccount.Mode); // 复位状态机
                     try { await _relaunch(); }
                     catch (Exception ex)
                     {
@@ -991,14 +1033,14 @@ public sealed partial class HomePage : Page
     private void RefreshGuide()
     {
         var hasInstalled = _rows.Count > 0;
-        var hasAccount = _s.Accounts.Accounts.Count > 0 || PlayerNameBox.Text.Trim().Length > 0;
+        var hasAccount = _s.Accounts.Accounts.Count > 0;
         SetCheckRow(CheckIconVersion, CheckTextVersion, CheckGoVersion,
             hasInstalled, "游戏版本", hasInstalled ? "就绪" : "未安装", "前往下载");
         SetCheckRow(CheckIconAccount, CheckTextAccount, CheckGoAccount,
             hasAccount, "账户", hasAccount ? "就绪" : "未配置", "前往账户");
         // Java 检测需要拉起 java -version，较慢，异步进行
         _javaOk = null;
-        CheckTextJava.Text = "Java 运行时：检测中…";
+        CheckTextJava.Text = "Java：检测中…";
         _ = CheckJavaAsync();
         UpdateCheckCardVisibility();
     }
@@ -1010,14 +1052,14 @@ public sealed partial class HomePage : Page
             var runtimes = await _s.Java.ListRuntimesAsync();
             var ok = runtimes.Count > 0 || !string.IsNullOrWhiteSpace(_s.Settings.JavaExecutable);
             _javaOk = ok;
-            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, ok, "Java 运行时",
+            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, ok, "Java",
                 ok ? (runtimes.Count > 0 ? $"就绪（检测到 {runtimes.Count} 个）" : "就绪（使用手动指定路径）") : "未检测到",
                 "前往设置");
         }
         catch
         {
             _javaOk = false;
-            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, false, "Java 运行时", "检测失败", "前往设置");
+            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, false, "Java", "检测失败", "前往设置");
         }
         UpdateCheckCardVisibility();
     }
@@ -1025,7 +1067,7 @@ public sealed partial class HomePage : Page
     private void UpdateCheckCardVisibility()
     {
         var hasInstalled = _rows.Count > 0;
-        var hasAccount = _s.Accounts.Accounts.Count > 0 || PlayerNameBox.Text.Trim().Length > 0;
+        var hasAccount = _s.Accounts.Accounts.Count > 0;
         // 全部就绪后收起；Java 检测中保持显示以免闪动
         CheckCard.Visibility = !hasInstalled || !hasAccount || _javaOk == false
             ? Visibility.Visible : Visibility.Collapsed;

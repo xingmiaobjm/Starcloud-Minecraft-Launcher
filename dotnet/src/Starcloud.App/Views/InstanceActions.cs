@@ -1,5 +1,5 @@
 // 版本实例操作对话框（重命名 / 复制 / 查看 JSON）：VersionsPage 与 VersionDetailPage 共用
-// 计划：docs/superpowers/plans/2026-09-09-version-management-plan.md T7
+// 计划：docs/plans/2026-09-09-version-management-plan.md T7
 
 using System.Diagnostics;
 using System.IO;
@@ -23,7 +23,7 @@ public static class InstanceActions
     {
         var box = new TextBox { PlaceholderText = Loc.T("新的版本名"), Text = oldId };
         var hint = new TextBlock { Foreground = null, FontSize = 12, Opacity = 0.7 };
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("重命名版本"),
             Content = new StackPanel { Spacing = 8, Children = { box, hint } },
@@ -67,7 +67,7 @@ public static class InstanceActions
             IsChecked = false,
             Visibility = sourceIsolated ? Visibility.Visible : Visibility.Collapsed,
         };
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("复制版本"),
             Content = new StackPanel { Spacing = 12, Children = { box, chk } },
@@ -102,7 +102,7 @@ public static class InstanceActions
     /// <summary>错误提示（重命名/复制失败统一弹窗）。</summary>
     public static async Task ShowErrorAsync(XamlRoot xamlRoot, string title, Exception error)
     {
-        await new ContentDialog
+        await new ThemedDialog
         {
             Title = title,
             Content = error.Message,
@@ -153,7 +153,7 @@ public static class InstanceActions
             if (dir is null || !Directory.Exists(dir)) return;
             Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
         };
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = $"{versionId}.json",
             Content = new StackPanel { Spacing = 8, Children = { view, openBtn } },

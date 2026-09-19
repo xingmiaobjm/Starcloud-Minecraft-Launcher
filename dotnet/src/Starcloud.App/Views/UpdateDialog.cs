@@ -74,7 +74,7 @@ internal static class UpdateDialog
         content.Children.Add(status);
         content.Children.Add(bar);
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("发现新版本 {0}", manifest.Version),
             Content = new ScrollViewer { Content = content, MaxHeight = 460 },

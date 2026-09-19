@@ -119,8 +119,10 @@ public sealed class ForgeInstallerService
                 : default;
 
         if (items.Equals(default)) return [];
-        // legacy 构件版本号带 MC 前缀，展示与安装链接均只用构建号，故先剥离再排序
-        var skip = legacy ? mcVersion.Length + 1 : 0;
+        // 1.20.1 前缀为 "1.20.1-47.1."（含连字符），1.x 时代前缀 "21.1." 不含构建号需剥离；
+        // 新命名（如 26.2）构件版本号形如 26.2.0.57，MC 版本本身就是前缀，不剥离
+        var oldNaming = mcVersion.StartsWith("1.", StringComparison.Ordinal);
+        var skip = legacy ? mcVersion.Length + 1 : oldNaming ? prefix!.Length : 0;
         var all = items
             .Select(i => i.ValueKind == JsonValueKind.String ? i.GetString() : null)
             .OfType<string>()
@@ -128,32 +130,43 @@ public sealed class ForgeInstallerService
             .Select(v => v[skip..])
             .OrderByDescending(NeoForgeOrderKey)
             .ToList();
+        bool stableLabeled = false;
         return all
-            .Select((v, i) => new LoaderBuild(v, i == 0 ? "最新稳定版" : null))
+            .Select((v, i) =>
+            {
+                var isBeta = v.EndsWith("-beta", StringComparison.Ordinal);
+                string? label;
+                if (isBeta) label = "Beta";
+                else if (!stableLabeled) { label = "最新稳定版"; stableLabeled = true; }
+                else label = null;
+                return new LoaderBuild(v, i == 0 && !isBeta ? "最新稳定版" : label);
+            })
             .ToList();
     }
 
     /// <summary>
     /// NeoForge 版本号前缀：1.20.1 → "1.20.1-47.1."（legacy forge 构件）；
-    /// 其余 1.x[.y] → "x.y."（如 1.20.4 → "20.4."、1.21 → "21.0."）
+    /// 1.x[.y] → "x.y."（如 1.20.4 → "20.4."、1.21 → "21.0."）；
+    /// 新命名（如 26.2）→ "26.2."（NeoForge 2026 起直接以 MC 版本为构件版本前缀，形如 26.2.0.57）。
     /// </summary>
     private static string? NeoForgePrefix(string mcVersion)
     {
         if (mcVersion == "1.20.1") return "1.20.1-47.1.";
-        if (!mcVersion.StartsWith("1.", StringComparison.Ordinal)) return null;
+        var seg = mcVersion.StartsWith("1.", StringComparison.Ordinal) ? mcVersion[2..] : mcVersion;
 
-        var parts = mcVersion[2..].Split('.');
-        if (parts.Length is < 1 or > 2) return null;
-        if (!int.TryParse(parts[0], out _)) return null;
-        if (parts.Length == 2 && !int.TryParse(parts[1], out _)) return null;
-        return $"{parts[0]}.{(parts.Length == 2 ? parts[1] : "0")}.";
+        var parts = seg.Split('.');
+        if (parts.Length is < 2 or > 3) return null;
+        if (!int.TryParse(parts[0], out _) || !int.TryParse(parts[1], out _)) return null;
+        if (parts.Length == 3 && !int.TryParse(parts[2], out _)) return null;
+        return $"{seg}.";
     }
 
-    private static (int Major, int Minor, int Patch) NeoForgeOrderKey(string v)
+    private static (long Major, long Minor, long Patch) NeoForgeOrderKey(string v)
     {
         var parts = v.Split('.');
-        static int P(string[] a, int i) => i < a.Length && int.TryParse(a[i], out var n) ? n : 0;
-        return (P(parts, 0), P(parts, 1), P(parts, 2));
+        static long P(string[] a, int i) => i < a.Length && long.TryParse(a[i], out var n) ? n : 0;
+        // 支持四段号（26.2.0.57）：第 3、4 段折叠进 patch 位参与排序
+        return (P(parts, 0), P(parts, 1), P(parts, 2) * 1_000_000 + P(parts, 3));
     }
 
     // ── 安装器直链 ──

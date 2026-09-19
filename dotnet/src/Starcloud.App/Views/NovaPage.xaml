@@ -46,7 +46,7 @@
                         </Grid>
                         <!-- 未登录：登录表单 -->
                         <StackPanel x:Name="LoginForm" Spacing="10">
-                            <TextBlock loc:Loc.Text="登录 Starcloud ID，接入云端模型与在线能力"
+                            <TextBlock loc:Loc.Text="登录 Starcloud ID，使用邀请 / 时刻等在线功能"
                                        FontWeight="SemiBold" FontSize="13" />
                             <TextBox x:Name="IdBox" Header="Starcloud ID" loc:Loc.Placeholder="用户名或邮箱" />
                             <PasswordBox x:Name="PwdBox" />
@@ -57,7 +57,7 @@
                             </ComboBox>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="登录"
-                                        MinWidth="160" Click="Login_Click" />
+                                        FontWeight="Bold" MinWidth="160" Click="Login_Click" />
                                 <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24"
                                               VerticalAlignment="Center" />
                                 <TextBlock x:Name="LoginError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
@@ -73,7 +73,7 @@
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="8">
                         <TextBlock loc:Loc.Text="模型设置" FontWeight="SemiBold" FontSize="13" />
-                        <TextBlock loc:Loc.Text="接入第三方 LLM（OpenAI 兼容）：选服务商预设 → 填 Key → 选模型，三步接好。&#x0A;可添加多个模型，随时点「设为当前」切换。你的 Key 优先用 → StarCloud 云端额度 → 本地模板兜底，永不卡死。Key 只存本机（launcher.settings.json）。"
+                        <TextBlock loc:Loc.Text="接入第三方 LLM（OpenAI 兼容）：选服务商预设 → 填 Key → 选模型，三步接好。&#x0A;可添加多个模型，随时点「设为当前」切换。Nova 只使用你自己的模型（你的 Key），未接入时本地模板兜底，永不卡死。Key 只存本机（launcher.settings.json）。"
                                    FontSize="11" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
@@ -128,7 +128,7 @@
 
                         <!-- 新增模型：预设模板流程（选服务商 → 填 Key → 选模型） -->
                         <Button x:Name="LlmAddOpenBtn" loc:Loc.Text="新增模型"
-                                Style="{StaticResource AccentButtonStyle}"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
                                 MinWidth="120" HorizontalAlignment="Left"
                                 Margin="0,4,0,0" Click="LlmAddOpen_Click" />
 
@@ -161,7 +161,7 @@
                                       HorizontalAlignment="Stretch" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="LlmSaveBtn" Style="{StaticResource AccentButtonStyle}"
-                                        loc:Loc.Text="保存" MinWidth="120" Click="LlmAdd_Click" />
+                                        loc:Loc.Text="保存" MinWidth="120" FontWeight="Bold" Click="LlmAdd_Click" />
                                 <Button loc:Loc.Text="取消" MinWidth="80" Click="LlmAddCancel_Click" />
                                 <TextBlock x:Name="LlmSaveHint" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"

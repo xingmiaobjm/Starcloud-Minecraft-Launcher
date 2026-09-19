@@ -1,5 +1,5 @@
 // 启动器日志：按日滚动落盘 + 内存尾部缓冲 + 变更事件（对应旧 Rust logging.rs）
-// 设计：docs/superpowers/specs/2026-09-11-launch-reliability-design.md §4.1
+// 设计：docs/designs/2026-09-11-launch-reliability-design.md §4.1
 
 using System.Text;
 

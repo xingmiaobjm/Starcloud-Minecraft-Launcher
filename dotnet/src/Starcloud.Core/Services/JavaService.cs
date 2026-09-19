@@ -1,4 +1,4 @@
-// Java 管理：系统检测 + Adoptium 下载解压（%APPDATA%/starcloud-launcher/java/<major>）
+// Java 管理：系统检测 + Adoptium 下载解压（数据根/java/<major>；Windows zip，unix tar.gz）
 
 using System.Diagnostics;
 using System.IO.Compression;
@@ -15,10 +15,27 @@ public sealed class JavaService
     public JavaService(DownloadService downloader) => _downloader = downloader;
 
     /// <summary>
-    /// 列出可用 Java：启动器已下载 + 官方启动器运行时（<c>.minecraft\runtime</c>）
-    /// + 系统检测（PATH / JAVA_HOME / 注册表登记项 / 各厂商默认安装目录 / 各盘常见 Java 文件夹）。
+    /// 列出可用 Java：启动器已下载 + 官方启动器运行时（<c>.minecraft/runtime</c>）
+    /// + 系统检测（Windows：PATH / JAVA_HOME / 注册表 / 厂商默认目录 / 各盘常见 Java 文件夹；
+    /// unix：PATH / JAVA_HOME / 发行版与厂商惯例目录，不做整盘扫描）。
     /// </summary>
     public async Task<List<JavaRuntime>> ListRuntimesAsync(CancellationToken ct = default,
+        string? officialRuntimeDir = null)
+    {
+        var taskCenter = TaskCenterService.Instance;
+        var scanTask = taskCenter.Begin("搜索 Java");
+        taskCenter.Update(scanTask, detail: "扫描已下载 / 官方 / 系统 Java");
+        try
+        {
+            return await ListRuntimesCoreAsync(ct, officialRuntimeDir);
+        }
+        finally
+        {
+            taskCenter.Complete(scanTask, "扫描完成");
+        }
+    }
+
+    private async Task<List<JavaRuntime>> ListRuntimesCoreAsync(CancellationToken ct = default,
         string? officialRuntimeDir = null)
     {
         var result = new List<JavaRuntime>();
@@ -37,24 +54,24 @@ public sealed class JavaService
             result.Add(new JavaRuntime(exe, major, version, true, source));
         }
 
-        // ① 已下载：java/<major>/bin/java.exe（目录名即主版本，省一次探测）
+        // ① 已下载：java/<major>/bin/java（目录名即主版本，省一次探测）
         foreach (var dir in SafeEnumerateDirectories(LauncherPaths.JavaDir))
         {
-            var exe = Path.Combine(dir, "bin", "java.exe");
+            var exe = Path.Combine(dir, "bin", PlatformInfo.JavaExeName);
             if (!File.Exists(exe) || !seen.Add(NormalizeExe(exe))) continue;
             var major = Path.GetFileName(dir);
             var version = await GetJavaVersionStringAsync(exe, ct) ?? $"Java {major}";
             result.Add(new JavaRuntime(exe, int.TryParse(major, out var m) ? m : 0, version, true, "launcher"));
         }
 
-        // ② 官方启动器运行时（.minecraft\runtime\java-runtime-* 等）
+        // ② 官方启动器运行时（.minecraft/runtime/java-runtime-* 等）
         foreach (var root in RuntimeSearchRoots(officialRuntimeDir))
             foreach (var exe in EnumerateChildJavaExes(root))
                 await AddAsync(exe, "official");
 
         // ③ 系统 PATH / JAVA_HOME
         var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (var entry in pathVar.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var entry in pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
             foreach (var exe in JavaExesIn(entry.Trim().Trim('"')))
                 await AddAsync(exe, "system");
 
@@ -63,19 +80,29 @@ public sealed class JavaService
             foreach (var exe in JavaExesIn(javaHome))
                 await AddAsync(exe, "system");
 
-        // ④ 注册表：各厂商安装时登记的 Java 主目录
-        foreach (var home in await QueryRegistryJavaHomesAsync())
-            foreach (var exe in JavaExesIn(home))
-                await AddAsync(exe, "system");
+        if (OperatingSystem.IsWindows())
+        {
+            // ④ 注册表：各厂商安装时登记的 Java 主目录
+            foreach (var home in await QueryRegistryJavaHomesAsync())
+                foreach (var exe in JavaExesIn(home))
+                    await AddAsync(exe, "system");
 
-        // ⑤ 各厂商默认安装目录：装完没写 PATH、也没登记注册表的情况
-        foreach (var root in ExpandJavaInstallRoots())
-            foreach (var exe in EnumerateChildJavaExes(root))
-                await AddAsync(exe, "system");
+            // ⑤ 各厂商默认安装目录：装完没写 PATH、也没登记注册表的情况
+            foreach (var root in ExpandJavaInstallRoots())
+                foreach (var exe in EnumerateChildJavaExes(root))
+                    await AddAsync(exe, "system");
 
-        // ⑥ 各盘根目录下名字像 Java 的文件夹（如 D:\Java\jdk-17、C:\jdk1.8）：PCL 能扫到的那类
-        foreach (var exe in EnumerateDriveJavaExes())
-            await AddAsync(exe, "system");
+            // ⑥ 各盘根目录下名字像 Java 的文件夹（如 D:\Java\jdk-17、C:\jdk1.8）：PCL 能扫到的那类
+            foreach (var exe in EnumerateDriveJavaExes())
+                await AddAsync(exe, "system");
+        }
+        else
+        {
+            // ④ unix 系统惯例目录（发行版包管理器 / 厂商 / SDKMAN；固定目录，无整盘扫描）
+            foreach (var home in EnumerateUnixJavaHomes())
+                foreach (var exe in JavaExesIn(home))
+                    await AddAsync(exe, "system");
+        }
 
         return result;
     }
@@ -84,14 +111,48 @@ public sealed class JavaService
 
     /// <summary>
     /// 要扫描的「运行时目录」：调用方给的游戏目录下的 <c>runtime</c>，以及官方启动器默认的
-    /// <c>%APPDATA%\.minecraft\runtime</c>（没传参时也要扫，否则只装了官方启动器的机器一个都搜不到）。
+    /// <c>.minecraft/runtime</c>（没传参时也要扫，否则只装了官方启动器的机器一个都搜不到）。
     /// </summary>
     private static IEnumerable<string> RuntimeSearchRoots(string? gameRuntimeDir)
     {
         if (!string.IsNullOrWhiteSpace(gameRuntimeDir)) yield return gameRuntimeDir;
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.IsNullOrWhiteSpace(appData))
-            yield return Path.Combine(appData, ".minecraft", "runtime");
+        var dotMc = PlatformInfo.DefaultDotMinecraft;
+        if (!string.IsNullOrWhiteSpace(dotMc))
+            yield return Path.Combine(dotMc, "runtime");
+    }
+
+    /// <summary>
+    /// unix 系统 Java 主目录（均为惯例固定位置，不递归扫描）：
+    /// macOS /Library/Java/JavaVirtualMachines/&lt;jdk&gt;/Contents/Home（用户目录同名）；
+    /// Linux /usr/lib/jvm/*（发行版包管理器）、/opt/*（厂商解压版）、SDKMAN ~/.sdkman/candidates/java。
+    /// </summary>
+    private static IEnumerable<string> EnumerateUnixJavaHomes()
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            foreach (var jvm in SafeEnumerateDirectories("/Library/Java/JavaVirtualMachines"))
+                yield return Path.Combine(jvm, "Contents", "Home");
+            var userJvm = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Library", "Java", "JavaVirtualMachines");
+            foreach (var jvm in SafeEnumerateDirectories(userJvm))
+                yield return Path.Combine(jvm, "Contents", "Home");
+            // Homebrew openjdk（opt 下为指向 keg 的软链接目录）
+            foreach (var dir in SafeEnumerateDirectories("/opt/homebrew/opt"))
+                yield return dir;
+        }
+        else
+        {
+            foreach (var dir in SafeEnumerateDirectories("/usr/lib/jvm"))
+                yield return dir;
+            foreach (var dir in SafeEnumerateDirectories("/opt"))
+                yield return dir;
+            var sdkman = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".sdkman", "candidates", "java");
+            foreach (var dir in SafeEnumerateDirectories(sdkman))
+                yield return dir;
+        }
     }
 
     /// <summary>各 Java 厂商在注册表中登记安装位置的根键（HKLM 与 HKCU 都会查）</summary>
@@ -144,13 +205,13 @@ public sealed class JavaService
         @"%ProgramFiles%\Java\jdk-21",
     ];
 
-    /// <summary><paramref name="dir"/> 里的 java.exe：兼容 <c>dir\bin\java.exe</c> 与 javapath 那种直接躺在目录里的</summary>
+    /// <summary><paramref name="dir"/> 里的 java：兼容 <c>dir/bin/java</c> 与直接躺在目录里的（如 Windows javapath）</summary>
     private static IEnumerable<string> JavaExesIn(string? dir)
     {
         if (string.IsNullOrWhiteSpace(dir)) yield break;
-        var bin = Path.Combine(dir, "bin", "java.exe");
+        var bin = Path.Combine(dir, "bin", PlatformInfo.JavaExeName);
         if (File.Exists(bin)) yield return bin;
-        var direct = Path.Combine(dir, "java.exe");
+        var direct = Path.Combine(dir, PlatformInfo.JavaExeName);
         if (File.Exists(direct)) yield return direct;
     }
 
@@ -309,36 +370,110 @@ public sealed class JavaService
         return JavaExesIn(path).Any();
     }
 
-    /// <summary>下载并解压 Adoptium JDK 到 java/&lt;major&gt;/</summary>
+    /// <summary>下载并解压 Adoptium JDK 到 java/&lt;major&gt;/（Windows zip，unix tar.gz）</summary>
     public async Task<string> DownloadRuntimeAsync(int majorVersion,
         IProgress<BatchProgress>? progress, CancellationToken ct = default)
     {
-        LauncherPaths.EnsureDataDir();
-        var url = await _downloader.GetAdoptiumDownloadUrlAsync(majorVersion, ct);
-        var zipPath = Path.Combine(LauncherPaths.JavaDir, $"temurin-{majorVersion}.zip");
-        await _downloader.DownloadFileAsync(url, zipPath, null, 3, ct);
-        var dest = Path.Combine(LauncherPaths.JavaDir, majorVersion.ToString());
-        if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
-        Directory.CreateDirectory(dest);
-        ZipFile.ExtractToDirectory(zipPath, dest, overwriteFiles: true);
-        File.Delete(zipPath);
-
-        // Adoptium zip 根目录形如 jdk-21.0.x+y：若 bin/java.exe 在子目录则上提一层
-        var exe = Path.Combine(dest, "bin", "java.exe");
-        if (!File.Exists(exe))
+        var taskCenter = TaskCenterService.Instance;
+        var dlTask = taskCenter.Begin($"下载 Java {majorVersion}");
+        try
         {
-            var sub = Directory.GetDirectories(dest)
-                .FirstOrDefault(d => File.Exists(Path.Combine(d, "bin", "java.exe")))
-                ?? throw new InvalidOperationException("Java 解压后未找到 bin/java.exe");
-            foreach (var inner in Directory.GetFileSystemEntries(sub))
-            {
-                var target = Path.Combine(dest, Path.GetFileName(inner));
-                if (Directory.Exists(inner)) Directory.Move(inner, target);
-                else File.Move(inner, target);
-            }
-            Directory.Delete(sub, recursive: true);
+            LauncherPaths.EnsureDataDir();
+            var url = await _downloader.GetAdoptiumDownloadUrlAsync(majorVersion, ct);
+            taskCenter.Update(dlTask, detail: "已取得下载地址，开始下载…");
+            var archivePath = Path.Combine(LauncherPaths.JavaDir,
+                $"temurin-{majorVersion}{PlatformInfo.JavaArchiveExtension}");
+            await _downloader.DownloadFileAsync(url, archivePath, null, 3, ct);
+            taskCenter.Update(dlTask, detail: "下载完成，解压安装中…");
+            var dest = Path.Combine(LauncherPaths.JavaDir, majorVersion.ToString());
+            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
+            Directory.CreateDirectory(dest);
+            ExtractRuntimeArchive(archivePath, dest);
+            File.Delete(archivePath);
+            PromoteJavaHome(dest);
+            MakeRuntimeExecutable(dest);
+            var exe = Path.Combine(dest, "bin", PlatformInfo.JavaExeName);
+            taskCenter.Complete(dlTask, $"已安装到 {dest}");
+            return exe;
         }
-        return exe;
+        catch (OperationCanceledException)
+        {
+            taskCenter.Fail(dlTask, "已取消");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            taskCenter.Fail(dlTask, ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 归档根可能带一层目录（jdk-21.0.x+y），macOS 归档还会多两层（Contents/Home）：
+    /// 定位含 bin/java 的目录并把内容上提到 dest 顶层（java/&lt;major&gt;/bin/java 即运行时主目录）。
+    /// </summary>
+    internal static void PromoteJavaHome(string dest)
+    {
+        var exe = Path.Combine(dest, "bin", PlatformInfo.JavaExeName);
+        if (File.Exists(exe)) return;
+        var home = FindJavaHomeDir(dest)
+            ?? throw new InvalidOperationException(
+                $"Java 解压后未找到 bin/{PlatformInfo.JavaExeName}");
+        if (string.Equals(home, dest)) return;
+        // 经 staging 平铺再整体替换，避免搬移过程与旧目录壳互相干扰
+        var staging = dest + ".promote";
+        Directory.CreateDirectory(staging);
+        foreach (var inner in Directory.GetFileSystemEntries(home))
+        {
+            var target = Path.Combine(staging, Path.GetFileName(inner));
+            if (Directory.Exists(inner)) Directory.Move(inner, target);
+            else File.Move(inner, target);
+        }
+        Directory.Delete(dest, recursive: true);
+        Directory.Move(staging, dest);
+    }
+
+    /// <summary>在解压目录内定位 JAVA_HOME（含 bin/java 的目录）；最多下探三层（jdk-x/Contents/Home 布局）</summary>
+    private static string? FindJavaHomeDir(string root, int depth = 0)
+    {
+        if (File.Exists(Path.Combine(root, "bin", PlatformInfo.JavaExeName))) return root;
+        if (depth >= 3) return null;
+        foreach (var dir in SafeEnumerateDirectories(root))
+        {
+            var found = FindJavaHomeDir(dir, depth + 1);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>按平台解压 Adoptium 归档（Windows zip；unix tar.gz，TarFile 不保留执行位，解压后补 chmod）</summary>
+    internal static void ExtractRuntimeArchive(string archivePath, string dest)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            ZipFile.ExtractToDirectory(archivePath, dest, overwriteFiles: true);
+            return;
+        }
+        using var fs = File.OpenRead(archivePath);
+        using var gz = new GZipStream(fs, CompressionMode.Decompress);
+        System.Formats.Tar.TarFile.ExtractToDirectory(gz, dest, overwriteFiles: true);
+    }
+
+    /// <summary>unix：bin/ 全部与 lib/jspawnserver 补 755 执行位（tar 解压不带权限，java 无法启动就白装）</summary>
+    private static void MakeRuntimeExecutable(string runtimeDir)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+        try
+        {
+            const UnixFileMode mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                                      | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+                                      | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+            foreach (var f in Directory.GetFiles(Path.Combine(runtimeDir, "bin")))
+                File.SetUnixFileMode(f, mode);
+            var jspawn = Path.Combine(runtimeDir, "lib", "jspawnserver");
+            if (File.Exists(jspawn)) File.SetUnixFileMode(jspawn, mode);
+        }
+        catch { /* chmod 失败不致命：多数 JDK 仍可用 */ }
     }
 
     public static void RemoveRuntime(int majorVersion)

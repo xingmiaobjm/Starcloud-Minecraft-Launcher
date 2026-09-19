@@ -78,6 +78,31 @@
                 </Grid>
             </Button>
 
+            <!-- 调度中心入口：原 Starcloud ID 账户按钮旁，徽标 = 运行中任务数 -->
+            <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
+                    Padding="0" CornerRadius="8"
+                    Background="Transparent" BorderThickness="0"
+                    loc:Loc.Name="调度中心" ToolTipService.ToolTip="调度中心"
+                    Click="TaskCenterBtn_Click">
+                <Grid Width="32" Height="32">
+                    <Border CornerRadius="8"
+                            Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" />
+                    <FontIcon Glyph="&#xE9F5;" FontSize="14"
+                              Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <!-- 徽标走主题强调色（暗色主题为品牌绿），accent 面上强制黑字加粗 -->
+                    <Border x:Name="TaskBadge" Background="{ThemeResource AccentFillColorDefaultBrush}"
+                            CornerRadius="7" MinWidth="15" Height="15"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-3,0"
+                            Padding="3,0" Visibility="Collapsed">
+                        <TextBlock x:Name="TaskBadgeText" FontSize="9" FontWeight="Bold"
+                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                   HorizontalAlignment="Center" />
+                    </Border>
+                </Grid>
+            </Button>
+
             <Button x:Name="AccountButton" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,8,0"
                     Padding="0" CornerRadius="8"
                     Background="Transparent" BorderThickness="0"
@@ -232,15 +257,12 @@
                 </ResourceDictionary>
             </NavigationView.Resources>
             <NavigationView.MenuItems>
+                <!-- 分组排列：游戏（首页/版本/下载/存档）→ 分隔线 → 个人与扩展（账户/插件/Nova）；
+                     设置与日志固定在底部 FooterMenuItems（设置全导航最底） -->
                 <NavigationViewItem loc:Loc.Text="首页" Tag="home" Icon="Home" />
                 <NavigationViewItem loc:Loc.Text="版本" Tag="versions">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE81C;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem loc:Loc.Text="存档" Tag="saves">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8B7;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="下载" Tag="download">
@@ -248,9 +270,20 @@
                         <FontIcon Glyph="&#xE896;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem loc:Loc.Text="存档" Tag="saves">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8B7;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItemSeparator />
                 <NavigationViewItem loc:Loc.Text="账户" Tag="accounts">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE77B;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem loc:Loc.Text="插件" Tag="plugins">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE71D;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="Nova" Tag="ai">
@@ -258,16 +291,16 @@
                         <FontIcon Glyph="&#xE99A;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem loc:Loc.Text="设置" Tag="settings">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE713;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem loc:Loc.Text="启动器日志" Tag="logs">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE9F5;" />
+                        <FontIcon Glyph="&#xE7C3;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem loc:Loc.Text="设置" Tag="settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
@@ -277,13 +310,50 @@
             </Grid>
         </NavigationView>
 
+        <!-- 调度中心（右侧抽屉）：左遮罩（点击关闭）+ 432px 面板 -->
+        <Grid x:Name="TaskCenterOverlay" Grid.Row="1" Visibility="Collapsed">
+            <Rectangle x:Name="TaskCenterScrim" Fill="#5A000000"
+                       Tapped="TaskCenterScrim_Tapped" />
+            <Border x:Name="TaskCenterDrawer" Width="432" HorizontalAlignment="Right"
+                    Background="{ThemeResource AppPaneBackgroundBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1,0,0,0">
+                <Grid Margin="18,16,16,12" RowSpacing="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0">
+                        <StackPanel Orientation="Horizontal" Spacing="9">
+                            <FontIcon Glyph="&#xE9F5;" FontSize="15"
+                                      Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock loc:Loc.Text="调度中心" FontSize="17" FontWeight="SemiBold" />
+                            <TextBlock x:Name="TaskSummaryText" FontSize="11" Opacity="0.7"
+                                       VerticalAlignment="Bottom" Margin="0,0,0,2" />
+                        </StackPanel>
+                        <Button HorizontalAlignment="Right" Padding="7" MinWidth="0" MinHeight="0"
+                                Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="关闭"
+                                Click="TaskCenterClose_Click">
+                            <FontIcon Glyph="&#xE711;" FontSize="13"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Button>
+                    </Grid>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="2,0,6,0">
+                        <Grid>
+                            <StackPanel x:Name="TaskListHost" />
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
         <!-- 状态栏（实例指示）已移除：底部不再有「未选择实例」条 -->
 
         <!-- ① Nova 面板（顶栏 NovaOrb 下方弹出，440px 毛玻璃）。
              注意：不要设 ShouldConstrainToRootBounds=False —— 那会命中 WinUI 的 IME bug（中文只出拼音字母），
              面板因此保持「限制在窗口内」。 -->
         <Popup x:Name="NovaPopup" IsLightDismissEnabled="True" AllowFocusOnInteraction="True">
-            <Border x:Name="NovaPanelHost" Width="440" CornerRadius="16" Padding="16"
+            <Border x:Name="NovaPanelHost" Width="440" CornerRadius="20" Padding="16"
                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1">
@@ -343,5 +413,10 @@
         <!-- 浮窗提醒：替代原状态栏 Nova 指示 -->
         <TeachingTip x:Name="NovaToastTip" Grid.Row="0" IsOpen="False"
                      PreferredPlacement="Bottom" IsLightDismissEnabled="True" Title="Nova" />
+
+        <!-- 插件通知（launcher:notification）：右下角自动收起的信息条 -->
+        <InfoBar x:Name="PluginNotifyTip" Grid.Row="0" IsOpen="False" IsClosable="True"
+                 Severity="Informational" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                 Margin="0,0,24,24" MaxWidth="420" />
     </Grid>
 </Window>

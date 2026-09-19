@@ -162,10 +162,10 @@
                                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                         <Grid>
                                             <Image Source="{x:Bind Icon}" Width="40" Height="40"
-                                                   Stretch="UniformToFill"
-                                                   Visibility="{x:Bind HasIconIconVisibility}" />
+                                                   Stretch="Uniform"
+                                                   Visibility="{x:Bind IconImageVisibility}" />
                                             <FontIcon Glyph="&#xE7E8;" FontSize="18"
-                                                      Visibility="{x:Bind IconFallbackVisibility}"
+                                                      Visibility="{x:Bind IconFontVisibility}"
                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </Grid>
                                     </Border>

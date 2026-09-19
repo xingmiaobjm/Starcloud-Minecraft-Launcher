@@ -1,5 +1,6 @@
 // 共享服务单例（对应旧 Tauri AppState）
 
+using Starcloud.Core.Plugins;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Services;
@@ -20,6 +21,7 @@ public sealed class AppServices
     public GameLauncher Launcher { get; }
     public AccountStore Accounts { get; }
     public MicrosoftAuthService MicrosoftAuth { get; }
+    public YggdrasilService Yggdrasil { get; }
     public JavaService Java { get; }
     public ForgeInstallerService Forge { get; }
     public MrPackInstallerService MrPack { get; }
@@ -41,6 +43,10 @@ public sealed class AppServices
     public NovaToolRegistry NovaTools { get; }
     public NovaService Nova { get; }
     public NovaRuntime NovaRuntime { get; }
+
+    /// <summary>插件系统（plugin-spec.md）：宿主 + 管理（安装/启停/免责确认）</summary>
+    public PluginHost PluginHost { get; }
+    public PluginService Plugins { get; }
 
     /// <summary>自更新（检查清单 / 下载校验 / 拉起更新脚本）</summary>
     public SelfUpdateService SelfUpdate { get; }
@@ -70,12 +76,13 @@ public sealed class AppServices
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
+        Yggdrasil = new YggdrasilService();
         MrPack = new MrPackInstallerService(Download);
         ModPackExport = new ModPackExportService(Mods);
         VersionBackup = new VersionBackupService();
         Saves = new SaveService();
         SaveLibrary = new SaveLibraryService(Manifest, Saves);
-        LaunchAccount = new LaunchAccountService(Accounts, MicrosoftAuth, () => Settings);
+        LaunchAccount = new LaunchAccountService(Accounts, () => Settings);
         StarcloudId = new StarcloudIdService();
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         Preflight = new LaunchPreflightService(Installer, Download, Manifest);
@@ -85,14 +92,23 @@ public sealed class AppServices
         NovaPermissions = new NovaPermissionStore();
         NovaLog = new NovaActionLog();
         NovaMoments = new NovaMomentsService();
-        NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download);
+        NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download,
+            AgentJarPath, () => PluginHost);
         // Agent 工具注册表先于 Nova 建（Nova 持有 Agent 循环，工具复用上面的服务）
         NovaTools = new NovaToolRegistry(Manifest, Installer, Forge, Fabric, Mods, ContentLibrary,
             () => Settings, SaveSettings);
-        Nova = new NovaService(StarcloudId, Mods, Diagnostics, ModConflicts, NovaPermissions,
+        Nova = new NovaService(Mods, Diagnostics, ModConflicts, NovaPermissions,
             NovaLog, NovaMoments, NovaInvites, Saves, NovaTools);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
+        // 插件系统：宿主版本号取自启动器程序集（minLauncherVersion 校验 / ctx 透出）
+        var asmVer = typeof(AppServices).Assembly.GetName().Version ?? new Version(0, 0, 0);
+        var pluginHostSdk = Path.Combine(AppContext.BaseDirectory,
+            "Assets", "pluginsdk", "starcloud_host.py");
+        PluginHost = new PluginHost(
+            $"{asmVer.Major}.{asmVer.Minor}.{asmVer.Build}",
+            LauncherPaths.PluginLogsDir, pluginHostSdk);
+        Plugins = new PluginService(PluginHost);
         SelfUpdate = new SelfUpdateService(() => Settings);
         Appearance = new AppearanceService();
         Motion = new MotionService(() => Settings);
@@ -102,4 +118,12 @@ public sealed class AppServices
     public void ReloadSettings() => Settings = LauncherSettings.Load();
 
     public void SaveSettings() => Settings.Save();
+
+    /// <summary>authlib-injector jar 路径（Assets 内置；缺失返回 null，由调用方报错）</summary>
+    public static string? AgentJarPath()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory,
+            "Assets", "authlib-injector", "authlib-injector-1.2.8.jar");
+        return File.Exists(path) ? path : null;
+    }
 }

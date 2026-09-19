@@ -1,4 +1,4 @@
-// Nova 启发式卡顿监测（设计：docs/superpowers/specs/2026-09-08-nova-overlay-design.md §3.1）
+// Nova 启发式卡顿监测（设计：docs/designs/2026-09-08-nova-overlay-design.md §3.1）
 // 纯软件层：只观测自己启动的 javaw 进程计数器，不读画面、不读剪贴板、不碰游戏进程。
 // 判定「高且抖」：60s 滑窗内 CPU 持续 >85%（≥4 点）且波动剧烈（σ>15）→ SuspectedStutter。
 // 诚实性：GPU 计数器拿不到就降级并如实标注（GpuAvailable=false），只报实测数值，不臆造帧数。
@@ -177,6 +177,8 @@ public sealed class NovaFpsWatcher : IDisposable
 
     private double? SampleGpuPercent(int pid)
     {
+        // PDH 仅 Windows：unix 无对应计数器，GPU 数据如实缺席（GpuAvailable=false），CPU 判定不受影响
+        if (!OperatingSystem.IsWindows()) return null;
         if (_gpuBroken) return null;
         var paths = ExpandGpuInstances(pid);
         if (paths.Count == 0)

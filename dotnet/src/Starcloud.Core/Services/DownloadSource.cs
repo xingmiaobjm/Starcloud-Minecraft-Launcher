@@ -1,5 +1,5 @@
 // 多下载源聚合：Mojang 域名改写 + 源健康度降级 + 竞速池
-// （移植并升级自旧 Rust src/download/sources.rs；设计见 docs/superpowers/specs/2026-09-12-multi-source-download-design.md）
+// （移植并升级自旧 Rust src/download/sources.rs；设计见 docs/designs/2026-09-12-multi-source-download-design.md）
 
 using System.Collections.Concurrent;
 

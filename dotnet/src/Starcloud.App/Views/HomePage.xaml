@@ -256,7 +256,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- 账户模式：正版 / 离线 -->
+                <!-- 账户模式：正版 / 第三方外置 -->
                 <Grid Grid.Row="0" ColumnSpacing="8" Width="240" HorizontalAlignment="Center">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -265,9 +265,9 @@
                     <ToggleButton x:Name="ModeMsBtn" Grid.Column="0" loc:Loc.Text="正版"
                                   HorizontalAlignment="Stretch" Height="32"
                                   Click="ModeMs_Click" />
-                    <ToggleButton x:Name="ModeOfflineBtn" Grid.Column="1" loc:Loc.Text="离线"
+                    <ToggleButton x:Name="ModeExternalBtn" Grid.Column="1" loc:Loc.Text="外置"
                                   HorizontalAlignment="Stretch" Height="32"
-                                  Click="ModeOffline_Click" />
+                                  Click="ModeExternal_Click" />
                 </Grid>
 
                 <!-- 头像 + 账户（垂直居中，模拟 PCL2 卡片中部） -->
@@ -287,8 +287,6 @@
                     </Border>
                     <TextBlock x:Name="AccountNameText" loc:Loc.Text="未选择账户" FontWeight="SemiBold"
                                FontSize="17" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                    <TextBox x:Name="PlayerNameBox" loc:Loc.Placeholder="输入玩家名" Width="220"
-                             MaxLength="16" Visibility="Collapsed" TextChanged="PlayerName_TextChanged" />
                     <ComboBox x:Name="AccountCombo" Width="220" HorizontalAlignment="Center"
                               SelectedValuePath="Value"
                               SelectionChanged="AccountCombo_SelectionChanged" />
@@ -296,15 +294,16 @@
 
                 <!-- 主按钮：PCL 式双行（启动游戏 + 当前版本） -->
                 <Button x:Name="LaunchBtn" Grid.Row="2" HorizontalAlignment="Stretch" Height="64"
-                        Style="{StaticResource AccentButtonStyle}" CornerRadius="12"
+                        Style="{StaticResource AccentButtonStyle}" CornerRadius="14"
                         loc:Loc.Name="启动游戏"
                         Click="LaunchBtn_Click">
                     <StackPanel Spacing="2" HorizontalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                             <FontIcon x:Name="LaunchIcon" Glyph="&#xE768;" FontSize="16" />
-                            <TextBlock x:Name="LaunchTitleText" loc:Loc.Text="启动游戏" FontWeight="SemiBold" FontSize="16" />
+                            <TextBlock x:Name="LaunchTitleText" loc:Loc.Text="启动游戏" FontWeight="Bold" FontSize="16" />
                         </StackPanel>
                         <TextBlock x:Name="LaunchSubText" loc:Loc.Text="未选择版本" FontSize="12"
+                                   FontWeight="Bold"
                                    HorizontalAlignment="Center"
                                    Foreground="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
                     </StackPanel>
@@ -417,7 +416,7 @@
                             Click="LaunchCancelBtn_Click" />
                     <Button x:Name="LaunchBackBtn" Grid.Column="1" loc:Loc.Text="返回主页"
                             HorizontalAlignment="Stretch" Visibility="Collapsed"
-                            Style="{StaticResource AccentButtonStyle}"
+                            Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
                             Click="LaunchBackBtn_Click" />
                 </Grid>
             </StackPanel>

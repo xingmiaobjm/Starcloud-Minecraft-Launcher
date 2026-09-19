@@ -105,7 +105,19 @@ public sealed partial class LogsPage : Page
         }
         try
         {
-            LogText.Text = string.Join('\n', File.ReadLines(file).TakeLast(400));
+            // 游戏运行中 GameSession 全程持有日志写句柄（FileShare.ReadWrite），
+            // File.ReadLines 默认只允许 FileShare.Read，与写方的写权限冲突 → 共享违规。
+            // 显式以共享读写+删除打开，读取尾部 400 行
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var tail = new List<string>(400);
+            while (reader.ReadLine() is { } line)
+            {
+                tail.Add(line);
+                if (tail.Count > 400) tail.RemoveAt(0);
+            }
+            LogText.Text = string.Join('\n', tail);
         }
         catch (Exception ex)
         {

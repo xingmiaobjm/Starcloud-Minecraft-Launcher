@@ -152,6 +152,7 @@ public sealed class NovaRuntime
 
         var msg = new NovaChatMessage("assistant", "", Now());
         Messages.Add(msg);
+        NovaPlan? plan = null; // 计划不挂在本条消息：计划文本留在气泡里，确认/取消走独立询问消息
         try
         {
             var stream = _s.Nova.ChatStreamAsync(
@@ -159,7 +160,7 @@ public sealed class NovaRuntime
                 fullLog: fullLog,
                 onFullReply: reply =>
                 {
-                    if (reply.Plan is not null) msg.Plan = reply.Plan;
+                    if (reply.Plan is not null) plan = reply.Plan;
                 },
                 onToolStarted: (tool, args) =>
                 {
@@ -174,6 +175,10 @@ public sealed class NovaRuntime
 
             _history.Add(new NovaChatTurn("assistant", msg.Content));
             if (_history.Count > 20) _history.RemoveRange(0, _history.Count - 20);
+
+            // 计划就绪 → 追加独立询问消息「确认执行吗？」：点头执行 / 取消（结果回喂见 ConfirmPlanAsync）
+            if (plan is not null)
+                Messages.Add(new NovaChatMessage("assistant", Loc.T("确认执行吗？"), Now(), plan: plan));
         }
         catch (Exception ex)
         {
@@ -424,7 +429,7 @@ public sealed class NovaRuntime
         try
         {
             var plan = await _s.NovaInvites.BuildJoinPlanAsync(token, _s.Settings);
-            Messages.Add(new NovaChatMessage("assistant", plan.Title, Now(), plan: plan));
+            Messages.Add(new NovaChatMessage("assistant", Loc.T("收到好友邀请，确认执行吗？"), Now(), plan: plan));
         }
         catch (Exception ex)
         {
@@ -519,6 +524,7 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
             if (_content == value) return;
             _content = value;
             OnPropertyChanged(nameof(Content));
+            OnPropertyChanged(nameof(TextVisible)); // 气泡可见性跟内容走（流式空串 → 首个增量显形）
         }
     }
 
@@ -578,7 +584,8 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
         ? (Brush)Application.Current.Resources["TextOnAccentFillColorPrimaryBrush"]
         : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
 
-    public Visibility TextVisible => Plan is null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TextVisible => string.IsNullOrEmpty(Content)
+        ? Visibility.Collapsed : Visibility.Visible;
 
     public Visibility HasPlanVisible => Plan is null ? Visibility.Collapsed : Visibility.Visible;
 

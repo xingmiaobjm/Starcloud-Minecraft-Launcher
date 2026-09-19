@@ -313,9 +313,9 @@ public sealed partial class SettingsPage : Page
             string.Equals(r.Executable, exe, StringComparison.OrdinalIgnoreCase));
         if (rt is null || rt.Source != "launcher") return;
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
-            Title = Loc.T("删除 Java 运行时"),
+            Title = Loc.T("删除 Java"),
             Content = Loc.T("将从启动器目录删除 Java {0}（{1}）。此操作不可撤销。", rt.MajorVersion, rt.Executable),
             PrimaryButtonText = Loc.T("删除"),
             CloseButtonText = Loc.T("取消"),

@@ -1,5 +1,5 @@
 // 跨版本启动的未决记录：记录一次「复制到其他版本并启动」，供退出后询问成果归属 / 中断后补问
-// 设计：docs/superpowers/specs/2026-09-10-saves-cross-version-design.md §3.5
+// 设计：docs/designs/2026-09-10-saves-cross-version-design.md §3.5
 
 using System.Text.Json;
 using System.Text.Json.Serialization;

@@ -73,11 +73,17 @@ public sealed class ModrinthService
         return result;
     }
 
-    /// <summary>查询项目兼容指定加载器/游戏版本的文件（按发布时间倒序）</summary>
+    /// <summary>查询项目兼容指定加载器/游戏版本的文件（按发布时间倒序）。
+    /// 版本列表是详情窗的主要等待点，按「项目+筛选」落盘缓存，二次打开即秒出。</summary>
     public async Task<List<ModrinthVersion>> ListVersionsAsync(
         string projectId, string? loader, string? gameVersion,
         CancellationToken ct = default)
     {
+        var cacheKey = $"modrinth.versions.{projectId}.{loader ?? "any"}.{gameVersion ?? "any"}";
+        if (_cache is not null && _cache.TryRead<List<ModrinthVersion>>(cacheKey, out var cached)
+            && cached is not null)
+            return cached;
+
         var url = $"{ApiBase}/project/{projectId}/version";
         var filters = new List<string>();
         if (!string.IsNullOrWhiteSpace(loader))
@@ -86,7 +92,23 @@ public sealed class ModrinthService
             filters.Add($"game_versions={Uri.EscapeDataString(JsonSerializer.Serialize(new[] { gameVersion }))}");
         if (filters.Count > 0) url += "?" + string.Join("&", filters);
         var json = await _downloader.GetStringAsync(url, ct);
-        return JsonSerializer.Deserialize<List<ModrinthVersion>>(json) ?? [];
+        var versions = JsonSerializer.Deserialize<List<ModrinthVersion>>(json) ?? [];
+        if (_cache is not null && versions.Count > 0) _cache.Write(cacheKey, versions);
+        return versions;
+    }
+
+    /// <summary>批量取项目信息（依赖展示用；失败返回空列表）</summary>
+    public async Task<List<ModrinthProject>> GetProjectsAsync(
+        IReadOnlyCollection<string> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return [];
+        try
+        {
+            var url = $"{ApiBase}/projects?ids={Uri.EscapeDataString(JsonSerializer.Serialize(ids))}";
+            var json = await _downloader.GetStringAsync(url, ct);
+            return JsonSerializer.Deserialize<List<ModrinthProject>>(json) ?? [];
+        }
+        catch { return []; }
     }
 
     /// <summary>按 SHA1 批量反查版本（分片 100/批；未命中的哈希不出现在结果字典）</summary>
