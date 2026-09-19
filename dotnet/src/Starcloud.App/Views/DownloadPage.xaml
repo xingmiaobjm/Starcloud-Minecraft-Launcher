@@ -121,79 +121,180 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <Grid Grid.Row="0" ColumnSpacing="8">
+                        <!-- 工具条：版本类型用等宽分段控件（选中指示器随点击平移），搜索框带前置放大镜 -->
+                        <Grid Grid.Row="0" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="TypeCombo" MinWidth="140"
-                                      SelectionChanged="TypeCombo_SelectionChanged">
-                                <ComboBoxItem loc:Loc.Text="正式版" Tag="release" IsSelected="True" />
-                                <ComboBoxItem loc:Loc.Text="快照版" Tag="snapshot" />
-                                <ComboBoxItem loc:Loc.Text="远古版本" Tag="old" />
-                            </ComboBox>
-                            <TextBox x:Name="SearchBox" Grid.Column="1" loc:Loc.Placeholder="搜索版本 ID…"
-                                     TextChanged="SearchBox_TextChanged" />
-                            <Border x:Name="VersionCacheBadge" Grid.Column="2" Visibility="Collapsed"
-                                    CornerRadius="4" Padding="8,2" VerticalAlignment="Center"
-                                    Background="{ThemeResource AccentFillColorTertiaryBrush}">
-                                <TextBlock loc:Loc.Text="缓存" FontSize="11"
-                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+
+                            <Border Grid.Column="0" VerticalAlignment="Center"
+                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="11" Padding="3">
+                                <Grid>
+                                    <!-- 选中指示器：品牌强调色药丸，位置由合成动画平移（分段自带的选中底色已置空，避免两个指示器重叠） -->
+                                    <Border x:Name="TypeIndicator" Width="88" Height="30" CornerRadius="8"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            IsHitTestVisible="False"
+                                            Background="{ThemeResource AccentFillColorDefaultBrush}" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <ToggleButton x:Name="TypeReleaseBtn" Tag="release" IsChecked="True"
+                                                      Width="88" Height="30" Padding="0" MinWidth="0"
+                                                      FontSize="13" CornerRadius="8" BorderThickness="0"
+                                                      Background="Transparent"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      loc:Loc.Text="正式版" loc:Loc.Name="正式版"
+                                                      Click="TypeSegment_Click">
+                                            <ToggleButton.Resources>
+                                                <!-- 选中态由滑动指示器表达：这里只保留黑字（accent 面强制黑字） -->
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                            </ToggleButton.Resources>
+                                        </ToggleButton>
+                                        <ToggleButton x:Name="TypeSnapshotBtn" Tag="snapshot"
+                                                      Width="88" Height="30" Padding="0" MinWidth="0"
+                                                      FontSize="13" CornerRadius="8" BorderThickness="0"
+                                                      Background="Transparent"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      loc:Loc.Text="快照版" loc:Loc.Name="快照版"
+                                                      Click="TypeSegment_Click">
+                                            <ToggleButton.Resources>
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                            </ToggleButton.Resources>
+                                        </ToggleButton>
+                                        <ToggleButton x:Name="TypeOldBtn" Tag="old"
+                                                      Width="88" Height="30" Padding="0" MinWidth="0"
+                                                      FontSize="13" CornerRadius="8" BorderThickness="0"
+                                                      Background="Transparent"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      loc:Loc.Text="远古版本" loc:Loc.Name="远古版本"
+                                                      Click="TypeSegment_Click">
+                                            <ToggleButton.Resources>
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                            </ToggleButton.Resources>
+                                        </ToggleButton>
+                                    </StackPanel>
+                                </Grid>
                             </Border>
-                        </Grid>
-                        <!-- 最新版本（PCL2 式置顶卡片：最新正式版 / 最新预览版） -->
-                        <Border x:Name="LatestCard" Grid.Row="1" Visibility="Collapsed"
-                                Background="{ThemeResource GlassCardBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1" CornerRadius="16" Padding="14,10">
-                            <StackPanel Spacing="4">
-                                <TextBlock loc:Loc.Text="最新版本" FontWeight="SemiBold" FontSize="14" />
-                                <ListView x:Name="LatestVersionList" SelectionMode="None"
-                                          IsItemClickEnabled="True"
-                                          ItemClick="LatestVersionItem_Click"
-                                          Padding="0" Margin="0,-4,0,-4">
-                                    <ListView.ItemContainerStyle>
-                                        <Style TargetType="ListViewItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                            <Setter Property="MinHeight" Value="0" />
-                                            <Setter Property="Padding" Value="0" />
-                                        </Style>
-                                    </ListView.ItemContainerStyle>
-                                    <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="local:LatestVersionRow">
-                                            <Grid Margin="0,1" CornerRadius="10"
-                                                  local:RowHoverBehavior.IsEnabled="True"
-                                                  local:RowHoverBehavior.Overlay="{Binding ElementName=LatestHover}">
-                                                <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
-                                                <Border x:Name="LatestHover" CornerRadius="10" Opacity="0"
-                                                        IsHitTestVisible="False"
-                                                        Background="{ThemeResource ControlFillColorSecondaryBrush}" />
-                                                <Grid Padding="8,7" ColumnSpacing="12">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <Grid Width="38" Height="38" VerticalAlignment="Center">
-                                                        <FontIcon Glyph="&#xE7B8;" FontSize="20"
-                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                        <Image Source="{x:Bind Icon}" Width="38" Height="38"
-                                                               Stretch="Uniform" />
-                                                    </Grid>
-                                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                                        <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
-                                                                   TextTrimming="CharacterEllipsis" />
-                                                        <TextBlock Text="{x:Bind SubText}" FontSize="11"
-                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                   TextTrimming="CharacterEllipsis" />
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                </ListView>
+
+                            <!-- 搜索框与「缓存」徽标成组靠左：徽标紧贴搜索框，不再孤零零飘在最右 -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left">
+                                <Grid MaxWidth="320" Width="300">
+                                    <TextBox x:Name="SearchBox" Height="36" CornerRadius="10"
+                                             Padding="34,0,10,0" VerticalContentAlignment="Center"
+                                             loc:Loc.Placeholder="搜索版本 ID…"
+                                             TextChanged="SearchBox_TextChanged" />
+                                    <FontIcon Glyph="&#xE721;" FontSize="14" Margin="12,0,0,0"
+                                              HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              IsHitTestVisible="False"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Grid>
+                                <Border x:Name="VersionCacheBadge" Visibility="Collapsed"
+                                        CornerRadius="6" Padding="8,3" VerticalAlignment="Center"
+                                        Background="{ThemeResource AccentFillColorTertiaryBrush}">
+                                    <TextBlock loc:Loc.Text="缓存" FontSize="11"
+                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                </Border>
                             </StackPanel>
-                        </Border>
+                        </Grid>
+
+                        <!-- 最新版本：两枚 hero 瓦片（最新正式版 / 最新预览版），点击直接进详情 -->
+                        <Grid x:Name="LatestCard" Grid.Row="1" Visibility="Collapsed" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Button x:Name="LatestReleaseTile" Grid.Column="0" Tag=""
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                    Padding="14,12" CornerRadius="14"
+                                    Background="{ThemeResource GlassCardBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    local:HoverShadowBehavior.IsEnabled="True"
+                                    Click="LatestTile_Click">
+                                <Grid ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Width="44" Height="44" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE7B8;" FontSize="22"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <Image x:Name="LatestReleaseIcon" Width="44" Height="44"
+                                               Stretch="Uniform" />
+                                    </Grid>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock loc:Loc.Text="最新正式版" FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="LatestReleaseId" FontSize="17" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="LatestReleaseMeta" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12"
+                                              VerticalAlignment="Center"
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                </Grid>
+                            </Button>
+
+                            <Button x:Name="LatestSnapshotTile" Grid.Column="1" Tag=""
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                    Padding="14,12" CornerRadius="14"
+                                    Background="{ThemeResource GlassCardBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    local:HoverShadowBehavior.IsEnabled="True"
+                                    Click="LatestTile_Click">
+                                <Grid ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Width="44" Height="44" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE7B8;" FontSize="22"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <Image x:Name="LatestSnapshotIcon" Width="44" Height="44"
+                                               Stretch="Uniform" />
+                                    </Grid>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock loc:Loc.Text="最新预览版" FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="LatestSnapshotId" FontSize="17" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="LatestSnapshotMeta" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12"
+                                              VerticalAlignment="Center"
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                </Grid>
+                            </Button>
+                        </Grid>
 
                         <Border Grid.Row="2"
                                 Background="{ThemeResource GlassCardBrush}"
@@ -210,82 +311,87 @@
                                     </Style>
                                 </ListView.ItemContainerStyle>
                                 <ListView.Resources>
-                                    <!-- 平铺行（快照/远古版/搜索结果） -->
+                                    <!-- 平铺行（快照/远古版/搜索结果）：圆角行卡 + 悬停抬升阴影 -->
                                     <DataTemplate x:Key="VersionFlatTemplate" x:DataType="local:DownloadRow">
-                                        <Grid Margin="3,2" CornerRadius="10"
+                                        <Grid Margin="2,2" CornerRadius="10"
                                               Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                              local:HoverShadowBehavior.IsEnabled="True"
                                               local:RowHoverBehavior.IsEnabled="True"
                                               local:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
                                             <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
                                             <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
                                                     IsHitTestVisible="False"
                                                     Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                            <Grid Padding="14,10" ColumnSpacing="12">
+                                            <Grid Padding="12,9" ColumnSpacing="14">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <!-- 等距方块图标（按版本类型），文件缺失时退回 FontIcon -->
-                                                <Grid Width="38" Height="38" VerticalAlignment="Center">
-                                                    <FontIcon Glyph="&#xE7B8;" FontSize="20"
+                                                <Grid Width="34" Height="34" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE7B8;" FontSize="18"
                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                    <Image Source="{x:Bind Icon}" Width="38" Height="38"
+                                                    <Image Source="{x:Bind Icon}" Width="34" Height="34"
                                                            Stretch="Uniform" />
                                                 </Grid>
                                                 <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                                    <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                    <TextBlock Text="{x:Bind Id}" FontSize="14" FontWeight="SemiBold"
                                                                TextTrimming="CharacterEllipsis" />
                                                     <TextBlock Text="{x:Bind TimeText}" FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                 </StackPanel>
                                                 <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="11"
-                                                           VerticalAlignment="Center"
+                                                           VerticalAlignment="Center" Margin="8,0,2,0"
                                                            Foreground="{x:Bind BadgeBrush}" />
                                             </Grid>
                                         </Grid>
                                     </DataTemplate>
-                                    <!-- 大版本抽屉行（正式版默认视图）：折叠为组头，展开显示组内版本。
-                                         自绘抽屉替代内置 Expander：高度瞬时切换（不做逐帧 Height 动画），
-                                         展开仅对内容做合成线程友好的淡入 + 轻微上移，收尾不掉帧 -->
+                                    <!-- 大版本抽屉（正式版默认视图）：组头点击展开该大版本下的版本。
+                                          展开/收起由 ExpandBehavior 做高度平滑过渡 + 内容淡入位移；箭头按展开态旋转。 -->
                                     <DataTemplate x:Key="VersionGroupTemplate" x:DataType="local:VersionGroupRow">
                                         <StackPanel HorizontalAlignment="Stretch">
                                             <Button Click="VersionGroupHeader_Click"
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Stretch"
-                                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
-                                                    BorderThickness="0" Margin="3,2"
-                                                    Padding="0" CornerRadius="10"
+                                                    Background="Transparent" BorderThickness="0"
+                                                    Margin="2,2" Padding="0" CornerRadius="10"
+                                                    local:HoverShadowBehavior.IsEnabled="True"
                                                     local:RowHoverBehavior.IsEnabled="True"
                                                     local:RowHoverBehavior.Overlay="{Binding ElementName=HeaderHover}">
-                                                <Grid CornerRadius="10">
+                                                <Grid CornerRadius="10"
+                                                      Background="{ThemeResource ControlFillColorSecondaryBrush}">
                                                     <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
                                                     <Border x:Name="HeaderHover" CornerRadius="10" Opacity="0"
                                                             IsHitTestVisible="False"
                                                             Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                    <Grid Padding="14,10" ColumnSpacing="8">
+                                                    <Grid Padding="13,11" ColumnSpacing="10">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto" />
                                                             <ColumnDefinition Width="Auto" />
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
-                                                        <TextBlock Text="{x:Bind Major}" FontSize="14" FontWeight="SemiBold"
+                                                        <TextBlock Text="{x:Bind Major}" FontSize="16" FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center"
                                                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                                        <TextBlock Grid.Column="1" Text="{x:Bind CountText}"
-                                                                   FontSize="12" VerticalAlignment="Center"
-                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                        <FontIcon Grid.Column="3" Glyph="{x:Bind ExpandGlyph, Mode=OneWay}"
-                                                                  FontSize="12" VerticalAlignment="Center"
-                                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                        <Border Grid.Column="1" CornerRadius="5" Padding="6,1"
+                                                                VerticalAlignment="Center" Margin="2,0,0,0"
+                                                                Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                            <TextBlock Text="{x:Bind CountText}" FontSize="11"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        </Border>
+                                                        <FontIcon x:Name="ChevronIcon" Grid.Column="3"
+                                                                  Glyph="&#xE76C;" FontSize="12"
+                                                                  VerticalAlignment="Center"
+                                                                  Loaded="VersionChevron_Loaded"
+                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                     </Grid>
                                                 </Grid>
                                             </Button>
                                             <Grid Visibility="Collapsed" Margin="0,0,0,2"
                                                   local:ExpandBehavior.IsExpanded="{x:Bind IsExpanded, Mode=OneWay}">
-                                                <Grid.RenderTransform>
-                                                    <TranslateTransform />
-                                                </Grid.RenderTransform>
                                                 <ListView ItemsSource="{x:Bind Items}" SelectionMode="None"
                                                           IsItemClickEnabled="True"
                                                           ItemClick="VersionGroupItem_Click"
@@ -302,34 +408,36 @@
                                                     </ListView.ItemContainerStyle>
                                                     <ListView.ItemTemplate>
                                                         <DataTemplate x:DataType="local:DownloadRow">
-                                                            <Grid Margin="3,2" CornerRadius="10"
+                                                            <Grid Margin="2,2" CornerRadius="10"
                                                                   Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                                  local:HoverShadowBehavior.IsEnabled="True"
                                                                   local:RowHoverBehavior.IsEnabled="True"
                                                                   local:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
                                                                 <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
                                                                 <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
                                                                         IsHitTestVisible="False"
                                                                         Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                                <Grid Padding="14,10" ColumnSpacing="12">
+                                                                <Grid Padding="12,9" ColumnSpacing="14">
                                                                     <Grid.ColumnDefinitions>
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="*" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
-                                                                    <Grid Width="38" Height="38" VerticalAlignment="Center">
-                                                                        <FontIcon Glyph="&#xE7B8;" FontSize="20"
+                                                                    <Grid Width="34" Height="34" VerticalAlignment="Center">
+                                                                        <FontIcon Glyph="&#xE7B8;" FontSize="18"
                                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                        <Image Source="{x:Bind Icon}" Width="38" Height="38"
+                                                                        <Image Source="{x:Bind Icon}" Width="34" Height="34"
                                                                                Stretch="Uniform" />
                                                                     </Grid>
                                                                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                                                        <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                                        <TextBlock Text="{x:Bind Id}" FontSize="14" FontWeight="SemiBold"
                                                                                    TextTrimming="CharacterEllipsis" />
                                                                         <TextBlock Text="{x:Bind TimeText}" FontSize="11"
+                                                                                   TextTrimming="CharacterEllipsis"
                                                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                                     </StackPanel>
                                                                     <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="11"
-                                                                               VerticalAlignment="Center"
+                                                                               VerticalAlignment="Center" Margin="8,0,2,0"
                                                                                Foreground="{x:Bind BadgeBrush}" />
                                                                 </Grid>
                                                             </Grid>

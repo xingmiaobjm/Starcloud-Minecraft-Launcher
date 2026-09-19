@@ -1,4 +1,11 @@
-// 抽屉展开动效附加属性（大版本抽屉自绘实现：高度瞬时切换 + 合成线程友好的淡入位移）
+// 抽屉展开/收起动效附加属性（大版本抽屉、加载器面板等）。
+//
+// 展开：高度 0 → 自然高度（依赖型动画，需 EnableDependentAnimation）+ 内容淡入上移；
+// 收起：高度 → 0 后隐藏。高度动画是唯一需要排版参与的一环，因此时长压得短、
+// 并且只在「一次测量 + 一条动画」里完成，避免逐帧反复测量。
+// 内容淡入/位移走合成层独立动画（MotionFx），滚动或回填时不与排版打架。
+//
+// 动效关闭（设置项或系统动画偏好）时直接瞬时显隐；任一环节失败静默降级。
 
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
@@ -8,22 +15,17 @@ using Starcloud.App.Services;
 
 namespace Starcloud.App.Views;
 
-/// <summary>
-/// 抽屉内容展开动效。
-/// <para>
-/// 与内置 <c>Expander</c> 的关键差别：高度由 <c>Visibility</c> <b>瞬时</b>切换，不做逐帧 Height 动画
-/// —— Height 属依赖型动画（dependent animation），会触发 Layout 重排且无法跑在合成线程，故收尾容易掉帧。
-/// 这里只对内容做 <c>Opacity</c> 淡入 + 轻微上移，两者都是可运行在合成线程上的<b>独立动画</b>（independent animation）。
-/// </para>
-/// <para>动效关闭（设置项或系统动画偏好）时直接瞬时显隐；任一环节失败静默降级，不影响功能。</para>
-/// </summary>
+/// <summary>抽屉内容展开/收起：高度平滑过渡 + 内容淡入位移。</summary>
 public static class ExpandBehavior
 {
-    /// <summary>动画时长：足够短，展开感利落</summary>
-    private static readonly TimeSpan Duration = TimeSpan.FromMilliseconds(150);
+    /// <summary>展开时长：略长于收起，读起来"推出去"更从容</summary>
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(240);
 
-    /// <summary>展开时内容的起始上移量（像素）</summary>
-    private const double SlideOffset = 10d;
+    /// <summary>收起时长：比展开快，收得干脆</summary>
+    private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(180);
+
+    /// <summary>展开时内容起始上移量（px）</summary>
+    private const float SlideOffset = 10f;
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -45,62 +47,119 @@ public static class ExpandBehavior
         else Collapse(element);
     }
 
-    /// <summary>展开：先瞬时显示（一次布局，不做 Height 动画），再对内容做淡入 + 上移到位。</summary>
     private static void Expand(FrameworkElement element)
     {
-        element.Visibility = Visibility.Visible;
-
         var state = States.GetOrCreateValue(element);
         Stop(state);
+
+        // 先按自然高度量一次（此时元素需可见），拿到目标高度后再从 0 动画过去
+        element.Visibility = Visibility.Visible;
+        element.Height = double.NaN;
+        element.Opacity = 1;
+        if (!AppServices.Instance.Motion.Enabled)
+        {
+            MotionFx.Reset(element);
+            return;
+        }
+
+        double target;
         try
         {
-            var transform = element.RenderTransform as TranslateTransform;
+            element.UpdateLayout();
+            target = element.ActualHeight;
+        }
+        catch
+        {
+            MotionFx.Reset(element);
+            return;
+        }
+        if (target <= 0)
+        {
+            // 拿不到高度（尚未布局）：直接展开，不做高度动画
+            MotionFx.FadeSlideIn(element, SlideOffset);
+            return;
+        }
 
-            // 动效关闭：直接到位
-            if (!AppServices.Instance.Motion.Enabled)
+        AnimateHeight(element, state, 0, target, ExpandDuration);
+        MotionFx.FadeSlideIn(element, SlideOffset);
+    }
+
+    private static void Collapse(FrameworkElement element)
+    {
+        var state = States.GetOrCreateValue(element);
+        Stop(state);
+
+        if (!AppServices.Instance.Motion.Enabled || element.Visibility != Visibility.Visible)
+        {
+            FinishCollapse(element);
+            return;
+        }
+
+        var current = element.ActualHeight;
+        if (current <= 0)
+        {
+            FinishCollapse(element);
+            return;
+        }
+
+        MotionFx.FadeOut(element, 120);
+        AnimateHeight(element, state, current, 0, CollapseDuration, onDone: () => FinishCollapse(element));
+    }
+
+    private static void FinishCollapse(FrameworkElement element)
+    {
+        element.Height = double.NaN;
+        element.Visibility = Visibility.Collapsed;
+        MotionFx.Reset(element);
+    }
+
+    /// <summary>高度动画：依赖型动画（会走排版），因此显式开 EnableDependentAnimation</summary>
+    private static void AnimateHeight(FrameworkElement element, State state,
+        double from, double to, TimeSpan duration, Action? onDone = null)
+    {
+        try
+        {
+            element.Height = from;
+
+            var animation = new DoubleAnimation
             {
-                element.Opacity = 1;
-                if (transform is not null) transform.Y = 0;
-                return;
-            }
-
-            element.Opacity = 0;
-            if (transform is not null) transform.Y = -SlideOffset;
-
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                From = from,
+                To = to,
+                Duration = duration,
+                EnableDependentAnimation = true, // 高度是依赖型属性，不开这个动画会被忽略
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
             var storyboard = new Storyboard();
+            Storyboard.SetTarget(animation, element);
+            Storyboard.SetTargetProperty(animation, "Height");
 
-            var fade = new DoubleAnimation { To = 1, Duration = Duration, EasingFunction = ease };
-            Storyboard.SetTarget(fade, element);
-            Storyboard.SetTargetProperty(fade, "Opacity");
-            storyboard.Children.Add(fade);
-
-            if (transform is not null)
+            if (onDone is not null)
             {
-                var slide = new DoubleAnimation { To = 0, Duration = Duration, EasingFunction = ease };
-                Storyboard.SetTarget(slide, element);
-                Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(TranslateTransform.Y)");
-                storyboard.Children.Add(slide);
+                storyboard.Completed += (_, _) =>
+                {
+                    state.Storyboard = null;
+                    onDone();
+                };
+            }
+            else
+            {
+                // 展开完成：交回自然高度，后续内容变化（例如筛选、重新搜索）不会被钉死
+                storyboard.Completed += (_, _) =>
+                {
+                    state.Storyboard = null;
+                    element.Height = double.NaN;
+                };
             }
 
+            storyboard.Children.Add(animation);
             state.Storyboard = storyboard;
             storyboard.Begin();
         }
         catch
         {
-            // 静默：即使动画失败也要保证内容可见
-            element.Opacity = 1;
-            if (element.RenderTransform is TranslateTransform t) t.Y = 0;
+            element.Height = double.NaN;
+            onDone?.Invoke();
         }
-    }
-
-    /// <summary>收起：瞬时折叠（不播放退出动画，避免收起瞬间的布局抖动）。</summary>
-    private static void Collapse(FrameworkElement element)
-    {
-        if (States.TryGetValue(element, out var state)) Stop(state);
-        element.Opacity = 1;
-        if (element.RenderTransform is TranslateTransform transform) transform.Y = 0;
-        element.Visibility = Visibility.Collapsed;
     }
 
     private static void Stop(State state)

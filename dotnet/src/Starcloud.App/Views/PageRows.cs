@@ -21,9 +21,6 @@ public sealed record VersionRow(string Id, string SizeText);
 public sealed record DownloadRow(
     string Id, string TimeText, string Badge, Brush? BadgeBrush, ImageSource? Icon);
 
-/// <summary>下载页「最新版本」区块条目（最新正式版 / 最新预览版）</summary>
-public sealed record LatestVersionRow(string Id, string SubText, ImageSource? Icon);
-
 /// <summary>下载详情页加载器构建行（Selected 决定行尾"已选"徽标可见性）</summary>
 public sealed record LoaderBuildRow(string Version, string Sub, bool Selected)
 {
@@ -49,12 +46,8 @@ public sealed class VersionGroupRow : INotifyPropertyChanged
             if (_isExpanded == value) return;
             _isExpanded = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ExpandGlyph)));
         }
     }
-
-    /// <summary>组头箭头字形（Segoe Fluent Icons）：收起为下箭头，展开为上箭头</summary>
-    public string ExpandGlyph => _isExpanded ? "\uE70E" : "\uE70D";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }

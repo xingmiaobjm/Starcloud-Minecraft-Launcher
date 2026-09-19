@@ -155,3 +155,34 @@
 - **键盘与无障碍**：打开时焦点落到关闭按钮，关闭时焦点归还入口按钮；
   `TabFocusNavigation="Cycle"` 把 Tab 锁在抽屉内；Esc 经 `KeyboardAccelerator` 关闭
   （不依赖焦点位置）；每行 `AutomationProperties.Name` = 任务名，HelpText = 当前进度或结果
+
+## 11. 动效系统
+
+原则：**动效只解释状态变化，不做装饰**。所有动效都过 `MotionService` 这道闸门
+（设置项「跟随系统 / 始终开启 / 关闭」+ 系统「显示动画」偏好），关闭时一律瞬时到位、零开销；
+任一环节异常静默降级，绝不影响功能。
+
+| 场景 | 实现 | 时长 / 曲线 |
+| --- | --- | --- |
+| 内容进入（列表项、面板切换） | `MotionFx.FadeSlideIn`：合成层 `Opacity` + `Translation`，独立动画 | 260ms / expo-out（0.16,1 / 0.3,1） |
+| 内容退场 | `MotionFx.FadeOut`：只动 `Opacity` | 150ms / 加速曲线 |
+| 列表首屏入场 | `MotionFx.StaggerIn`：第 i 项延迟 `min(i,9)×26ms`，最多 12 项 | 同上 |
+| 抽屉展开 / 收起 | `ExpandBehavior`：高度 `0 ↔ 自然高度`（`EnableDependentAnimation`）+ 内容淡入位移 + 箭头旋转 | 展开 240ms / 收起 180ms |
+| 悬停抬升 | `HoverShadowBehavior`：`ThemeShadow` + 合成 `Translation.Z` 抬升 | 进 170ms / 出 140ms |
+| 分段控件选中指示器 | 合成 `Translation.X` 平移品牌色药丸 | 260ms / expo-out |
+
+## 12. 下载页（下载原版）
+
+- **工具条**：版本类型用**等宽分段控件**（三段 × 88px，容器圆角 11、内缩 3），
+  选中态是**品牌强调色药丸 + 黑字**，指示器随点击平移（260ms）；分段自带的选中底色已置空，
+  避免出现两个指示器。搜索框圆角 10、前置 E721 放大镜，「缓存」徽标紧随其后
+- **最新版本**：两枚 hero 瓦片并排（最新正式版 / 最新预览版），44px 版本图标 +
+  11px 标签 + 17 SemiBold 版本号 + 11px 发布时间 + 行尾 chevron；悬停抬升阴影，点击直接进详情
+- **版本行卡**：圆角 10、`ControlFillColorSecondaryBrush` 底、内边距 12/9，34px 图标 +
+  14 SemiBold 版本号 + 11px「日期 · 类型」，右侧状态徽标（如「已安装」）；
+  悬停时同时走行高亮（`RowHoverBehavior`）与抬升阴影（`HoverShadowBehavior`）
+- **大版本抽屉**：组头 16 SemiBold 大版本号（`AccentTextFillColorPrimaryBrush`）+ 版本数 chip +
+  行尾箭头；点击展开时高度平滑推开、组内行淡入、箭头旋转 90°
+- **分类切换**：左侧分类（原版游戏 / 社区资源五类）切换时两块面板交叉过渡——
+  新面板从下方 18px 浮入（260ms），旧面板淡出（150ms）后收起，不做整页闪烁
+- **列表 ↔ 详情**：进入详情从下方 22px 浮入，返回时列表从上方 14px 落回

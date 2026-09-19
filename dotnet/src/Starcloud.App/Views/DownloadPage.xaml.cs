@@ -7,6 +7,7 @@ using System.IO;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
@@ -155,14 +156,31 @@ public sealed partial class DownloadPage : Page
     private string CurrentCategory =>
         (CategoryList.SelectedItem as FrameworkElement)?.Tag as string ?? "vanilla";
 
-    private void Category_SelectionChanged(object s, SelectionChangedEventArgs e)
+    private async void Category_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
         // XAML 中首个条目 IsSelected="True" 会在 InitializeComponent 解析期间同步触发本事件，
         // 此时右侧面板尚未创建，直接跳过（XAML 已自带正确的初始可见性）
         if (CommunityPanel is null) return;
         var isVanilla = CurrentCategory == "vanilla";
-        VanillaPanel.Visibility = isVanilla ? Visibility.Visible : Visibility.Collapsed;
-        CommunityPanel.Visibility = isVanilla ? Visibility.Collapsed : Visibility.Visible;
+        var incoming = isVanilla ? VanillaPanel : CommunityPanel;
+        var outgoing = isVanilla ? CommunityPanel : VanillaPanel;
+
+        // 交叉过渡：两个面板叠在同一格，旧面板快速淡出、新面板从下方浮入（合成动画，不闪白）
+        if (incoming.Visibility != Visibility.Visible)
+        {
+            MotionFx.Reset(incoming);
+            incoming.Visibility = Visibility.Visible;
+            MotionFx.FadeSlideIn(incoming, 18f, MotionFx.EnterMs);
+
+            if (outgoing.Visibility == Visibility.Visible)
+            {
+                MotionFx.FadeOut(outgoing, MotionFx.ExitMs);
+                await Task.Delay(MotionFx.ExitMs + 20);
+                outgoing.Visibility = Visibility.Collapsed;
+                MotionFx.Reset(outgoing);
+            }
+        }
+
         if (isVanilla)
         {
             // 切回原版：取消在途社区搜索，过期结果不再回填到已隐藏的面板
@@ -216,12 +234,55 @@ public sealed partial class DownloadPage : Page
         }
     }
 
-    private string TypeTag => (TypeCombo.SelectedItem as FrameworkElement)?.Tag as string ?? "release";
+    /// <summary>当前版本类型：取分段控件里被选中的那一段</summary>
+    private string TypeTag =>
+        TypeSnapshotBtn.IsChecked == true ? "snapshot"
+        : TypeOldBtn.IsChecked == true ? "old"
+        : "release";
 
-    private void TypeCombo_SelectionChanged(object s, SelectionChangedEventArgs e)
+    /// <summary>分段控件点击：单选语义 + 指示器平移到位 + 重新筛选</summary>
+    private void TypeSegment_Click(object s, RoutedEventArgs e)
     {
+        if (s is not ToggleButton clicked) return;
+        var tag = clicked.Tag as string ?? "release";
+
+        // 单选：其余两段取消勾选（ToggleButton 自身是开关语义，这里手动收束）
+        foreach (var button in new[] { TypeReleaseBtn, TypeSnapshotBtn, TypeOldBtn })
+            button.IsChecked = ReferenceEquals(button, clicked);
+
+        AnimateTypeIndicator(tag switch { "snapshot" => 1, "old" => 2, _ => 0 });
+
         if (VersionList is null) return;
         ApplyVersionFilter();
+    }
+
+    /// <summary>分段指示器平移（合成动画）：第 index 段 × 段宽 88</summary>
+    private void AnimateTypeIndicator(int index, bool animate = true)
+    {
+        try
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(TypeIndicator);
+            Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(TypeIndicator, true);
+            var target = new System.Numerics.Vector3(index * 88f, 0f, 0f);
+
+            if (!animate || !_s.Motion.Enabled)
+            {
+                visual.StopAnimation("Translation");
+                visual.Properties.InsertVector3("Translation", target);
+                return;
+            }
+
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateVector3KeyFrameAnimation();
+            anim.Duration = TimeSpan.FromMilliseconds(260);
+            anim.InsertKeyFrame(1f, target, compositor.CreateCubicBezierEasingFunction(
+                new System.Numerics.Vector2(0.16f, 1f), new System.Numerics.Vector2(0.3f, 1f)));
+            visual.StartAnimation("Translation", anim);
+        }
+        catch
+        {
+            // 静默：动效失败不影响筛选
+        }
     }
 
     private void SearchBox_TextChanged(object s, TextChangedEventArgs e) => ApplyVersionFilter();
@@ -247,16 +308,12 @@ public sealed partial class DownloadPage : Page
                 VersionRowHelpers.VersionIcon(v.Type));
         }).ToList();
 
-        // 最新版本卡片（PCL2 式置顶）：最新正式版 + 最新预览版各一行
-        var latest = new List<LatestVersionRow>();
-        if (NewestOf("release") is { } rel)
-            latest.Add(new LatestVersionRow(rel.Id, LatestSubText("最新正式版", rel.ReleaseTime),
-                VersionRowHelpers.VersionIcon(rel.Type)));
-        if (NewestOf("snapshot") is { } snap)
-            latest.Add(new LatestVersionRow(snap.Id, LatestSubText("最新预览版", snap.ReleaseTime),
-                VersionRowHelpers.VersionIcon(snap.Type)));
-        LatestVersionList.ItemsSource = latest;
-        LatestCard.Visibility = latest.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // 最新版本瓦片：最新正式版 + 最新预览版各一枚（点进详情）
+        var rel = NewestOf("release");
+        var snap = NewestOf("snapshot");
+        ApplyLatestTile(LatestReleaseTile, LatestReleaseIcon, LatestReleaseId, LatestReleaseMeta, rel);
+        ApplyLatestTile(LatestSnapshotTile, LatestSnapshotIcon, LatestSnapshotId, LatestSnapshotMeta, snap);
+        LatestCard.Visibility = rel is not null || snap is not null ? Visibility.Visible : Visibility.Collapsed;
 
         // 正式版且未搜索时按大版本抽屉折叠；搜索或快照/远古版平铺
         if (TypeTag == "release" && q.Length == 0)
@@ -272,6 +329,43 @@ public sealed partial class DownloadPage : Page
             VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionFlatTemplate"];
             VersionList.ItemsSource = rows;
         }
+
+        StaggerVersionRows();
+    }
+
+    /// <summary>填充一枚「最新版本」瓦片；无对应版本时整块隐藏</summary>
+    private static void ApplyLatestTile(Button tile, Image icon, TextBlock idText, TextBlock metaText,
+        ManifestVersion? version)
+    {
+        if (version is null)
+        {
+            tile.Visibility = Visibility.Collapsed;
+            return;
+        }
+        tile.Visibility = Visibility.Visible;
+        tile.Tag = version.Id;
+        icon.Source = VersionRowHelpers.VersionIcon(version.Type);
+        idText.Text = version.Id;
+        metaText.Text = Loc.T("发布于 {0}", FormatReleaseTime(version.ReleaseTime));
+    }
+
+    /// <summary>列表回填后错峰入场（只对已实现的容器生效，前 12 行依次浮现）</summary>
+    private void StaggerVersionRows()
+    {
+        if (!_s.Motion.Enabled) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                for (var i = 0; i < Math.Min(VersionList.Items.Count, 12); i++)
+                    if (VersionList.ContainerFromIndex(i) is FrameworkElement container)
+                        MotionFx.StaggerIn(container, i);
+            }
+            catch
+            {
+                // 静默：入场动效失败不影响列表
+            }
+        });
     }
 
     /// <summary>大版本分组键："1.21.1" → "1.21"（取前两段）</summary>
@@ -286,10 +380,6 @@ public sealed partial class DownloadPage : Page
         _versions.Where(v => v.Type == type)
                  .OrderByDescending(v => v.ReleaseTime, StringComparer.Ordinal)
                  .FirstOrDefault();
-
-    /// <summary>「最新正式版，发布于 2026/06/16 20:03」</summary>
-    private static string LatestSubText(string label, string releaseTime) =>
-        Loc.T($"{label}，发布于 {{0}}", FormatReleaseTime(releaseTime));
 
     private static string FormatReleaseTime(string releaseTime) =>
         DateTimeOffset.TryParse(releaseTime, out var t)
@@ -321,17 +411,70 @@ public sealed partial class DownloadPage : Page
         OpenDetail(row.Id);
     }
 
-    private void LatestVersionItem_Click(object s, ItemClickEventArgs e)
+    /// <summary>点「最新版本」瓦片：直接进该版本详情</summary>
+    private void LatestTile_Click(object s, RoutedEventArgs e)
     {
-        if (_busy || e.ClickedItem is not LatestVersionRow row) return;
-        OpenDetail(row.Id);
+        if (_busy || s is not FrameworkElement { Tag: string id } || string.IsNullOrEmpty(id)) return;
+        OpenDetail(id);
     }
 
-    /// <summary>大版本抽屉组头：点击切换展开/收起（内容显隐由 ExpandBehavior 带淡入动效处理）</summary>
+    /// <summary>大版本抽屉组头：点击切换展开/收起（高度平滑过渡由 ExpandBehavior 负责，箭头同步旋转）</summary>
     private void VersionGroupHeader_Click(object s, RoutedEventArgs e)
     {
-        if (s is FrameworkElement { DataContext: VersionGroupRow row })
-            row.IsExpanded = !row.IsExpanded;
+        if (s is not FrameworkElement { DataContext: VersionGroupRow row } header) return;
+        row.IsExpanded = !row.IsExpanded;
+        if (FindDescendant<FontIcon>(header, "ChevronIcon") is { } chevron)
+            SetChevronAngle(chevron, row.IsExpanded ? 90f : 0f, animate: true);
+    }
+
+    /// <summary>组头箭头首次进入可视树：按当前展开态摆好角度（收起 = 指向右侧）</summary>
+    private void VersionChevron_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FontIcon chevron) return;
+        var expanded = (chevron.DataContext as VersionGroupRow)?.IsExpanded == true;
+        SetChevronAngle(chevron, expanded ? 90f : 0f, animate: false);
+    }
+
+    /// <summary>箭头旋转（合成动画，绕自身中心）</summary>
+    private static void SetChevronAngle(FontIcon chevron, float angle, bool animate)
+    {
+        try
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(chevron);
+            visual.CenterPoint = new System.Numerics.Vector3(
+                (float)chevron.ActualWidth / 2f, (float)chevron.ActualHeight / 2f, 0f);
+
+            if (!animate || !AppServices.Instance.Motion.Enabled)
+            {
+                visual.StopAnimation("RotationAngleInDegrees");
+                visual.RotationAngleInDegrees = angle;
+                return;
+            }
+
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateScalarKeyFrameAnimation();
+            anim.Duration = TimeSpan.FromMilliseconds(220);
+            anim.InsertKeyFrame(1f, angle, compositor.CreateCubicBezierEasingFunction(
+                new System.Numerics.Vector2(0.16f, 1f), new System.Numerics.Vector2(0.3f, 1f)));
+            visual.StartAnimation("RotationAngleInDegrees", anim);
+        }
+        catch
+        {
+            // 静默：动效失败不影响展开
+        }
+    }
+
+    /// <summary>在可视子树里按 x:Name 查找元素（DataTemplate 内部控件）</summary>
+    private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T hit && hit.Name == name) return hit;
+            if (FindDescendant<T>(child, name) is { } nested) return nested;
+        }
+        return null;
     }
 
     private void OpenDetail(string id)
@@ -350,9 +493,22 @@ public sealed partial class DownloadPage : Page
 
     private void ShowDetail(bool show)
     {
-        ListPanel.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
-        DetailPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (!show) _detailId = null;
+        // 列表 ↔ 详情互相切换时做一次轻微浮入：向前是从下方推进，返回是从上方落回
+        if (show)
+        {
+            ListPanel.Visibility = Visibility.Collapsed;
+            MotionFx.Reset(DetailPanel);
+            DetailPanel.Visibility = Visibility.Visible;
+            MotionFx.FadeSlideIn(DetailPanel, 22f, MotionFx.EnterMs);
+        }
+        else
+        {
+            DetailPanel.Visibility = Visibility.Collapsed;
+            MotionFx.Reset(ListPanel);
+            ListPanel.Visibility = Visibility.Visible;
+            MotionFx.FadeSlideIn(ListPanel, -14f, MotionFx.EnterMs);
+            _detailId = null;
+        }
     }
 
     private void RefreshDetailState()
