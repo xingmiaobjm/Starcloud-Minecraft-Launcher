@@ -24,11 +24,9 @@ public static class ExpandBehavior
     /// <summary>收起时长：比展开快，收得干脆</summary>
     private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(150);
 
-    /// <summary>展开时内容起始上移量（px）</summary>
-    private const float SlideOffset = 10f;
 
-    /// <summary>内容位移时长（ms）：刻意短于高度动画，避免高度到位后内容还在动</summary>
-    private const int ContentSlideMs = 170;
+    /// <summary>内容淡入时长（ms）：短于高度动画，高度到位时内容已收住</summary>
+    private const int ContentSlideMs = 150;
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -79,13 +77,13 @@ public static class ExpandBehavior
         if (target <= 0)
         {
             // 拿不到高度（尚未布局）：直接展开，不做高度动画
-            MotionFx.FadeSlideIn(element, SlideOffset, ContentSlideMs);
+            MotionFx.FadeIn(element, ContentSlideMs);
             return;
         }
 
         AnimateHeight(element, state, 0, target, ExpandDuration);
-        // 内容位移比高度动画更短：高度到位后内容立刻收住，不留"荡来荡去"的后摇
-        MotionFx.FadeSlideIn(element, SlideOffset, ContentSlideMs);
+        // 只淡入、不位移：高度本身已经在动，再叠一层上下位移只会显得拖沓（后摇正是它）
+        MotionFx.FadeIn(element, ContentSlideMs);
     }
 
     private static void Collapse(FrameworkElement element)

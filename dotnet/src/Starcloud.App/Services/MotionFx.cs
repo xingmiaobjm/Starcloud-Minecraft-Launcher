@@ -68,7 +68,7 @@ public static class MotionFx
             spring.FinalValue = Vector3.Zero;
             // 关键：周期只取时长的六成、阻尼接近临界。周期取满会让收敛时间远超预期，
             // 表现为"高度早就展开了、内容还在荡"的后摇。
-            spring.DampingRatio = 0.92f;                       // <1 保留一点点回弹，但不晃
+            spring.DampingRatio = 1f;                          // 临界阻尼：平滑逼近、零过冲（此前 0.92 仍有过冲感）
             spring.Period = TimeSpan.FromMilliseconds(Math.Max(40, durationMs * 0.6));
             spring.DelayTime = TimeSpan.FromMilliseconds(delayMs);
             visual.StartAnimation("Translation", spring);
@@ -105,6 +105,36 @@ public static class MotionFx
         catch
         {
             // 静默
+        }
+    }
+
+    /// <summary>只做淡入、不做位移：用于"高度已经在动，再叠位移就会显得多余/拖尾"的场景（如抽屉展开）。</summary>
+    public static void FadeIn(FrameworkElement element, int durationMs = EnterMs, int delayMs = 0)
+    {
+        try
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(element);
+            if (!AppServices.Instance.Motion.Enabled)
+            {
+                visual.StopAnimation("Opacity");
+                visual.Opacity = 1f;
+                return;
+            }
+
+            var compositor = visual.Compositor;
+            visual.StopAnimation("Opacity");
+            var ease = compositor.CreateCubicBezierEasingFunction(
+                new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+            var fade = compositor.CreateScalarKeyFrameAnimation();
+            fade.Duration = TimeSpan.FromMilliseconds(durationMs);
+            fade.DelayTime = TimeSpan.FromMilliseconds(delayMs);
+            fade.InsertKeyFrame(0f, 0f);
+            fade.InsertKeyFrame(1f, 1f, ease);
+            visual.StartAnimation("Opacity", fade);
+        }
+        catch
+        {
+            // 静默：动效失败不影响功能
         }
     }
 
