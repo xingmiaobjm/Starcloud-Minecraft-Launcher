@@ -12,6 +12,7 @@
 
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Collections.Generic;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -35,6 +36,10 @@ public static class HoverShadowBehavior
     private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(260);
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
+
+    /// <summary>当前正在发光的光斑层：由窗口根元素的指针事件兜底清理，避免"卡住"</summary>
+    private static readonly List<State> Glowing = [];
+    private static bool _rootHooked;
 
     public static readonly DependencyProperty IsEnabledProperty =
         DependencyProperty.RegisterAttached(
@@ -99,6 +104,7 @@ public static class HoverShadowBehavior
             state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
             state.Brush = ResolveBrush(layer);
             ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
+            state.Element = element;
         }
         catch
         {
@@ -113,7 +119,61 @@ public static class HoverShadowBehavior
         element.PointerExited += OnPointerExited;
         element.SizeChanged += OnSizeChanged;
         element.Unloaded += OnUnloaded;
+        HookRootWatchdog(element);
         state.Wired = true;
+    }
+
+    /// <summary>
+    /// 全局看门狗：光斑的淡出不能只依赖元素自己的 PointerExited——快速滑动、移到滚动条上、
+    /// 指针直接移出窗口时这个事件不一定送达，那一层就留在原地"卡住"。
+    /// 所以额外在窗口根元素上监听：指针一动就复核所有发光层，指针不在其范围内立即淡出；离开窗口全部淡出。
+    /// </summary>
+    private static void HookRootWatchdog(FrameworkElement element)
+    {
+        if (_rootHooked) return;
+        try
+        {
+            if (element.XamlRoot?.Content is not FrameworkElement root) return;
+            root.PointerMoved += OnRootPointerMoved;
+            root.PointerExited += OnRootPointerExited;
+            _rootHooked = true;
+        }
+        catch
+        {
+            // 静默：拿不到根元素就退回只靠元素自身的进出事件
+        }
+    }
+
+    private static void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (Glowing.Count == 0) return;
+        foreach (var state in Glowing.ToList())
+        {
+            if (state.Element is not { } el) continue;
+            try
+            {
+                var p = e.GetCurrentPoint(el).Position;
+                var inside = p.X >= 0 && p.Y >= 0 && p.X <= el.ActualWidth && p.Y <= el.ActualHeight;
+                if (!inside) FadeOut(state);
+            }
+            catch
+            {
+                // 静默：元素已被回收
+            }
+        }
+    }
+
+    private static void OnRootPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        foreach (var state in Glowing.ToList()) FadeOut(state);
+    }
+
+    /// <summary>立刻让某一层淡出并摘出"发光中"列表</summary>
+    private static void FadeOut(State state)
+    {
+        state.Hovered = false;
+        Glowing.Remove(state);
+        Animate(state, false, HoverOut);
     }
 
     private static void RetryOnLoaded(object sender, RoutedEventArgs e)
@@ -172,6 +232,7 @@ public static class HoverShadowBehavior
     private static void ResetState(State state)
     {
         state.Hovered = false;
+        Glowing.Remove(state);
         try
         {
             if (state.LayerVisual is { } layerVisual)
@@ -195,6 +256,7 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = true;
+        if (!Glowing.Contains(s)) Glowing.Add(s);
         // 进入就按当前指针位置点亮：不沿用上一次的旧位置，否则会先闪一下再跳
         try
         {
@@ -212,6 +274,7 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = false;
+        Glowing.Remove(s);
         // 移出不复位光源：光斑留在最后位置淡出；复位会让它"跳回中心"，看着像抽搐
         Animate(s, false, HoverOut);
     }
@@ -223,6 +286,13 @@ public static class HoverShadowBehavior
     private static void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
+        // 被看门狗提前淡出后又移回本元素（没有新的 Enter 事件）：补一次淡入
+        if (!Glowing.Contains(s))
+        {
+            s.Hovered = true;
+            Glowing.Add(s);
+            Animate(s, true, HoverIn);
+        }
         try
         {
             var p = e.GetCurrentPoint(fe).Position;
@@ -270,6 +340,7 @@ public static class HoverShadowBehavior
         public Visual? Visual;
         public Visual? LayerVisual;
         public FrameworkElement? Layer;
+        public FrameworkElement? Element;
         public RadialGradientBrush? Brush;
         public bool Wired;
         public bool Hovered;
