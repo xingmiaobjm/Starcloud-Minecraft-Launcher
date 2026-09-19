@@ -245,7 +245,8 @@ public static class HoverShadowBehavior
                 lift.InitialValue = hovered ? Vector3.Zero : new Vector3(0f, HoverLiftY, 0f);
                 lift.FinalValue = hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero;
                 lift.DampingRatio = 0.9f;
-                lift.Period = TimeSpan.FromMilliseconds(Math.Max(45, duration.TotalMilliseconds));
+                // 周期同样只取时长的一部分：弹簧收敛时间随周期线性增长，取满会拖出一条尾巴
+                lift.Period = TimeSpan.FromMilliseconds(Math.Max(40, duration.TotalMilliseconds * 0.6));
                 visual.StartAnimation("Translation", lift);
             }
         }

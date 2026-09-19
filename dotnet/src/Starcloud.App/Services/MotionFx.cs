@@ -66,8 +66,10 @@ public static class MotionFx
             var spring = compositor.CreateSpringVector3Animation();
             spring.InitialValue = new Vector3(0f, fromY, 0f);
             spring.FinalValue = Vector3.Zero;
-            spring.DampingRatio = 0.82f;                       // <1 = 一点点回弹
-            spring.Period = TimeSpan.FromMilliseconds(Math.Max(45, durationMs));
+            // 关键：周期只取时长的六成、阻尼接近临界。周期取满会让收敛时间远超预期，
+            // 表现为"高度早就展开了、内容还在荡"的后摇。
+            spring.DampingRatio = 0.92f;                       // <1 保留一点点回弹，但不晃
+            spring.Period = TimeSpan.FromMilliseconds(Math.Max(40, durationMs * 0.6));
             spring.DelayTime = TimeSpan.FromMilliseconds(delayMs);
             visual.StartAnimation("Translation", spring);
         }

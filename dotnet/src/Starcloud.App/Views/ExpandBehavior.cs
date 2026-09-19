@@ -27,6 +27,9 @@ public static class ExpandBehavior
     /// <summary>展开时内容起始上移量（px）</summary>
     private const float SlideOffset = 10f;
 
+    /// <summary>内容位移时长（ms）：刻意短于高度动画，避免高度到位后内容还在动</summary>
+    private const int ContentSlideMs = 170;
+
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
     public static readonly DependencyProperty IsExpandedProperty =
@@ -76,12 +79,13 @@ public static class ExpandBehavior
         if (target <= 0)
         {
             // 拿不到高度（尚未布局）：直接展开，不做高度动画
-            MotionFx.FadeSlideIn(element, SlideOffset);
+            MotionFx.FadeSlideIn(element, SlideOffset, ContentSlideMs);
             return;
         }
 
         AnimateHeight(element, state, 0, target, ExpandDuration);
-        MotionFx.FadeSlideIn(element, SlideOffset);
+        // 内容位移比高度动画更短：高度到位后内容立刻收住，不留"荡来荡去"的后摇
+        MotionFx.FadeSlideIn(element, SlideOffset, ContentSlideMs);
     }
 
     private static void Collapse(FrameworkElement element)
@@ -102,7 +106,7 @@ public static class ExpandBehavior
             return;
         }
 
-        MotionFx.FadeOut(element, 120);
+        MotionFx.FadeOut(element, ContentSlideMs);
         AnimateHeight(element, state, current, 0, CollapseDuration, onDone: () => FinishCollapse(element));
     }
 
