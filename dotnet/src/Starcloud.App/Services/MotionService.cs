@@ -45,4 +45,10 @@ public sealed class MotionService
         if (!enabled) return new SuppressNavigationTransitionInfo();
         return drillIn ? new DrillInNavigationTransitionInfo() : new EntranceNavigationTransitionInfo();
     }
+
+    /// <summary>返回上一层：框架的滑动转场（从左侧进入），与进入时的 drill-in 互补；关闭动效时抑制。</summary>
+    public static NavigationTransitionInfo BackTransition(bool enabled) =>
+        enabled
+            ? new SlideNavigationTransitionInfo { Effect = SlideNavigationTransitionEffect.FromLeft }
+            : new SuppressNavigationTransitionInfo();
 }

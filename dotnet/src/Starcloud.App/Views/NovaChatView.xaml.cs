@@ -5,6 +5,7 @@ using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Services;
 
 namespace Starcloud.App.Views;
@@ -59,8 +60,28 @@ public sealed partial class NovaChatView : UserControl
         if (e.Action is not (NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Replace)) return;
         var items = e.NewItems;
         if (items is not { Count: > 0 }) return;
-        DispatcherQueue.TryEnqueue(() => ChatList.ScrollIntoView(
-            items[e.Action == NotifyCollectionChangedAction.Add ? items.Count - 1 : 0]!));
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ChatList.ScrollIntoView(items[e.Action == NotifyCollectionChangedAction.Add ? items.Count - 1 : 0]!);
+            // ScrollIntoView 是瞬移；再让滚动条自己动画收尾，读起来更顺（框架 ChangeView 的动画参数）
+            if (FindScrollViewer(ChatList) is { } sv)
+            {
+                sv.ChangeView(null, sv.ScrollableHeight, null, disableAnimation: false);
+            }
+        });
+    }
+
+    /// <summary>List 内部滚动宿主（List 不自带滚动定位 API，需要取模板里的 ScrollViewer）</summary>
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer sv) return sv;
+            if (FindScrollViewer(child) is { } nested) return nested;
+        }
+        return null;
     }
 
     // ── 输入 / 快捷 ──

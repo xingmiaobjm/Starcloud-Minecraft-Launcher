@@ -52,9 +52,9 @@ public static class MotionFx
             visual.StopAnimation("Opacity");
             visual.StopAnimation("Translation");
 
+            // 透明度：短促的缓出淡入（延迟用于列表错峰）
             var ease = compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
-
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
             fade.DelayTime = TimeSpan.FromMilliseconds(delayMs);
@@ -62,12 +62,14 @@ public static class MotionFx
             fade.InsertKeyFrame(1f, 1f, ease);
             visual.StartAnimation("Opacity", fade);
 
-            var slide = compositor.CreateVector3KeyFrameAnimation();
-            slide.Duration = TimeSpan.FromMilliseconds(durationMs);
-            slide.DelayTime = TimeSpan.FromMilliseconds(delayMs);
-            slide.InsertKeyFrame(0f, new Vector3(0f, fromY, 0f));
-            slide.InsertKeyFrame(1f, Vector3.Zero, ease);
-            visual.StartAnimation("Translation", slide);
+            // 位移：用弹簧（WinUI 自然动效）——到位时轻微过冲再收住，比贝塞尔"活"
+            var spring = compositor.CreateSpringVector3Animation();
+            spring.InitialValue = new Vector3(0f, fromY, 0f);
+            spring.FinalValue = Vector3.Zero;
+            spring.DampingRatio = 0.82f;                       // <1 = 一点点回弹
+            spring.Period = TimeSpan.FromMilliseconds(Math.Max(45, durationMs));
+            spring.DelayTime = TimeSpan.FromMilliseconds(delayMs);
+            visual.StartAnimation("Translation", spring);
         }
         catch
         {

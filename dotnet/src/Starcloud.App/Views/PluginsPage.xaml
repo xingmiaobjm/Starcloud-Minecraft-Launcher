@@ -67,6 +67,13 @@
                     <StackPanel Spacing="8">
                         <TextBlock loc:Loc.Text="已安装" FontWeight="SemiBold" FontSize="13" />
                         <ListView x:Name="PluginList" SelectionMode="None">
+                            <!-- 框架原生增删/重排转场：安装/卸载后行淡入淡出并平滑让位 -->
+                            <ListView.ItemContainerTransitions>
+                                <TransitionCollection>
+                                    <AddDeleteThemeTransition />
+                                    <RepositionThemeTransition />
+                                </TransitionCollection>
+                            </ListView.ItemContainerTransitions>
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />

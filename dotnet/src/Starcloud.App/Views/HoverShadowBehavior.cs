@@ -240,9 +240,12 @@ public static class HoverShadowBehavior
 
             if (state.Visual is { } visual)
             {
-                var lift = compositor.CreateVector3KeyFrameAnimation();
-                lift.Duration = duration;
-                lift.InsertKeyFrame(1f, hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero, ease);
+                // 抬升用弹簧（自然回弹），比贝塞尔更有"手感"
+                var lift = compositor.CreateSpringVector3Animation();
+                lift.InitialValue = hovered ? Vector3.Zero : new Vector3(0f, HoverLiftY, 0f);
+                lift.FinalValue = hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero;
+                lift.DampingRatio = 0.9f;
+                lift.Period = TimeSpan.FromMilliseconds(Math.Max(45, duration.TotalMilliseconds));
                 visual.StartAnimation("Translation", lift);
             }
         }

@@ -155,8 +155,8 @@ public sealed partial class SettingsPage : Page
         // 进入 Java 页自动重新搜索（本机可能刚装了新 Java）
         if (_loaded && tag == "java") _ = ScanJavaAsync();
 
-        // 各区块高度不同，切页时把滚动位置归零，避免内容被 ScrollViewer 夹紧时抖动
-        if (SectionScroll.VerticalOffset > 0) SectionScroll.ChangeView(null, 0, null, true);
+        // 各区块高度不同，切页时把滚动位置归零；用动画回滚（框架 ChangeView 的动画参数），比瞬移顺
+        if (SectionScroll.VerticalOffset > 0) SectionScroll.ChangeView(null, 0, null, disableAnimation: false);
 
         // 二级子导航转场：显隐瞬时切换（不做布局动画），只让进入的区块淡入 + 轻微上移
         AnimateSectionIn(target);

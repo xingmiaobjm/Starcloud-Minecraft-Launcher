@@ -383,12 +383,16 @@ public sealed partial class DownloadPage : Page
     private void VersionList_ItemClick(object s, ItemClickEventArgs e)
     {
         if (_busy || e.ClickedItem is not DownloadRow row) return;
+        PrepareDetailAnimation(VersionList.ContainerFromItem(e.ClickedItem) is FrameworkElement c
+            ? FindDescendant<FrameworkElement>(c, "RowIconHost") : null);
         OpenDetail(row.Id);
     }
 
     private void VersionGroupItem_Click(object s, ItemClickEventArgs e)
     {
         if (_busy || e.ClickedItem is not DownloadRow row) return;
+        PrepareDetailAnimation(s is ListViewBase list && list.ContainerFromItem(e.ClickedItem) is FrameworkElement c
+            ? FindDescendant<FrameworkElement>(c, "ChildIconHost") : null);
         OpenDetail(row.Id);
     }
 
@@ -396,8 +400,29 @@ public sealed partial class DownloadPage : Page
     private void LatestTile_Click(object s, RoutedEventArgs e)
     {
         if (_busy || s is not FrameworkElement { Tag: string id } || string.IsNullOrEmpty(id)) return;
+        PrepareDetailAnimation(s as FrameworkElement);   // 瓦片自身即图标宿主
         OpenDetail(id);
     }
+
+    /// <summary>
+    /// 连通动画（框架原生 ConnectedAnimationService）：把列表里被点的那个图标"飞"到详情页头图，
+    /// 视觉上把两次界面连成一件事。动效开关关闭或缺元素时静默跳过，不影响导航。
+    /// </summary>
+    private void PrepareDetailAnimation(FrameworkElement? source)
+    {
+        if (source is null || !_s.Motion.Enabled) return;
+        try
+        {
+            var service = Microsoft.UI.Xaml.Media.Animation.ConnectedAnimationService.GetForCurrentView();
+            service.PrepareToAnimate(DetailAnimKey, source);
+        }
+        catch
+        {
+            // 静默：拿不到服务就不做连通动画
+        }
+    }
+
+    private const string DetailAnimKey = "DownloadVersionIcon";
 
     /// <summary>大版本抽屉组头：点击切换展开/收起（高度平滑过渡由 ExpandBehavior 负责，箭头同步旋转）</summary>
     private void VersionGroupHeader_Click(object s, RoutedEventArgs e)
@@ -481,6 +506,16 @@ public sealed partial class DownloadPage : Page
             MotionFx.Reset(DetailPanel);
             DetailPanel.Visibility = Visibility.Visible;
             MotionFx.FadeSlideIn(DetailPanel, 22f, MotionFx.EnterMs);
+            // 连通动画：列表里的图标飞到详情页头图（框架原生，失败静默）
+            try
+            {
+                Microsoft.UI.Xaml.Media.Animation.ConnectedAnimationService.GetForCurrentView()
+                    .GetAnimation(DetailAnimKey)?.TryStart(DetailIconHost);
+            }
+            catch
+            {
+                // 静默
+            }
         }
         else
         {

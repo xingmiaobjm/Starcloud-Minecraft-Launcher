@@ -18,11 +18,11 @@ namespace Starcloud.App.Views;
 /// <summary>抽屉内容展开/收起：高度平滑过渡 + 内容淡入位移。</summary>
 public static class ExpandBehavior
 {
-    /// <summary>展开时长：略长于收起，读起来"推出去"更从容</summary>
-    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(240);
+    /// <summary>展开时长：略长于收起，读起来"推出去"更从容（高度是依赖型动画，能短则短更不容易掉帧）</summary>
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(210);
 
     /// <summary>收起时长：比展开快，收得干脆</summary>
-    private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(180);
+    private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(150);
 
     /// <summary>展开时内容起始上移量（px）</summary>
     private const float SlideOffset = 10f;

@@ -82,7 +82,15 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="8">
             <ListView x:Name="ChatList" SelectionMode="None" Padding="4"
-                      ItemTemplate="{StaticResource MessageTemplate}" />
+                      ItemTemplate="{StaticResource MessageTemplate}">
+                <!-- 框架原生增删/重排转场：新气泡淡入并让下方内容平滑让位 -->
+                <ListView.ItemContainerTransitions>
+                    <TransitionCollection>
+                        <AddDeleteThemeTransition />
+                        <RepositionThemeTransition />
+                    </TransitionCollection>
+                </ListView.ItemContainerTransitions>
+            </ListView>
         </Border>
 
         <!-- 快捷能力（NOVA_INTEGRATION.md 3.1：输入区下方的快捷按钮） -->
