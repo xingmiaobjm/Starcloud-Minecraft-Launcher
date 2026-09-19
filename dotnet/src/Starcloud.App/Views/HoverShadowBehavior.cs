@@ -61,6 +61,21 @@ public static class HoverShadowBehavior
     public static void SetCarrier(DependencyObject element, FrameworkElement? value) =>
         element.SetValue(CarrierProperty, value);
 
+    /// <summary>
+    /// 光斑半径（px）。0 = 自动（短边 ×1.35）。
+    /// 大容器（整个列表）上必须给固定像素半径，否则按比例算出的半径会大到铺满整屏。
+    /// </summary>
+    public static readonly DependencyProperty RadiusPxProperty =
+        DependencyProperty.RegisterAttached(
+            "RadiusPx",
+            typeof(double),
+            typeof(HoverShadowBehavior),
+            new PropertyMetadata(0d));
+
+    public static double GetRadiusPx(DependencyObject element) => (double)element.GetValue(RadiusPxProperty);
+
+    public static void SetRadiusPx(DependencyObject element, double value) => element.SetValue(RadiusPxProperty, value);
+
     /// <summary>载体是绑定来的，可能在 IsEnabled 之后才解析出值——解析到就再试一次接线</summary>
     private static void OnCarrierChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -97,6 +112,7 @@ public static class HoverShadowBehavior
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
             state.Layer = layer;
             state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
+            state.RadiusPx = GetRadiusPx(element);
             (state.Radial, state.Linear) = ResolveBrushes(layer);
             if (state.Radial is not null)
                 ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
@@ -247,9 +263,10 @@ public static class HoverShadowBehavior
         var h = element.ActualHeight;
         if (w <= 0 || h <= 0) return;
 
-        // 以短边为基准 → 像素上是正圆；系数放大到 1.15 让衰减铺得更开（羽化更柔）
-        // 系数 1.35 + 下限 36px：衰减铺得更开，羽化更柔
-        var radiusPx = Math.Max(36d, Math.Min(w, h) * 1.35);
+        // 指定像素半径（大容器）；否则按短边 ×1.35 自适应，下限 36px
+        var radiusPx = state.RadiusPx > 0
+            ? state.RadiusPx
+            : Math.Max(36d, Math.Min(w, h) * 1.35);
         brush.RadiusX = radiusPx / w;
         brush.RadiusY = radiusPx / h;
 
@@ -273,6 +290,7 @@ public static class HoverShadowBehavior
         public FrameworkElement? Layer;
         public RadialGradientBrush? Radial;
         public LinearGradientBrush? Linear;
+        public double RadiusPx;
         public bool Wired;
         public bool Hovered;
     }
