@@ -40,12 +40,12 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Border Width="44" Height="44" CornerRadius="8"
+                    <Border Width="36" Height="36" CornerRadius="8"
                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                         <Grid>
-                            <Image x:Name="IconImage" Width="44" Height="44"
+                            <Image x:Name="IconImage" Width="36" Height="36"
                                    Stretch="Uniform" Visibility="Collapsed" />
-                            <FontIcon x:Name="IconFallback" Glyph="&#xE7E8;" FontSize="20"
+                            <FontIcon x:Name="IconFallback" Glyph="&#xE7E8;" FontSize="16"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </Grid>
                     </Border>

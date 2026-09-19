@@ -175,13 +175,13 @@
                                     </Border.Background>
                                 </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="40" Height="40" CornerRadius="8"
+                                    <Border Width="32" Height="32" CornerRadius="8"
                                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                         <Grid>
-                                            <Image Source="{x:Bind Icon}" Width="40" Height="40"
+                                            <Image Source="{x:Bind Icon}" Width="32" Height="32"
                                                    Stretch="Uniform"
                                                    Visibility="{x:Bind IconImageVisibility}" />
-                                            <FontIcon Glyph="&#xE7E8;" FontSize="18"
+                                            <FontIcon Glyph="&#xE7E8;" FontSize="14"
                                                       Visibility="{x:Bind IconFontVisibility}"
                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </Grid>

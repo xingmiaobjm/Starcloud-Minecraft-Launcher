@@ -254,10 +254,10 @@
                                             </RadialGradientBrush>
                                         </Border.Background>
                                     </Border>
-                                    <Grid Width="44" Height="44" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE7B8;" FontSize="22"
+                                    <Grid Width="36" Height="36" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE7B8;" FontSize="18"
                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <Image x:Name="LatestReleaseIcon" Width="44" Height="44"
+                                        <Image x:Name="LatestReleaseIcon" Width="36" Height="36"
                                                Stretch="Uniform" />
                                     </Grid>
                                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
@@ -303,10 +303,10 @@
                                             </RadialGradientBrush>
                                         </Border.Background>
                                     </Border>
-                                    <Grid Width="44" Height="44" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE7B8;" FontSize="22"
+                                    <Grid Width="36" Height="36" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE7B8;" FontSize="18"
                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <Image x:Name="LatestSnapshotIcon" Width="44" Height="44"
+                                        <Image x:Name="LatestSnapshotIcon" Width="36" Height="36"
                                                Stretch="Uniform" />
                                     </Grid>
                                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
@@ -373,11 +373,11 @@
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <!-- 等距方块图标（按版本类型），文件缺失时退回 FontIcon -->
-                                                <Grid x:Name="RowIconHost" Width="34" Height="34"
+                                                <Grid x:Name="RowIconHost" Width="28" Height="28"
                                                       VerticalAlignment="Center">
-                                                    <FontIcon Glyph="&#xE7B8;" FontSize="18"
+                                                    <FontIcon Glyph="&#xE7B8;" FontSize="14"
                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                    <Image Source="{x:Bind Icon}" Width="34" Height="34"
+                                                    <Image Source="{x:Bind Icon}" Width="28" Height="28"
                                                            Stretch="Uniform" />
                                                 </Grid>
                                                 <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
@@ -498,11 +498,11 @@
                                                                         <ColumnDefinition Width="*" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
-                                                                    <Grid x:Name="ChildIconHost" Width="34" Height="34"
+                                                                    <Grid x:Name="ChildIconHost" Width="28" Height="28"
                                                                           VerticalAlignment="Center">
-                                                                        <FontIcon Glyph="&#xE7B8;" FontSize="18"
+                                                                        <FontIcon Glyph="&#xE7B8;" FontSize="14"
                                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                        <Image Source="{x:Bind Icon}" Width="34" Height="34"
+                                                                        <Image Source="{x:Bind Icon}" Width="28" Height="28"
                                                                                Stretch="Uniform" />
                                                                     </Grid>
                                                                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
@@ -549,11 +549,11 @@
                                 <FontIcon Glyph="&#xE72B;" FontSize="14" />
                             </Button>
                             <!-- 版本图标（按类型：正式版草方块 / 快照紫水晶 / 远古版圆石与泥土） -->
-                            <Grid x:Name="DetailIconHost" Grid.Column="1" Width="44" Height="44"
+                            <Grid x:Name="DetailIconHost" Grid.Column="1" Width="36" Height="36"
                                   VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE7B8;" FontSize="22"
+                                <FontIcon Glyph="&#xE7B8;" FontSize="18"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <Image x:Name="DetailIcon" Width="44" Height="44" Stretch="Uniform" />
+                                <Image x:Name="DetailIcon" Width="36" Height="36" Stretch="Uniform" />
                             </Grid>
                             <Border Grid.Column="2" VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"

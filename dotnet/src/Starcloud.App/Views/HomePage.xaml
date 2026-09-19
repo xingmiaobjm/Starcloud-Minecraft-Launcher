@@ -200,12 +200,12 @@
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <!-- 版本方块图标块：加载器图标优先，原版按类型；取不到图标时留空底块 -->
-                                                <Border Width="40" Height="40" CornerRadius="8"
+                                                <Border Width="32" Height="32" CornerRadius="8"
                                                         Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                                     <Grid>
-                                                        <Image Source="{x:Bind Icon}" Width="40" Height="40"
+                                                        <Image Source="{x:Bind Icon}" Width="32" Height="32"
                                                                Stretch="Uniform" />
-                                                        <FontIcon Glyph="&#xE7B8;" FontSize="18"
+                                                        <FontIcon Glyph="&#xE7B8;" FontSize="14"
                                                                   Visibility="{x:Bind IconFontVisibility}"
                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                     </Grid>
