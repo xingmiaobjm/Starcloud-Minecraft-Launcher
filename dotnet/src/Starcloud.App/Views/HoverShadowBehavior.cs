@@ -28,8 +28,11 @@ public static class HoverShadowBehavior
     /// <summary>悬停时元素的微量上移（px）</summary>
     private const float HoverLiftY = -1f;
 
-    private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(170);
-    private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(140);
+    /// <summary>淡入要快：跨行时新的光斑立刻接上，避免出现"空白帧"</summary>
+    private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(110);
+
+    /// <summary>淡出要慢：旧行的光斑慢慢退，和新行交叠成一团连续的暗晕</summary>
+    private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(260);
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -192,6 +195,16 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = true;
+        // 进入就按当前指针位置点亮：不沿用上一次的旧位置，否则会先闪一下再跳
+        try
+        {
+            var p = e.GetCurrentPoint(fe).Position;
+            ApplyLight(fe, s, p.X, p.Y);
+        }
+        catch
+        {
+            // 静默
+        }
         Animate(s, true, HoverIn);
     }
 
@@ -199,7 +212,7 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = false;
-        ResetLight(fe, s);
+        // 移出不复位光源：光斑留在最后位置淡出；复位会让它"跳回中心"，看着像抽搐
         Animate(s, false, HoverOut);
     }
 
@@ -234,7 +247,8 @@ public static class HoverShadowBehavior
         if (w <= 0 || h <= 0) return;
 
         // 以短边为基准 → 像素上是正圆；系数放大到 1.15 让衰减铺得更开（羽化更柔）
-        var radiusPx = Math.Max(18d, Math.Min(w, h) * 1.15);
+        // 系数 1.35 + 下限 36px：衰减铺得更开，羽化更柔
+        var radiusPx = Math.Max(36d, Math.Min(w, h) * 1.35);
         brush.RadiusX = radiusPx / w;
         brush.RadiusY = radiusPx / h;
 
@@ -242,20 +256,6 @@ public static class HoverShadowBehavior
             Math.Clamp(x / w, 0d, 1d), Math.Clamp(y / h, 0d, 1d));
         brush.Center = center;
         brush.GradientOrigin = center;
-    }
-
-    /// <summary>移出时把光源复位到默认方向（自上而下）</summary>
-    private static void ResetLight(FrameworkElement element, State state)
-    {
-        if (state.Brush is not { } brush) return;
-        try
-        {
-            ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
-        }
-        catch
-        {
-            // 静默
-        }
     }
 
     private static void OnUnloaded(object sender, RoutedEventArgs e)
