@@ -74,6 +74,12 @@
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#FFFFFF" TintOpacity="0.72" FallbackColor="#FFF9F9F9" />
+                    <!-- 键盘焦点框：默认是 2px 黑 + 1px 白的高对比矩形，铺在整行宽的列表行上非常突兀；
+                         改为品牌琥珀色单圈细线（外圈透明），既有键盘可达性提示又不抢视线 -->
+                    <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="#B38500" />
+                    <SolidColorBrush x:Key="FocusVisualSecondaryBrush" Color="Transparent" />
+                    <Thickness x:Key="FocusVisualPrimaryThickness">2</Thickness>
+                    <Thickness x:Key="FocusVisualSecondaryThickness">0</Thickness>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <!-- 主题强调色：#3DD322，悬浮 #2FBD6E -->
@@ -111,6 +117,11 @@
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#2B2B2B" TintOpacity="0.75" FallbackColor="#FF1F1F1F" />
+                    <!-- 键盘焦点框：深色主题用品牌绿单圈细线（外圈透明），理由同浅色主题 -->
+                    <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="#3DD322" />
+                    <SolidColorBrush x:Key="FocusVisualSecondaryBrush" Color="Transparent" />
+                    <Thickness x:Key="FocusVisualPrimaryThickness">2</Thickness>
+                    <Thickness x:Key="FocusVisualSecondaryThickness">0</Thickness>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
