@@ -67,22 +67,20 @@
                     loc:Loc.Tip="Nova：待命"
                     Click="NovaOrb_Click">
                 <Grid Width="32" Height="32">
-                    <!-- 阴影载体：比卡片略大，悬停时在卡片背后投出阴影（画在本层，不会糊到卡片上） -->
-                    <Grid x:Name="NovaShadow" Opacity="0" IsHitTestVisible="False">
-                        <Border CornerRadius="14" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.5" ScaleY="1.5" /></Border.RenderTransform>
-                        </Border>
-                        <Border CornerRadius="12" Background="#17000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.25" ScaleY="1.25" /></Border.RenderTransform>
-                        </Border>
-                        <Border CornerRadius="10" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.08" ScaleY="1.08" /></Border.RenderTransform>
-                        </Border>
-                    </Grid>
                     <Border CornerRadius="8"
                             Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
+                    <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显（读作"按下/凹陷"） -->
+                    <Border x:Name="NovaShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                <GradientStop Color="#4A000000" Offset="0" />
+                                <GradientStop Color="#1A000000" Offset="0.45" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <FontIcon x:Name="NovaOrbGlyph" Glyph="&#xE99A;" FontSize="15"
                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                     <!-- 有提案：右上角 amber 小圆点 -->
@@ -101,21 +99,20 @@
                       loc:Loc.Name="调度中心" loc:Loc.Tip="调度中心"
                      Click="TaskCenterBtn_Click">
                 <Grid Width="32" Height="32">
-                    <Grid x:Name="TaskCenterShadow" Opacity="0" IsHitTestVisible="False">
-                        <Border CornerRadius="14" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.5" ScaleY="1.5" /></Border.RenderTransform>
-                        </Border>
-                        <Border CornerRadius="12" Background="#17000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.25" ScaleY="1.25" /></Border.RenderTransform>
-                        </Border>
-                        <Border CornerRadius="10" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.08" ScaleY="1.08" /></Border.RenderTransform>
-                        </Border>
-                    </Grid>
                     <Border CornerRadius="8"
                             Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
+                    <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显 -->
+                    <Border x:Name="TaskCenterShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                <GradientStop Color="#4A000000" Offset="0" />
+                                <GradientStop Color="#1A000000" Offset="0.45" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <FontIcon Glyph="&#xE9F5;" FontSize="14"
                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                     <!-- 徽标走主题强调色（暗色主题为品牌绿），accent 面上强制黑字加粗 -->
@@ -139,18 +136,17 @@
                     loc:Loc.Tip="个人中心"
                     Click="AccountButton_Click">
                 <Grid Width="32" Height="32">
-                    <Grid x:Name="AccountShadow" Opacity="0" IsHitTestVisible="False">
-                        <Border CornerRadius="14" Background="#0F000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.5" ScaleY="1.5" /></Border.RenderTransform>
-                        </Border>
-                        <Border CornerRadius="12" Background="#17000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.25" ScaleY="1.25" /></Border.RenderTransform>
-                        </Border>
-                        <Border CornerRadius="10" Background="#1F000000" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1.08" ScaleY="1.08" /></Border.RenderTransform>
-                        </Border>
-                    </Grid>
                     <Ellipse Fill="{ThemeResource CardBackgroundFillColorSecondaryBrush}" />
+                    <!-- 内阴影层：头像内部的渐深覆盖，悬停时渐显 -->
+                    <Ellipse x:Name="AccountShadow" Opacity="0" IsHitTestVisible="False">
+                        <Ellipse.Fill>
+                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                <GradientStop Color="#4A000000" Offset="0" />
+                                <GradientStop Color="#1A000000" Offset="0.45" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Ellipse.Fill>
+                    </Ellipse>
                     <TextBlock x:Name="AccountAvatarText" FontSize="13" FontWeight="SemiBold"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                     <FontIcon x:Name="AccountAvatarGlyph" Glyph="&#xE77B;" FontSize="15"
