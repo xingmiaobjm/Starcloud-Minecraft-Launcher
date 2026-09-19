@@ -37,7 +37,9 @@ public static class HoverShadowBehavior
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
-    /// <summary>当前正在发光的光斑层：由窗口根元素的指针事件兜底清理，避免"卡住"</summary>
+    /// <summary>所有已接线的光斑层：悬停状态由窗口级指针位置直接推导，不依赖元素自身的进出事件</summary>
+    private static readonly List<State> Cards = [];
+    /// <summary>当前正在发光的层（用于"回到窗口时才点亮"等判断）</summary>
     private static readonly List<State> Glowing = [];
     private static bool _rootHooked;
 
@@ -105,6 +107,7 @@ public static class HoverShadowBehavior
             state.Brush = ResolveBrush(layer);
             ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
             state.Element = element;
+            if (!Cards.Contains(state)) Cards.Add(state);
         }
         catch
         {
@@ -146,15 +149,36 @@ public static class HoverShadowBehavior
 
     private static void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (Glowing.Count == 0) return;
-        foreach (var state in Glowing.ToList())
+        if (Cards.Count == 0) return;
+        // 由指针位置直接推导每一层的悬停状态：在范围内就点亮并跟随，否则淡出。
+        // 这样即使某个卡片从没收到过自己的 Enter/Exit 事件，也一样能正常亮/灭。
+        foreach (var state in Cards.ToList())
         {
             if (state.Element is not { } el) continue;
             try
             {
+                if (el.XamlRoot is null)
+                {
+                    Cards.Remove(state);
+                    Glowing.Remove(state);
+                    continue;
+                }
                 var p = e.GetCurrentPoint(el).Position;
                 var inside = p.X >= 0 && p.Y >= 0 && p.X <= el.ActualWidth && p.Y <= el.ActualHeight;
-                if (!inside) FadeOut(state);
+                if (inside)
+                {
+                    ApplyLight(el, state, p.X, p.Y);
+                    if (!Glowing.Contains(state))
+                    {
+                        state.Hovered = true;
+                        Glowing.Add(state);
+                        Animate(state, true, HoverIn);
+                    }
+                }
+                else if (Glowing.Contains(state))
+                {
+                    FadeOut(state);
+                }
             }
             catch
             {
