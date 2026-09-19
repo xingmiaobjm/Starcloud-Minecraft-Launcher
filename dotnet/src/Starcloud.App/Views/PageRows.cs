@@ -14,9 +14,6 @@ using Starcloud.App.Services;
 
 namespace Starcloud.App.Views;
 
-/// <summary>首页版本列表条目（已安装版本）</summary>
-public sealed record VersionRow(string Id, string SizeText);
-
 /// <summary>下载页版本列表条目（Icon 为按版本类型选取的等距方块渲染图）</summary>
 public sealed record DownloadRow(
     string Id, string TimeText, string Badge, Brush? BadgeBrush, ImageSource? Icon);
@@ -52,7 +49,7 @@ public sealed class VersionGroupRow : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-/// <summary>版本页本地版本条目（含实例档案信息：类别 / 隔离 / 上次启动）</summary>
+/// <summary>本地版本条目，首页版本库与版本页共用（含实例档案信息：类别 / 隔离 / 上次启动）</summary>
 public sealed record LocalVersionRow(string Id, string KindText, string SizeText,
     string? IconPath, string Category, bool Isolated, string LastPlayedText, string SearchKey)
 {

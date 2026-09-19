@@ -19,7 +19,7 @@ public sealed partial class HomePage : Page
 {
     private readonly AppServices _s = AppServices.Instance;
     private readonly DispatcherQueue _dq;
-    private List<VersionRow> _rows = [];
+    private List<LocalVersionRow> _rows = [];
     private GameSession? _gameProcess;
     private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
 
@@ -60,7 +60,15 @@ public sealed partial class HomePage : Page
         _windowTimer.Tick += (_, _) => WindowTimer_Tick();
         _logTimer.Tick += (_, _) => FlushLogBuffer();
         Loaded += (_, _) => Initialize();
+        SizeChanged += OnPageSizeChanged;
     }
+
+    /// <summary>
+    /// 版本库高度按窗口封顶：窗口高时卡片贴着内容（不再撑成一大片空白），
+    /// 窗口矮时收成一个内部滚动的列表区，不会把快捷入口挤出可视区。
+    /// </summary>
+    private void OnPageSizeChanged(object sender, SizeChangedEventArgs e) =>
+        VersionList.MaxHeight = Math.Clamp(e.NewSize.Height - 220, 160, 420);
 
     private void Initialize()
     {
@@ -114,9 +122,11 @@ public sealed partial class HomePage : Page
     // ── 版本列表 ──
     private void LoadVersions()
     {
+        var dotMc = _s.Settings.DotMinecraft;
+        var store = new InstanceSettingsStore(dotMc);
         try
         {
-            var installed = _s.Manifest.ListInstalled(_s.Settings.DotMinecraft).ToList();
+            var installed = _s.Manifest.ListInstalled(dotMc).ToList();
             installed.Sort((a, b) =>
             {
                 // 上次使用的版本置顶，其余按版本号倒序
@@ -125,7 +135,19 @@ public sealed partial class HomePage : Page
                 if (aLast != bLast) return bLast - aLast;
                 return string.Compare(b.Id, a.Id, StringComparison.OrdinalIgnoreCase);
             });
-            _rows = installed.Select(i => new VersionRow(i.Id, FormatSize(i.SizeBytes))).ToList();
+            // 与版本页同一套行模型：图标 + 类型 + 上次启动 + 大小，主页不再是"光秃秃的名字 + 大小"
+            _rows = installed.Select(i =>
+            {
+                var profile = store.Get(i.Id);
+                var kind = VersionRowHelpers.DetectKind(dotMc, i.Id);
+                return new LocalVersionRow(
+                    i.Id, kind, FormatSize(i.SizeBytes),
+                    VersionRowHelpers.ResolveIconPath(dotMc, profile.IconPath),
+                    profile.Category ?? "",
+                    InstanceLayout.IsIsolated(profile, _s.Settings),
+                    VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
+                    (i.Id + " " + kind).ToLowerInvariant());
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -133,6 +155,7 @@ public sealed partial class HomePage : Page
             LocalErrorBar.Message = Loc.T("读取已安装版本失败：{0}", ex.Message);
             LocalErrorBar.IsOpen = true;
         }
+        VersionCountText.Text = $"({_rows.Count})";
         VersionList.ItemsSource = _rows;
         MotionFx.StaggerListItems(VersionList);
         EmptyVersionHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -150,7 +173,7 @@ public sealed partial class HomePage : Page
     private void VersionList_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
         // 记录主界面当前选中的版本：下载页的 Mod / 资源包 / 光影 / 数据包直接装入该版本
-        if (VersionList.SelectedItem is VersionRow row && _s.Settings.LastVersion != row.Id)
+        if (VersionList.SelectedItem is LocalVersionRow row && _s.Settings.LastVersion != row.Id)
         {
             _s.Settings.LastVersion = row.Id;
             _s.Settings.Save();
@@ -160,7 +183,7 @@ public sealed partial class HomePage : Page
 
     private void UpdateVersionMeta()
     {
-        var id = (VersionList.SelectedItem as VersionRow)?.Id;
+        var id = (VersionList.SelectedItem as LocalVersionRow)?.Id;
         var isRunning = _gameProcess is { HasExited: false };
         LaunchTitleText.Text = isRunning ? Loc.T("停止游戏") : Loc.T("启动游戏");
         LaunchIcon.Glyph = isRunning ? "\uE71A" : "\uE768";
@@ -179,7 +202,7 @@ public sealed partial class HomePage : Page
     // ── 版本右键菜单 ──
     private void VersionRow_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: VersionRow row })
+        if (sender is FrameworkElement { DataContext: LocalVersionRow row })
             VersionList.SelectedItem = row;
     }
 
@@ -621,7 +644,7 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var versionId = (VersionList.SelectedItem as VersionRow)?.Id;
+        var versionId = (VersionList.SelectedItem as LocalVersionRow)?.Id;
         if (string.IsNullOrEmpty(versionId)) return;
 
         _ = StartLaunchAsync(versionId);

@@ -110,6 +110,7 @@
   "版本隔离（推荐，整合包内容独立存放）": "Version isolation (Recommended; modpack content is stored separately)",
   "版本隔离模式": "Version isolation mode",
   "版本列表": "Version list",
+  "已安装版本": "Installed versions",
   "版本名不能为空": "Version name cannot be empty",
   "版本名不能为空，且不能包含 < > : \" / \\ | ? *": "Version name cannot be empty and cannot contain < > : \" / \\ | ? *",
   "版本目录不存在": "Version directory does not exist",

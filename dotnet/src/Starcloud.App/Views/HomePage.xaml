@@ -16,11 +16,12 @@
                 <ColumnDefinition Width="360" />
             </Grid.ColumnDefinitions>
 
-        <!-- ═══ 左列：欢迎 + 版本列表(弹性) + 快捷入口 ═══ -->
+        <!-- ═══ 左列：启动自检 + 版本库(贴内容) + 弹性留白 + 快捷入口(沉底) ═══ -->
         <Grid Grid.Column="0" RowSpacing="16" Margin="0,0,24,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" MinHeight="160" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
@@ -97,126 +98,160 @@
                 </Border>
             </StackPanel>
 
-            <!-- 版本列表（弹性填充剩余高度） -->
+            <!-- 版本库：卡片贴着内容高度（列表 MaxHeight 由代码按窗口高度封顶），列表在卡内滚动 -->
             <Border Grid.Row="1"
                     Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16"
-                    Padding="16">
-                <Grid RowSpacing="12">
+                    Padding="12">
+                <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0">
+                    <!-- 卡头：标题 + 已安装数量 + 刷新 -->
+                    <Grid Grid.Row="0" Padding="6,2,0,2" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock loc:Loc.Text="版本列表" FontWeight="SemiBold" FontSize="15"
+                        <TextBlock loc:Loc.Text="已安装版本" FontWeight="SemiBold" FontSize="15"
                                    VerticalAlignment="Center" />
-                        <Button x:Name="RefreshVersionsBtn" Grid.Column="1" Padding="6"
+                        <Border Grid.Column="1" CornerRadius="5" Padding="6,1" VerticalAlignment="Center"
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            <TextBlock x:Name="VersionCountText" Text="(0)" FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Border>
+                        <Button x:Name="RefreshVersionsBtn" Grid.Column="3" Padding="6"
                                 Background="Transparent" BorderThickness="0"
                                 Click="RefreshVersionsBtn_Click" loc:Loc.Name="刷新列表" loc:Loc.Tip="刷新列表">
                             <FontIcon Glyph="&#xE72C;" FontSize="14" />
                         </Button>
                     </Grid>
 
-                    <Border Grid.Row="1"
-                            Background="{ThemeResource LayerFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="8">
-                        <Grid>
-                            <ListView x:Name="VersionList" SelectionMode="Single" Padding="4"
-                                      SelectionChanged="VersionList_SelectionChanged">
-                                <ListView.ItemContainerStyle>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        <Setter Property="MinHeight" Value="40" />
-                                        <Setter Property="Padding" Value="0" />
-                                        <Setter Property="Margin" Value="0,2" />
-                                    </Style>
-                                </ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="local:VersionRow">
-                                        <Border CornerRadius="4"
-                                                local:CardHoverBehavior.IsEnabled="True"
-                                                local:HoverShadowBehavior.IsEnabled="True"
-                                                local:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
-                                                RightTapped="VersionRow_RightTapped">
-                                            <Border.ContextFlyout>
-                                                <MenuFlyout>
-                                                    <MenuFlyoutItem loc:Loc.Text="问 Nova"
-                                                                    Tag="{x:Bind Id}"
-                                                                    Click="AskNova_Click">
-                                                        <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE99A;" />
-                                                        </MenuFlyoutItem.Icon>
-                                                    </MenuFlyoutItem>
-                                                    <MenuFlyoutSeparator />
-                                                    <MenuFlyoutItem loc:Loc.Text="打开游戏目录"
-                                                                    Tag="{x:Bind Id}"
-                                                                    Click="OpenVersionFolder_Click">
-                                                        <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE838;" />
-                                                        </MenuFlyoutItem.Icon>
-                                                    </MenuFlyoutItem>
-                                                    <MenuFlyoutItem loc:Loc.Text="删除此版本"
-                                                                    Tag="{x:Bind Id}"
-                                                                    Click="DeleteVersion_Click">
-                                                        <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE74D;" />
-                                                        </MenuFlyoutItem.Icon>
-                                                    </MenuFlyoutItem>
-                                                </MenuFlyout>
-                                            </Border.ContextFlyout>
-                                            <Grid>
-                                                <!-- 跟随光标的卡片内阴影：只画落在本行内的那一段（文字在它之上） -->
-                                                <Border x:Name="VersionRowGlow" CornerRadius="4" Opacity="0"
-                                                        IsHitTestVisible="False">
-                                                    <Border.Background>
-                                                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
-                                                                             RadiusX="0.2" RadiusY="0.5">
-                                                            <GradientStop Color="#28000000" Offset="0" />
-                                                            <GradientStop Color="#1F000000" Offset="0.18" />
-                                                            <GradientStop Color="#16000000" Offset="0.40" />
-                                                            <GradientStop Color="#0D000000" Offset="0.62" />
-                                                            <GradientStop Color="#05000000" Offset="0.82" />
-                                                            <GradientStop Color="#00000000" Offset="1" />
-                                                        </RadialGradientBrush>
-                                                    </Border.Background>
-                                                </Border>
-                                                <Grid ColumnSpacing="8" Padding="10,7">
+                    <!-- 列表直接坐在卡片上（去掉原来的"盒中盒"），行与版本页同款 -->
+                    <Grid Grid.Row="1">
+                        <ListView x:Name="VersionList" SelectionMode="Single" Padding="0"
+                                  SelectionChanged="VersionList_SelectionChanged">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="MinHeight" Value="60" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,1" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="local:LocalVersionRow">
+                                    <Border CornerRadius="8"
+                                            local:CardHoverBehavior.IsEnabled="True"
+                                            local:HoverShadowBehavior.IsEnabled="True"
+                                            local:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
+                                            RightTapped="VersionRow_RightTapped">
+                                        <Border.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem loc:Loc.Text="问 Nova"
+                                                                Tag="{x:Bind Id}"
+                                                                Click="AskNova_Click">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE99A;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem loc:Loc.Text="打开游戏目录"
+                                                                Tag="{x:Bind Id}"
+                                                                Click="OpenVersionFolder_Click">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE838;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem loc:Loc.Text="删除此版本"
+                                                                Tag="{x:Bind Id}"
+                                                                Click="DeleteVersion_Click">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE74D;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Border.ContextFlyout>
+                                        <Grid>
+                                            <!-- 跟随光标的卡片内阴影：只画落在本行内的那一段（文字在它之上） -->
+                                            <Border x:Name="VersionRowGlow" CornerRadius="8" Opacity="0"
+                                                    IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                                         RadiusX="0.2" RadiusY="0.5">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
+                                            <Grid Padding="10,8" ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
-                                                           VerticalAlignment="Center"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" Text="{x:Bind SizeText}"
-                                                           FontSize="11" VerticalAlignment="Center"
-                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                </Grid>
+                                                <!-- 版本方块图标块：加载器图标优先，原版按类型；取不到图标时留空底块 -->
+                                                <Border Width="40" Height="40" CornerRadius="8"
+                                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                                    <Grid>
+                                                        <Image Source="{x:Bind Icon}" Width="40" Height="40"
+                                                               Stretch="Uniform" />
+                                                        <FontIcon Glyph="&#xE7B8;" FontSize="18"
+                                                                  Visibility="{x:Bind IconFontVisibility}"
+                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    </Grid>
+                                                </Border>
+                                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock Text="{x:Bind Id}" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <TextBlock Text="{x:Bind KindText}" FontSize="11"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                            <Border Padding="6,1" CornerRadius="4"
+                                                                    Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                                                                    Visibility="{x:Bind CategoryVisibility}">
+                                                                <TextBlock Text="{x:Bind Category}" FontSize="11"
+                                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                            </Border>
+                                                        </StackPanel>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center"
+                                                            HorizontalAlignment="Right">
+                                                    <TextBlock Text="{x:Bind LastPlayedText}" FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    <TextBlock Text="{x:Bind SizeText}" FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                </StackPanel>
                                             </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                            <local:EmptyStateView x:Name="EmptyVersionHint" Visibility="Collapsed"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                  Glyph="&#xE81C;"
-                                                  loc:Loc.Title="暂无已安装版本"
-                                                  loc:Loc.ActionText="前往下载页安装"
-                                                  ActionClick="PickVersion_Click" />
-                        </Grid>
-                    </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <local:EmptyStateView x:Name="EmptyVersionHint" Visibility="Collapsed"
+                                              MinHeight="200"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Glyph="&#xE81C;"
+                                              loc:Loc.Title="暂无已安装版本"
+                                              loc:Loc.ActionText="前往下载页安装"
+                                              ActionClick="PickVersion_Click" />
+                    </Grid>
                 </Grid>
             </Border>
 
-            <!-- 快捷入口 -->
-            <Grid Grid.Row="2" ColumnSpacing="12">
+            <!-- 快捷入口（沉底） -->
+            <Grid Grid.Row="3" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
