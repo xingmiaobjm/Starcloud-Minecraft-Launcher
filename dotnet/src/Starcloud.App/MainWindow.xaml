@@ -74,11 +74,11 @@
                     <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显（读作"按下/凹陷"） -->
                     <Border x:Name="NovaShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
-                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                 <GradientStop Color="#4A000000" Offset="0" />
                                 <GradientStop Color="#1A000000" Offset="0.45" />
                                 <GradientStop Color="#00000000" Offset="1" />
-                            </LinearGradientBrush>
+                            </RadialGradientBrush>
                         </Border.Background>
                     </Border>
                     <FontIcon x:Name="NovaOrbGlyph" Glyph="&#xE99A;" FontSize="15"
@@ -106,11 +106,11 @@
                     <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显 -->
                     <Border x:Name="TaskCenterShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
-                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                 <GradientStop Color="#4A000000" Offset="0" />
                                 <GradientStop Color="#1A000000" Offset="0.45" />
                                 <GradientStop Color="#00000000" Offset="1" />
-                            </LinearGradientBrush>
+                            </RadialGradientBrush>
                         </Border.Background>
                     </Border>
                     <FontIcon Glyph="&#xE9F5;" FontSize="14"
@@ -140,11 +140,11 @@
                     <!-- 内阴影层：头像内部的渐深覆盖，悬停时渐显 -->
                     <Ellipse x:Name="AccountShadow" Opacity="0" IsHitTestVisible="False">
                         <Ellipse.Fill>
-                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                 <GradientStop Color="#4A000000" Offset="0" />
                                 <GradientStop Color="#1A000000" Offset="0.45" />
                                 <GradientStop Color="#00000000" Offset="1" />
-                            </LinearGradientBrush>
+                            </RadialGradientBrush>
                         </Ellipse.Fill>
                     </Ellipse>
                     <TextBlock x:Name="AccountAvatarText" FontSize="13" FontWeight="SemiBold"

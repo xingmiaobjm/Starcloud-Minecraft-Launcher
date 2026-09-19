@@ -14,8 +14,10 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Services;
 
 namespace Starcloud.App.Views;
@@ -92,6 +94,7 @@ public static class HoverShadowBehavior
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
             state.Layer = layer;
             state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
+            state.Brush = ResolveBrush(layer);
         }
         catch
         {
@@ -102,6 +105,7 @@ public static class HoverShadowBehavior
         }
 
         element.PointerEntered += OnPointerEntered;
+        element.PointerMoved += OnPointerMoved;
         element.PointerExited += OnPointerExited;
         element.Unloaded += OnUnloaded;
         state.Wired = true;
@@ -120,6 +124,7 @@ public static class HoverShadowBehavior
     {
         if (!States.TryGetValue(element, out var state) || !state.Wired) return;
         element.PointerEntered -= OnPointerEntered;
+        element.PointerMoved -= OnPointerMoved;
         element.PointerExited -= OnPointerExited;
         element.Unloaded -= OnUnloaded;
         state.Wired = false;
@@ -191,7 +196,53 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = false;
+        ResetLight(fe, s);
         Animate(s, false, HoverOut);
+    }
+
+    /// <summary>
+    /// 阴影以光标为中心：径向渐变的中心与渐变原点跟着指针走，深色核心就在光标下、向外渐淡。
+    /// 只改渐变刷的相对坐标（0~1），纯 XAML 属性更新，不涉及布局。
+    /// </summary>
+    private static void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
+        if (s.Brush is not { } brush) return;
+
+        var w = fe.ActualWidth;
+        var h = fe.ActualHeight;
+        if (w <= 0 || h <= 0) return;
+
+        try
+        {
+            var p = e.GetCurrentPoint(fe).Position;
+            var nx = Math.Clamp(p.X / w, 0d, 1d);
+            var ny = Math.Clamp(p.Y / h, 0d, 1d);
+            var center = new Windows.Foundation.Point(nx, ny);
+            brush.Center = center;
+            brush.GradientOrigin = center;
+        }
+        catch
+        {
+            // 静默：光源跟随失败不影响内阴影本身
+        }
+    }
+
+    /// <summary>移出时把光源复位到默认方向（自上而下）</summary>
+    private static void ResetLight(FrameworkElement element, State state)
+    {
+        if (state.Brush is not { } brush) return;
+        try
+        {
+            _ = element;
+            var center = new Windows.Foundation.Point(0.5, 0.5);
+            brush.Center = center;
+            brush.GradientOrigin = center;
+        }
+        catch
+        {
+            // 静默
+        }
     }
 
     private static void OnUnloaded(object sender, RoutedEventArgs e)
@@ -206,7 +257,17 @@ public static class HoverShadowBehavior
         public Visual? Visual;
         public Visual? LayerVisual;
         public FrameworkElement? Layer;
+        public RadialGradientBrush? Brush;
         public bool Wired;
         public bool Hovered;
     }
+
+    /// <summary>取阴影层上那个径向渐变刷（卡片用 Border.Background，圆形头像用 Shape.Fill）</summary>
+    private static RadialGradientBrush? ResolveBrush(FrameworkElement layer) => layer switch
+    {
+        Border border => border.Background as RadialGradientBrush,
+        Microsoft.UI.Xaml.Shapes.Shape shape => shape.Fill as RadialGradientBrush,
+        Panel panel => panel.Background as RadialGradientBrush,
+        _ => null,
+    };
 }

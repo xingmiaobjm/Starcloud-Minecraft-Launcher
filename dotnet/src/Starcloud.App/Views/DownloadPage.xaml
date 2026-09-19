@@ -244,11 +244,11 @@
                                     <Border x:Name="LatestReleaseShadow" Grid.ColumnSpan="3" CornerRadius="14"
                                             Opacity="0" IsHitTestVisible="False">
                                         <Border.Background>
-                                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                                 <GradientStop Color="#4A000000" Offset="0" />
                                                 <GradientStop Color="#1A000000" Offset="0.45" />
                                                 <GradientStop Color="#00000000" Offset="1" />
-                                            </LinearGradientBrush>
+                                            </RadialGradientBrush>
                                         </Border.Background>
                                     </Border>
                                     <Grid Width="44" Height="44" VerticalAlignment="Center">
@@ -290,11 +290,11 @@
                                     <Border x:Name="LatestSnapshotShadow" Grid.ColumnSpan="3" CornerRadius="14"
                                             Opacity="0" IsHitTestVisible="False">
                                         <Border.Background>
-                                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                                 <GradientStop Color="#4A000000" Offset="0" />
                                                 <GradientStop Color="#1A000000" Offset="0.45" />
                                                 <GradientStop Color="#00000000" Offset="1" />
-                                            </LinearGradientBrush>
+                                            </RadialGradientBrush>
                                         </Border.Background>
                                     </Border>
                                     <Grid Width="44" Height="44" VerticalAlignment="Center">
@@ -350,11 +350,11 @@
                                             <Border x:Name="RowShadow" CornerRadius="10" Opacity="0"
                                                     IsHitTestVisible="False">
                                                 <Border.Background>
-                                                    <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                                         <GradientStop Color="#3A000000" Offset="0" />
                                                         <GradientStop Color="#14000000" Offset="0.5" />
                                                         <GradientStop Color="#00000000" Offset="1" />
-                                                    </LinearGradientBrush>
+                                                    </RadialGradientBrush>
                                                 </Border.Background>
                                             </Border>
                                             <Grid Padding="12,9" ColumnSpacing="14">
@@ -406,11 +406,11 @@
                                                     <Border x:Name="HeaderShadow" CornerRadius="10" Opacity="0"
                                                             IsHitTestVisible="False">
                                                         <Border.Background>
-                                                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                                                 <GradientStop Color="#3A000000" Offset="0" />
                                                                 <GradientStop Color="#14000000" Offset="0.5" />
                                                                 <GradientStop Color="#00000000" Offset="1" />
-                                                            </LinearGradientBrush>
+                                                            </RadialGradientBrush>
                                                         </Border.Background>
                                                     </Border>
                                                     <Grid Padding="13,11" ColumnSpacing="10">
@@ -469,11 +469,11 @@
                                                                 <Border x:Name="ChildShadow" CornerRadius="10" Opacity="0"
                                                                         IsHitTestVisible="False">
                                                                     <Border.Background>
-                                                                        <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                                                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
                                                                             <GradientStop Color="#3A000000" Offset="0" />
                                                                             <GradientStop Color="#14000000" Offset="0.5" />
                                                                             <GradientStop Color="#00000000" Offset="1" />
-                                                                        </LinearGradientBrush>
+                                                                        </RadialGradientBrush>
                                                                     </Border.Background>
                                                                 </Border>
                                                                 <Grid Padding="12,9" ColumnSpacing="14">
