@@ -95,6 +95,7 @@ public static class HoverShadowBehavior
             state.Layer = layer;
             state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
             state.Brush = ResolveBrush(layer);
+            ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
         }
         catch
         {
@@ -107,6 +108,7 @@ public static class HoverShadowBehavior
         element.PointerEntered += OnPointerEntered;
         element.PointerMoved += OnPointerMoved;
         element.PointerExited += OnPointerExited;
+        element.SizeChanged += OnSizeChanged;
         element.Unloaded += OnUnloaded;
         state.Wired = true;
     }
@@ -126,6 +128,7 @@ public static class HoverShadowBehavior
         element.PointerEntered -= OnPointerEntered;
         element.PointerMoved -= OnPointerMoved;
         element.PointerExited -= OnPointerExited;
+        element.SizeChanged -= OnSizeChanged;
         element.Unloaded -= OnUnloaded;
         state.Wired = false;
         ResetState(state);
@@ -207,25 +210,37 @@ public static class HoverShadowBehavior
     private static void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
-        if (s.Brush is not { } brush) return;
-
-        var w = fe.ActualWidth;
-        var h = fe.ActualHeight;
-        if (w <= 0 || h <= 0) return;
-
         try
         {
             var p = e.GetCurrentPoint(fe).Position;
-            var nx = Math.Clamp(p.X / w, 0d, 1d);
-            var ny = Math.Clamp(p.Y / h, 0d, 1d);
-            var center = new Windows.Foundation.Point(nx, ny);
-            brush.Center = center;
-            brush.GradientOrigin = center;
+            ApplyLight(fe, s, p.X, p.Y);
         }
         catch
         {
             // 静默：光源跟随失败不影响内阴影本身
         }
+    }
+
+    /// <summary>
+    /// 把光斑放到元素内的 (x, y)（像素坐标）。
+    /// 关键：半径要按像素换算成相对值（RadiusX = r/w、RadiusY = r/h），
+    /// 否则在又宽又扁的列表行上，0.9/0.9 的相对半径会拉成一个横向椭圆。
+    /// </summary>
+    private static void ApplyLight(FrameworkElement element, State state, double x, double y)
+    {
+        if (state.Brush is not { } brush) return;
+        var w = element.ActualWidth;
+        var h = element.ActualHeight;
+        if (w <= 0 || h <= 0) return;
+
+        var radiusPx = Math.Max(14d, Math.Min(w, h) * 0.85);   // 以短边为基准 → 像素上是正圆
+        brush.RadiusX = radiusPx / w;
+        brush.RadiusY = radiusPx / h;
+
+        var center = new Windows.Foundation.Point(
+            Math.Clamp(x / w, 0d, 1d), Math.Clamp(y / h, 0d, 1d));
+        brush.Center = center;
+        brush.GradientOrigin = center;
     }
 
     /// <summary>移出时把光源复位到默认方向（自上而下）</summary>
@@ -234,10 +249,7 @@ public static class HoverShadowBehavior
         if (state.Brush is not { } brush) return;
         try
         {
-            _ = element;
-            var center = new Windows.Foundation.Point(0.5, 0.5);
-            brush.Center = center;
-            brush.GradientOrigin = center;
+            ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
         }
         catch
         {
@@ -270,4 +282,18 @@ public static class HoverShadowBehavior
         Panel panel => panel.Background as RadialGradientBrush,
         _ => null,
     };
+
+    /// <summary>元素尺寸变化后按新尺寸重算半径（否则宽高比一变又会被拉成椭圆）</summary>
+    private static void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
+        try
+        {
+            ApplyLight(fe, s, fe.ActualWidth / 2, fe.ActualHeight / 2);
+        }
+        catch
+        {
+            // 静默
+        }
+    }
 }
