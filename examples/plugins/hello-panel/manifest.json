@@ -1,0 +1,15 @@
+{
+  "id": "com.example.hello",
+  "name": "Hello 面板",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "author": "Starcloud 示例",
+  "description": "示例插件：注册面板 + 启动参数追加演示（仅规范允许的能力）",
+  "permissions": [
+    "launcher:game_arguments",
+    "launcher:notification",
+    "launcher:ui_panel"
+  ],
+  "optionalPermissions": [],
+  "compatibility": { "minLauncherVersion": "0.2.4" }
+}

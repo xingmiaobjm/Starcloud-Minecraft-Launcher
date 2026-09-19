@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>Hello 面板</title>
+    <style>
+        body { font-family: "Segoe UI", sans-serif; margin: 24px; color: inherit; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        p { font-size: 13px; opacity: .75; line-height: 1.6; }
+        code { background: rgba(127,127,127,.15); padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Hello 面板</h1>
+    <p>这是一个由插件（<code>com.example.hello</code>）提供的面板，通过
+        <code>ctx.ui.registerPanel</code> 注册、启动器内嵌 WebView2 展示。</p>
+    <p>插件只能使用规范白名单内的能力：启动参数追加、通知、面板、自身目录文件访问。
+        账号身份校验相关的参数与权限从接口层面锁死，插件不可触达。</p>
+</body>
+</html>

@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Jint" Version="3.1.6" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Starcloud.Core.Tests" />
   </ItemGroup>
 

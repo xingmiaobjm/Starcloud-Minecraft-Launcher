@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 插件面板宿主：WebView2 加载插件注册的 HTML 面板（launcher:ui_panel）。
+     面板内容完全由插件提供，仅展示；插件无宿主 API 直接访问（后续版本经 postMessage 白名单桥开放）。 -->
+<Page
+    x:Class="Starcloud.App.Views.PluginPanelPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:loc="using:Starcloud.App.Localization"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    NavigationCacheMode="Disabled">
+
+    <Grid RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 页头：返回 + 标题 -->
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button loc:Loc.Text="返回" Click="Back_Click" Padding="12,5" />
+            <TextBlock x:Name="PanelTitle" FontSize="24" FontWeight="SemiBold"
+                       VerticalAlignment="Center" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- 来源声明 -->
+        <InfoBar Grid.Row="1" IsOpen="True" IsClosable="True" Severity="Informational"
+                 x:Name="SourceBar" loc:Loc.Message="该面板由第三方插件提供，内容与启动器本体无关。" />
+
+        <!-- 面板内容 -->
+        <Border Grid.Row="2" Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="4">
+            <controls:WebView2 x:Name="Web" DefaultBackgroundColor="Transparent" />
+        </Border>
+    </Grid>
+</Page>
