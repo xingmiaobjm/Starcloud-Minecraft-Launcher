@@ -18,15 +18,18 @@ namespace Starcloud.App.Views;
 /// <summary>抽屉内容展开/收起：高度平滑过渡 + 内容淡入位移。</summary>
 public static class ExpandBehavior
 {
-    /// <summary>展开时长：略长于收起，读起来"推出去"更从容（高度是依赖型动画，能短则短更不容易掉帧）</summary>
-    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(210);
+    /// <summary>展开时长：Fluent 中表面一档（250ms），略长于收起，读起来"推出去"更从容</summary>
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(250);
 
     /// <summary>收起时长：比展开快，收得干脆</summary>
     private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(150);
 
+    /// <summary>展开时内容起始上移量（px）</summary>
+    private const float SlideOffset = 12f;
 
-    /// <summary>内容淡入时长（ms）：短于高度动画，高度到位时内容已收住</summary>
-    private const int ContentSlideMs = 150;
+
+    /// <summary>内容淡入 + 上移时长（ms）：略短于高度动画，高度到位时内容已收住</summary>
+    private const int ContentSlideMs = 200;
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
 
@@ -77,13 +80,13 @@ public static class ExpandBehavior
         if (target <= 0)
         {
             // 拿不到高度（尚未布局）：直接展开，不做高度动画
-            MotionFx.FadeIn(element, ContentSlideMs);
+            MotionFx.FadeSlideIn(element, SlideOffset, ContentSlideMs);
             return;
         }
 
         AnimateHeight(element, state, 0, target, ExpandDuration);
-        // 只淡入、不位移：高度本身已经在动，再叠一层上下位移只会显得拖沓（后摇正是它）
-        MotionFx.FadeIn(element, ContentSlideMs);
+        // 内容淡入 + 轻微上移：非线性（Fluent 入场曲线），到位即止
+        MotionFx.FadeSlideIn(element, SlideOffset, ContentSlideMs);
     }
 
     private static void Collapse(FrameworkElement element)
@@ -129,7 +132,8 @@ public static class ExpandBehavior
                 To = to,
                 Duration = duration,
                 EnableDependentAnimation = true, // 高度是依赖型属性，不开这个动画会被忽略
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                // 指数缓出近似 Fluent 的 Fast Out, Slow In（XAML 动画只能用内置缓动类）
+                EasingFunction = new ExponentialEase { Exponent = 4, EasingMode = EasingMode.EaseOut },
             };
             var storyboard = new Storyboard();
             Storyboard.SetTarget(animation, element);

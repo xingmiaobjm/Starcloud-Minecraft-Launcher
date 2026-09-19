@@ -240,13 +240,13 @@ public static class HoverShadowBehavior
 
             if (state.Visual is { } visual)
             {
-                // 抬升用弹簧（自然回弹），比贝塞尔更有"手感"
-                var lift = compositor.CreateSpringVector3Animation();
-                lift.InitialValue = hovered ? Vector3.Zero : new Vector3(0f, HoverLiftY, 0f);
-                lift.FinalValue = hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero;
-                lift.DampingRatio = 0.9f;
-                // 周期同样只取时长的一部分：弹簧收敛时间随周期线性增长，取满会拖出一条尾巴
-                lift.Period = TimeSpan.FromMilliseconds(Math.Max(40, duration.TotalMilliseconds * 0.6));
+                // 抬升：Fluent 曲线（进场快出慢收、移出慢出快收），不回弹也不拖尾
+                var lift = compositor.CreateVector3KeyFrameAnimation();
+                lift.Duration = duration;
+                var curve = hovered
+                    ? compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f))
+                    : compositor.CreateCubicBezierEasingFunction(new Vector2(0.7f, 0f), new Vector2(1f, 0.5f));
+                lift.InsertKeyFrame(1f, hovered ? new Vector3(0f, HoverLiftY, 0f) : Vector3.Zero, curve);
                 visual.StartAnimation("Translation", lift);
             }
         }

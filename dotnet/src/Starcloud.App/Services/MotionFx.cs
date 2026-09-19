@@ -17,11 +17,23 @@ namespace Starcloud.App.Services;
 /// <summary>合成层动效助手（淡入位移 / 淡出）。</summary>
 public static class MotionFx
 {
-    /// <summary>默认入场时长</summary>
-    public const int EnterMs = 260;
+    // ── Fluent motion（微软商店/Windows 11 那套动效语言）──
+    // 进场：Fast Out, Slow In —— 起手快、收尾稳；退场：Slow Out, Fast In —— 走得干脆。
+    // 两者都是非线性贝塞尔，且刻意不含回弹（Fluent 明确避免弹簧式回荡）。
 
-    /// <summary>默认退场时长（退场应比入场快，读起来才利落）</summary>
-    public const int ExitMs = 150;
+    /// <summary>Fluent 入场控制点（Fast Out, Slow In）</summary>
+    private static readonly Vector2 EnterControl1 = new(0.1f, 0.9f);
+    private static readonly Vector2 EnterControl2 = new(0.2f, 1f);
+
+    /// <summary>Fluent 退场控制点（Slow Out, Fast In）</summary>
+    private static readonly Vector2 ExitControl1 = new(0.7f, 0f);
+    private static readonly Vector2 ExitControl2 = new(1f, 0.5f);
+
+    /// <summary>默认入场时长（Fluent：中小表面 250ms 一档）</summary>
+    public const int EnterMs = 250;
+
+    /// <summary>默认退场时长（退场必须比入场快，读起来才利落）</summary>
+    public const int ExitMs = 140;
 
     /// <summary>
     /// 淡入 + 位移到位。
@@ -52,9 +64,8 @@ public static class MotionFx
             visual.StopAnimation("Opacity");
             visual.StopAnimation("Translation");
 
-            // 透明度：短促的缓出淡入（延迟用于列表错峰）
-            var ease = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+            // 透明度与位移都走 Fluent 入场曲线（同样是当量缓动，只是用关键帧配合错峰延迟）
+            var ease = compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
             fade.DelayTime = TimeSpan.FromMilliseconds(delayMs);
@@ -62,16 +73,13 @@ public static class MotionFx
             fade.InsertKeyFrame(1f, 1f, ease);
             visual.StartAnimation("Opacity", fade);
 
-            // 位移：用弹簧（WinUI 自然动效）——到位时轻微过冲再收住，比贝塞尔"活"
-            var spring = compositor.CreateSpringVector3Animation();
-            spring.InitialValue = new Vector3(0f, fromY, 0f);
-            spring.FinalValue = Vector3.Zero;
-            // 关键：周期只取时长的六成、阻尼接近临界。周期取满会让收敛时间远超预期，
-            // 表现为"高度早就展开了、内容还在荡"的后摇。
-            spring.DampingRatio = 1f;                          // 临界阻尼：平滑逼近、零过冲（此前 0.92 仍有过冲感）
-            spring.Period = TimeSpan.FromMilliseconds(Math.Max(40, durationMs * 0.6));
-            spring.DelayTime = TimeSpan.FromMilliseconds(delayMs);
-            visual.StartAnimation("Translation", spring);
+            // 位移：非线性（Fluent 入场曲线），到位即止、不回弹也不拖尾
+            var slide = compositor.CreateVector3KeyFrameAnimation();
+            slide.Duration = TimeSpan.FromMilliseconds(durationMs);
+            slide.DelayTime = TimeSpan.FromMilliseconds(delayMs);
+            slide.InsertKeyFrame(0f, new Vector3(0f, fromY, 0f));
+            slide.InsertKeyFrame(1f, Vector3.Zero, ease);
+            visual.StartAnimation("Translation", slide);
         }
         catch
         {
@@ -94,8 +102,7 @@ public static class MotionFx
             }
 
             var compositor = visual.Compositor;
-            var ease = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.4f, 0f), new Vector2(0.7f, 0.2f));
+            var ease = compositor.CreateCubicBezierEasingFunction(ExitControl1, ExitControl2);
 
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
@@ -123,8 +130,7 @@ public static class MotionFx
 
             var compositor = visual.Compositor;
             visual.StopAnimation("Opacity");
-            var ease = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+            var ease = compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(durationMs);
             fade.DelayTime = TimeSpan.FromMilliseconds(delayMs);

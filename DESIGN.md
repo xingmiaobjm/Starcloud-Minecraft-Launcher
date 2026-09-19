@@ -162,14 +162,25 @@
 （设置项「跟随系统 / 始终开启 / 关闭」+ 系统「显示动画」偏好），关闭时一律瞬时到位、零开销；
 任一环节异常静默降级，绝不影响功能。
 
+曲线一律取 **WinUI 3 / 微软商店同源的 Fluent 关键样条**，非线性且**不使用弹簧回弹**：
+
+- 进场 **Fast Out, Slow In** = `cubic-bezier(0.1, 0.9, 0.2, 1)`（`MotionFx.EnterControl1/2`）
+- 退场 **Slow Out, Fast In** = `cubic-bezier(0.7, 0, 1, 0.5)`（`MotionFx.ExitControl1/2`）
+- 控件级小位移用更快的 `ControlFastOutSlowIn` = `cubic-bezier(0.16, 1, 0.3, 1)`
+
+不能直接给 `CompositionEasingFunction` 的地方（XAML `Storyboard` / `EnableDependentAnimation` 的
+依赖型属性）用内置 `ExponentialEase { Exponent = 4, EasingMode = EaseOut }` 近似进场曲线。
+时长分档同样对齐 Fluent：小控件 100–150ms、中等表面 200–250ms，**退场永远比入场短**。
+
 | 场景 | 实现 | 时长 / 曲线 |
 | --- | --- | --- |
-| 内容进入（列表项、面板切换） | `MotionFx.FadeSlideIn`：合成层 `Opacity` + `Translation`，独立动画 | 260ms / expo-out（0.16,1 / 0.3,1） |
-| 内容退场 | `MotionFx.FadeOut`：只动 `Opacity` | 150ms / 加速曲线 |
-| 列表首屏入场 | `MotionFx.StaggerIn`：第 i 项延迟 `min(i,9)×26ms`，最多 12 项 | 同上 |
-| 抽屉展开 / 收起 | `ExpandBehavior`：高度 `0 ↔ 自然高度`（`EnableDependentAnimation`）+ 内容淡入位移 + 箭头旋转 | 展开 240ms / 收起 180ms |
-| 悬停抬升 | `HoverShadowBehavior`：`ThemeShadow` + 合成 `Translation.Z` 抬升 | 进 170ms / 出 140ms |
-| 分段控件选中指示器 | 合成 `Translation.X` 平移品牌色药丸 | 260ms / expo-out |
+| 内容进入（列表项、面板切换） | `MotionFx.FadeSlideIn`：合成层 `Opacity` + `Translation`，独立动画 | 250ms / 进场曲线 |
+| 内容退场 | `MotionFx.FadeOut`：只动 `Opacity` | 140ms / 退场曲线 |
+| 列表首屏入场 | `MotionFx.StaggerIn`：第 i 项延迟 `min(i,9)×26ms`，最多 12 项 | 进场曲线 |
+| 抽屉展开 / 收起 | `ExpandBehavior`：高度 `0 ↔ 自然高度`（`EnableDependentAnimation`）+ 内容淡入上移 12px + 箭头旋转 | 展开 250ms / 收起 150ms / 内容 200ms，进场曲线 |
+| 悬停抬升（卡片内阴影） | `HoverShadowBehavior`：合成 `Translation` 抬升 + 贴光标的径向高光 | 进 110ms / 出 260ms，各自对应方向的 Fluent 曲线 |
+| 行悬停 | `RowHoverBehavior`：合成 `Translation.Z` 抬升 + 覆盖层淡入 | 进 170ms / 出 140ms（进场曲线） |
+| 分段控件选中指示器 | 合成 `Translation.X` 平移品牌色药丸 | 260ms / 进场曲线 |
 
 ## 12. 下载页（下载原版）
 
