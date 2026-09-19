@@ -1,0 +1,50 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-desktop</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+
+    <!-- Display name -->
+    <ApplicationTitle>Starcloud Minecraft Launcher</ApplicationTitle>
+    <!-- App Identifier -->
+    <ApplicationId>cn.starcloudfur.starcloud</ApplicationId>
+    <!-- Versions（与 Windows 版 Starcloud.App.csproj <Version> 同步） -->
+    <ApplicationDisplayVersion>0.2.4</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <!-- Package Publisher -->
+    <ApplicationPublisher>Starcloud</ApplicationPublisher>
+    <!-- Package Description -->
+    <Description>Starcloud Minecraft Launcher 跨平台版（macOS / Linux）</Description>
+
+    <!--
+      UnoFeatures are used to quickly add and manage features enabled for your app.
+      https://aka.platform.uno/singleproject-features
+    -->
+    <UnoFeatures>
+      SkiaRenderer;
+    </UnoFeatures>
+  </PropertyGroup>
+
+  <!-- Segoe Fluent Icons 替代：非 Windows 头的 Fluent 图标字体（字形码位兼容 E7xx） -->
+  <ItemGroup>
+    <PackageReference Include="Uno.Fonts.Fluent" />
+  </ItemGroup>
+
+  <!-- 共享核心库（单一事实来源，跨目录引用；Core 保持 net8.0） -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\dotnet\src\Starcloud.Core\Starcloud.Core.csproj" />
+  </ItemGroup>
+
+  <!-- 共享运行时资产：链接 Windows 版 Starcloud.App 的物理文件（单一事实来源，不复制源文件；
+       与 MC-Icons 链接发布同一模式） -->
+  <ItemGroup>
+    <Content Include="..\..\..\dotnet\src\Starcloud.App\Assets\pluginsdk\**\*"
+             Link="Assets\pluginsdk\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\dotnet\src\Starcloud.App\Assets\authlib-injector\**\*"
+             Link="Assets\authlib-injector\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

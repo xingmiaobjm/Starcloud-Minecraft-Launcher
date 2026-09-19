@@ -1,0 +1,41 @@
+﻿<Page x:Class="Starcloud.Cross.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+  <!-- Phase 2 验证页：NavigationView / FontIcon 字形 / 中文文案 / 真实服务接线（设置 + Java 扫描） -->
+  <NavigationView x:Name="Nav" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed">
+    <NavigationView.MenuItems>
+      <NavigationViewItem Content="首页" Tag="home" IsSelected="True">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE768;" />
+        </NavigationViewItem.Icon>
+      </NavigationViewItem>
+      <NavigationViewItem Content="版本" Tag="versions">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE8B7;" />
+        </NavigationViewItem.Icon>
+      </NavigationViewItem>
+      <NavigationViewItem Content="设置" Tag="settings">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE713;" />
+        </NavigationViewItem.Icon>
+      </NavigationViewItem>
+    </NavigationView.MenuItems>
+
+    <Grid Padding="36,28">
+      <StackPanel Spacing="10" VerticalAlignment="Center" MaxWidth="720">
+        <TextBlock Text="Starcloud 跨平台版 · Phase 2 服务接线" FontSize="30" FontWeight="SemiBold" />
+        <TextBlock x:Name="PlatformText" FontSize="14" />
+        <TextBlock x:Name="CorePathText" FontSize="14" TextWrapping="Wrap" />
+        <TextBlock x:Name="SettingsText" FontSize="14" TextWrapping="Wrap" />
+        <Button x:Name="JavaScanButton" Content="扫描本机 Java" Margin="0,8,0,0" Click="OnJavaScan" />
+        <TextBlock x:Name="JavaResultText" FontSize="14" TextWrapping="Wrap" />
+        <InfoBar x:Name="PocInfo" IsOpen="True" Severity="Informational"
+                 Title="验证点"
+                 Message="导航图标与中文文案正常显示；下方路径来自真实加载的启动器设置（非写死）。「扫描本机 Java」走 Phase 1 平台抽象层。" />
+      </StackPanel>
+    </Grid>
+  </NavigationView>
+
+</Page>

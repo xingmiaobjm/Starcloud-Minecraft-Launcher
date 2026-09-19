@@ -1,0 +1,116 @@
+name: Crossplatform CI
+
+# 跨平台版（macOS / Linux）构建与冒烟验证。
+# 现有 Rust 版 ci.yml 与 Windows 版构建不受本文件影响。
+#
+# Phase 1 更新：
+#   - core-tests 扩为三平台矩阵（Core 平台抽象层已落地，测试套件全部用例跨平台可运行；
+#     Windows 为历史语义基线，ubuntu/macos 验证 /proc、sysctl、/bin/sh、tar.gz 分支）
+#   - Linux 冒烟为硬门槛（Xvfb 确定性环境）；macOS 冒烟为软门槛（continue-on-error），
+#     结果写入 POC-FINDINGS.md 后再定稿
+#   - 截图上传 artifact，用于核对 NavigationView / FontIcon 字形 / 中文文案渲染
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crossplatform/**"
+      - "dotnet/src/Starcloud.Core/**"
+      - "dotnet/tests/**"
+      - ".github/workflows/crossplatform-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crossplatform/**"
+      - "dotnet/src/Starcloud.Core/**"
+      - "dotnet/tests/**"
+      - ".github/workflows/crossplatform-ci.yml"
+
+jobs:
+  # Core 测试：三平台矩阵（Windows 语义基线 + unix 平台分支验证）
+  core-tests:
+    name: Core tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test dotnet/tests/Starcloud.Core.Tests/Starcloud.Core.Tests.csproj -c Debug
+
+  # 跨平台应用：ubuntu / macos 构建矩阵 + 冒烟
+  cross-app:
+    name: Cross app (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        working-directory: crossplatform
+        run: dotnet build Starcloud.Cross.slnx -c Release
+
+      # ── Linux 冒烟：Xvfb 虚拟屏 + 截图 ──
+      - name: Install display, screenshot tools and CJK fonts
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb imagemagick libfontconfig1 fonts-noto-cjk
+
+      - name: Smoke run with screenshot (Linux)
+        if: runner.os == 'Linux'
+        working-directory: crossplatform
+        run: |
+          set -e
+          Xvfb :99 -screen 0 1280x800x24 &
+          export DISPLAY=:99
+          APP=src/Starcloud.Cross/bin/Release/net10.0-desktop/Starcloud.Cross
+          "$APP" > smoke-linux.log 2>&1 &
+          APP_PID=$!
+          sleep 15
+          # 进程必须存活（窗口已创建且未崩溃）
+          if ! kill -0 $APP_PID 2>/dev/null; then
+            echo "APP DIED EARLY"; cat smoke-linux.log; exit 1
+          fi
+          import -window root smoke-linux.png
+          kill $APP_PID
+          echo "smoke ok"
+        continue-on-error: false
+
+      # ── macOS 冒烟：AppKit 宿主拉起（Phase 0 软门槛，结果回填 POC-FINDINGS.md） ──
+      - name: Smoke run (macOS)
+        if: runner.os == 'macOS'
+        working-directory: crossplatform
+        run: |
+          APP=src/Starcloud.Cross/bin/Release/net10.0-desktop/Starcloud.Cross
+          "$APP" > smoke-macos.log 2>&1 &
+          APP_PID=$!
+          sleep 15
+          if ! kill -0 $APP_PID 2>/dev/null; then
+            echo "APP DIED EARLY"; cat smoke-macos.log; exit 1
+          fi
+          kill $APP_PID
+          echo "smoke ok"
+        continue-on-error: true
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}
+          path: |
+            crossplatform/smoke-*.png
+            crossplatform/smoke-*.log
+          if-no-files-found: ignore
+          retention-days: 14
