@@ -79,9 +79,27 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:SaveRow">
-                            <Border CornerRadius="8" Padding="12,8"
-                                    local:CardHoverBehavior.IsEnabled="True">
-                                <Grid ColumnSpacing="14">
+                            <Border CornerRadius="8"
+                                    local:CardHoverBehavior.IsEnabled="True"
+                                    local:HoverShadowBehavior.IsEnabled="True"
+                                    local:HoverShadowBehavior.Carrier="{Binding ElementName=SaveCardGlow}">
+                                <Grid>
+                                    <!-- 跟随光标的卡片内阴影 -->
+                                    <Border x:Name="SaveCardGlow" CornerRadius="8" Opacity="0"
+                                            IsHitTestVisible="False">
+                                        <Border.Background>
+                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                                 RadiusX="0.2" RadiusY="0.5">
+                                                <GradientStop Color="#28000000" Offset="0" />
+                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                <GradientStop Color="#05000000" Offset="0.82" />
+                                                <GradientStop Color="#00000000" Offset="1" />
+                                            </RadialGradientBrush>
+                                        </Border.Background>
+                                    </Border>
+                                <Grid ColumnSpacing="14" Padding="12,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -130,6 +148,7 @@
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </StackPanel>
                                     </StackPanel>
+                                </Grid>
                                 </Grid>
                             </Border>
                         </DataTemplate>

@@ -162,73 +162,18 @@ public sealed partial class SettingsPage : Page
         AnimateSectionIn(target);
     }
 
-    /// <summary>位移时长：稍长，留给缓出足够的收尾时间，观感更顺滑。</summary>
-    private static readonly TimeSpan SectionSlideDuration = TimeSpan.FromMilliseconds(340);
-
-    /// <summary>淡入时长：比位移短，区块先「亮起来」再缓缓落位，避免整体显得拖沓。</summary>
-    private static readonly TimeSpan SectionFadeDuration = TimeSpan.FromMilliseconds(240);
-
     /// <summary>进场时区块的起始下移量（像素）。</summary>
     private const double SectionSlideOffset = 18d;
 
-    private Storyboard? _sectionStoryboard;
-
     /// <summary>
-    /// 二级子导航进场动效：只对进入的区块做 <c>Opacity</c> 淡入 + 轻微上移。
-    /// <para>
-    /// 不用 <c>EntranceThemeTransition</c>：① 它靠「重新挂载元素」触发，会强制一次完整 Layout，
-    /// 区块内控件较多时容易掉帧；② 它默认对子元素逐级错峰（staggering），卡片依次冒出来反而显得拖沓。
-    /// 这里动画的 <c>Opacity</c> 与 <c>TranslateTransform.Y</c> 都是合成线程上的独立动画，不触发布局。
-    /// </para>
+    /// 二级子导航进场动效：只对进入的区块做「淡入 + 轻微上移」。
+    /// <para>统一走 MotionFx 的合成层独立动画（与下载页、列表入场同一条曲线与时长），
+    /// 不触发布局；动效开关关闭时直接到位。</para>
     /// </summary>
     private void AnimateSectionIn(FrameworkElement section)
     {
-        var transform = section.RenderTransform as TranslateTransform;
-        if (transform is null)
-        {
-            transform = new TranslateTransform();
-            section.RenderTransform = transform;
-        }
-
-        try { _sectionStoryboard?.Stop(); } catch { /* 停旧动画失败不影响新动画 */ }
-        _sectionStoryboard = null;
-
-        if (!_s.Motion.Enabled)
-        {
-            section.Opacity = 1;
-            transform.Y = 0;
-            return;
-        }
-
-        section.Opacity = 0;
-        transform.Y = SectionSlideOffset;
-
-        // 缓出曲线：位移用 QuinticEase（尾部收得非常慢，落位「丝滑」不突兀），淡入用 CubicEase（不着痕迹地亮起）
-        var fadeEase = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var slideEase = new QuinticEase { EasingMode = EasingMode.EaseOut };
-        var storyboard = new Storyboard();
-
-        var fade = new DoubleAnimation { To = 1, Duration = SectionFadeDuration, EasingFunction = fadeEase };
-        Storyboard.SetTarget(fade, section);
-        Storyboard.SetTargetProperty(fade, "Opacity");
-        storyboard.Children.Add(fade);
-
-        var slide = new DoubleAnimation { To = 0, Duration = SectionSlideDuration, EasingFunction = slideEase };
-        Storyboard.SetTarget(slide, section);
-        Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(TranslateTransform.Y)");
-        storyboard.Children.Add(slide);
-
-        _sectionStoryboard = storyboard;
-        try
-        {
-            storyboard.Begin();
-        }
-        catch
-        {
-            // 动画失败也要保证内容可见可交互
-            section.Opacity = 1;
-            transform.Y = 0;
-        }
+        MotionFx.Reset(section);
+        MotionFx.FadeSlideIn(section, (float)SectionSlideOffset);
     }
 
     // ── 游戏：内存滑块 ──

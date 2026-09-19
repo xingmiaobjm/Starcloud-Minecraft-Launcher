@@ -93,6 +93,7 @@ public sealed partial class SavesPage : Page
             (version == AllVersions || r.VersionLabel == version)).ToList();
 
         SaveList.ItemsSource = filtered;
+        MotionFx.StaggerListItems(SaveList);
 
         if (_rows.Count == 0)
         {

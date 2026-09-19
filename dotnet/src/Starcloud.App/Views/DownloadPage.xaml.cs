@@ -330,7 +330,7 @@ public sealed partial class DownloadPage : Page
             VersionList.ItemsSource = rows;
         }
 
-        StaggerVersionRows();
+        MotionFx.StaggerListItems(VersionList);
     }
 
     /// <summary>填充一枚「最新版本」瓦片；无对应版本时整块隐藏</summary>
@@ -347,25 +347,6 @@ public sealed partial class DownloadPage : Page
         icon.Source = VersionRowHelpers.VersionIcon(version.Type);
         idText.Text = version.Id;
         metaText.Text = Loc.T("发布于 {0}", FormatReleaseTime(version.ReleaseTime));
-    }
-
-    /// <summary>列表回填后错峰入场（只对已实现的容器生效，前 12 行依次浮现）</summary>
-    private void StaggerVersionRows()
-    {
-        if (!_s.Motion.Enabled) return;
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            try
-            {
-                for (var i = 0; i < Math.Min(VersionList.Items.Count, 12); i++)
-                    if (VersionList.ContainerFromIndex(i) is FrameworkElement container)
-                        MotionFx.StaggerIn(container, i);
-            }
-            catch
-            {
-                // 静默：入场动效失败不影响列表
-            }
-        });
     }
 
     /// <summary>大版本分组键："1.21.1" → "1.21"（取前两段）</summary>

@@ -8,6 +8,7 @@
 
 using System.Numerics;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Starcloud.App.Views;
 
@@ -127,5 +128,28 @@ public static class MotionFx
     {
         var step = Math.Clamp(index, 0, maxStagger) * stepMs;
         FadeSlideIn(element, fromY, EnterMs, step);
+    }
+
+    /// <summary>
+    /// 列表回填后让可见项错峰入场。列表控件是虚拟化的，容器要等一帧才实现，
+    /// 所以内部推迟到下一轮消息循环再取样；只动画「已经实现」的容器，滚动出来的新项不做动画（避免滚动时闪烁）。
+    /// </summary>
+    public static void StaggerListItems(ListViewBase list, int maxItems = 12, float fromY = 18f)
+    {
+        if (!AppServices.Instance.Motion.Enabled) return;
+        list.DispatcherQueue?.TryEnqueue(() =>
+        {
+            try
+            {
+                var count = Math.Min(list.Items.Count, maxItems);
+                for (var i = 0; i < count; i++)
+                    if (list.ContainerFromIndex(i) is FrameworkElement container)
+                        StaggerIn(container, i, fromY: fromY);
+            }
+            catch
+            {
+                // 静默：入场动效失败不影响列表
+            }
+        });
     }
 }

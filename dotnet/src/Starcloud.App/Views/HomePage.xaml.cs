@@ -134,6 +134,7 @@ public sealed partial class HomePage : Page
             LocalErrorBar.IsOpen = true;
         }
         VersionList.ItemsSource = _rows;
+        MotionFx.StaggerListItems(VersionList);
         EmptyVersionHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var preferred = _s.Settings.LastVersion is { } last && _rows.Any(r => r.Id == last) ? last
             : _rows.FirstOrDefault()?.Id;

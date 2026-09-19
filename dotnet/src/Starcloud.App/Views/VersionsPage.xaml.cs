@@ -64,6 +64,7 @@ public sealed partial class VersionsPage : Page
         else if (cat != Loc.T("全部")) query = query.Where(r => r.Category == cat);
         var list = query.ToList();
         VersionListView.ItemsSource = list;
+        MotionFx.StaggerListItems(VersionListView);
         EmptyHint.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Title = _all.Count == 0
             ? Loc.T("还没有已安装的版本，去「下载」页安装一个吧")

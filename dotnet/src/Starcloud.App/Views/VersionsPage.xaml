@@ -150,6 +150,8 @@
                         <DataTemplate x:DataType="local:LocalVersionRow">
                             <Grid Padding="12,8" ColumnSpacing="12"
                                   local:CardHoverBehavior.IsEnabled="True"
+                                  local:HoverShadowBehavior.IsEnabled="True"
+                                  local:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
                                   ContextFlyout="{StaticResource RowMenu}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -157,6 +159,21 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
+                                <!-- 跟随光标的行内阴影：只画落在本行内的那一段 -->
+                                <Border x:Name="VersionRowGlow" Grid.ColumnSpan="4" CornerRadius="8" Opacity="0"
+                                        IsHitTestVisible="False">
+                                    <Border.Background>
+                                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                             RadiusX="0.2" RadiusY="0.5">
+                                            <GradientStop Color="#28000000" Offset="0" />
+                                            <GradientStop Color="#1F000000" Offset="0.18" />
+                                            <GradientStop Color="#16000000" Offset="0.40" />
+                                            <GradientStop Color="#0D000000" Offset="0.62" />
+                                            <GradientStop Color="#05000000" Offset="0.82" />
+                                            <GradientStop Color="#00000000" Offset="1" />
+                                        </RadialGradientBrush>
+                                    </Border.Background>
+                                </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Border Width="40" Height="40" CornerRadius="8"
                                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">

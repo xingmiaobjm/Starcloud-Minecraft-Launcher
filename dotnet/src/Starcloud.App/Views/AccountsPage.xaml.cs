@@ -247,6 +247,7 @@ public sealed partial class AccountsPage : Page
                 AvatarHelper.Resolve(a.Type, a.Uuid, a.Username, a.ServerBase)))
             .ToList();
         AccountList.ItemsSource = rows;
+        MotionFx.StaggerListItems(AccountList);
         var empty = rows.Count == 0;
         AccountEmptyText.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         AccountList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;

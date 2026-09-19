@@ -144,12 +144,30 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:AccountRow">
-                            <Border CornerRadius="8" Padding="16"
+                            <Border CornerRadius="8"
                                     local:CardHoverBehavior.IsEnabled="True"
+                                    local:HoverShadowBehavior.IsEnabled="True"
+                                    local:HoverShadowBehavior.Carrier="{Binding ElementName=AccountCardGlow}"
                                     Background="{ThemeResource LayerFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1">
-                                <Grid RowSpacing="10">
+                                <Grid>
+                                    <!-- 跟随光标的卡片内阴影：只画落在本卡片内的那一段（内容绘制在它之上） -->
+                                    <Border x:Name="AccountCardGlow" CornerRadius="8" Opacity="0"
+                                            IsHitTestVisible="False">
+                                        <Border.Background>
+                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                                 RadiusX="0.2" RadiusY="0.5">
+                                                <GradientStop Color="#28000000" Offset="0" />
+                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                <GradientStop Color="#05000000" Offset="0.82" />
+                                                <GradientStop Color="#00000000" Offset="1" />
+                                            </RadialGradientBrush>
+                                        </Border.Background>
+                                    </Border>
+                                <Grid RowSpacing="10" Padding="16">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
                                         <RowDefinition Height="Auto" />
@@ -190,6 +208,7 @@
                                         <Button loc:Loc.Text="删除" Height="30" Padding="12,0"
                                                 Tag="{x:Bind Uuid}" Click="Remove_Click" />
                                     </StackPanel>
+                                </Grid>
                                 </Grid>
                             </Border>
                         </DataTemplate>

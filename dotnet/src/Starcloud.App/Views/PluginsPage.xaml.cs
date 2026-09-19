@@ -122,6 +122,7 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
         }
         EmptyText.Visibility = Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         _syncing = false;
+        MotionFx.StaggerListItems(PluginList);
     }
 
     // ── 安装 ──
