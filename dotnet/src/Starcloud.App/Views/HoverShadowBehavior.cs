@@ -126,7 +126,13 @@ public static class HoverShadowBehavior
             if (state.Host is null && state.Radial is not null)
                 ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
             else if (state.Host is not null)
-                Hosts.GetOrCreateValue(state.Host).Cards.Add(state);
+            {
+                var group = Hosts.GetOrCreateValue(state.Host);
+                group.Element = state.Host;
+                if (!group.Cards.Contains(state)) group.Cards.Add(state);
+                // 组正处在悬停态（例如刚展开分组、行刚被创建出来）：立刻补上光斑，不必等下一次鼠标移动
+                if (group.Active) RefreshGroup(group);
+            }
         }
         catch
         {
@@ -136,13 +142,11 @@ public static class HoverShadowBehavior
             return;
         }
 
-        if (state.Host is null)
-        {
-            // ① 单体：自己跟踪指针
-            element.PointerEntered += OnPointerEntered;
-            element.PointerMoved += OnPointerMoved;
-            element.PointerExited += OnPointerExited;
-        }
+        // 指针事件一律挂在卡片自己身上（列表行的悬停事件是可靠的）；
+        // 找到宿主时由宿主位置驱动整组，找不到就退化成单体，不影响这一张卡片亮起来
+        element.PointerEntered += OnPointerEntered;
+        element.PointerMoved += OnPointerMoved;
+        if (state.Host is null) element.PointerExited += OnPointerExited;
         element.Unloaded += OnUnloaded;
         state.Wired = true;
     }
@@ -200,7 +204,74 @@ public static class HoverShadowBehavior
         {
             return;
         }
-        FadeGroup(host, true);
+        RefreshGroup(host);
+    }
+
+    /// <summary>卡片上的指针事件：把位置换算到宿主坐标系后驱动整组（没宿主就只管自己）</summary>
+    private static void UpdateFromCard(FrameworkElement card, State state, PointerRoutedEventArgs e)
+    {
+        var host = EnsureHost(card, state);
+        if (host?.Element is not { } hostElement)
+        {
+            ApplyLocalLight(card, state, e);
+            Animate(state, true, HoverIn);
+            return;
+        }
+
+        try
+        {
+            host.Point = e.GetCurrentPoint(hostElement).Position;
+            host.Active = true;
+        }
+        catch
+        {
+            return;
+        }
+        RefreshGroup(host);
+    }
+
+    /// <summary>按宿主的全局位置刷新所有从属卡片：各自算自己那一段光斑并淡入</summary>
+    private static void RefreshGroup(GroupHost host)
+    {
+        if (host.Element is not { } hostElement) return;
+        foreach (var card in host.Cards.ToList())
+        {
+            if (!card.Wired || card.Layer is null) continue;
+            try
+            {
+                var local = hostElement.TransformToVisual(card.Layer).TransformPoint(host.Point);
+                ApplyLight(card.Layer, card, local.X, local.Y);
+            }
+            catch
+            {
+                // 静默：虚拟化回收中
+            }
+            Animate(card, true, HoverIn);
+        }
+    }
+
+    /// <summary>懒解析宿主：行是先建好元素、后进可视树的，所以每次指针事件都确认一次</summary>
+    private static GroupHost? EnsureHost(FrameworkElement card, State state)
+    {
+        if (state.Host is null) state.Host = FindHost(card);
+        if (state.Host is null) return null;
+        var host = Hosts.GetOrCreateValue(state.Host);
+        host.Element = state.Host;
+        if (!host.Cards.Contains(state)) host.Cards.Add(state);
+        return host;
+    }
+
+    private static void ApplyLocalLight(FrameworkElement element, State state, PointerRoutedEventArgs e)
+    {
+        try
+        {
+            var p = e.GetCurrentPoint(element).Position;
+            ApplyLight(element, state, p.X, p.Y);
+        }
+        catch
+        {
+            // 静默
+        }
     }
 
     /// <summary>整组淡入 / 淡出，并按全局位置刷新每张卡片的局部光斑</summary>
@@ -210,23 +281,7 @@ public static class HoverShadowBehavior
         foreach (var card in host.Cards.ToList())
         {
             if (!card.Wired) continue;
-            if (visible) ApplyGroupLight(host, card);
             Animate(card, visible, visible ? HoverIn : HoverOut);
-        }
-    }
-
-    /// <summary>把宿主的全局光标位置换算成该卡片内的坐标，再画这一段的径向光斑</summary>
-    private static void ApplyGroupLight(GroupHost host, State card)
-    {
-        if (host.Element is not { } hostElement || card.Layer is not { } layer) return;
-        try
-        {
-            var p = hostElement.TransformToVisual(layer).TransformPoint(host.Point);
-            ApplyLight(layer, card, p.X, p.Y);
-        }
-        catch
-        {
-            // 静默：不在同一棵可视树（虚拟化回收）时跳过
         }
     }
 
@@ -234,30 +289,13 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.Hovered = true;
-        try
-        {
-            var p = e.GetCurrentPoint(fe).Position;
-            ApplyLight(fe, s, p.X, p.Y);
-        }
-        catch
-        {
-            // 静默
-        }
-        Animate(s, true, HoverIn);
+        UpdateFromCard(fe, s, e);
     }
 
     private static void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
-        try
-        {
-            var p = e.GetCurrentPoint(fe).Position;
-            ApplyLight(fe, s, p.X, p.Y);
-        }
-        catch
-        {
-            // 静默
-        }
+        UpdateFromCard(fe, s, e);
     }
 
     private static void OnPointerExited(object sender, PointerRoutedEventArgs e)
