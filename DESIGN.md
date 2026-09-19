@@ -49,6 +49,11 @@
   设置 E713 / 日志 E9F5；另 模组 E71D（下载页分类与主页模组入口）、
   顶栏品牌星标 E728（`BrandBlueBrush` 着色）
 - 应用图标：`Assets/AppIcon.ico`（`AppWindow.SetIcon`）
+- **版本方块图标取用顺序**（`VersionRowHelpers.DisplayIconPath`）：自定义图标（`starcloud/icons/`）→
+  加载器图标（neoforge / forge / fabric / quilt）→ 版本类型图标（正式版草方块 / 快照紫水晶 /
+  远古版圆石与泥土）。加载器判定与类型标签 `DetectKind` **同源**：先看版本 JSON 里的加载器痕迹，
+  再看版本 id 关键字兜底——只看 id 会让整合包/自建实例（名字与加载器无关）错落到原版草方块；
+  原版类型读版本 JSON 的根 `type` 字段，不靠文本子串猜。
 
 ## 5. 控件体系
 

@@ -142,7 +142,7 @@ public sealed partial class HomePage : Page
                 var kind = VersionRowHelpers.DetectKind(dotMc, i.Id);
                 return new LocalVersionRow(
                     i.Id, kind, FormatSize(i.SizeBytes),
-                    VersionRowHelpers.ResolveIconPath(dotMc, profile.IconPath),
+                    VersionRowHelpers.DisplayIconPath(dotMc, i.Id, profile.IconPath),
                     profile.Category ?? "",
                     InstanceLayout.IsIsolated(profile, _s.Settings),
                     VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),

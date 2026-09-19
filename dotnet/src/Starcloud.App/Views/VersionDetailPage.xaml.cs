@@ -96,7 +96,7 @@ public sealed partial class VersionDetailPage : Page
         CategoryBadgeText.Text = category;
         CategoryBadge.Visibility = category.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         IsolatedBadge.Visibility = isolated ? Visibility.Visible : Visibility.Collapsed;
-        ApplyIcon(VersionRowHelpers.ResolveIconPath(dotMc, profile.IconPath));
+        ApplyIcon(VersionRowHelpers.DisplayIconPath(dotMc, _versionId, profile.IconPath));
 
         var running = App.RunningVersionId == _versionId;
         RunningBanner.IsOpen = running;
@@ -863,9 +863,8 @@ public sealed partial class VersionDetailPage : Page
 
     private void ApplyIcon(string? iconPath)
     {
-        // 无手动图标时按版本 id 推断：加载器专属图标，原版落到草方块等类型图标
-        var source = iconPath is not null ? new BitmapImage(new Uri(iconPath))
-            : VersionRowHelpers.LoaderIcon(_versionId);
+        // iconPath 已由 DisplayIconPath 解析好（自定义 > 加载器 > 版本类型），这里只负责加载
+        var source = iconPath is not null ? VersionRowHelpers.ResolveIconSource(iconPath) : null;
         if (source is null)
         {
             IconImage.Source = null;
@@ -914,7 +913,7 @@ public sealed partial class VersionDetailPage : Page
             var profile = _store.Get(_versionId);
             profile.IconPath = fileName;
             _store.Save();
-            ApplyIcon(VersionRowHelpers.ResolveIconPath(_s.Settings.DotMinecraft, profile.IconPath));
+            ApplyIcon(VersionRowHelpers.DisplayIconPath(_s.Settings.DotMinecraft, _versionId, profile.IconPath));
         }
         catch (Exception ex)
         {

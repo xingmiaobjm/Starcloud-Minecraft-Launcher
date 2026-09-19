@@ -39,7 +39,7 @@ public sealed partial class VersionsPage : Page
                 var category = profile.Category ?? "";
                 return new LocalVersionRow(
                     i.Id, VersionRowHelpers.DetectKind(dotMc, i.Id), FormatSize(i.SizeBytes),
-                    VersionRowHelpers.ResolveIconPath(dotMc, profile.IconPath),
+                    VersionRowHelpers.DisplayIconPath(dotMc, i.Id, profile.IconPath),
                     category,
                     InstanceLayout.IsIsolated(profile, _s.Settings),
                     VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),

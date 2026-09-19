@@ -54,8 +54,8 @@ public sealed record LocalVersionRow(string Id, string KindText, string SizeText
     string? IconPath, string Category, bool Isolated, string LastPlayedText, string SearchKey)
 {
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
-    // 图标优先级：用户手动设置 > 加载器图标（原版草方块） > 版本类型方块图标
-    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath) ?? VersionRowHelpers.LoaderIcon(Id);
+    // IconPath 由 VersionRowHelpers.DisplayIconPath 解析好（自定义 > 加载器 > 版本类型）
+    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
     public Visibility IconImageVisibility => Icon is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility IconFontVisibility => Icon is null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
@@ -339,20 +339,60 @@ public static class VersionRowHelpers
     };
 
     /// <summary>
-    /// 按版本 id 推断加载器图标（NeoForge / Forge / Fabric / Quilt；原版返回 null，
-    /// 由模板或调用方落到版本类型方块图标——正式版即草方块）。
+    /// 加载器图标文件名；原版返回 null。
+    /// <para>判定顺序与 <see cref="DetectKind"/> 一致：先看版本 JSON 里的加载器痕迹（这是"标签写 NeoForge"
+    /// 的依据），再看版本 id 里的关键字兜底。只看 id 是不行的——整合包/自建实例的名字往往和加载器无关
+    /// （例如「Create Aero: New Horizons」），会一路落到原版草方块，出现"标签与图标对不上"。</para>
     /// </summary>
-    public static ImageSource? LoaderIcon(string versionId)
+    private static string? LoaderIconFile(string dotMc, string versionId)
     {
+        string json;
+        try
+        {
+            json = File.ReadAllText(Path.Combine(dotMc, "versions", versionId, versionId + ".json"));
+        }
+        catch
+        {
+            json = ""; // 读不到就只按 id 兜底
+        }
+
         foreach (var (key, file) in LoaderIconFiles)
         {
-            if (versionId.Contains(key, StringComparison.OrdinalIgnoreCase))
-            {
-                var path = Path.Combine(AppContext.BaseDirectory, "Assets", "MC-Icons", file);
-                return File.Exists(path) ? ResolveIconSource(path) : null;
-            }
+            if (json.Contains(key, StringComparison.OrdinalIgnoreCase) ||
+                versionId.Contains(key, StringComparison.OrdinalIgnoreCase))
+                return file;
         }
-        return VersionIcon(null); // 原版：草方块（按类型细分在 VersionIcon 内）
+        return null;
+    }
+
+    /// <summary>版本 JSON 的 type 字段（release / snapshot / old_beta / old_alpha）；缺失或损坏按正式版。</summary>
+    public static string DetectVersionType(string dotMc, string versionId)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(
+                File.ReadAllText(Path.Combine(dotMc, "versions", versionId, versionId + ".json")));
+            if (doc.RootElement.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String)
+                return type.GetString() ?? "release";
+        }
+        catch
+        {
+            // 读不到按正式版
+        }
+        return "release";
+    }
+
+    /// <summary>
+    /// 行图标最终取用的文件路径：自定义图标 &gt; 加载器图标 &gt; 版本类型图标（正式版草方块 / 快照紫水晶 /
+    /// 远古版圆石与泥土）。资源文件缺失返回 null，由模板里的 FontIcon 兜底。
+    /// </summary>
+    public static string? DisplayIconPath(string dotMc, string versionId, string? customIconPath)
+    {
+        if (ResolveIconPath(dotMc, customIconPath) is { } custom) return custom;
+        var file = LoaderIconFile(dotMc, versionId)
+            ?? VersionIconFiles.GetValueOrDefault(DetectVersionType(dotMc, versionId), VersionIconFiles["release"]);
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "MC-Icons", file);
+        return File.Exists(path) ? path : null;
     }
 
     /// <summary>
