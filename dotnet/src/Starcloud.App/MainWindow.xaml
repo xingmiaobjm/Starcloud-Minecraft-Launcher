@@ -79,11 +79,11 @@
             </Button>
 
             <!-- 调度中心入口：原 Starcloud ID 账户按钮旁，徽标 = 运行中任务数 -->
-            <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
-                    Padding="0" CornerRadius="8"
-                    Background="Transparent" BorderThickness="0"
-                    loc:Loc.Name="调度中心" ToolTipService.ToolTip="调度中心"
-                    Click="TaskCenterBtn_Click">
+             <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
+                     Padding="0" CornerRadius="8"
+                     Background="Transparent" BorderThickness="0"
+                     loc:Loc.Name="调度中心" loc:Loc.Tip="调度中心"
+                     Click="TaskCenterBtn_Click">
                 <Grid Width="32" Height="32">
                     <Border CornerRadius="8"
                             Background="{ThemeResource GlassCardBrush}"
@@ -310,38 +310,78 @@
             </Grid>
         </NavigationView>
 
-        <!-- 调度中心（右侧抽屉）：左遮罩（点击关闭）+ 432px 面板 -->
+        <!-- 调度中心（右侧任务抽屉）：左遮罩（点击关闭）+ 432px 面板。
+             结构 = 标题行（标题 / 清除已完成 / 关闭）→ 状态行 → 两段任务列表（进行中、已完成）。
+             Esc 走 KeyboardAccelerator（不依赖焦点）；Tab 由 TabFocusNavigation="Cycle" 锁在抽屉内；
+             入场动效由 MotionService 开关控制（关闭动效时不加任何转场）。 -->
         <Grid x:Name="TaskCenterOverlay" Grid.Row="1" Visibility="Collapsed">
+            <Grid.KeyboardAccelerators>
+                <KeyboardAccelerator Key="Escape" Invoked="TaskCenterEscape_Invoked" />
+            </Grid.KeyboardAccelerators>
             <Rectangle x:Name="TaskCenterScrim" Fill="#5A000000"
                        Tapped="TaskCenterScrim_Tapped" />
             <Border x:Name="TaskCenterDrawer" Width="432" HorizontalAlignment="Right"
                     Background="{ThemeResource AppPaneBackgroundBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1,0,0,0">
-                <Grid Margin="18,16,16,12" RowSpacing="10">
+                <Grid Margin="20,16,14,12" RowSpacing="10" TabFocusNavigation="Cycle">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <Grid Grid.Row="0">
-                        <StackPanel Orientation="Horizontal" Spacing="9">
+
+                    <!-- 标题行 -->
+                    <Grid Grid.Row="0" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xE9F5;" FontSize="15"
-                                      Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                            <TextBlock loc:Loc.Text="调度中心" FontSize="17" FontWeight="SemiBold" />
-                            <TextBlock x:Name="TaskSummaryText" FontSize="11" Opacity="0.7"
-                                       VerticalAlignment="Bottom" Margin="0,0,0,2" />
+                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+                            <TextBlock loc:Loc.Text="调度中心" FontSize="17" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button HorizontalAlignment="Right" Padding="7" MinWidth="0" MinHeight="0"
-                                Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="关闭"
-                                Click="TaskCenterClose_Click">
+                        <Button x:Name="TaskClearDoneBtn" Grid.Column="1" Visibility="Collapsed"
+                                loc:Loc.Text="清除已完成" FontSize="12" Padding="10,4"
+                                MinWidth="0" MinHeight="0" VerticalAlignment="Center"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Click="TaskClearDone_Click" />
+                        <Button x:Name="TaskCenterCloseBtn" Grid.Column="2"
+                                Padding="8" MinWidth="0" MinHeight="0" VerticalAlignment="Center"
+                                Background="Transparent" BorderThickness="0"
+                                loc:Loc.Tip="关闭" Click="TaskCenterClose_Click">
                             <FontIcon Glyph="&#xE711;" FontSize="13"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </Button>
                     </Grid>
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="2,0,6,0">
-                        <Grid>
-                            <StackPanel x:Name="TaskListHost" />
-                        </Grid>
+
+                    <!-- 状态行：进行中任务数 / 记录条数 -->
+                    <TextBlock Grid.Row="1" x:Name="TaskSummaryText" FontSize="11"
+                               Margin="2,-6,0,0" TextWrapping="NoWrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                                  Padding="0,0,6,0" loc:Loc.Name="任务列表">
+                        <StackPanel>
+                            <TextBlock x:Name="TaskRunningHeader" Visibility="Collapsed"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       Margin="2,0,0,6"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <StackPanel x:Name="TaskRunningHost" Spacing="2" />
+                            <TextBlock x:Name="TaskDoneHeader" Visibility="Collapsed"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       Margin="2,16,0,6"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <StackPanel x:Name="TaskDoneHost" Spacing="2" />
+                            <local:EmptyStateView x:Name="TaskEmptyState" Visibility="Collapsed"
+                                                  Margin="0,48,0,24" Glyph="&#xE9F5;"
+                                                  loc:Loc.Title="这里会显示任务进度"
+                                                  loc:Loc.Subtitle="安装版本、下载资源或启动游戏时，进度会实时出现在这里。" />
+                        </StackPanel>
                     </ScrollViewer>
                 </Grid>
             </Border>

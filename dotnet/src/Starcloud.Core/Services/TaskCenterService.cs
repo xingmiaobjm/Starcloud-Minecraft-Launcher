@@ -123,6 +123,16 @@ public sealed class TaskCenterService
         Changed?.Invoke();
     }
 
+    /// <summary>清除已结束的任务记录（完成 / 失败 / 取消），进行中的任务保留。
+    /// 返回被清除的条数，便于 UI 判断是否需要刷新。</summary>
+    public int ClearFinished()
+    {
+        int removed;
+        lock (_gate) removed = _tasks.RemoveAll(t => t.State != AppTaskState.Running);
+        if (removed > 0) Changed?.Invoke();
+        return removed;
+    }
+
     /// <summary>运行中任务数（悬浮按钮徽标）</summary>
     public int RunningCount
     {

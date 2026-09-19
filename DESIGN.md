@@ -114,3 +114,39 @@
   悬浮 ToolTip 为卡片式，展示昵称 / Starcloud ID / 登录态与通道，点击跳账户页
 - **浮窗提醒**：`NovaToastTip`（`TeachingTip`，`Target=NovaOrb`，Bottom 放置）承接
   Nova 的一句话提醒，8s 后自动收起
+
+## 10. 调度中心（MainWindow.xaml 右侧任务抽屉）
+
+调度中心回答一个问题：**启动器现在在忙什么、多快**。因此这里的排版原则是
+「关键数字当主角」——每行右对齐的那个值（百分比 / 速度 / 结果）比标题更重要。
+
+- **入口**：顶栏右侧 44×36 透明按钮（`TaskCenterBtn`），内层 32×32 圆角 8 的
+  `GlassCardBrush` 卡片 + E9F5 字形；运行中任务数 > 0 时右上角叠
+  `AccentFillColorDefaultBrush` 徽标（accent 面强制 `TextOnAccentFillColorPrimaryBrush` 黑字加粗）。
+  徽标只表示「有几件事在做」，不做动画，避免顶栏一直闪
+- **抽屉**：432px 固定宽，`AppPaneBackgroundBrush` 实色面 + 左侧 1px
+  `CardStrokeColorDefaultBrush` 描边；左侧遮罩 `#5A000000` 点击即关
+- **结构（三段）**：标题行（accent 着色 E9F5 图标 + 「调度中心」17 SemiBold +
+  「清除已完成」文本按钮 + 关闭按钮）→ 状态行（11px secondary，如「3 个任务进行中，共 5 条」）
+  → 任务列表
+- **任务列表 = 两个语义分区**，分区标题 13 SemiBold secondary（「进行中 · N」/「已完成 · N」）：
+  - **进行中**：材质卡片（圆角 8、`LayerFillColorDefaultBrush` + 1px 描边、内边距 12/10）。
+    行内自上而下：状态点（accent）→ 标题（13 SemiBold）与右对齐关键数字（13 SemiBold）同行 →
+    4px 自绘进度条 → 详情（11px secondary）→ 多源贡献带
+  - **已完成**：**无卡片的纯文本行**（同一行：状态点 + 标题 + 右对齐结果）。
+    活跃的工作「有实体」，历史只是记录，二者不抢注意力
+- **状态点 / 进度色只用语义刷**：进行中 `AccentFillColorDefaultBrush`（浅色主题黄、深色主题绿，
+  随 `App.xaml` 的 accent 覆盖走）、完成 `SystemFillColorSuccessBrush`、
+  失败 `SystemFillColorCriticalBrush`、取消 `TextFillColorDisabledBrush`；
+  进度条底槽 `ControlStrongFillColorDefaultBrush`
+- **多源竞速的「贡献带」（本面板唯一的记忆点）**：一根 6px 高、按各源字节占比分段的横条
+  （段间 3px 间隙，圆角只给首尾两段），**领先源实心品牌 accent，其余中性色按名次递减透明度**
+  （1 → 0.85 → 0.70 → 0.55…，下限 0.35）；下方图例逐源列出「色块 + 源名 + 体积 · 占比」。
+  一眼看出这一票是谁在扛；只有一个源时退化回普通进度条（没有可比性就不画）
+- **进度条自绘**：两列 Star 网格改列宽，不做数值动画——框架 `ProgressBar` 的值变化自带缓动，
+  300ms 刷新节奏下动画永远追不上，会表现为进度条抽搐；不确定进度时才用框架流动条
+- **动效**：抽屉入场用框架 `EntranceThemeTransition`（右侧 32px 位移），
+  由 `MotionService` 开关控制（关闭动效时不挂任何转场）；系统「显示动画」关闭时自动不播
+- **键盘与无障碍**：打开时焦点落到关闭按钮，关闭时焦点归还入口按钮；
+  `TabFocusNavigation="Cycle"` 把 Tab 锁在抽屉内；Esc 经 `KeyboardAccelerator` 关闭
+  （不依赖焦点位置）；每行 `AutomationProperties.Name` = 任务名，HelpText = 当前进度或结果
