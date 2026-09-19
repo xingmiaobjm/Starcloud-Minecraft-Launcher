@@ -1,4 +1,4 @@
-// 路径与设置持久化（%APPDATA%/starcloud-launcher，与历史版本共用数据根）
+// 路径与设置持久化（数据根/starcloud-launcher；Windows 与历史版本共用 %APPDATA% 数据根）
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,9 +7,14 @@ namespace Starcloud.Core.Services;
 
 public static class LauncherPaths
 {
-    public static string DataDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "starcloud-launcher");
+    /// <summary>
+    /// 数据根目录；设置 STARCLOUD_DATA_DIR 可重定向（测试隔离用）。
+    /// 默认 Windows %APPDATA%、macOS ~/Library/Application Support、Linux XDG_DATA_HOME 或 ~/.local/share。
+    /// </summary>
+    public static string DataDir { get; } =
+        Environment.GetEnvironmentVariable("STARCLOUD_DATA_DIR") is { Length: > 0 } redirected
+            ? redirected
+            : Path.Combine(PlatformInfo.DefaultAppDataRoot, "starcloud-launcher");
 
     public static string SettingsFile => Path.Combine(DataDir, "launcher.settings.json");
 
@@ -44,6 +49,22 @@ public static class LauncherPaths
     public static string LibraryIndexFile => Path.Combine(LibraryDir, "library.json");
 
     public static string JavaDir => Path.Combine(DataDir, "java");
+
+    // ── 插件系统（plugin-spec.md） ──
+    /// <summary>插件根目录：packs 安装包 / unpacked 解压根 / logs 运行日志 / _runtime 宿主 SDK</summary>
+    public static string PluginsDir => Path.Combine(DataDir, "plugins");
+
+    public static string PluginPacksDir => Path.Combine(PluginsDir, "packs");
+
+    public static string PluginUnpackedDir => Path.Combine(PluginsDir, "unpacked");
+
+    public static string PluginLogsDir => Path.Combine(PluginsDir, "logs");
+
+    /// <summary>Python 插件宿主 SDK（starcloud_host.py）所在目录</summary>
+    public static string PluginRuntimeDir => Path.Combine(PluginsDir, "_runtime");
+
+    /// <summary>插件启用状态与免责确认持久化</summary>
+    public static string PluginStateFile => Path.Combine(PluginsDir, "plugin-state.json");
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
 
@@ -97,8 +118,7 @@ public sealed class NovaLlmProfile
 public sealed class LauncherSettings
 {
     [JsonPropertyName("dot_minecraft")]
-    public string DotMinecraft { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
+    public string DotMinecraft { get; set; } = PlatformInfo.DefaultDotMinecraft;
 
     [JsonPropertyName("language")]
     public string Language { get; set; } = "zh_CN";
@@ -143,6 +163,10 @@ public sealed class LauncherSettings
 
     [JsonPropertyName("theme")]
     public string Theme { get; set; } = "system";
+
+    /// <summary>账户页右侧玩家形象是否播放走路动画（关闭 = 站立静止）。</summary>
+    [JsonPropertyName("account_walk_animation")]
+    public bool AccountWalkAnimation { get; set; } = true;
 
     // ── Nova LLM 降级链第 1 级：用户自填 Key（OpenAI 兼容协议，零成本） ──
     // 旧版单模型三字段仅保留用于迁移读取；新设置用 nova_llm_profiles 多模型档案。

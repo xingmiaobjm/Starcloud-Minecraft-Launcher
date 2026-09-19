@@ -1,6 +1,8 @@
-// 账户存储：离线账户（uuid 按 OfflinePlayer 规则）+ 微软设备码登录（官方启动器 client_id）
+// 账户存储：微软设备码登录 + 第三方（Yggdrasil 外置登录）。
+// 合规：鉴权 token（accessToken/refreshToken）仅存内存会话，绝不落盘；
+// 磁盘只保存身份信息（uuid/用户名/服务器地址/设备标识 clientToken）。
+// 离线账户已按合规要求移除，Load 时静默清除历史遗留条目。
 
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,21 +18,37 @@ public sealed class StoredAccount
     public string Username { get; set; } = "";
 
     [JsonPropertyName("type")]
-    public string Type { get; set; } = "offline";
-
-    [JsonPropertyName("access_token")]
-    public string? AccessToken { get; set; }
-
-    [JsonPropertyName("refresh_token")]
-    public string? RefreshToken { get; set; }
+    public string Type { get; set; } = "microsoft";
 
     [JsonPropertyName("is_default")]
     public bool IsDefault { get; set; }
+
+    // ── 第三方（external）账户专属 ──
+
+    /// <summary>解析后的认证服务器真实 base（Yggdrasil API 根）</summary>
+    [JsonPropertyName("server_base")]
+    public string? ServerBase { get; set; }
+
+    /// <summary>用户填写的原始地址（可能为别名跳转前的 URL）</summary>
+    [JsonPropertyName("server_alias")]
+    public string? ServerAlias { get; set; }
+
+    /// <summary>认证服务器展示名（meta.serverName）</summary>
+    [JsonPropertyName("server_name")]
+    public string? ServerName { get; set; }
+
+    /// <summary>Yggdrasil 设备标识（非鉴权 token，终身固定复用）</summary>
+    [JsonPropertyName("client_token")]
+    public string? ClientToken { get; set; }
 }
+
+/// <summary>一次应用会话内的账户凭证（仅内存，进程退出即失效，绝不序列化）</summary>
+public sealed record AccountSession(string AccessToken, string? RefreshToken = null, string? Xuid = null);
 
 public sealed class AccountStore
 {
     private readonly List<StoredAccount> _accounts = [];
+    private readonly Dictionary<string, AccountSession> _sessions = []; // uuid → 会话凭证
 
     public IReadOnlyList<StoredAccount> Accounts => _accounts;
 
@@ -51,6 +69,9 @@ public sealed class AccountStore
                 /* 损坏则从空开始 */
             }
         }
+        // 合规：历史遗留的离线账户静默清除并回写
+        if (store._accounts.RemoveAll(a => a.Type == "offline") > 0)
+            store.Save();
         return store;
     }
 
@@ -61,35 +82,13 @@ public sealed class AccountStore
             JsonSerializer.Serialize(_accounts, SettingsJson.Options));
     }
 
-    public StoredAccount AddOffline(string username)
-    {
-        if (string.IsNullOrWhiteSpace(username))
-            throw new ArgumentException("玩家名不能为空");
-        var uuid = GameLauncher.OfflineUuid(username).ToString("N");
-        var existing = _accounts.FirstOrDefault(a => a.Uuid == uuid);
-        if (existing is not null) return existing;
-        var account = new StoredAccount
-        {
-            Uuid = uuid,
-            Username = username.Trim(),
-            Type = "offline",
-            IsDefault = _accounts.Count == 0,
-        };
-        _accounts.Add(account);
-        Save();
-        return account;
-    }
-
-    /// <summary>添加或更新微软账户（按 uuid 去重），并设为默认</summary>
-    public StoredAccount AddOrUpdateMicrosoft(string uuid, string username,
-        string accessToken, string? refreshToken)
+    /// <summary>添加或更新微软账户身份（按 uuid 去重），凭证另经 SetSession 存内存</summary>
+    public StoredAccount AddOrUpdateMicrosoft(string uuid, string username)
     {
         var existing = _accounts.FirstOrDefault(a => a.Uuid == uuid);
         if (existing is not null)
         {
             existing.Username = username;
-            existing.AccessToken = accessToken;
-            existing.RefreshToken = refreshToken;
             existing.Type = "microsoft";
         }
         else
@@ -99,8 +98,6 @@ public sealed class AccountStore
                 Uuid = uuid,
                 Username = username,
                 Type = "microsoft",
-                AccessToken = accessToken,
-                RefreshToken = refreshToken,
                 IsDefault = _accounts.Count == 0,
             };
             _accounts.Add(existing);
@@ -109,9 +106,51 @@ public sealed class AccountStore
         return existing;
     }
 
+    /// <summary>添加或更新第三方（Yggdrasil）账户身份；clientToken 首次生成后终身固定</summary>
+    public StoredAccount AddOrUpdateExternal(
+        string uuid, string username, string serverBase, string serverAlias, string? serverName)
+    {
+        var existing = _accounts.FirstOrDefault(a => a.Uuid == uuid);
+        if (existing is not null)
+        {
+            existing.Username = username;
+            existing.Type = "external";
+            existing.ServerBase = serverBase;
+            existing.ServerAlias = serverAlias;
+            existing.ServerName = serverName;
+        }
+        else
+        {
+            existing = new StoredAccount
+            {
+                Uuid = uuid,
+                Username = username,
+                Type = "external",
+                ServerBase = serverBase,
+                ServerAlias = serverAlias,
+                ServerName = serverName,
+                ClientToken = Guid.NewGuid().ToString("N"),
+                IsDefault = _accounts.Count == 0,
+            };
+            _accounts.Add(existing);
+        }
+        if (string.IsNullOrEmpty(existing.ClientToken))
+            existing.ClientToken = Guid.NewGuid().ToString("N");
+        Save();
+        return existing;
+    }
+
+    /// <summary>写入会话凭证（仅内存；进程退出即失效）</summary>
+    public void SetSession(string uuid, AccountSession session) => _sessions[uuid] = session;
+
+    /// <summary>读取会话凭证；无则返回 null（本次会话尚未登录）</summary>
+    public AccountSession? GetSession(string uuid) =>
+        _sessions.TryGetValue(uuid, out var s) ? s : null;
+
     public void Remove(string uuid)
     {
         _accounts.RemoveAll(a => a.Uuid == uuid);
+        _sessions.Remove(uuid);
         if (_accounts.Count > 0 && _accounts.All(a => !a.IsDefault))
             _accounts[0].IsDefault = true;
         Save();
@@ -211,27 +250,6 @@ public sealed class MicrosoftAuthService
             LauncherLog.Write("auth", $"登录成功 {result.Username} ({result.Uuid})");
             return ("success", "登录成功", result);
         }
-    }
-
-    /// <summary>用 refresh_token 续期并重走认证链；refresh_token 失效返回 null（需重新设备码登录），
-    /// 网络异常原样抛出由调用方决定降级策略。</summary>
-    public async Task<LoginResult?> RefreshAsync(string refreshToken, CancellationToken ct = default)
-    {
-        var resp = await _http.PostAsync(
-            TokenEndpoint,
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["client_id"] = ClientId,
-                ["grant_type"] = "refresh_token",
-                ["refresh_token"] = refreshToken,
-                ["scope"] = MbiScope,
-            }), ct);
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        if (doc.RootElement.TryGetProperty("error", out var error)) return null;
-        var accessToken = doc.RootElement.GetProperty("access_token").GetString()!;
-        var newRefresh = doc.RootElement.TryGetProperty("refresh_token", out var rt)
-            ? rt.GetString() : refreshToken;
-        return await AuthenticateWithMicrosoftTokenAsync(accessToken, newRefresh, ct);
     }
 
     /// <summary>查询 Minecraft 档案：显式带 Bearer 令牌；令牌刚下发时服务端可能尚未传播，

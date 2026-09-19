@@ -1,5 +1,5 @@
 // 存档页：跨版本列出 / 搜索 / 筛选世界，支持备份 zip / 删除 / 打开文件夹 / 跨版本复制启动
-// 设计：docs/superpowers/specs/2026-09-10-saves-cross-version-design.md
+// 设计：docs/designs/2026-09-10-saves-cross-version-design.md
 
 using System.Diagnostics;
 using System.IO;
@@ -172,7 +172,7 @@ public sealed partial class SavesPage : Page
     private async void Backup_Click(object s, RoutedEventArgs e)
     {
         if (SaveList.SelectedItem is not SaveRow row || _busy) return;
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("备份世界"),
             Content = Loc.T("将「{0}」压缩备份到 backups 文件夹，可能需要一些时间，继续吗？", row.Name),
@@ -209,7 +209,7 @@ public sealed partial class SavesPage : Page
     private async void Delete_Click(object s, RoutedEventArgs e)
     {
         if (SaveList.SelectedItem is not SaveRow row || _busy) return;
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("删除世界"),
             Content = Loc.T("确定要删除「{0}」吗？\n世界文件夹将被移除，建议先备份。此操作不可恢复。", row.Name),
@@ -255,10 +255,11 @@ public sealed partial class SavesPage : Page
             return;
         }
 
-        ResolvedPlayer player;
+        ResolvedPlayer? resolved;
         try
         {
-            player = await _s.LaunchAccount.ResolveAsync();
+            // 共享就地登录流程：会话内无凭证时弹登录框，登录后自动重试
+            resolved = await AuthDialogs.EnsurePlayableAccountAsync(Content.XamlRoot, _s);
         }
         catch (Exception ex)
         {
@@ -266,6 +267,7 @@ public sealed partial class SavesPage : Page
             ErrorBar.IsOpen = true;
             return;
         }
+        if (resolved is not { } player) return; // 用户取消就地登录
 
         var store = new InstanceSettingsStore(dotMc);
         var warn = new InfoBar { Severity = InfoBarSeverity.Warning, IsOpen = true, IsClosable = false };
@@ -284,7 +286,8 @@ public sealed partial class SavesPage : Page
         };
         var account = new TextBlock
         {
-            Text = Loc.T("使用账户：{0}（{1}）", player.Name, player.Credentials is null ? Loc.T("离线") : Loc.T("正版")),
+            Text = Loc.T("使用账户：{0}（{1}）", player.Name,
+                player.ExternalBase is not null ? Loc.T("第三方") : Loc.T("正版")),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
         };
@@ -296,7 +299,7 @@ public sealed partial class SavesPage : Page
         panel.Children.Add(account);
         panel.Children.Add(confirm);
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("用其他版本打开世界"),
             Content = panel,
@@ -403,11 +406,24 @@ public sealed partial class SavesPage : Page
         {
             var store = new InstanceSettingsStore(dotMc);
             var eff = InstanceLayout.Resolve(dotMc, targetId, store.Get(targetId), _s.Settings);
-            var player = await _s.LaunchAccount.ResolveAsync();
+            var player = await AuthDialogs.EnsurePlayableAccountAsync(Content.XamlRoot, _s);
+            if (player is null) return; // 用户取消就地登录
+
+            // 第三方账户：注入 authlib-injector（Assets 内置 jar + 用户自己的认证服务器）
+            string? agentJar = null;
+            if (player.ExternalBase is not null)
+            {
+                agentJar = AppServices.AgentJarPath()
+                    ?? throw new InvalidOperationException(
+                        "authlib-injector 组件缺失，无法启动第三方账户，请重新安装启动器");
+            }
+
             var options = new LaunchOptions(targetId, player.Name, eff.GameRoot, dotMc,
                 eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs, _s.Settings.UseBuiltinJvmArgs,
                 player.Credentials, eff.ServerAddress, eff.Language, eff.LanguageOverride,
-                eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars, null, null);
+                eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars, null, null,
+                AgentJarPath: agentJar, AgentBase: player.ExternalBase,
+                PluginHook: AppServices.Instance.PluginHost);
 
             var rec = new PendingWorldRecord
             {
@@ -537,7 +553,7 @@ public sealed partial class SavesPage : Page
             ? Loc.T("「{0}」已复制到 {1}，但游戏未成功启动。这份副本要如何处理？", rec.WorldName, rec.TargetVersion)
             : Loc.T("「{0}」在 {1} 中的改动将如何处理？", rec.WorldName, rec.TargetVersion);
 
-        var dlg = new ContentDialog
+        var dlg = new ThemedDialog
         {
             Title = Loc.T("世界成果归属"),
             Content = detail,

@@ -15,6 +15,10 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" MinHeight="220" />
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
         <!-- 大标题 + 右上主操作 -->
         <Grid Grid.Row="0" ColumnSpacing="16">
@@ -29,7 +33,7 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
             <Button Grid.Column="1" loc:Loc.Text="添加一个游戏账户" VerticalAlignment="Center"
-                    Style="{StaticResource AccentButtonStyle}" Click="AddAccount_Click" />
+                    Style="{StaticResource AccentButtonStyle}" FontWeight="Bold" Click="AddAccount_Click" />
         </Grid>
 
         <!-- 状态条 -->
@@ -48,7 +52,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon Glyph="&#xE99A;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
                         <TextBlock loc:Loc.Text="Starcloud ID" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock loc:Loc.Text="登录后自动创建 Nova 云端模型 Key" FontSize="12"
+                        <TextBlock loc:Loc.Text="登录后可使用邀请 / 时刻等在线功能" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" />
                     </StackPanel>
@@ -60,7 +64,7 @@
                             <ComboBoxItem loc:Loc.Text="云端通道" />
                         </ComboBox>
                         <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource AccentButtonStyle}"
-                                Click="ScLogin_Click" />
+                                FontWeight="Bold" Click="ScLogin_Click" />
                         <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
                                       IsActive="False" VerticalAlignment="Center" />
                         <HyperlinkButton loc:Loc.Text="没有账号？注册" Padding="4,0" VerticalAlignment="Center"
@@ -193,5 +197,11 @@
                 </ListView>
             </Grid>
         </Border>
+
+        <!-- 玩家 3D 形象：悬浮于毛玻璃上，可拖拽旋转，随账户换肤与走路动画摆动 -->
+        <local:Skin3DView x:Name="PlayerView" Grid.Column="1" Grid.Row="2" Grid.RowSpan="2"
+                          Width="230" Height="430"
+                          HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,4" />
     </Grid>
 </Page>
+

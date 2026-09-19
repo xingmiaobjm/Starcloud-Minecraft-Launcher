@@ -94,9 +94,7 @@ public sealed class LaunchPreflightService
                 if (!await Sha1MatchesAsync(libPath, artifact.Sha1, ct))
                     report.Issues.Add(new PreflightIssue("lib", libPath, null));
             }
-            if (dl?.Classifiers is not null &&
-                dl.Classifiers.TryGetValue("natives-windows", out var native) &&
-                native.Path is not null)
+            if (InstallerService.NativesOf(dl) is { Path: not null } native)
             {
                 var nativePath = Path.Combine(dotMinecraft, "libraries", native.Path);
                 if (!await Sha1MatchesAsync(nativePath, native.Sha1, ct))
@@ -236,9 +234,7 @@ public sealed class LaunchPreflightService
             {
                 files.Add((artifact.Url, issuePath, artifact.Sha1, artifact.Size));
             }
-            if (dl?.Classifiers is not null &&
-                dl.Classifiers.TryGetValue("natives-windows", out var native) &&
-                native.Path is not null &&
+            if (InstallerService.NativesOf(dl) is { Path: not null } native &&
                 Path.Combine(dotMinecraft, "libraries", native.Path)
                     .Equals(issuePath, StringComparison.OrdinalIgnoreCase))
             {

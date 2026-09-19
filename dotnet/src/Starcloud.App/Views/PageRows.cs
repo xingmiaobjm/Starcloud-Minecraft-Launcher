@@ -2,6 +2,9 @@
 
 using System.ComponentModel;
 using System.IO;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -61,9 +64,10 @@ public sealed record LocalVersionRow(string Id, string KindText, string SizeText
     string? IconPath, string Category, bool Isolated, string LastPlayedText, string SearchKey)
 {
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
-    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
-    public Visibility HasIconIconVisibility => HasIcon ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility IconFallbackVisibility => HasIcon ? Visibility.Collapsed : Visibility.Visible;
+    // 图标优先级：用户手动设置 > 加载器图标（原版草方块） > 版本类型方块图标
+    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath) ?? VersionRowHelpers.LoaderIcon(Id);
+    public Visibility IconImageVisibility => Icon is null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility IconFontVisibility => Icon is null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CategoryVisibility => string.IsNullOrEmpty(Category) ? Visibility.Collapsed : Visibility.Visible;
 }
@@ -90,7 +94,6 @@ public sealed class ModRow
     public string LoadersText { get; init; } = "";
     public string DownloadsText { get; init; } = "";
     public string UpdatedText { get; init; } = "";
-    public string ButtonText { get; init; } = Loc.T("安装");
     public ImageSource? Icon { get; init; }
 
     public Visibility LoadersVisibility =>
@@ -108,11 +111,6 @@ public sealed record AccountRow(
     public Visibility DefaultBadgeVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DefaultBtnVisibility => IsDefault ? Visibility.Collapsed : Visibility.Visible;
 }
-
-/// <summary>资源管理列表行</summary>
-public sealed record LibraryRow(
-    string Id, string Kind, string Title, string FileName, string SubText,
-    string SizeText, string TimeText, ImageSource? Icon, string KindLabel);
 
 /// <summary>版本内容分区的单个文件行</summary>
 public sealed record ContentFileRow(
@@ -167,8 +165,8 @@ public static class RemoteIconHelper
 
 /// <summary>
 /// 玩家皮肤头像（第三方服务 minotar.net，helm = 头部含帽子层）：微软账户用 UUID（不随改名失效），
-/// 离线账户用玩家名。复用社区图标的「缓存优先 + 直连兜底」逻辑；请求失败（无网络 / 名字不存在
-/// 返回 404）时 <see cref="Microsoft.UI.Xaml.Controls.Image"/> 不渲染，由底层的首字母色块自然兜底。
+/// 第三方账户用认证服务器的会话皮肤。复用社区图标的「缓存优先 + 直连兜底」逻辑；请求失败（无网络 /
+/// 名字不存在返回 404）时 <see cref="Microsoft.UI.Xaml.Controls.Image"/> 不渲染，由底层的首字母色块自然兜底。
 /// 注：曾用 mc-heads.net，实测对本机微软档案间歇性返回 403（Cloudflare 拦截），故弃用。
 /// </summary>
 public static class AvatarHelper
@@ -185,8 +183,122 @@ public static class AvatarHelper
     }
 
     /// <summary>解析账户头像；无标识 / 无网络 / 名字不存在时返回 null。</summary>
-    public static ImageSource? Resolve(string? type, string? uuid, string? username) =>
-        RemoteIconHelper.Resolve(UrlFor(type, uuid, username));
+    public static ImageSource? Resolve(string? type, string? uuid, string? username, string? externalBase = null) =>
+        type == "external" ? ResolveExternal(uuid, externalBase)
+                           : RemoteIconHelper.Resolve(UrlFor(type, uuid, username));
+
+    /// <summary>external 内存缓存 (serverBase, uuid) → 皮肤 URL；null 值也缓存，避免重复请求。</summary>
+    private static readonly Dictionary<(string, string), string?> ExternalUrlCache = [];
+
+    /// <summary>
+    /// 第三方皮肤：会话服务器查询是异步的，首次调用后台解析（此时显示首字母色块），
+    /// 解析完成后下一次刷新列表即命中缓存显示皮肤；失败保持首字母色块。
+    /// </summary>
+    private static ImageSource? ResolveExternal(string? uuid, string? externalBase)
+    {
+        if (string.IsNullOrWhiteSpace(uuid) || string.IsNullOrWhiteSpace(externalBase)) return null;
+        var cacheKey = (externalBase, uuid);
+        if (!ExternalUrlCache.TryGetValue(cacheKey, out var url))
+        {
+            ExternalUrlCache[cacheKey] = null; // 占位防并发重复请求
+            _ = ResolveExternalCoreAsync(externalBase, uuid);
+            return null;
+        }
+        return url is null ? null : RemoteIconHelper.Resolve(url);
+    }
+
+    private static async Task ResolveExternalCoreAsync(string externalBase, string uuid)
+    {
+        string? url = null;
+        try
+        {
+            url = await AppServices.Instance.Yggdrasil.GetSkinUrlAsync(externalBase, uuid);
+        }
+        catch { /* 皮肤是尽力而为 */ }
+        ExternalUrlCache[(externalBase, uuid)] = string.IsNullOrWhiteSpace(url) ? null : url;
+    }
+}
+
+/// <summary>
+/// Mod 名称中文翻译（来源：MC 百科搜索页第一条模组条目的标题）。缓存优先：内存 → 磁盘
+/// （mod_title_cache.json，英文原名 → 中文名）→ 联网解析；未命中先显示原名并后台解析，
+/// 下一次列表刷新即显示中文；解析失败（无网络 / 页面结构变化）静默保留原名。
+/// </summary>
+public static class ModTitleHelper
+{
+    /// <summary>英文名 → 中文名；null = 已查过但无翻译（占位防重复请求）。</summary>
+    private static readonly Dictionary<string, string?> Cache = [];
+    private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
+    private static bool _loaded;
+
+    static ModTitleHelper() =>
+        Http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Starcloud Launcher)");
+
+    private static string CachePath => Path.Combine(
+        Starcloud.Core.Services.LauncherPaths.DataDir, "mod_title_cache.json");
+
+    /// <summary>显示标题：命中翻译显示中文，否则原名（未命中的顺手发起后台解析）。</summary>
+    public static string Display(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return title;
+        EnsureLoaded();
+        if (Cache.TryGetValue(title, out var zh)) return zh ?? title;
+        Cache[title] = null;   // 占位，避免同名重复请求
+        _ = ResolveAsync(title);
+        return title;
+    }
+
+    /// <summary>异步取翻译：命中直接返回；未命中解析后返回（无翻译返回 null，供详情窗标题即时更新）。</summary>
+    public static async Task<string?> GetAsync(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return null;
+        EnsureLoaded();
+        if (Cache.TryGetValue(title, out var zh)) return zh;
+        Cache[title] = null;   // 占位，避免同名重复请求
+        return await ResolveAsync(title);
+    }
+
+    private static void EnsureLoaded()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        try
+        {
+            if (!File.Exists(CachePath)) return;
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(CachePath));
+            if (map is null) return;
+            foreach (var (k, v) in map) Cache[k] = v;
+        }
+        catch { /* 缓存损坏从零开始 */ }
+    }
+
+    private static async Task<string?> ResolveAsync(string title)
+    {
+        try
+        {
+            var url = $"https://search.mcmod.cn/s?key={Uri.EscapeDataString(title)}";
+            var html = await Http.GetStringAsync(url);
+            // 条目结构：<a ... href="https://www.mcmod.cn/class/3124.html"><em>Fabric</em><em>API</em></a>
+            // 页面 URL 为 /class/<id>.html，关键词以 <em> 高亮分词包裹；相邻 <em> 之间补空格还原词距
+            var m = Regex.Match(html, @"href=""[^""]*/class/\d+\.html""[^>]*>(.*?)</a>",
+                RegexOptions.Singleline);
+            if (!m.Success) return null;
+            var zh = System.Net.WebUtility.HtmlDecode(
+                Regex.Replace(Regex.Replace(m.Groups[1].Value, @"</em>\s*<em>", " "), "</?em>", "")).Trim();
+            if (string.IsNullOrWhiteSpace(zh)) return null;
+            await Gate.WaitAsync();
+            try
+            {
+                Cache[title] = zh;
+                File.WriteAllText(CachePath, JsonSerializer.Serialize(
+                    Cache.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value!)));
+            }
+            finally { Gate.Release(); }
+            return zh;
+        }
+        catch { return null; /* 翻译是尽力而为 */ }
+    }
 }
 
 /// <summary>版本行共用辅助（图标解析 / 时间格式化 / 类型推断）：版本页与详情页共用。</summary>
@@ -225,6 +337,32 @@ public static class VersionRowHelpers
         var path = Path.IsPathRooted(iconPath) ? iconPath
             : Path.Combine(dotMc, "starcloud", "icons", iconPath);
         return File.Exists(path) ? path : null;
+    }
+
+    // 顺序敏感：neoforge 必须先于 forge 匹配（id 中 "neoforge" 包含 "forge" 子串）
+    private static readonly (string Key, string File)[] LoaderIconFiles =
+    {
+        ("neoforge", "neoforge.png"),
+        ("forge", "forge.png"),
+        ("fabric", "fabric.png"),
+        ("quilt", "quilt.png"),
+    };
+
+    /// <summary>
+    /// 按版本 id 推断加载器图标（NeoForge / Forge / Fabric / Quilt；原版返回 null，
+    /// 由模板或调用方落到版本类型方块图标——正式版即草方块）。
+    /// </summary>
+    public static ImageSource? LoaderIcon(string versionId)
+    {
+        foreach (var (key, file) in LoaderIconFiles)
+        {
+            if (versionId.Contains(key, StringComparison.OrdinalIgnoreCase))
+            {
+                var path = Path.Combine(AppContext.BaseDirectory, "Assets", "MC-Icons", file);
+                return File.Exists(path) ? ResolveIconSource(path) : null;
+            }
+        }
+        return VersionIcon(null); // 原版：草方块（按类型细分在 VersionIcon 内）
     }
 
     /// <summary>

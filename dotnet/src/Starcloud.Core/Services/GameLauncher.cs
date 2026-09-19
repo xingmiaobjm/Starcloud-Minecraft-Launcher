@@ -1,7 +1,6 @@
 // 游戏启动器：参数构建（新旧两代格式）+ 进程启动与退出监控
 
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Starcloud.Core.Models;
@@ -27,9 +26,12 @@ public sealed record LaunchOptions(
     bool? Fullscreen = null,
     IReadOnlyDictionary<string, string>? EnvVars = null,
     string? PreLaunchCommand = null,
-    string? PostLaunchCommand = null);
+    string? PostLaunchCommand = null,
+    string? AgentJarPath = null,
+    string? AgentBase = null,
+    Plugins.IPluginLaunchHook? PluginHook = null);
 
-/// <summary>已认证账户凭据（微软账户）；离线账户传 null 走 OfflineUuid 回退</summary>
+/// <summary>已认证账户凭据（微软 / 第三方账户）；合规要求启动必须携带真实凭证</summary>
 public sealed record LaunchCredentials(string Uuid, string AccessToken, string UserType, string? Xuid = null);
 
 public sealed class GameLauncher
@@ -41,15 +43,6 @@ public sealed class GameLauncher
     {
         _installer = installer;
         _java = java;
-    }
-
-    /// <summary>离线 UUID：Java UUID.nameUUIDFromBytes("OfflinePlayer:"+name)（MD5 v3）</summary>
-    public static Guid OfflineUuid(string playerName)
-    {
-        var hash = MD5.HashData(Encoding.UTF8.GetBytes("OfflinePlayer:" + playerName));
-        hash[6] = (byte)((hash[6] & 0x0F) | 0x30);
-        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
-        return new Guid(hash);
     }
 
     /// <summary>构建完整启动命令行（java.exe + 参数）</summary>
@@ -69,14 +62,16 @@ public sealed class GameLauncher
             .ToList();
         var ownJar = _installer.VersionJarPath(dotMc, versionId);
         classpathEntries.Add(ownJar);
-        var classpath = string.Join(";",
-            classpathEntries.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase));
+        var classpath = string.Join(PlatformInfo.ClasspathSeparator,
+            classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
 
         // 参数替换
         var assets = version.Assets ?? version.AssetIndex?.Id ?? "legacy";
-        var cred = options.Credentials;
-        var authUuid = cred?.Uuid ?? OfflineUuid(options.PlayerName).ToString("N");
-        var authToken = cred?.AccessToken ?? "0";
+        // 合规：离线兜底已移除，凭证缺失直接失败（上游应先走就地登录流程）
+        var cred = options.Credentials
+            ?? throw new InvalidOperationException("未提供账户凭证：请先登录微软或第三方账户");
+        var authUuid = cred.Uuid;
+        var authToken = cred.AccessToken;
         var vars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["auth_player_name"] = options.PlayerName,
@@ -88,16 +83,16 @@ public sealed class GameLauncher
             ["auth_uuid"] = authUuid,
             ["auth_access_token"] = authToken,
             ["auth_session"] = $"token:{authToken}:{authUuid}",
-            ["auth_xuid"] = cred?.Xuid ?? "0",
+            ["auth_xuid"] = cred.Xuid ?? "0",
             ["clientid"] = "starcloud",
-            ["user_type"] = cred?.UserType ?? "msa",
+            ["user_type"] = cred.UserType,
             ["user_properties"] = "{}",
             ["version_type"] = version.Type ?? "release",
             ["launcher_name"] = "Starcloud",
             ["launcher_version"] = "1.0.0",
             ["natives_directory"] = nativesDir,
             ["library_directory"] = Path.Combine(dotMc, "libraries"),
-            ["classpath_separator"] = ";",
+            ["classpath_separator"] = PlatformInfo.ClasspathSeparator,
             ["classpath"] = classpath,
             ["resolution_width"] = (options.WindowWidth ?? 1280).ToString(),
             ["resolution_height"] = (options.WindowHeight ?? 720).ToString(),
@@ -137,6 +132,10 @@ public sealed class GameLauncher
         }
         jvmArgs.AddRange(options.ExtraJvmArgs.Where(a => !string.IsNullOrWhiteSpace(a)));
 
+        // authlib-injector：第三方（Yggdrasil）外置登录注入，必须出现在 -cp 之前
+        if (!string.IsNullOrWhiteSpace(options.AgentJarPath) && !string.IsNullOrWhiteSpace(options.AgentBase))
+            jvmArgs.Add($"-javaagent:{options.AgentJarPath}={options.AgentBase}");
+
         var gameArgs = new List<string>();
 
         // 新代参数（arguments.jvm / arguments.game）
@@ -168,7 +167,7 @@ public sealed class GameLauncher
                 gameArgs.Add("--assetIndex"); gameArgs.Add(version.AssetIndex?.Id ?? assets);
                 gameArgs.Add("--uuid"); gameArgs.Add(authUuid);
                 gameArgs.Add("--accessToken"); gameArgs.Add(authToken);
-                gameArgs.Add("--userType"); gameArgs.Add(cred?.UserType ?? "msa");
+                gameArgs.Add("--userType"); gameArgs.Add(cred.UserType);
                 gameArgs.Add("--versionType"); gameArgs.Add(version.Type ?? "release");
             }
         }
@@ -183,6 +182,15 @@ public sealed class GameLauncher
             }
             if (options.Fullscreen == true)
                 gameArgs.Add("--fullscreen");
+        }
+
+        // 插件 beforeGameLaunch 钩子（规范 plugin-spec.md）：仅透传插件增量参数，
+        // 身份相关参数已在 GameArgsManager 入口拦截；本体核心参数不在增量内，插件不可触碰
+        if (options.PluginHook is { } pluginHook)
+        {
+            var (pluginJvm, pluginGame) = pluginHook.CollectExtraArgs(versionId, options.PlayerName);
+            jvmArgs.AddRange(pluginJvm);
+            gameArgs.AddRange(pluginGame);
         }
 
         var java = string.IsNullOrWhiteSpace(options.JavaExecutable)
@@ -200,7 +208,7 @@ public sealed class GameLauncher
     {
         if (_java is null)
             throw new InvalidOperationException(
-                "未找到可用的 Java。请在设置页指定 java.exe 路径");
+                $"未找到可用的 Java。请在设置页指定 {PlatformInfo.JavaExeName} 路径");
         var required = version.JavaVersion?.MajorVersion ?? 8;
         var runtimes = await _java.ListRuntimesAsync(ct, Path.Combine(dotMc, "runtime"));
         var fit = runtimes
@@ -329,8 +337,8 @@ public sealed class GameLauncher
         if (string.IsNullOrEmpty(command)) return Task.FromResult((0, ""));
         var psi = new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = "/c " + ExpandGameDir(command, options.GameDir),
+            FileName = PlatformInfo.ShellFileName,
+            Arguments = PlatformInfo.ShellExecFlag + " " + ExpandGameDir(command, options.GameDir),
             UseShellExecute = false,
             WorkingDirectory = options.GameDir,
             CreateNoWindow = true,
@@ -363,8 +371,8 @@ public sealed class GameLauncher
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                Arguments = "/c " + ExpandGameDir(command, options.GameDir),
+                FileName = PlatformInfo.ShellFileName,
+                Arguments = PlatformInfo.ShellExecFlag + " " + ExpandGameDir(command, options.GameDir),
                 UseShellExecute = false,
                 WorkingDirectory = options.GameDir,
                 CreateNoWindow = true,

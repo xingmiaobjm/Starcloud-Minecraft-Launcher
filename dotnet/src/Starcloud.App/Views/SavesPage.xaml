@@ -42,7 +42,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="LaunchOtherBtn" Style="{StaticResource AccentButtonStyle}"
+                <Button x:Name="LaunchOtherBtn" Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
                         loc:Loc.Text="用其他版本启动" IsEnabled="False" Click="LaunchOther_Click" />
                 <Button x:Name="CopyOtherBtn" loc:Loc.Text="复制到其他版本" IsEnabled="False" Click="CopyOther_Click" />
                 <Button x:Name="BackupBtn" loc:Loc.Text="备份所选世界" IsEnabled="False" Click="Backup_Click" />

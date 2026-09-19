@@ -73,6 +73,8 @@ public sealed class NovaInviteService
     private readonly JavaService _java;
     private readonly GameLauncher _launcher;
     private readonly DownloadService _downloader;
+    private readonly Func<string?>? _agentJarPath; // authlib-injector jar 路径由 App 层注入（Core 不感知打包布局）
+    private readonly Func<Plugins.IPluginLaunchHook?>? _pluginHook; // 插件启动前钩子（App 层懒注入，避免构造顺序耦合）
 
     private static readonly JsonSerializerOptions CompactJson = new()
     {
@@ -85,13 +87,17 @@ public sealed class NovaInviteService
 
     public NovaInviteService(
         InstallerService installer, ManifestService manifest,
-        JavaService java, GameLauncher launcher, DownloadService downloader)
+        JavaService java, GameLauncher launcher, DownloadService downloader,
+        Func<string?>? agentJarPath = null,
+        Func<Plugins.IPluginLaunchHook?>? pluginHook = null)
     {
         _installer = installer;
         _manifest = manifest;
         _java = java;
         _launcher = launcher;
         _downloader = downloader;
+        _agentJarPath = agentJarPath;
+        _pluginHook = pluginHook;
         Load();
     }
 
@@ -288,16 +294,28 @@ public sealed class NovaInviteService
         AppendHistory(new NovaInviteEntry(Guid.NewGuid().ToString("N")[..12], DateTime.Now, "joined",
             token.Name, targetId, token.Mc, token.Loader, token.Mods.Count, token.Server, token.Code));
 
-        // 4. 启动 + 自动进服（1.20+ --quickPlayMultiplayer）
-        var account = AccountStore.Load().Default;
+        // 4. 启动 + 自动进服（1.20+ --quickPlayMultiplayer）；合规：凭证只走内存会话
+        var store = AccountStore.Load();
+        var account = store.Default;
         var player = account?.Username ?? settings.LastUsername ?? "Player";
-        LaunchCredentials? cred = account is { Type: "msa", AccessToken: not null }
-            ? new LaunchCredentials(account.Uuid, account.AccessToken, "msa")
-            : null;
+        var session = account is null ? null : store.GetSession(account.Uuid);
+        if (account is null || string.IsNullOrEmpty(session?.AccessToken))
+            throw new InvalidOperationException(
+                "还没有可用的游戏凭证：请先到账户页登录（微软或第三方），本次应用会话内登录一次即可");
+
+        var external = account.Type == "external";
+        var cred = external
+            ? new LaunchCredentials(account.Uuid, session!.AccessToken, "mojang")
+            : new LaunchCredentials(account.Uuid, session!.AccessToken, "msa", session.Xuid);
         var quickPlay = SupportsQuickPlay(token.Mc) ? token.Server : null;
+        var agentJar = external ? _agentJarPath?.Invoke() : null;
+        if (external && string.IsNullOrWhiteSpace(agentJar))
+            throw new InvalidOperationException("authlib-injector 组件缺失，无法启动第三方账户，请重新安装启动器");
         var options = new LaunchOptions(targetId, player, dotMc, dotMc,
             settings.DefaultMinMemoryMb, settings.DefaultMaxMemoryMb,
-            javaExe, settings.ExtraJvmArgs, settings.UseBuiltinJvmArgs, cred, quickPlay);
+            javaExe, settings.ExtraJvmArgs, settings.UseBuiltinJvmArgs, cred, quickPlay,
+            AgentJarPath: agentJar, AgentBase: external ? account.ServerBase : null,
+            PluginHook: _pluginHook?.Invoke());
         await _launcher.LaunchVersionAsync(dotMc, targetId, options, ct);
         sb.Append($"\n• 游戏已启动（{player}）" +
                   (string.IsNullOrEmpty(quickPlay) ? "" : $"，正在进入 {token.Server}"));
