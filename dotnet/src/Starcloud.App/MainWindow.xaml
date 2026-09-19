@@ -59,9 +59,11 @@
         <StackPanel Orientation="Horizontal" Spacing="0"
                     Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Stretch">
             <Button x:Name="NovaOrb" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
-                    Padding="0" CornerRadius="8"
-                    Background="Transparent" BorderThickness="0"
-                    loc:Loc.Name="Nova 助手"
+                     Padding="0" CornerRadius="8"
+                     Background="Transparent" BorderThickness="0"
+                     local:HoverShadowBehavior.IsEnabled="True"
+                     local:HoverShadowBehavior.Receiver="{Binding ElementName=AppTitleBar}"
+                     loc:Loc.Name="Nova 助手"
                     loc:Loc.Tip="Nova：待命"
                     Click="NovaOrb_Click">
                 <Grid Width="32" Height="32">
@@ -79,10 +81,12 @@
             </Button>
 
             <!-- 调度中心入口：原 Starcloud ID 账户按钮旁，徽标 = 运行中任务数 -->
-             <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
-                     Padding="0" CornerRadius="8"
-                     Background="Transparent" BorderThickness="0"
-                     loc:Loc.Name="调度中心" loc:Loc.Tip="调度中心"
+              <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
+                      Padding="0" CornerRadius="8"
+                      Background="Transparent" BorderThickness="0"
+                      local:HoverShadowBehavior.IsEnabled="True"
+                      local:HoverShadowBehavior.Receiver="{Binding ElementName=AppTitleBar}"
+                      loc:Loc.Name="调度中心" loc:Loc.Tip="调度中心"
                      Click="TaskCenterBtn_Click">
                 <Grid Width="32" Height="32">
                     <Border CornerRadius="8"
@@ -106,6 +110,8 @@
             <Button x:Name="AccountButton" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,8,0"
                     Padding="0" CornerRadius="8"
                     Background="Transparent" BorderThickness="0"
+                    local:HoverShadowBehavior.IsEnabled="True"
+                    local:HoverShadowBehavior.Receiver="{Binding ElementName=AppTitleBar}"
                     loc:Loc.Name="个人中心"
                     loc:Loc.Tip="个人中心"
                     Click="AccountButton_Click">
@@ -323,7 +329,7 @@
             </Grid.KeyboardAccelerators>
             <Rectangle x:Name="TaskCenterScrim" Fill="#5A000000"
                        Tapped="TaskCenterScrim_Tapped" />
-            <Border x:Name="TaskCenterDrawer" Width="432" HorizontalAlignment="Right"
+            <Border x:Name="TaskCenterDrawer" Width="600" HorizontalAlignment="Right"
                     Background="{ThemeResource AppPaneBackgroundBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1,0,0,0">
