@@ -14,6 +14,13 @@
             <CornerRadius x:Key="CardCornerRadius">20</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">16</CornerRadius>
 
+            <!-- 白底按钮统一带跟手内阴影：继承 Fluent 自己的 DefaultButtonStyle，只多挂一个附加属性。
+                 显式指定了 Style 的按钮（例如 AccentButtonStyle / 强调色底）不受影响；
+                 HoverShadowBehavior 对纯透明底的图标按钮会自动跳过，不会给它们盖一层深色渐变。 -->
+            <Style TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="local:HoverShadowBehavior.IsEnabled" Value="True" />
+            </Style>
+
             <!-- 悬浮卡片：毛玻璃卡片 + 悬浮轻微放大 / 按下轻微缩小（D2，动效可关闭） -->
             <Style x:Key="ScHoverCard" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource GlassCardBrush}" />

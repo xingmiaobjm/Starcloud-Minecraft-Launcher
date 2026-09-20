@@ -101,23 +101,36 @@ public static class HoverShadowBehavior
     {
         var state = States.GetOrCreateValue(element);
         if (state.Wired) return;
-        if (GetCarrier(element) is not { } layer)
-        {
-            // 阴影层还没解析出来（绑定晚于 IsEnabled）：挂一次性 Loaded 兜底重试
-            element.Loaded -= RetryOnLoaded;
-            element.Loaded += RetryOnLoaded;
-            return;
-        }
 
         try
         {
             state.Visual = ElementCompositionPreview.GetElementVisual(element);
-            state.LayerVisual = ElementCompositionPreview.GetElementVisual(layer);
             state.Compositor = state.Visual.Compositor;
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
-            state.Layer = layer;
-            state.LayerVisual.Opacity = 0f;   // 常态：阴影层不可见
-            state.Brush = ResolveBrush(layer);
+
+            if (GetCarrier(element) is { } layer)
+            {
+                // 调用方自带的 XAML 阴影层（列表行、卡片、瓦片）
+                state.Layer = layer;
+                state.LayerVisual = ElementCompositionPreview.GetElementVisual(layer);
+                state.Brush = ResolveBrush(layer);
+                if (state.Brush is null)
+                {
+                    state.LayerVisual = null; // 载体上没有径向渐变：退回自建层，别留一个动不了的图层
+                }
+            }
+            else
+            {
+                // 自带载体还没解析出来（绑定晚于 IsEnabled）：挂一次性 Loaded 兜底重试
+                element.Loaded -= RetryOnLoaded;
+                element.Loaded += RetryOnLoaded;
+            }
+
+            // 没有自带载体的（普通按钮）：自建一层合成光斑；建不出来就放弃接这个元素
+            var layerVisual = state.LayerVisual ?? CreateAutoLayer(element, state);
+            if (layerVisual is null) return;
+
+            layerVisual.Opacity = 0f;   // 常态：阴影层不可见
             ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
             state.Element = element;
             if (!Cards.Contains(state)) Cards.Add(state);
@@ -372,7 +385,7 @@ public static class HoverShadowBehavior
     /// </summary>
     private static void ApplyLight(FrameworkElement element, State state, double x, double y)
     {
-        if (state.Brush is not { } brush) return;
+        if (state.Brush is null && state.AutoBrush is null) return;
         var w = element.ActualWidth;
         var h = element.ActualHeight;
         if (w <= 0 || h <= 0) return;
@@ -380,13 +393,24 @@ public static class HoverShadowBehavior
         // 半径按对角线取：卡片再大也能覆盖到边缘与角落（近处深、远处浅），不会出现"离光标远的那一侧没被染到"。
         // 小元素（按钮/图标卡）用下限兜底，保持"一束光"的紧凑手感。
         var radiusPx = Math.Max(36d, 0.6 * Math.Sqrt(w * w + h * h));
-        brush.RadiusX = radiusPx / w;
-        brush.RadiusY = radiusPx / h;
+        var cx = Math.Clamp(x / w, 0d, 1d);
+        var cy = Math.Clamp(y / h, 0d, 1d);
 
-        var center = new Windows.Foundation.Point(
-            Math.Clamp(x / w, 0d, 1d), Math.Clamp(y / h, 0d, 1d));
-        brush.Center = center;
-        brush.GradientOrigin = center;
+        if (state.Brush is { } brush)
+        {
+            // 调用方自带的 XAML 径向渐变：坐标与半径都是 0~1 的相对值
+            brush.RadiusX = radiusPx / w;
+            brush.RadiusY = radiusPx / h;
+            var center = new Windows.Foundation.Point(cx, cy);
+            brush.Center = center;
+            brush.GradientOrigin = center;
+            return;
+        }
+
+        // 自建合成层：同一套映射模式（Relative），语义与上面完全一致
+        var auto = state.AutoBrush!;
+        auto.EllipseCenter = new Vector2((float)cx, (float)cy);
+        auto.EllipseRadius = new Vector2((float)(radiusPx / w), (float)(radiusPx / h));
     }
 
     private static void OnUnloaded(object sender, RoutedEventArgs e)
@@ -403,9 +427,68 @@ public static class HoverShadowBehavior
         public FrameworkElement? Layer;
         public FrameworkElement? Element;
         public RadialGradientBrush? Brush;
+        // 自建光斑层（元素没有自带载体时用，例如普通按钮）：画在元素内容之上
+        public CompositionRadialGradientBrush? AutoBrush;
+        public CompositionRectangleGeometry? AutoGeometry;
         public bool Wired;
         public bool Hovered;
     }
+
+    /// <summary>自建光斑的渐变档位，与各处 XAML 里那组保持一致（中心 16% 黑，向外递减）</summary>
+    private static readonly (byte Alpha, float Offset)[] GlowStops =
+    [
+        (0x28, 0f), (0x1F, 0.18f), (0x16, 0.40f), (0x0D, 0.62f), (0x05, 0.82f), (0x00, 1f),
+    ];
+
+    /// <summary>
+    /// 元素没有自带光斑层时，自建一层合成光斑（画在元素内容之上）。
+    /// <para>用途：普通按钮这类拿不到模板内部结构、又要有同一套跟手内阴影的元素。
+    /// 只给"有可见底色"的元素建——纯透明底的图标按钮本来就不是白底按钮，
+    /// 在上面盖一层深色渐变只会显得脏。</para>
+    /// </summary>
+    private static Visual? CreateAutoLayer(FrameworkElement element, State state)
+    {
+        if (state.Compositor is not { } compositor) return null;
+        if (!HasVisibleBackground(element)) return null; // 纯透明底图标按钮：不加
+
+        var brush = compositor.CreateRadialGradientBrush();
+        brush.MappingMode = CompositionMappingMode.Relative; // 与 XAML 径向渐变同一套 0~1 语义
+        foreach (var (alpha, offset) in GlowStops)
+            brush.ColorStops.Add(compositor.CreateColorGradientStop(offset,
+                Windows.UI.Color.FromArgb(alpha, 0, 0, 0)));
+
+        var size = new Vector2((float)element.ActualWidth, (float)element.ActualHeight);
+        var geometry = compositor.CreateRectangleGeometry();
+        geometry.Size = size;
+        var shape = compositor.CreateSpriteShape(geometry);
+        shape.FillBrush = brush;
+        var shapeVisual = compositor.CreateShapeVisual();
+        shapeVisual.Size = size; // ShapeVisual 的尺寸为 0 时整层不渲染（这里踩过）
+        shapeVisual.Shapes.Add(shape);
+        shapeVisual.Opacity = 0f;
+        ElementCompositionPreview.SetElementChildVisual(element, shapeVisual);
+
+        state.AutoBrush = brush;
+        state.AutoGeometry = geometry;
+        state.LayerVisual = shapeVisual;
+        return shapeVisual;
+    }
+
+    /// <summary>元素是否有可见底色：纯透明底或没设底色的（图标按钮）不算</summary>
+    private static bool HasVisibleBackground(FrameworkElement element) =>
+        element switch
+        {
+            Control control => IsVisible(control.Background),
+            Panel panel => IsVisible(panel.Background),
+            _ => false,
+        };
+
+    private static bool IsVisible(Brush? brush) => brush switch
+    {
+        SolidColorBrush solid => solid.Color.A > 0,
+        null => false,
+        _ => true, // 渐变等其它画刷按"有底色"处理
+    };
 
     /// <summary>取阴影层上那个径向渐变刷（卡片用 Border.Background，圆形头像用 Shape.Fill）</summary>
     private static RadialGradientBrush? ResolveBrush(FrameworkElement layer) => layer switch
@@ -422,6 +505,13 @@ public static class HoverShadowBehavior
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         try
         {
+            // 自建层的矩形几何要跟着元素尺寸走，否则按钮改尺寸后光斑会停在旧大小
+            if (s.AutoGeometry is { } geometry)
+            {
+                var size = new Vector2((float)fe.ActualWidth, (float)fe.ActualHeight);
+                geometry.Size = size;
+                if (s.LayerVisual is { } layerVisual) layerVisual.Size = size;
+            }
             ApplyLight(fe, s, fe.ActualWidth / 2, fe.ActualHeight / 2);
         }
         catch

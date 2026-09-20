@@ -193,6 +193,12 @@
   300ms 交叉淡出（两张卡片的光斑交叠，移动过程连续）；光标落到任何卡片之外（工具栏、空白、
   窗口外）→ 立刻灭（没有接力对象，拖淡出尾巴只会看着像阴影卡住）。判定"是否邻着卡片"用外扩
   8px 的范围，避免光标慢速划过行间 2px 缝隙时先灭再亮、看着像闪断。
+- **白底按钮同样带内阴影**：`App.xaml` 里用隐式 `Button` 样式继承 Fluent 的
+  `DefaultButtonStyle`，只多挂一个 `HoverShadowBehavior.IsEnabled`——显式指定 Style 的按钮
+  （强调色底的 `AccentButtonStyle`）天然被排除。按钮拿不到模板内部结构，所以行为会在
+  **没有 Carrier 时自建一层合成光斑**（`CompositionRadialGradientBrush` + `SpriteShape`，
+  `SetElementChildVisual` 挂到元素上），渐变档位与各处 XAML 里那组一致；纯透明底的图标按钮
+  会被 `HasVisibleBackground` 跳过，不给它们盖一层深色渐变。
 - 参照值：WinUI 3 框架自己的 `VisualTransition`／状态切换取 167ms（`MotionFx.PointerOverMs`），
   控制模板的 `BrushTransition` 取 83ms——两者都是"起步极快"，所以本项目的悬停刻意不照抄这两档。
 
