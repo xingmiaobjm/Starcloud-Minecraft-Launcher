@@ -191,7 +191,8 @@ internal interface IMFSample
 internal interface IMFSinkWriter
 {
     int AddStream(IMFMediaType pTargetMediaType, out uint pdwStreamIndex);
-    int SetInputMediaType(uint dwStreamIndex, IMFMediaType pInputMediaType, IMFAttributes pEncodingParameters);
+    int SetInputMediaType(uint dwStreamIndex, IMFMediaType pInputMediaType,
+        IMFAttributes? pEncodingParameters);
     int BeginWriting();
     int WriteSample(uint dwStreamIndex, IMFSample pSample);
     int SendStreamTick(uint dwStreamIndex, long llTimestamp);

@@ -138,6 +138,17 @@
             <Grid>
                 <ListView x:Name="VersionListView" SelectionMode="Single"
                           IsItemClickEnabled="True" ItemClick="VersionList_ItemClick">
+                    <ListView.Resources>
+                        <!-- 悬停/选中反馈只由行内的跟手光斑表达：框架给的整行底色是一块硬边矩形，
+                             和光斑的圆角、羽化对不齐，叠在一起就是"两层框"（红框反馈的那个问题）。
+                             这里把框架底色全部置空，页面上该列表的选中态没有语义（点行直接进详情）。 -->
+                        <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                    </ListView.Resources>
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -148,32 +159,33 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:LocalVersionRow">
-                            <Grid Padding="12,8" ColumnSpacing="12"
-                                  local:CardHoverBehavior.IsEnabled="True"
+                            <Grid local:CardHoverBehavior.IsEnabled="True"
                                   local:HoverShadowBehavior.IsEnabled="True"
                                   local:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
                                   ContextFlyout="{StaticResource RowMenu}">
+                            <!-- 跟手光斑层铺满整行（不带行内边距），圆角与行一致；内容再靠 Padding 让开。
+                                 光斑若跟内容一起内缩，就会比行小一圈，外面露出框架底色 → 两层框。 -->
+                            <Border x:Name="VersionRowGlow" CornerRadius="8" Opacity="0"
+                                    IsHitTestVisible="False">
+                                <Border.Background>
+                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                         RadiusX="0.2" RadiusY="0.5">
+                                        <GradientStop Color="#28000000" Offset="0" />
+                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                        <GradientStop Color="#00000000" Offset="1" />
+                                    </RadialGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Grid Padding="12,8" ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <!-- 跟随光标的行内阴影：只画落在本行内的那一段 -->
-                                <Border x:Name="VersionRowGlow" Grid.ColumnSpan="4" CornerRadius="8" Opacity="0"
-                                        IsHitTestVisible="False">
-                                    <Border.Background>
-                                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
-                                                             RadiusX="0.2" RadiusY="0.5">
-                                            <GradientStop Color="#28000000" Offset="0" />
-                                            <GradientStop Color="#1F000000" Offset="0.18" />
-                                            <GradientStop Color="#16000000" Offset="0.40" />
-                                            <GradientStop Color="#0D000000" Offset="0.62" />
-                                            <GradientStop Color="#05000000" Offset="0.82" />
-                                            <GradientStop Color="#00000000" Offset="1" />
-                                        </RadialGradientBrush>
-                                    </Border.Background>
-                                </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Border Width="32" Height="32" CornerRadius="8"
                                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
@@ -232,6 +244,7 @@
                                     <FontIcon Glyph="&#xE74D;" FontSize="14"
                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </Button>
+                            </Grid>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>

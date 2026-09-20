@@ -69,7 +69,6 @@ public sealed class ScreenRecorder : IDisposable
 
     private byte[]? _latest;           // 最新一帧的 BGRA 像素（FrameArrived 写、编码线程读）
     private byte[]? _spare;            // 复用缓冲，避免每帧分配
-    private bool _hasFrame;
     private int _width;
     private int _height;
     private int _stride;
@@ -132,7 +131,6 @@ public sealed class ScreenRecorder : IDisposable
             _outputPath = request.OutputPath;
             _target = targetName;
             _framesWritten = 0;
-            _hasFrame = false;
 
             EnsureMfStarted();
             _device = new CanvasDevice(forceSoftwareRenderer: false);
@@ -145,7 +143,12 @@ public sealed class ScreenRecorder : IDisposable
                 _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2,
                 new Windows.Graphics.SizeInt32 { Width = _width, Height = _height });
             _session = _pool.CreateCaptureSession(_item);
-            try { _session.IsCursorCaptureEnabled = true; } catch { /* 老版本系统不支持 */ }
+            // 光标入画只在 19041+ 支持，项目最低支持 17763：显式判版本，
+            // 而不是靠 try/catch 吞异常（CA1416 也认这种守卫写法）。
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+            {
+                try { _session.IsCursorCaptureEnabled = true; } catch { /* 取不到就录不到光标，不影响出片 */ }
+            }
             // IsBorderRequired（关掉系统黄框）是 21H2+ 的属性，本项目的 SDK 投影（19041）里没有，
             // 就不为了它抬 TargetPlatformVersion——黄框是系统的"正在被捕获"提示，留着也不算坏。
 
@@ -246,7 +249,6 @@ public sealed class ScreenRecorder : IDisposable
             var pixels = bitmap.GetPixelBytes();
             if (pixels.Length < _stride * _height) return; // 尺寸对不上（源变了）：这一拍跳过
             (_latest, _spare) = (pixels, _latest);
-            _hasFrame = true;
             _lastError = "";
         }
         catch (Exception ex)
