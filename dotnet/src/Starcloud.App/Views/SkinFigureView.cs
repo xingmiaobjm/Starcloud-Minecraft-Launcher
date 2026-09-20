@@ -33,6 +33,13 @@ public sealed class SkinFigureView : UserControl
     /// </summary>
     private const double WalkCycleSeconds = 1.0;
 
+    /// <summary>
+    /// 自适应分辨率的下限。只在"明显跟不上"（一帧超过 60ms，不到 16fps）时才降，
+    /// 而且最低只到 0.85——宁可帧率低一点也要保住像素风的锐利，
+    /// 这是取舍：像素风糊掉比掉几帧更伤观感。
+    /// </summary>
+    private const double MinAdaptiveScale = 0.85;
+
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -45,6 +52,11 @@ public sealed class SkinFigureView : UserControl
     private SkinModel? _model;
     private CanvasBitmap? _bitmap;
     private int _bitmapW, _bitmapH;
+    private double _bitmapScale = 1.0;      // 当前位图相对控件物理像素的倍率
+    private double _renderScale = 1.0;      // 自适应渲染倍率：默认 1:1（清晰），跟不上才降
+    private bool _renderBusy;               // 后台渲染互斥（同一时刻只跑一帧）
+    private bool _renderPending;            // 渲染期间又有新请求：完成后再补一帧
+    private readonly SkinRenderTarget _target = new();
     private double _yaw = 24, _pitch = 6, _zoom = 1.4;
     private string? _skinKey;
     private bool _walkEnabled = true;
@@ -60,7 +72,7 @@ public sealed class SkinFigureView : UserControl
             if (_walkEnabled == value) return;
             _walkEnabled = value;
             SyncTimer();
-            _canvas.Invalidate();
+            RequestRender();
         }
     }
 
@@ -78,13 +90,13 @@ public sealed class SkinFigureView : UserControl
         PointerReleased += OnPointerReleased;
         PointerCaptureLost += (_, _) => _dragging = false;
         PointerWheelChanged += OnWheel;
-        SizeChanged += (_, _) => _canvas.Invalidate();
+        SizeChanged += (_, _) => RequestRender();
 
         _timer.Tick += (_, _) =>
         {
             // 相位由真实时钟推出：定时器被 UI 线程拖慢时动画速度不变
             // （之前是每次 tick 加固定 33ms，tick 一慢动画就跟着变慢）
-            _canvas.Invalidate();
+            RequestRender();
         };
         SyncTimer();
     }
@@ -97,39 +109,90 @@ public sealed class SkinFigureView : UserControl
 
     // ── 渲染 ──
 
-    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
+    /// <summary>
+    /// 请求渲染一帧。真正的光栅化放后台线程——这台机器一帧要几十毫秒，
+    /// 压在 UI 线程上会把整个窗口拖顿（表现为按钮悬停、调度中心一起卡）。
+    /// 同一时刻只跑一帧；期间的新请求合并成一次补帧，避免堆积。
+    /// </summary>
+    private void RequestRender()
     {
-        if (_model is null) return;
+        if (_model is not { } model) return;
+        if (_renderBusy) { _renderPending = true; return; }
+        _renderBusy = true;
 
         var pose = _walkEnabled
             ? WalkAnimator.FromPhase(_clock.Elapsed.TotalSeconds / WalkCycleSeconds * 2 * Math.PI)
             : Pose.Still;
         var camera = new Camera(_yaw, _pitch, 96.0 / _zoom);
 
-        // 按控件的物理像素 1:1 渲染：之前写死 256×384 再最近邻放大，
-        // 在高 DPI 下每个渲染像素被放大成方块，轮廓全是台阶（用户反馈的"锯齿"）。
-        var dpiScale = sender.Dpi / 96.0;
-        var pxW = Math.Max(32, (int)Math.Round(sender.ActualWidth * dpiScale));
-        var pxH = Math.Max(32, (int)Math.Round(sender.ActualHeight * dpiScale));
-        var frame = SkinRenderer.Render(_model, new RenderOptions(camera), pxW, pxH, pose);
+        // 按控件物理像素渲染：之前写死 256×384 再最近邻放大，高 DPI 下每个渲染像素
+        // 被放大成方块、轮廓全是台阶（用户反馈的"锯齿"）。默认 1:1；
+        // 走动时若这台机器算不过来，RenderScale 会自适应降档换帧率，静止时始终 1:1。
+        var scale = _walkEnabled ? _renderScale : 1.0;
+        var dpiScale = _canvas.Dpi / 96.0 * scale;
+        var pxW = Math.Max(32, (int)Math.Round(_canvas.ActualWidth * dpiScale));
+        var pxH = Math.Max(32, (int)Math.Round(_canvas.ActualHeight * dpiScale));
 
-        // 位图只在尺寸变化时重建，其余帧只回写像素（避免逐帧分配 GPU 资源）
-        if (_bitmap is null || _bitmapW != pxW || _bitmapH != pxH)
+        Task.Run(() =>
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            BitmapFrame frame;
+            try
+            {
+                frame = SkinRenderer.Render(model, new RenderOptions(camera), pxW, pxH, pose, _target);
+            }
+            catch
+            {
+                DispatcherQueue.TryEnqueue(() => _renderBusy = false);
+                return;
+            }
+            clock.Stop();
+
+            // 自适应：只在明显跟不上时降档（>60ms ≈ 不到 16fps），有余量再升回去。
+            // 这台机器单核算力波动很大（实测同密度循环 37-51ns/像素），
+            // 但它能维持约 25fps，所以正常情况下会一直停在 1:1 的清晰档。
+            var ms = clock.Elapsed.TotalMilliseconds;
+            if (_walkEnabled)
+            {
+                if (ms > 60) _renderScale = Math.Max(MinAdaptiveScale, _renderScale - 0.05);
+                else if (ms < 25) _renderScale = Math.Min(1.0, _renderScale + 0.05);
+            }
+            DispatcherQueue.TryEnqueue(() => Present(frame, scale));
+        });
+    }
+
+    /// <summary>把后台算好的帧贴上屏幕（UI 线程；只做上传与重绘，不做光栅化）</summary>
+    private void Present(BitmapFrame frame, double scale)
+    {
+        _renderBusy = false;
+        if (_bitmap is null || _bitmapW != frame.Width || _bitmapH != frame.Height)
         {
             _bitmap?.Dispose();
-            _bitmap = CanvasBitmap.CreateFromBytes(sender, frame.Bgra, pxW, pxH,
-                DirectXPixelFormat.B8G8R8A8UIntNormalized, sender.Dpi, CanvasAlphaMode.Premultiplied);
-            _bitmapW = pxW;
-            _bitmapH = pxH;
+            _bitmap = CanvasBitmap.CreateFromBytes(_canvas, frame.Bgra, frame.Width, frame.Height,
+                DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+            _bitmapW = frame.Width;
+            _bitmapH = frame.Height;
         }
         else
         {
             _bitmap.SetPixelBytes(frame.Bgra);
         }
+        _bitmapScale = scale;
+        _canvas.Invalidate();
 
-        // 位图 DPI 与控件一致 → 源矩形与目标矩形都用控件尺寸即 1:1，不做任何缩放
-        var rect = new Windows.Foundation.Rect(0, 0, sender.ActualWidth, sender.ActualHeight);
-        args.DrawingSession.DrawImage(_bitmap, rect, rect, 1f, CanvasImageInterpolation.NearestNeighbor);
+        if (_renderPending) { _renderPending = false; RequestRender(); }
+    }
+
+    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        if (_bitmap is null || sender.ActualWidth <= 0 || sender.ActualHeight <= 0) return;
+
+        // 位图按 96 DPI 建（1 像素 = 1 DIP）→ 源矩形就是像素尺寸、目标矩形是控件尺寸：
+        // 倍率为 1 时是 1:1（最近邻，保持像素风），降档时用线性放大（不出方块）。
+        var dest = new Windows.Foundation.Rect(0, 0, sender.ActualWidth, sender.ActualHeight);
+        var src = new Windows.Foundation.Rect(0, 0, _bitmap.SizeInPixels.Width, _bitmap.SizeInPixels.Height);
+        args.DrawingSession.DrawImage(_bitmap, dest, src, 1f,
+            _bitmapScale >= 0.999 ? CanvasImageInterpolation.NearestNeighbor : CanvasImageInterpolation.Linear);
     }
 
     // ── 交互：拖拽转视角 / 滚轮缩放 ──
@@ -148,7 +211,7 @@ public sealed class SkinFigureView : UserControl
         _yaw += (p.X - _lastPos.X) * 0.45;
         _pitch = Math.Clamp(_pitch - (p.Y - _lastPos.Y) * 0.45, -80, 80);
         _lastPos = p;
-        _canvas.Invalidate();
+        RequestRender();
     }
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
@@ -161,7 +224,7 @@ public sealed class SkinFigureView : UserControl
     {
         var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
         _zoom = Math.Clamp(_zoom * (delta > 0 ? 1.1 : 0.9), 0.7, 3.0);
-        _canvas.Invalidate();
+        RequestRender();
     }
 
     // ── 皮肤：磁盘缓存 → 皮肤源（minotar / 认证服务器）→ 内置 Steve ──
@@ -231,7 +294,7 @@ public sealed class SkinFigureView : UserControl
             _model = new SkinModel(texture, slim);
             _bitmap = null;                  // 尺寸没变，但内容变了：下次 Draw 重建
             SyncTimer();
-            _canvas.Invalidate();
+            RequestRender();
         }
         catch (SkinTextureException ex)
         {
