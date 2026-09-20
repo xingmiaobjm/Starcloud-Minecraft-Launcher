@@ -30,12 +30,22 @@ public static class HoverShadowBehavior
     private const float HoverLiftY = -1f;
 
     /// <summary>
+    /// 判定"指针是否邻着某张卡片"时往外扩的像素。用来盖住行与行之间的缝隙（行 Margin 2px），
+    /// 保证光标从一张卡片划到另一张卡片时不会被缝隙打断成交叉淡出。
+    /// </summary>
+    private const double NearMargin = 8d;
+
+    /// <summary>
     /// 淡入 200ms：原先 110ms 配上"起步极快"的曲线，阴影几乎是"啪一下"亮起来，
     /// 跨行移动时会看成闪一下。Fluent Normal 档 + 匀称曲线，亮起有个过程但依然跟手。
     /// </summary>
     private static readonly TimeSpan HoverIn = TimeSpan.FromMilliseconds(MotionFx.HoverFadeInMs);
 
-    /// <summary>淡出 300ms：比淡入长，旧行的光斑慢慢退，和新行交叠成一团连续的暗晕</summary>
+    /// <summary>
+    /// 淡出 300ms：<b>只在光标从一张卡片移到另一张卡片时</b>用。比淡入长，旧卡片的
+    /// 光斑慢慢退、和新卡片交叠成一团连续的暗晕；移到卡片之外（工具栏、空白、窗口外）
+    /// 则直接灭，见 <see cref="Evaluate"/>。
+    /// </summary>
     private static readonly TimeSpan HoverOut = TimeSpan.FromMilliseconds(MotionFx.HoverFadeOutMs);
 
     private static readonly ConditionalWeakTable<FrameworkElement, State> States = new();
@@ -150,11 +160,32 @@ public static class HoverShadowBehavior
         }
     }
 
-    private static void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
+    private static void OnRootPointerMoved(object sender, PointerRoutedEventArgs e) => Evaluate(e);
+
+    private static void OnRootPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        // 指针整个移出窗口 = 没有任何目标卡片 → 直接灭，不留尾巴
+        foreach (var state in Glowing.ToList()) ResetState(state);
+    }
+
+    /// <summary>
+    /// 由指针位置统一推导每一层的悬停状态（不依赖元素自己的进出事件，滚动/虚拟化下也不会漏）。
+    /// <para>退场的分寸分两种，这是本行为的关键手感：</para>
+    /// <list type="bullet">
+    /// <item>光标落在<b>另一张卡片</b>上 → 旧的按 <see cref="HoverOut"/> 淡出：两张卡片的光斑交叠，
+    /// 移动过程是连续的，不会闪断。</item>
+    /// <item>光标落在<b>任何卡片之外</b>（工具栏、空白、窗口外）→ 立刻灭：没有"接力"的对象，
+    /// 再拖一条淡出尾巴只会看着像阴影卡住。</item>
+    /// </list>
+    /// <para>判定"有没有接力对象"时用的是<b>外扩</b>范围（<see cref="NearMargin"/>）：列表行之间
+    /// 有 2px 缝隙（行 Margin 造成），光标慢速划过缝隙的那一帧会短暂处于"谁都不在指针下"，
+    /// 若按严格命中判定就会先灭再亮，看着像闪断。</para>
+    /// </summary>
+    private static void Evaluate(PointerRoutedEventArgs e)
     {
         if (Cards.Count == 0) return;
-        // 由指针位置直接推导每一层的悬停状态：在范围内就点亮并跟随，否则淡出。
-        // 这样即使某个卡片从没收到过自己的 Enter/Exit 事件，也一样能正常亮/灭。
+        var anyNear = false;
+        var leaving = new List<State>();
         foreach (var state in Cards.ToList())
         {
             if (state.Element is not { } el) continue;
@@ -168,8 +199,11 @@ public static class HoverShadowBehavior
                 }
                 var p = e.GetCurrentPoint(el).Position;
                 var inside = p.X >= 0 && p.Y >= 0 && p.X <= el.ActualWidth && p.Y <= el.ActualHeight;
+                var near = p.X >= -NearMargin && p.Y >= -NearMargin &&
+                           p.X <= el.ActualWidth + NearMargin && p.Y <= el.ActualHeight + NearMargin;
                 if (inside)
                 {
+                    anyNear = true;
                     ApplyLight(el, state, p.X, p.Y);
                     if (!Glowing.Contains(state))
                     {
@@ -180,19 +214,21 @@ public static class HoverShadowBehavior
                 }
                 else if (Glowing.Contains(state))
                 {
-                    FadeOut(state);
+                    leaving.Add(state); // 先收集，等知道"有没有别的卡片接着"再决定怎么退场
                 }
+                if (near) anyNear = true;
             }
             catch
             {
                 // 静默：元素已被回收
             }
         }
-    }
 
-    private static void OnRootPointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        foreach (var state in Glowing.ToList()) FadeOut(state);
+        foreach (var state in leaving)
+        {
+            if (anyNear) FadeOut(state);   // 卡片 ↔ 卡片（含跨过行间缝隙）：交叉淡出
+            else ResetState(state);        // 离开所有卡片：立刻灭
+        }
     }
 
     /// <summary>立刻让某一层淡出并摘出"发光中"列表</summary>
@@ -300,13 +336,9 @@ public static class HoverShadowBehavior
     }
 
     private static void OnPointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
-        s.Hovered = false;
-        Glowing.Remove(s);
-        // 移出不复位光源：光斑留在最后位置淡出；复位会让它"跳回中心"，看着像抽搐
-        Animate(s, false, HoverOut);
-    }
+        // 不在这里判"淡出还是立刻灭"：只有统一判定知道指针有没有落到别的卡片上。
+        // 移出时也不复位光源——光斑留在最后位置淡出，复位会让它"跳回中心"，看着像抽搐。
+        => Evaluate(e);
 
     /// <summary>
     /// 阴影以光标为中心：径向渐变的中心与渐变原点跟着指针走，深色核心就在光标下、向外渐淡。
