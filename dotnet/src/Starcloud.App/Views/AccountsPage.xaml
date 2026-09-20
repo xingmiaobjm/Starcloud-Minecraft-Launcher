@@ -218,7 +218,7 @@
         </Border>
 
         <!-- 玩家 3D 形象：悬浮于毛玻璃上，可拖拽旋转，随账户换肤与走路动画摆动 -->
-        <local:Skin3DView x:Name="PlayerView" Grid.Column="1" Grid.Row="2" Grid.RowSpan="2"
+        <local:SkinFigureView x:Name="PlayerView" Grid.Column="1" Grid.Row="2" Grid.RowSpan="2"
                           Width="230" Height="430"
                           HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,4" />
     </Grid>
