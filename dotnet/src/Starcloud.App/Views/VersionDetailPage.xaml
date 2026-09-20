@@ -79,7 +79,7 @@
                         <Button x:Name="LaunchBtn" Click="Launch_Click"
                                 loc:Loc.Name="启动该版本">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xF5B0;" FontSize="14" />
+                                <FontIcon Glyph="&#xE768;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="启动" />
                             </StackPanel>
                         </Button>

@@ -186,9 +186,9 @@ public sealed partial class HomePage : Page
         var id = (VersionList.SelectedItem as LocalVersionRow)?.Id;
         var isRunning = _gameProcess is { HasExited: false };
         LaunchTitleText.Text = isRunning ? Loc.T("停止游戏") : Loc.T("启动游戏");
-        // 运行中/可启动两种状态都用实心图标（E73B 实心方块 / F5B0 实心播放三角），
-        // 与细线轮廓的 E71A/E768 相比在强调色大按钮上更压得住
-        LaunchIcon.Glyph = isRunning ? "\uE73B" : "\uF5B0";
+        // 自绘轮廓：两个 Path 叠放，切可见性（线宽在 XAML 里统一为 3.2）
+        LaunchPlayIcon.Visibility = isRunning ? Visibility.Collapsed : Visibility.Visible;
+        LaunchStopIcon.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
         LaunchSubText.Text = id ?? Loc.T("未选择版本");
         LaunchBtn.IsEnabled = isRunning || id is not null;
     }
