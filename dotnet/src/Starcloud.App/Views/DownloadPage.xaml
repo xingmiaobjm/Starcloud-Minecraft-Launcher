@@ -1044,6 +1044,17 @@
                             BorderThickness="1" CornerRadius="16" Padding="4">
                         <Grid>
                             <ListView x:Name="ModList" SelectionMode="None">
+                                <ListView.Resources>
+                                    <!-- 与版本页一致：悬停反馈只由行内的跟手光斑表达。
+                                         框架给的整行底色是硬边矩形，和光斑的圆角、羽化对不齐，
+                                         叠在一起就是"两层框"。 -->
+                                    <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                                </ListView.Resources>
                                 <ListView.ItemContainerStyle>
                                     <Style TargetType="ListViewItem">
                                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -1055,8 +1066,27 @@
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:ModRow">
                                         <!-- 整卡可点：点击资源卡片直接打开下载详情窗（PCL2 式） -->
-                                        <Grid Padding="12,10" ColumnSpacing="12"
-                                              Background="Transparent" Tapped="ModRow_Tapped">
+                                        <Grid local:CardHoverBehavior.IsEnabled="True"
+                                              local:HoverShadowBehavior.IsEnabled="True"
+                                              local:HoverShadowBehavior.Carrier="{Binding ElementName=ModRowGlow}"
+                                              Tapped="ModRow_Tapped">
+                                            <!-- 跟手光斑层铺满整行（不带行内边距），圆角与卡片一致；内容再靠 Padding 让开。
+                                                 光斑若跟内容一起内缩，就会比行小一圈，外面露出框架底色 → 两层框。 -->
+                                            <Border x:Name="ModRowGlow" CornerRadius="8" Opacity="0"
+                                                    IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                                         RadiusX="0.2" RadiusY="0.5">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
+                                        <Grid Padding="12,10" ColumnSpacing="12" Background="Transparent">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
@@ -1106,6 +1136,7 @@
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                 </StackPanel>
                                             </StackPanel>
+                                        </Grid>
                                         </Grid>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
