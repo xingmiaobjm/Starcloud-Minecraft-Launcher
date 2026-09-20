@@ -404,7 +404,8 @@
                         Click="LaunchBtn_Click">
                     <StackPanel Spacing="2" HorizontalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                            <FontIcon x:Name="LaunchIcon" Glyph="&#xE768;" FontSize="16" />
+                            <!-- 实心播放三角（E768 是细线轮廓，在大号强调色按钮上显得太细） -->
+                            <FontIcon x:Name="LaunchIcon" Glyph="&#xF5B0;" FontSize="16" />
                             <TextBlock x:Name="LaunchTitleText" loc:Loc.Text="启动游戏" FontWeight="Bold" FontSize="16" />
                         </StackPanel>
                         <TextBlock x:Name="LaunchSubText" loc:Loc.Text="未选择版本" FontSize="12"

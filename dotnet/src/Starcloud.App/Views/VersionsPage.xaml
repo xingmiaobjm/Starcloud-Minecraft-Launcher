@@ -13,7 +13,7 @@
         <MenuFlyout x:Key="RowMenu" Opening="RowMenu_Opening">
             <MenuFlyoutItem loc:Loc.Text="启动" Click="Launch_Click">
                 <MenuFlyoutItem.Icon>
-                    <FontIcon Glyph="&#xE768;" />
+                    <FontIcon Glyph="&#xF5B0;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
             <MenuFlyoutItem loc:Loc.Text="版本详情" Click="Detail_Click">

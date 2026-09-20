@@ -186,7 +186,9 @@ public sealed partial class HomePage : Page
         var id = (VersionList.SelectedItem as LocalVersionRow)?.Id;
         var isRunning = _gameProcess is { HasExited: false };
         LaunchTitleText.Text = isRunning ? Loc.T("停止游戏") : Loc.T("启动游戏");
-        LaunchIcon.Glyph = isRunning ? "\uE71A" : "\uE768";
+        // 运行中/可启动两种状态都用实心图标（E73B 实心方块 / F5B0 实心播放三角），
+        // 与细线轮廓的 E71A/E768 相比在强调色大按钮上更压得住
+        LaunchIcon.Glyph = isRunning ? "\uE73B" : "\uF5B0";
         LaunchSubText.Text = id ?? Loc.T("未选择版本");
         LaunchBtn.IsEnabled = isRunning || id is not null;
     }
