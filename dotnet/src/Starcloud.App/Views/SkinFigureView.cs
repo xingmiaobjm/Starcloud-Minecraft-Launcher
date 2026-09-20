@@ -23,9 +23,13 @@ namespace Starcloud.App.Views;
 
 public sealed class SkinFigureView : UserControl
 {
-    private const int RenderWidth = 256;    // 渲染分辨率（像素风放大到实际尺寸，够清晰）
-    private const int RenderHeight = 384;
     private const int WalkIntervalMs = 33;  // 约 30fps
+
+    /// <summary>
+    /// 走路角速度（弧度/秒）：11 大约等于一步 0.29 秒。
+    /// 设计文档里的 7.0 是一步约 0.45 秒，实机看偏慢，这里调快。
+    /// </summary>
+    private const double WalkRadPerSecond = 11.0;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(
@@ -34,11 +38,12 @@ public sealed class SkinFigureView : UserControl
 
     private readonly CanvasControl _canvas;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(WalkIntervalMs) };
+    private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
 
     private SkinModel? _model;
     private CanvasBitmap? _bitmap;
+    private int _bitmapW, _bitmapH;
     private double _yaw = 24, _pitch = 6, _zoom = 1.4;
-    private double _phase;
     private string? _skinKey;
     private bool _walkEnabled = true;
     private bool _dragging;
@@ -53,7 +58,7 @@ public sealed class SkinFigureView : UserControl
             if (_walkEnabled == value) return;
             _walkEnabled = value;
             SyncTimer();
-            if (!value) { _phase = 0; _canvas.Invalidate(); }
+            _canvas.Invalidate();
         }
     }
 
@@ -75,8 +80,8 @@ public sealed class SkinFigureView : UserControl
 
         _timer.Tick += (_, _) =>
         {
-            _phase += WalkIntervalMs / 1000.0;
-            if (_phase > 1e6) _phase -= 1e6;   // 长时间挂机不让相位无限增大丢精度
+            // 相位由真实时钟推出：定时器被 UI 线程拖慢时动画速度不变
+            // （之前是每次 tick 加固定 33ms，tick 一慢动画就跟着变慢）
             _canvas.Invalidate();
         };
         SyncTimer();
@@ -94,24 +99,35 @@ public sealed class SkinFigureView : UserControl
     {
         if (_model is null) return;
 
-        var pose = _walkEnabled ? WalkAnimator.FromPhase(_phase * 7.0) : Pose.Still;
+        var pose = _walkEnabled
+            ? WalkAnimator.FromPhase(_clock.Elapsed.TotalSeconds * WalkRadPerSecond)
+            : Pose.Still;
         var camera = new Camera(_yaw, _pitch, 96.0 / _zoom);
-        var frame = SkinRenderer.Render(_model, new RenderOptions(camera), RenderWidth, RenderHeight, pose);
 
-        // 位图只建一次，之后每帧只回写像素（避免逐帧分配 GPU 资源）
-        _bitmap ??= CanvasBitmap.CreateFromBytes(sender, frame.Bgra, frame.Width, frame.Height,
-            DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
-        _bitmap.SetPixelBytes(frame.Bgra);
+        // 按控件的物理像素 1:1 渲染：之前写死 256×384 再最近邻放大，
+        // 在高 DPI 下每个渲染像素被放大成方块，轮廓全是台阶（用户反馈的"锯齿"）。
+        var dpiScale = sender.Dpi / 96.0;
+        var pxW = Math.Max(32, (int)Math.Round(sender.ActualWidth * dpiScale));
+        var pxH = Math.Max(32, (int)Math.Round(sender.ActualHeight * dpiScale));
+        var frame = SkinRenderer.Render(_model, new RenderOptions(camera), pxW, pxH, pose);
 
-        // 等比铺满可用区域，保持像素风（近邻放大）
-        var scale = Math.Min(sender.ActualWidth / frame.Width, sender.ActualHeight / frame.Height);
-        if (scale <= 0) return;
-        var w = frame.Width * scale;
-        var h = frame.Height * scale;
-        var rect = new Windows.Foundation.Rect(
-            (sender.ActualWidth - w) / 2, (sender.ActualHeight - h) / 2, w, h);
-        args.DrawingSession.DrawImage(_bitmap, rect, new Windows.Foundation.Rect(0, 0, frame.Width, frame.Height),
-            1f, CanvasImageInterpolation.NearestNeighbor);
+        // 位图只在尺寸变化时重建，其余帧只回写像素（避免逐帧分配 GPU 资源）
+        if (_bitmap is null || _bitmapW != pxW || _bitmapH != pxH)
+        {
+            _bitmap?.Dispose();
+            _bitmap = CanvasBitmap.CreateFromBytes(sender, frame.Bgra, pxW, pxH,
+                DirectXPixelFormat.B8G8R8A8UIntNormalized, sender.Dpi, CanvasAlphaMode.Premultiplied);
+            _bitmapW = pxW;
+            _bitmapH = pxH;
+        }
+        else
+        {
+            _bitmap.SetPixelBytes(frame.Bgra);
+        }
+
+        // 位图 DPI 与控件一致 → 源矩形与目标矩形都用控件尺寸即 1:1，不做任何缩放
+        var rect = new Windows.Foundation.Rect(0, 0, sender.ActualWidth, sender.ActualHeight);
+        args.DrawingSession.DrawImage(_bitmap, rect, rect, 1f, CanvasImageInterpolation.NearestNeighbor);
     }
 
     // ── 交互：拖拽转视角 / 滚轮缩放 ──
