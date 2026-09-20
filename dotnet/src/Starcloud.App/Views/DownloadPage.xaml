@@ -629,7 +629,8 @@
                                                 <DataTemplate x:DataType="local:LoaderBuildRow">
                                                     <Grid Padding="10,7" ColumnSpacing="12"
                                                           CornerRadius="8"
-                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                          local:HoverShadowBehavior.IsEnabled="True">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
@@ -712,7 +713,8 @@
                                                 <DataTemplate x:DataType="local:LoaderBuildRow">
                                                     <Grid Padding="10,7" ColumnSpacing="12"
                                                           CornerRadius="8"
-                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                          local:HoverShadowBehavior.IsEnabled="True">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
@@ -795,7 +797,8 @@
                                                 <DataTemplate x:DataType="local:LoaderBuildRow">
                                                     <Grid Padding="10,7" ColumnSpacing="12"
                                                           CornerRadius="8"
-                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                          local:HoverShadowBehavior.IsEnabled="True">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
@@ -878,7 +881,8 @@
                                                 <DataTemplate x:DataType="local:LoaderBuildRow">
                                                     <Grid Padding="10,7" ColumnSpacing="12"
                                                           CornerRadius="8"
-                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                          Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                          local:HoverShadowBehavior.IsEnabled="True">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
