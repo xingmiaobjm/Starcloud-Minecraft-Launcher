@@ -26,10 +26,12 @@ public sealed class SkinFigureView : UserControl
     private const int WalkIntervalMs = 33;  // 约 30fps
 
     /// <summary>
-    /// 走路角速度（弧度/秒）：11 大约等于一步 0.29 秒。
-    /// 设计文档里的 7.0 是一步约 0.45 秒，实机看偏慢，这里调快。
+    /// 走路角速度（弧度/秒）。一个完整步态周期 = 2π / 该值：
+    /// 8.4 → 一圈 0.75 秒、一步 0.37 秒（正常步行观感）。
+    /// 取值经过两轮实机调整：设计文档原值 7.0 看起来偏慢，但那次实际是被"定时器驱动相位 +
+    /// 帧率只有 10fps"拖成了约 2.7 秒一圈；修好时钟与帧率后调到 11 又明显偏快，故落在中间。
     /// </summary>
-    private const double WalkRadPerSecond = 11.0;
+    private const double WalkRadPerSecond = 8.4;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(
