@@ -26,12 +26,12 @@ public sealed class SkinFigureView : UserControl
     private const int WalkIntervalMs = 33;  // 约 30fps
 
     /// <summary>
-    /// 走路角速度（弧度/秒）。一个完整步态周期 = 2π / 该值：
-    /// 8.4 → 一圈 0.75 秒、一步 0.37 秒（正常步行观感）。
-    /// 取值经过两轮实机调整：设计文档原值 7.0 看起来偏慢，但那次实际是被"定时器驱动相位 +
-    /// 帧率只有 10fps"拖成了约 2.7 秒一圈；修好时钟与帧率后调到 11 又明显偏快，故落在中间。
+    /// 走路步态周期（秒）：一个完整周期 = 左右腿各迈一次。1.0 = 每秒走一个周期。
+    /// <para>取值经过三轮实机调整，记下来避免以后又来回试：设计文档原值 0.9 秒看着偏慢，
+    /// 但那次实际是被"定时器驱动相位 + 帧率只有 10fps"拖成了约 2.7 秒一圈；
+    /// 修好时钟与帧率后 0.57 秒明显偏快、0.75 秒仍偏快，用户最终定为每秒一个周期。</para>
     /// </summary>
-    private const double WalkRadPerSecond = 8.4;
+    private const double WalkCycleSeconds = 1.0;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(
@@ -102,7 +102,7 @@ public sealed class SkinFigureView : UserControl
         if (_model is null) return;
 
         var pose = _walkEnabled
-            ? WalkAnimator.FromPhase(_clock.Elapsed.TotalSeconds * WalkRadPerSecond)
+            ? WalkAnimator.FromPhase(_clock.Elapsed.TotalSeconds / WalkCycleSeconds * 2 * Math.PI)
             : Pose.Still;
         var camera = new Camera(_yaw, _pitch, 96.0 / _zoom);
 
