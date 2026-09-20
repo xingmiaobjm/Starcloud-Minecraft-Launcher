@@ -429,7 +429,7 @@ public static class HoverShadowBehavior
         public RadialGradientBrush? Brush;
         // 自建光斑层（元素没有自带载体时用，例如普通按钮）：画在元素内容之上
         public CompositionRadialGradientBrush? AutoBrush;
-        public CompositionRectangleGeometry? AutoGeometry;
+        public CompositionRoundedRectangleGeometry? AutoGeometry;
         public bool Wired;
         public bool Hovered;
     }
@@ -458,7 +458,10 @@ public static class HoverShadowBehavior
                 Windows.UI.Color.FromArgb(alpha, 0, 0, 0)));
 
         var size = new Vector2((float)element.ActualWidth, (float)element.ActualHeight);
-        var geometry = compositor.CreateRectangleGeometry();
+        // 必须用圆角矩形：按钮是圆角的（本主题 ControlCornerRadius=12），直角矩形会把光斑
+        // 填进四个圆角缺口——两个按钮之间的缝隙正好是四个缺角交汇处，看着就是"阴影渲染到了按钮外"。
+        var geometry = compositor.CreateRoundedRectangleGeometry();
+        geometry.CornerRadius = new Vector2((float)CornerRadiusOf(element));
         geometry.Size = size;
         var shape = compositor.CreateSpriteShape(geometry);
         shape.FillBrush = brush;
@@ -482,6 +485,10 @@ public static class HoverShadowBehavior
             Panel panel => IsVisible(panel.Background),
             _ => false,
         };
+
+    /// <summary>元素的圆角半径：控件读 CornerRadius，其余按直角处理</summary>
+    private static double CornerRadiusOf(FrameworkElement element) =>
+        element is Control control ? control.CornerRadius.TopLeft : 0d;
 
     private static bool IsVisible(Brush? brush) => brush switch
     {
