@@ -2,7 +2,10 @@
     x:Class="Starcloud.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Starcloud.App.Views">
+    xmlns:local="using:Starcloud.App.Views"
+    xmlns:beh="using:Starcloud.App.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
+    xmlns:imaging="using:Microsoft.UI.Xaml.Media.Imaging">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -14,11 +17,293 @@
             <CornerRadius x:Key="CardCornerRadius">20</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">16</CornerRadius>
 
-            <!-- 白底按钮统一带跟手内阴影：继承 Fluent 自己的 DefaultButtonStyle，只多挂一个附加属性。
-                 显式指定了 Style 的按钮（例如 AccentButtonStyle / 强调色底）不受影响；
-                 HoverShadowBehavior 对纯透明底的图标按钮会自动跳过，不会给它们盖一层深色渐变。 -->
-            <Style TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-                <Setter Property="local:HoverShadowBehavior.IsEnabled" Value="True" />
+            <!-- ══ 全局字体：HarmonyOS Sans SC（Medium 档） ══
+                 本机装了用户级的 Medium / Bold / Black 三档；没装这个字体的机器由系统字体回退兜底，
+                 界面不会因此缺字。两处都要落：
+                   · ContentControlThemeFontFamily —— 所有控件模板（按钮 / 输入框 / 下拉 / 导航项…）读它；
+                   · ScText —— 文字基样式，下面的隐式样式与各处命名文字样式都继承它。
+                 字重统一给 Medium：字体本身只装了 Medium / Bold / Black，没有 Regular 档，
+                 正文/标题一律 Medium（比 Bold 细一档，整屏不糊），
+                 只有「选中 / 未选中」这类靠字重表达状态的切换控件在选中时提到 Bold。 -->
+            <FontFamily x:Key="ScUiFontFamily">HarmonyOS Sans SC</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">HarmonyOS Sans SC</FontFamily>
+
+            <!-- ══ 全局图标：HarmonyOS 图标库（字体图标，随包发布） ══
+                 来源：IKKI2000/harmonyos-icons（MIT，字形取自 HarmonyOS Design 图标库），
+                 字体文件与许可证见 Assets/Fonts/。家族名就是文件里的 harmonyos。
+                 用法：<FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xXXXX;" …/>，代码里新建 FontIcon 时挂 IconFont.Family。
+                 注意：只给应用自己的 FontIcon 挂这个字体（逐元素指定），
+                 不做 FontIcon 隐式样式——框架模板（下拉箭头 / 消息条关闭 / 导航展开箭头…）
+                 也用 FontIcon，隐式样式会把它们的 Segoe 字形打成缺字。 -->
+            <FontFamily x:Key="ScIconFont">ms-appx:///Assets/Fonts/HarmonyOSIcons.ttf#harmonyos</FontFamily>
+
+            <!-- Nova 图标 = 品牌标记的小尺寸版（16–24px 单块版，黄块 + 星）。
+                 多色标记没法用字形画，所以做成图片源：导航项 / 菜单项的 ImageIcon、
+                 空状态的 EmptyStateView.IconImage 都引它，形状与品牌手册一致。
+                 这里显式建 SvgImageSource（而不是到处写 URI 字符串），省掉一次类型转换。 -->
+            <imaging:SvgImageSource x:Key="NovaMarkSmall"
+                                    UriSource="ms-appx:///Assets/Brand/starcloud-mark-small.svg" />
+
+            <!-- 文字基样式：字体 + 字重。所有命名文字样式都以它为准（见各处 BasedOn）。
+                 注意：不能 BasedOn "DefaultTextBlockStyle"——WinUI 3 的 TextBlock 默认样式在框架
+                 generic.xaml 里，不在应用的资源查找链上，写 BasedOn 会在运行时抛
+                 「Cannot find a Resource with the Name/Key DefaultTextBlockStyle」并直接崩在启动。
+                 所以这里显式重写框架默认里真正影响显示的字体与字号（框架默认就是 14）。
+                 另外**不要**在这里设 Foreground：文字颜色要留给「继承」这条路——
+                 强调色按钮（黄底）模板里的白字是靠 ContentPresenter 继承下来的，
+                 基样式一旦写死 Foreground，按钮里的文字会变成正文色（黑），图标却还是白的。 -->
+            <Style x:Key="ScText" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+
+            <!-- 隐式样式：没显式指定样式的 TextBlock 全部走基样式（同一字体、同一字重） -->
+            <Style TargetType="TextBlock" BasedOn="{StaticResource ScText}" />
+
+            <!-- RichTextBlock 不在 TextBlock 的隐式样式覆盖范围内，单独补一条：
+                 Nova 对话正文用 RichTextBlock 渲染 Markdown，字体字重必须跟正文一致 -->
+            <Style TargetType="RichTextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontSize" Value="14" />
+            </Style>
+
+            <!-- 其余带文字的控件：模板里的字体走上面的 ContentControlThemeFontFamily，
+                 字重则各自默认 Normal——这里统一提到 Medium，免得同一个界面里粗细不齐 -->
+            <Style TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+            <Style TargetType="ToggleSwitch" BasedOn="{StaticResource DefaultToggleSwitchStyle}">
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+            <Style TargetType="CheckBox" BasedOn="{StaticResource DefaultCheckBoxStyle}">
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+            <Style TargetType="RadioButton" BasedOn="{StaticResource DefaultRadioButtonStyle}">
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+
+            <!-- 对话框底部的白底按钮（取消 / 关闭 / 次要）：按钮由 ContentDialog 的模板生成，
+                 XAML 里够不到它们，没法像页面按钮那样逐个挂附加属性。这里给一个等价的按钮样式
+                 （同样基于 DefaultButtonStyle，外观与默认一模一样，只多挂阴影开关），
+                 由 ThemedDialog 在构造时挂到 CloseButtonStyle / SecondaryButtonStyle 上。
+                 强调色主按钮（Primary）不受影响。 -->
+            <Style x:Key="ScShadowButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="beh:HoverShadowBehavior.IsEnabled" Value="True" />
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+
+            <!-- ══ 可复用按钮：ctrl:GlowButton（跟手内阴影写进模板） ══
+                 此前跟手阴影的调用点要自己摆一层 <ctrl:GlowLayer x:Name="…"> 并挂成 Carrier，
+                 而那层的 CornerRadius 是手写魔数 —— 它必须与「按钮表面真正的圆角」一致，但表面圆角
+                 多半来自 ControlCornerRadius 或页面样式，两边没有联动。一旦不一致，光斑的四个角
+                 就会从按钮外面溢出来（主页磁贴 8 vs 12、版本行光斑 8 vs 框架行底色 4 都是这个毛病）。
+                 现在把光斑收进按钮模板：圆角与按钮表面读同一个 {TemplateBinding CornerRadius}，
+                 结构上不可能再错配。调用点只写一个标签：
+                     <ctrl:GlowButton Content="确定" Click="…" />
+                     <ctrl:GlowButton Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">…</ctrl:GlowButton>
+                 调用点在自己身上写死透明底的图标按钮（Background="Transparent"）会由 GlowButton
+                 自动跳过光斑与上浮，与 HoverShadowBehavior 自建层的判定一致，迁移过来不会凭空
+                 多出一层深色渐变；底色由样式供给的按钮（分区导航在样式里设 Transparent、选中态
+                 才换成 accent）照旧发光。
+                 模板分两套：
+                   · ScGlowButtonTemplate     —— 普通按钮，保留 Fluent 的悬停/按下换色（磁贴 / 导航项 / 瓦片）；
+                   · ScGlowCardButtonTemplate —— 卡片式按钮，底色自带（GlassCardBrush）、悬停不换色
+                                                 （抽屉头 / 组头：换成半透明的 Fluent 悬停色会从深色卡片
+                                                 突变成浅色，故这类按钮的悬停反馈只走高亮层与光斑）。 -->
+
+            <!-- 光斑层在底色之上、内容之下：与原先各页面手写时的层序一致，文字不会被压暗 -->
+            <ControlTemplate x:Key="ScGlowButtonTemplate" TargetType="ctrl:GlowButton">
+                <Grid>
+                    <Border x:Name="SurfacePresenter"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            AutomationProperties.AccessibilityView="Raw" />
+
+                    <ctrl:GlowLayer x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}" />
+
+                    <ContentPresenter x:Name="ContentPresenter"
+                                      Foreground="{TemplateBinding Foreground}"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentTransitions="{TemplateBinding ContentTransitions}"
+                                      Padding="{TemplateBinding Padding}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      AutomationProperties.AccessibilityView="Raw" />
+
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CommonStates">
+                            <VisualState x:Name="Normal" />
+
+                            <VisualState x:Name="PointerOver">
+                                <Storyboard>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SurfacePresenter" Storyboard.TargetProperty="Background">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonBackgroundPointerOver}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SurfacePresenter" Storyboard.TargetProperty="BorderBrush">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonBorderBrushPointerOver}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="ContentPresenter" Storyboard.TargetProperty="Foreground">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonForegroundPointerOver}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                </Storyboard>
+                            </VisualState>
+
+                            <VisualState x:Name="Pressed">
+                                <Storyboard>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SurfacePresenter" Storyboard.TargetProperty="Background">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonBackgroundPressed}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SurfacePresenter" Storyboard.TargetProperty="BorderBrush">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonBorderBrushPressed}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="ContentPresenter" Storyboard.TargetProperty="Foreground">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonForegroundPressed}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                </Storyboard>
+                            </VisualState>
+
+                            <VisualState x:Name="Disabled">
+                                <Storyboard>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SurfacePresenter" Storyboard.TargetProperty="Background">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonBackgroundDisabled}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SurfacePresenter" Storyboard.TargetProperty="BorderBrush">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonBorderBrushDisabled}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="ContentPresenter" Storyboard.TargetProperty="Foreground">
+                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ButtonForegroundDisabled}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                </Storyboard>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                </Grid>
+            </ControlTemplate>
+
+            <!-- 卡片式：视觉树与上面完全相同，只是不挂四态换色 —— 底色是调用点给的 GlassCardBrush，
+                 悬停时不该被 Fluent 的半透明悬停色顶掉。 -->
+            <ControlTemplate x:Key="ScGlowCardButtonTemplate" TargetType="ctrl:GlowButton">
+                <Grid>
+                    <Border x:Name="SurfacePresenter"
+                            Background="{TemplateBinding Background}"
+                            BackgroundSizing="{TemplateBinding BackgroundSizing}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            AutomationProperties.AccessibilityView="Raw">
+                        <Border.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Border.BackgroundTransition>
+                    </Border>
+
+                    <ctrl:GlowLayer x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}" />
+
+                    <ContentPresenter x:Name="ContentPresenter"
+                                      Foreground="{TemplateBinding Foreground}"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentTransitions="{TemplateBinding ContentTransitions}"
+                                      Padding="{TemplateBinding Padding}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                </Grid>
+            </ControlTemplate>
+
+            <!-- 带键基样式：页面若要改造自己的按钮样式（例如版本详情页的分区导航），
+                 以它为 BasedOn 再覆写 Background/Padding/CornerRadius 即可，
+                 不会丢掉模板与字体。 -->
+            <Style x:Key="ScGlowButtonStyle" TargetType="ctrl:GlowButton" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Template" Value="{StaticResource ScGlowButtonTemplate}" />
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+            <Style TargetType="ctrl:GlowButton" BasedOn="{StaticResource ScGlowButtonStyle}" />
+
+            <!-- 抽屉头 / 组头：卡片自带底色，其余与普通按钮同源 -->
+            <Style x:Key="ScGlowCardButtonStyle" TargetType="ctrl:GlowButton" BasedOn="{StaticResource ScGlowButtonStyle}">
+                <Setter Property="Template" Value="{StaticResource ScGlowCardButtonTemplate}" />
+                <Setter Property="Background" Value="{ThemeResource GlassCardBrush}" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Margin" Value="2,2" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+
+            <!-- ══ 可复用元素：ctrl:CategoryNavItem（左侧分类导航项） ══
+                 下载页与设置页左侧那 10 个分区条目，原先调用点里只写内容（FontIcon + TextBlock），
+                 选中/悬停反馈全靠框架 ListViewItem 自带的硬边直角底色，跟行内圆角与跟手光斑
+                 摞在一起时四个角互相啃掉一块。现在选中底 / 悬停底 / 跟手光斑三层都收进模板，
+                 圆角统一读 {TemplateBinding CornerRadius}；框架那层矩形由页面侧的 ListView.Resources
+                 置为 Transparent 让位。选中态由控件的 IsActive 表达，调用点只写：
+                     <ctrl:CategoryNavItem x:Name="CatVanilla" IsActive="True"
+                                           Glyph="&#xEC20;" loc:Loc.Text="原版游戏" />
+                 标签走 Content（loc:Loc.Text 对 ContentControl 会写进 Content，本地化照旧）；
+                 需要自绘图标时用 Icon 槽（设置页的 Java 咖啡杯），它会盖掉 Glyph。
+                 位移只有一个来源：上浮与按下反馈交给 RowHoverBehavior，光斑行为的自带上移
+                 由控件在 OnApplyTemplate 里关掉（SetLiftEnabled(false)）。 -->
+            <ControlTemplate x:Key="ScCategoryNavItemTemplate" TargetType="ctrl:CategoryNavItem">
+                <!-- 根 Grid 自带透明底色：整行可命中。原先行 Grid 没有底色，只有光标正好压在
+                     文字/图标上才触发悬停反馈，落在同一行的空白处不触发，而光斑层本身是铺满整行的。
+                     圆角在这里定，三层底色与光斑都读同一个值。 -->
+                <Grid Margin="0,2" CornerRadius="{TemplateBinding CornerRadius}" Background="Transparent">
+                    <!-- 选中底 / 悬停底 / 跟手光斑：层序与改造前一致（光斑在底色之上、内容之下） -->
+                    <Border x:Name="ActiveLayer" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False"
+                            Background="{ThemeResource ScRowShadeBrush}" />
+                    <Border x:Name="HoverLayer" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False"
+                            Background="{ThemeResource ScRowShadeBrush}" />
+                    <ctrl:GlowLayer x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0"
+                                VerticalAlignment="Center">
+                        <Grid VerticalAlignment="Center">
+                            <FontIcon x:Name="GlyphIcon" FontFamily="{StaticResource ScIconFont}"
+                                      FontSize="14" Glyph="{TemplateBinding Glyph}" />
+                            <!-- 自绘图标槽：Icon 为空时必须什么都不画。用 ContentPresenter 不行 ——
+                                 它的内容为 null 时会回落到「模板父级的 Content」，把这一行的标签
+                                 也画进图标格里，行内就凭空多出一份同样的文字（还被字形压在下面）。
+                                 ContentControl 没有这层回落，为空时就是空的。 -->
+                            <ContentControl x:Name="IconHost" Content="{TemplateBinding Icon}" />
+                        </Grid>
+                        <ContentPresenter Content="{TemplateBinding Content}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </ControlTemplate>
+
+            <!-- 字体三件套与隐式 TextBlock 样式（ScText）对齐：标签由 ContentPresenter 生成 TextBlock 渲染，
+                 显式写死这三项，无论它走隐式样式还是走继承，观感都与改造前的裸 TextBlock 一致。 -->
+            <Style x:Key="ScCategoryNavItemStyle" TargetType="ctrl:CategoryNavItem">
+                <Setter Property="Template" Value="{StaticResource ScCategoryNavItemTemplate}" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+            <Style TargetType="ctrl:CategoryNavItem" BasedOn="{StaticResource ScCategoryNavItemStyle}" />
+
+            <!-- 输入框统一形态：WinUI 默认的 TextBox 只有一条底边线，落在白卡片上几乎看不出边界
+                 （下载页的搜索框就被反馈成"像坏掉的一行"）。这里统一成 1px 描边的圆角框，
+                 与按钮/卡片共用同一套边界语言；聚焦态仍由框架的强调色底边表达。 -->
+            <Style TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
+                <Setter Property="FontWeight" Value="Medium" />
             </Style>
 
             <!-- 悬浮卡片：毛玻璃卡片 + 悬浮轻微放大 / 按下轻微缩小（D2，动效可关闭） -->
@@ -28,12 +313,98 @@
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="12" />
                 <Setter Property="Padding" Value="16" />
-                <Setter Property="local:CardHoverBehavior.IsEnabled" Value="True" />
+                <Setter Property="beh:CardHoverBehavior.IsEnabled" Value="True" />
+            </Style>
+
+            <!-- 静态卡片：设置页 / 信息卡通用外壳。原先这五行属性在每个页面各抄一遍，
+                 改一次圆角就要满仓库找；统一走这里，页面只写内容。
+                 与 ScHoverCard 的区别：不带悬浮放大（设置卡不是可点目标，不该跟着鼠标动）。 -->
+            <Style x:Key="ScCard" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource GlassCardBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="16" />
+                <Setter Property="Padding" Value="16" />
+            </Style>
+
+            <!-- 卡片说明文字：比正文小一号 + 次级色 + 自动换行 -->
+            <Style x:Key="ScCardHint" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+
+            <!-- 行内容自己画底/圆角的列表（模型档案、操作日志…）：容器不插手内外边距 -->
+            <Style x:Key="ScPlainListItem" TargetType="ListViewItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0,2" />
             </Style>
 
             <!-- 语义色（双主题同值）：危险=重要警告场景，成功=操作达成 -->
             <SolidColorBrush x:Key="DangerBrush" Color="#FFF44336" />
             <SolidColorBrush x:Key="SuccessBrush" Color="#FF3DDC84" />
+
+            <!-- ══ 视觉基元（界面打磨）：跨页面复用的三个"结构语言" ══
+                 三样东西定义了这套界面的观感，其余一律保持安静：
+                 1) 小节标题 = 中性文字 + 3px 强调色脊柱（强调色不再铺满标题，层次不再被拉平）
+                 2) 元信息芯片 = 一行结构化标签的唯一形态（类型/加载器/隔离/未验证…）
+                 3) 行尾数据列 = 11px 标签 + 12px 数值，跨行对齐成列（宽窗口下不再是一片空） -->
+            <Style x:Key="ScSectionSpine" TargetType="Border">
+                <Setter Property="Width" Value="3" />
+                <Setter Property="Height" Value="14" />
+                <Setter Property="CornerRadius" Value="2" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+            </Style>
+
+            <Style x:Key="ScSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="ScChip" TargetType="Border">
+                <Setter Property="Padding" Value="6,1" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+            </Style>
+
+            <Style x:Key="ScChipText" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+
+            <!-- 强调芯片：品牌色底 + 黑字（品牌色亮度高，白字对比不足） -->
+            <Style x:Key="ScChipAccent" TargetType="Border" BasedOn="{StaticResource ScChip}">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+            </Style>
+
+            <Style x:Key="ScChipAccentText" TargetType="TextBlock" BasedOn="{StaticResource ScChipText}">
+                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+            </Style>
+
+            <!-- 提示芯片：需要用户注意但非错误（第三方来源、未验证…） -->
+            <Style x:Key="ScChipCaution" TargetType="Border" BasedOn="{StaticResource ScChip}">
+                <Setter Property="Background" Value="{ThemeResource CautionChipBackgroundBrush}" />
+            </Style>
+
+            <Style x:Key="ScChipCautionText" TargetType="TextBlock" BasedOn="{StaticResource ScChipText}">
+                <Setter Property="Foreground" Value="{ThemeResource CautionChipTextBrush}" />
+            </Style>
+
+            <!-- 行尾数据列：标签（上/左）与数值（下/右）成对出现，跨行左对齐成列 -->
+            <Style x:Key="ScMetaLabel" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+            </Style>
+
+            <Style x:Key="ScMetaValue" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
 
             <!-- Nova 品牌色（nebula 紫，仅 Nova 专属视觉使用；状态色见状态栏规格） -->
             <SolidColorBrush x:Key="NovaStateIdleBrush" Color="#FF71717A" />
@@ -41,10 +412,12 @@
             <SolidColorBrush x:Key="NovaStatePlanBrush" Color="#FFF59E0B" />
             <SolidColorBrush x:Key="NovaStateObservingBrush" Color="#FF10B981" />
 
-            <!-- 品牌主色刷：浅色=黄 #FFD322，深色=绿 #3DD322（图标/品牌图形用） -->
+            <!-- 品牌主色刷：浅色与深色同为品牌黄 #FFD322（图标/品牌图形用；深色原先的绿已统一为黄） -->
             <!-- 品牌主色亮度高（黄/亮绿），accent 面上必须用黑字（默认白字对比不足） -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
+                    <!-- 全局字体（主题字典里再放一份：ThemeResource 查找优先命中当前主题字典） -->
+                    <FontFamily x:Key="ContentControlThemeFontFamily">HarmonyOS Sans SC</FontFamily>
                     <!-- 主题强调色：#FFD322，悬浮 #FFBC00，按下更深 -->
                     <Color x:Key="SystemAccentColor">#FFD322</Color>
                     <Color x:Key="SystemAccentColorLight1">#FFDD4D</Color>
@@ -75,12 +448,20 @@
                     <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
                     <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />
                     <SolidColorBrush x:Key="BrandBlueBrush" Color="#FFD322" />
+                    <!-- 提示芯片：琥珀色底 + 深琥珀文字（浅色主题） -->
+                    <SolidColorBrush x:Key="CautionChipBackgroundBrush" Color="#1FF59E0B" />
+                    <SolidColorBrush x:Key="CautionChipTextBrush" Color="#FFB45309" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#FFFFFF" TintOpacity="0.72" FallbackColor="#FFF9F9F9" />
+                    <!-- 列表行/分类项的「压暗底」（悬停与选中共用一层，压在跟手光斑之下）。
+                         浅色主题就是原先 ListViewItem 的选中底色（黑 4%）。
+                         两个主题都必须是「压暗」：深色下若改用 Fluent 那套半透明白叠加，
+                         整行会变成一块白框，跟下面黑色径向的光斑方向相反，看着就是「阴影是白的」。 -->
+                    <SolidColorBrush x:Key="ScRowShadeBrush" Color="#0A000000" />
                     <!-- 键盘焦点框：默认是 2px 黑 + 1px 白的高对比矩形，铺在整行宽的列表行上非常突兀；
                          改为品牌琥珀色单圈细线（外圈透明），既有键盘可达性提示又不抢视线 -->
                     <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="#B38500" />
@@ -89,21 +470,25 @@
                     <Thickness x:Key="FocusVisualSecondaryThickness">0</Thickness>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <!-- 主题强调色：#3DD322，悬浮 #2FBD6E -->
-                    <Color x:Key="SystemAccentColor">#3DD322</Color>
-                    <Color x:Key="SystemAccentColorLight1">#6BE050</Color>
-                    <Color x:Key="SystemAccentColorLight2">#99E97F</Color>
-                    <Color x:Key="SystemAccentColorLight3">#C6F2AD</Color>
-                    <Color x:Key="SystemAccentColorDark1">#2FBD6E</Color>
-                    <Color x:Key="SystemAccentColorDark2">#27A05C</Color>
-                    <Color x:Key="SystemAccentColorDark3">#1F8349</Color>
-                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#3DD322" />
-                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#2FBD6E" />
-                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#27A05C" />
-                    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#803DD322" />
-                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#6BE050" />
-                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#CC6BE050" />
-                    <SolidColorBrush x:Key="AccentTextFillColorDisabledBrush" Color="#5C6BE050" />
+                    <!-- 全局字体（同上） -->
+                    <FontFamily x:Key="ContentControlThemeFontFamily">HarmonyOS Sans SC</FontFamily>
+                    <!-- 主题强调色：与浅色主题同一套品牌黄（#FFD322，悬浮 #FFBC00 起）。
+                         深色下原来是绿 #3DD322，已按品牌统一成黄——品牌标记的黄面也是这个值。 -->
+                    <Color x:Key="SystemAccentColor">#FFD322</Color>
+                    <Color x:Key="SystemAccentColorLight1">#FFDD4D</Color>
+                    <Color x:Key="SystemAccentColorLight2">#FFE780</Color>
+                    <Color x:Key="SystemAccentColorLight3">#FFF0B3</Color>
+                    <Color x:Key="SystemAccentColorDark1">#FFBC00</Color>
+                    <Color x:Key="SystemAccentColorDark2">#D9A000</Color>
+                    <Color x:Key="SystemAccentColorDark3">#B38500</Color>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FFD322" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#FFBC00" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#E6A800" />
+                    <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#99FFD322" />
+                    <!-- 深色底上的黄字直接用品牌黄（浅色主题是 #B38500，那是给浅底算的对比度） -->
+                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#FFD322" />
+                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#CCFFD322" />
+                    <SolidColorBrush x:Key="AccentTextFillColorDisabledBrush" Color="#5CFFD322" />
                     <!-- 文字层级：主 #F5F5F5，次要 #A0A0A0 -->
                     <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#FFF5F5F5" />
                     <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#FFA0A0A0" />
@@ -115,7 +500,10 @@
                     <!-- 语义状态：成功 #3DDC84，危险 #F44336 -->
                     <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF3DDC84" />
                     <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFF44336" />
-                    <SolidColorBrush x:Key="BrandBlueBrush" Color="#3DD322" />
+                    <SolidColorBrush x:Key="BrandBlueBrush" Color="#FFD322" />
+                    <!-- 提示芯片：琥珀色底 + 亮琥珀文字（深色主题） -->
+                    <SolidColorBrush x:Key="CautionChipBackgroundBrush" Color="#2EF59E0B" />
+                    <SolidColorBrush x:Key="CautionChipTextBrush" Color="#FFFBBF24" />
                     <!-- Nova 头像/Orb：深色星云紫亮调 #A78BFA -->
                     <SolidColorBrush x:Key="NovaOrbBrush" Color="#FFA78BFA" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
@@ -124,8 +512,11 @@
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#2B2B2B" TintOpacity="0.75" FallbackColor="#FF1F1F1F" />
-                    <!-- 键盘焦点框：深色主题用品牌绿单圈细线（外圈透明），理由同浅色主题 -->
-                    <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="#3DD322" />
+                    <!-- 列表行的「压暗底」（理由见浅色主题同名键）：深色下取黑 22%，
+                         与浅色主题的对比幅度对齐（都是比宿主暗十来级），光斑叠上去才是同一个「阴影」 -->
+                    <SolidColorBrush x:Key="ScRowShadeBrush" Color="#38000000" />
+                    <!-- 键盘焦点框：深色主题用品牌黄单圈细线（外圈透明），理由同浅色主题 -->
+                    <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="#FFD322" />
                     <SolidColorBrush x:Key="FocusVisualSecondaryBrush" Color="Transparent" />
                     <Thickness x:Key="FocusVisualPrimaryThickness">2</Thickness>
                     <Thickness x:Key="FocusVisualSecondaryThickness">0</Thickness>

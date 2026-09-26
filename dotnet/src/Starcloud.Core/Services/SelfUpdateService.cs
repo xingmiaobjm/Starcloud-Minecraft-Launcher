@@ -175,7 +175,11 @@ public sealed class SelfUpdateService
     /// <summary>拉取并解析更新清单；网络/解析异常向上抛（启动路径静默，手动路径提示）</summary>
     public async Task<UpdateManifest> FetchManifestAsync(CancellationToken ct = default)
     {
-        var json = await _http.GetStringAsync(ManifestUrl, ct);
+        // 去掉可能的 UTF-8 BOM：清单是打包脚本生成的（Windows PowerShell 的
+        // Set-Content -Encoding UTF8 会带 BOM），而 System.Text.Json 的字符串重载
+        // 遇到开头 U+FEFF 会直接判为非法 JSON。生成端已经改成无 BOM 写出，
+        // 这里再兜一层，免得手工传的清单把自动更新整条路堵死。
+        var json = (await _http.GetStringAsync(ManifestUrl, ct)).TrimStart('\uFEFF');
         var m = JsonSerializer.Deserialize<UpdateManifest>(json, JsonOptions)
                 ?? throw new InvalidDataException("清单为空");
         return m;

@@ -31,11 +31,12 @@ public sealed class GameSession : IDisposable
     private int _exitCode;
     private DateTime _exitedAt;
 
-    internal GameSession(Process process, string versionId, string logFile)
+    internal GameSession(Process process, string versionId, string logFile, string? commandLine = null)
     {
         _process = process;
         VersionId = versionId;
         LogFile = logFile;
+        CommandLine = commandLine;
         StartedAt = DateTime.Now;
         try
         {
@@ -61,6 +62,9 @@ public sealed class GameSession : IDisposable
 
     /// <summary>本局日志文件（logs/game/game-*.log）</summary>
     public string LogFile { get; }
+
+    /// <summary>本局完整启动命令行（含 --accessToken，仅内存持有，绝不落盘）</summary>
+    public string? CommandLine { get; }
 
     public DateTime StartedAt { get; }
 

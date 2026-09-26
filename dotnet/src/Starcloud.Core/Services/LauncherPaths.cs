@@ -26,7 +26,7 @@ public static class LauncherPaths
     /// <summary>Nova 动手许可层三档开关</summary>
     public static string NovaPermissionsFile => Path.Combine(DataDir, "nova.permissions.json");
 
-    /// <summary>Nova 动手可审计流水</summary>
+    /// <summary>Nova 可审计的操作日志</summary>
     public static string NovaActionsFile => Path.Combine(DataDir, "nova.actions.json");
 
     /// <summary>Nova 时刻（高光卡片 + 下机战报 + 待处理候选池）</summary>
@@ -50,6 +50,12 @@ public static class LauncherPaths
 
     public static string JavaDir => Path.Combine(DataDir, "java");
 
+    // ── 皮肤库（多皮肤管理，skin-library） ──
+    /// <summary>皮肤库目录：一皮肤一 PNG + library.json 索引</summary>
+    public static string SkinsDir => Path.Combine(DataDir, "skins");
+
+    public static string SkinLibraryFile => Path.Combine(SkinsDir, "library.json");
+
     // ── 插件系统（plugin-spec.md） ──
     /// <summary>插件根目录：packs 安装包 / unpacked 解压根 / logs 运行日志 / _runtime 宿主 SDK</summary>
     public static string PluginsDir => Path.Combine(DataDir, "plugins");
@@ -65,6 +71,24 @@ public static class LauncherPaths
 
     /// <summary>插件启用状态与免责确认持久化</summary>
     public static string PluginStateFile => Path.Combine(PluginsDir, "plugin-state.json");
+
+    // ── 联机（multiplayer） ──
+    /// <summary>联机根目录：核心 / 运行目录 / 第三方 SDK 清单 / 下载缓存</summary>
+    public static string MultiplayerDir => Path.Combine(DataDir, "multiplayer");
+
+    /// <summary>第三方联机 SDK 清单目录（<c>*.json</c>，字段见 multiplayer-sdk-design.md）</summary>
+    public static string MultiplayerSdkDir => Path.Combine(MultiplayerDir, "providers");
+
+    /// <summary>某个提供方的核心安装目录（一提供方一子目录，互不覆盖）</summary>
+    public static string MultiplayerCoreDir(string providerId) =>
+        Path.Combine(MultiplayerDir, "core", providerId);
+
+    /// <summary>某个提供方的运行目录（端口文件等会话期产物）</summary>
+    public static string MultiplayerRunDir(string providerId) =>
+        Path.Combine(MultiplayerDir, "run", providerId);
+
+    /// <summary>联机核心平台包下载缓存目录（安装完即清理）</summary>
+    public static string MultiplayerDownloadDir => Path.Combine(MultiplayerDir, "download");
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
 
@@ -93,6 +117,9 @@ public static class LauncherPaths
         Directory.CreateDirectory(CacheDir);
         Directory.CreateDirectory(IconCacheDir);
         Directory.CreateDirectory(LibraryDir);
+        Directory.CreateDirectory(SkinsDir);
+        Directory.CreateDirectory(MultiplayerDir);
+        Directory.CreateDirectory(MultiplayerSdkDir);
     }
 }
 
@@ -168,6 +195,33 @@ public sealed class LauncherSettings
     [JsonPropertyName("account_walk_animation")]
     public bool AccountWalkAnimation { get; set; } = true;
 
+    /// <summary>
+    /// 微软（正版）登录是否用内置登录窗口（默认开）。
+    /// 关闭后回到「显示一次性验证码 + 打开系统浏览器」的方式。
+    /// </summary>
+    [JsonPropertyName("microsoft_login_embedded")]
+    public bool MicrosoftLoginEmbedded { get; set; } = true;
+
+    // ── 联机（multiplayer） ──
+    /// <summary>当前联机提供方 id（terracotta = 内置陶瓦联机；其它来自第三方 SDK 清单）</summary>
+    [JsonPropertyName("multiplayer_provider")]
+    public string MultiplayerProvider { get; set; } = "terracotta";
+
+    /// <summary>联机玩家名（空 = 跟随当前账户名）</summary>
+    [JsonPropertyName("multiplayer_nickname")]
+    public string MultiplayerNickname { get; set; } = "";
+
+    /// <summary>公共节点地区偏好：auto / cn / global（同房间玩家建议接同一地区节点）</summary>
+    [JsonPropertyName("multiplayer_node_region")]
+    public string MultiplayerNodeRegion { get; set; } = "auto";
+
+    /// <summary>
+    /// CurseForge 官方 API Key（可空）。留空走社区只读代理（无需 key）；
+    /// 填了就直连官方 api.curseforge.com，走官方授权路径。
+    /// </summary>
+    [JsonPropertyName("curseforge_api_key")]
+    public string CurseForgeApiKey { get; set; } = "";
+
     // ── Nova LLM 降级链第 1 级：用户自填 Key（OpenAI 兼容协议，零成本） ──
     // 旧版单模型三字段仅保留用于迁移读取；新设置用 nova_llm_profiles 多模型档案。
     [JsonPropertyName("nova_llm_base_url")]
@@ -190,6 +244,56 @@ public sealed class LauncherSettings
     public NovaLlmProfile? ActiveLlmProfile() =>
         NovaLlmProfiles.FirstOrDefault(p => p.Id == NovaLlmActiveId)
         ?? NovaLlmProfiles.FirstOrDefault();
+
+    /// <summary>
+    /// 自接模型是否配好：地址 + 模型名齐全就算。
+    /// Key 允许留空——本地推理服务（LM Studio / Ollama / llama.cpp）本来就不要 Key，
+    /// 以前把「没 Key」等同于「没接入」，于是自接的本地模型被跳过、请求落到云端中转，
+    /// 用户看到的却是云端的报错（400 / 401），完全对不上号。
+    /// Nova 的通道判定与「云端额度要不要算」共用这一条，避免两处规则漂移。
+    /// </summary>
+    public NovaLlmProfile? ReadyLlmProfile()
+    {
+        var profile = ActiveLlmProfile();
+        return profile is not null
+            && !string.IsNullOrWhiteSpace(profile.BaseUrl)
+            && !string.IsNullOrWhiteSpace(profile.Model)
+            ? profile
+            : null;
+    }
+
+    // ── Nova 云端中转（Starcloud ID 登录时后端下发的 API Key；每用户每周 100 万 token） ──
+    // 默认开：登录后 Nova 开箱可用。自填模型 Key 仍然优先，见 NovaService 的降级链。
+    [JsonPropertyName("nova_gateway_enabled")]
+    public bool NovaGatewayEnabled { get; set; } = true;
+
+    // 额度缓存：只用于「刚打开设置页时先显示上次的数值」，真值一律以服务端返回为准
+    [JsonPropertyName("nova_quota_limit")]
+    public long? NovaQuotaLimit { get; set; }
+
+    [JsonPropertyName("nova_quota_used")]
+    public long? NovaQuotaUsed { get; set; }
+
+    [JsonPropertyName("nova_quota_reset_at")]
+    public DateTimeOffset? NovaQuotaResetAt { get; set; }
+
+    [JsonPropertyName("nova_quota_checked_at")]
+    public DateTimeOffset? NovaQuotaCheckedAt { get; set; }
+
+    /// <summary>写回服务端额度（下次开设置页先显示缓存，再异步刷新）。</summary>
+    public void CacheQuota(NovaQuota q)
+    {
+        NovaQuotaLimit = q.Limit;
+        NovaQuotaUsed = q.Used;
+        NovaQuotaResetAt = q.ResetAt;
+        NovaQuotaCheckedAt = DateTimeOffset.Now;
+    }
+
+    /// <summary>缓存里的额度快照；从没查过 → null。</summary>
+    public NovaQuota? CachedQuota() =>
+        NovaQuotaLimit is { } limit && NovaQuotaUsed is { } used
+            ? new NovaQuota(limit, used, Math.Max(0, limit - used), NovaQuotaResetAt)
+            : null;
 
     // ── Nova 游戏内浮窗（设计：nova-overlay-design.md §3.3；默认关 = 开启即显式授权） ──
     [JsonPropertyName("nova_overlay_enabled")]

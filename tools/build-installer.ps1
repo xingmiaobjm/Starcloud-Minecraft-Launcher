@@ -6,6 +6,8 @@
 # Usage (from anywhere):
 #   powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1
 #   powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1 -SkipPublish
+#   powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1 ^
+#       -NotesFile docs\releases\0.3.1-notes.txt -NotesEnFile docs\releases\0.3.1-notes.en.txt
 #
 # Produces (in releases\, which is git-ignored):
 #   Starcloud Minecraft Launcher_<version>_x64-portable-<stamp>.zip
@@ -18,7 +20,13 @@
 [CmdletBinding()]
 param(
     # Reuse the previous publish output (fast loop when only installer.nsi changed).
-    [switch]$SkipPublish
+    [switch]$SkipPublish,
+    # Release notes baked into latest.json, shown by the launcher's update dialog.
+    # Pass *file paths* (e.g. docs\releases\0.3.1-notes.txt), not inline text:
+    # this script is BOM-less and Windows PowerShell 5.1 reads those as ANSI, so
+    # CJK typed inline would come out as mojibake. Files are read as UTF-8.
+    [string]$NotesFile = '',
+    [string]$NotesEnFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,6 +76,29 @@ $files = Get-ChildItem -LiteralPath $staging -Recurse -File
 $sizeMb = [math]::Round((($files | Measure-Object -Property Length -Sum).Sum / 1MB), 1)
 Write-Host "      $($files.Count) files, $sizeMb MB in staging"
 
+# --- 1b. compliance guard: third-party MP core must NOT ship in the package ---
+# The Terracotta | 陶瓦联机 core is AGPL-3.0-or-later with an aggregation exception:
+# we may download and run the official release, but we must not redistribute it.
+# So the core is fetched by the launcher at runtime (first use) into
+# %APPDATA%\starcloud-launcher\multiplayer\core - never into our zip/setup.
+# This guard fails the build if a core ever leaks into the publish output
+# (e.g. someone drops it into Assets\ or globs it from the csproj).
+$forbiddenInPackage = @('terracotta', 'easytier', 'multiplayer\core', 'multiplayer/core')
+$leaks = @()
+foreach ($f in $files) {
+    $rel = $f.FullName.Substring($staging.Length).TrimStart('\')
+    $lower = $rel.ToLowerInvariant()
+    foreach ($needle in $forbiddenInPackage) {
+        if ($lower.Contains($needle)) { $leaks += $rel; break }
+    }
+}
+if ($leaks.Count -gt 0) {
+    throw ("refusing to package: third-party multiplayer core found in publish output: " +
+        ($leaks -join ', ') +
+        " - the core must be downloaded by the launcher at runtime, remove it from Assets/ or the csproj")
+}
+Write-Host "      compliance: no bundled multiplayer core"
+
 # --- 2. portable zip ---
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $base  = "Starcloud Minecraft Launcher_${version}_x64"
@@ -102,17 +133,32 @@ function Get-ArtifactInfo([string]$path) {
        sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
        size   = (Get-Item -LiteralPath $path).Length }
 }
+
+# Notes arrive as UTF-8 files (see the -NotesFile parameter comment).
+function Read-Notes([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path)) { return '' }
+    if (-not (Test-Path -LiteralPath $path)) { throw "notes file not found: $path" }
+    return (Get-Content -LiteralPath $path -Raw -Encoding UTF8).Trim()
+}
+
+$manifestNotes = Read-Notes $NotesFile
+$manifestNotesEn = Read-Notes $NotesEnFile
+if ($manifestNotesEn -eq '') { $manifestNotesEn = $null }
+
 $manifest = [ordered]@{
     version      = $version
-    notes        = ''
-    notes_en     = $null
+    notes        = $manifestNotes
+    notes_en     = $manifestNotesEn
     published_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     setup        = Get-ArtifactInfo $setupPath
     portable     = Get-ArtifactInfo $zipPath
 }
 $manifestPath = Join-Path $outDir 'latest.json'
-$manifest | ConvertTo-Json -Depth 4 |
-    Set-Content -LiteralPath $manifestPath -Encoding UTF8
+# WriteAllText + UTF8Encoding($false) = UTF-8 WITHOUT BOM. Never go back to
+# Set-Content -Encoding UTF8 here: under Windows PowerShell 5.1 that writes a BOM,
+# and the launcher parses the manifest body as a string (leading U+FEFF = invalid JSON).
+$json = $manifest | ConvertTo-Json -Depth 4
+[IO.File]::WriteAllText($manifestPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 
 # --- 5. summary ---
 Write-Host "[5/5] done"

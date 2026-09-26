@@ -58,6 +58,17 @@
 
 ## 4. 组件设计
 
+### 4.0 打包内容约束：第三方联机核心不进包（2026-09-21 追加）
+
+陶瓦联机（Terracotta）核心是 AGPL-3.0-or-later + 聚合例外条款：允许启动器**下载并运行**官方
+二进制，但**不允许我们随安装包再分发**。因此：
+
+- 便携版 zip / NSIS 安装器里不得出现 `terracotta*` / `easytier*` / `multiplayer/core`；
+- 核心由启动器运行时下载到 `%APPDATA%\starcloud-launcher\multiplayer\core\<id>\`（见
+  [联机设计](2026-09-21-multiplayer-sdk-design.md) §7.1）；
+- `tools/build-installer.ps1` 在 publish 之后有一道闸门（第 1b 步）扫描产物，命中即构建失败；
+  `.gitignore` 同步忽略核心二进制，避免"先进仓库再被打包规则扫进去"。
+
 ### 4.1 新增 `tools/gen-app-icon.ps1`（占位符图标生成器）
 
 输出 `dotnet/src/Starcloud.App/Assets/AppIcon.ico`，7 个尺寸（16/24/32/48/64/128/256），

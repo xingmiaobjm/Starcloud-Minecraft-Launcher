@@ -2,7 +2,7 @@
 
 - 状态：v1（与客户端实现 [StarcloudIdService.cs](../../dotnet/src/Starcloud.Core/Services/StarcloudIdService.cs) 对齐）
 - 日期：2026-09-09
-- 参考实现：`Starcloud.Core/Services/StarcloudIdService.cs`、`NovaService.CloudChatAsync`、`LauncherPaths.StarcloudIdFile`
+- 参考实现：`Starcloud.Core/Services/StarcloudIdService.cs`、`NovaGatewayClient.cs`（云端模型中转）、`LauncherPaths.StarcloudIdFile`
 
 ---
 
@@ -57,7 +57,7 @@ api_key = "sk-test-" + SHA256_HEX("starcloud:" + user_id + ":" + id)[0..32]
 
 | 项 | 值 |
 |---|---|
-| Base URL | `https://ai.starcloud.example`（**占位**，定稿前由服务端下发/配置替换；常量 `StarcloudIdService.CloudBaseUrl`） |
+| Base URL | `https://api.starcloudfur.cn`（常量 `StarcloudIdService.CloudBaseUrl`；云端模型中转的路径前缀见 `NovaGatewayClient.CloudBaseUrl`） |
 | 协议 | HTTPS 强制 |
 | 编码 | UTF-8，`Content-Type: application/json` |
 | 鉴权 | 登录/注册免鉴权；其余接口 `Authorization: Bearer <token 或 api_key>` |
@@ -96,11 +96,17 @@ api_key = "sk-test-" + SHA256_HEX("starcloud:" + user_id + ":" + id)[0..32]
 - 响应 `2xx`：`{ "api_key": "sk-..." }`，缺失即失败。
 - 幂等：同一用户重复调用返回同一（或仍有效的）Key。
 
-### 5.5 API Key 使用（云 AI 示例）`POST /v1/ai/chat`
+### 5.5 API Key 使用（Nova 云端中转）
+
+| 端点 | 用途 |
+|---|---|
+| `GET /v1/ai/quota` | 本周额度：`{ limit, used, remaining, reset_at, plan }` |
+| `POST /v1/ai/chat/completions` | OpenAI 兼容对话：`{ model: "nova", messages, tools?, max_tokens?, stream? }` |
 
 - 请求头：`Authorization: Bearer <api_key>`（注意：这里用 **API Key** 而非 login token）。
-- 请求：`{ "message": "...", "history": [ { "role": "user"|"assistant", "content": "..." } ] }`
-- 响应：`{ "text": "..." }`，缺 `text` 视为失败。
+- 流式：`Content-Type: text/event-stream`，`data: {...}` 行为 `chat.completion.chunk`，以 `data: [DONE]` 结束；支持 `tools` / `tool_calls`。
+- 额度：每账号每周 100 万 token，服务端记账；**每个响应**都带 `X-Quota-Limit / X-Quota-Used / X-Quota-Remaining / X-Quota-Reset`。
+- 完整字段、错误码、限流与验收脚本见 [Nova 云端模型中转：服务端实现要求](2026-09-21-nova-gateway-server-spec.md)。
 
 ## 6. 会话对象与客户端存储
 
@@ -125,7 +131,8 @@ api_key = "sk-test-" + SHA256_HEX("starcloud:" + user_id + ":" + id)[0..32]
 
 - 客户端校验失败：抛 `InvalidOperationException`，中文文案（「请输入 Starcloud ID」「密码至少 6 位」等），UI 直接展示。
 - 云端失败：`EnsureSuccessStatusCode` 后按状态码抛「注册失败（<code>（<状态码>）」/ HTTP 请求失败类文案；不重试、不降级登录（登录是显式用户动作）。
-- Nova 使用侧（与登录解耦）：云端 `/v1/ai/chat` 失败时按降级链静默回退，不打扰用户。
+- Nova 使用侧（与登录解耦）：云端中转**网络层失败**（离线 / 超时）时按降级链静默回退；
+  带状态码的失败（401/402/429/5xx）会讲清楚原因（额度用尽要点明重置时间），因为那属于用户需要知道的状态。
 
 ## 8. 安全要求（服务端义务 / 演进方向）
 

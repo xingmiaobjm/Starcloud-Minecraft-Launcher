@@ -80,6 +80,16 @@ public sealed class GameSessionGuard
         return existing is not null && IsAliveJavaProcess(existing.Pid);
     }
 
+    /// <summary>
+    /// 当前在跑的游戏会话（pid + 实例 + 启动时刻）；没有存活的游戏返回 null。
+    /// 供插件 ctx.game.status() 与状态展示复用同一判据（pid 存活且进程名形如 java）。
+    /// </summary>
+    public static GameSessionLock? Current(string dotMc)
+    {
+        var existing = ReadLock(LauncherPaths.GameSessionFile(dotMc));
+        return existing is not null && IsAliveJavaProcess(existing.Pid) ? existing : null;
+    }
+
     internal static void WriteLock(string file, GameSessionLock content)
     {
         try

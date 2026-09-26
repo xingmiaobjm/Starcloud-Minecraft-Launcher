@@ -217,12 +217,21 @@ public static class SkinRenderer
   纹理坐标、相机空间深度。
 - **光栅化**：包围盒 + 重心坐标；透视校正插值 `u/z`、`v/z`、`1/z`；
   **最近邻采样**（Minecraft 像素风）。
+- **采样边界**：插值出的纹素坐标要钳在本面片的 UV 矩形内（右/下边界为
+  `Right-1` / `Bottom-1`）。轮廓边缘的像素属于"保守填充"（三角形外半像素也着色），
+  不钳的话会采到图集里相邻部件的纹素 —— 表现为模型边缘一条杂色描边，
+  读到 alpha=0 的纹素时轮廓还会断成虚线。
 - **深度**：逐像素 Z-buffer（`float[]`，相机空间 `-z`，越小越近）。
   **不做背面剔除** —— 面数极少（约 78 面 / 156 三角形），Z-buffer 能正确处理
   披风内衬与覆盖层内面，比剔除更稳。
 - **`HeadOnly`**：只画头 + 帽子层，相机固定正视，用于账户卡 40px 头像。
 - **输出**：透明背景 + BGRA8 预乘 alpha（渲染过程内部按直通 alpha 混合，
   最后一次遍历预乘）。
+
+> 2026-09-20 补充：实际运行默认走 **GPU 硬件加速**（`SkinGpuRenderer`，D3D11），
+> 本节的软件光栅化器保留为无显卡/无 `d3dcompiler` 时的兜底与单元测试参照实现。
+> 两条路径共用 `SkinProjection` 的投影与"纹素坐标钳在本面片 UV 矩形内"的采样规则；
+> 详见 [玩家形象 GPU 硬件加速设计](2026-09-20-skin-gpu-acceleration-design.md)。
 
 ### 3.5 新增 `SkinTextureCache.cs` + `DefaultSkinFactory.cs`（`Starcloud.Core/Services/`）
 

@@ -55,6 +55,9 @@ public static class SkinRenderer
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
 
         var quads = PlayerModel.BuildQuads(skin, pose ?? Pose.Still, opts.HeadOnly ? "head" : null);
+        var centerY = opts.HeadOnly ? 28.0 : 16.0;   // 只看头时把镜头对准头部中心
+        // 投影只做一次（原先每条扫描带各投影一遍），再由各带并行光栅化。
+        var faces = SkinProjection.Project(quads, opts.Camera, width, height, centerY);
 
         target ??= new SkinRenderTarget();
         target.Ensure(width, height);
@@ -65,17 +68,6 @@ public static class SkinRenderer
         Array.Fill(depth, float.MinValue);   // 深度存 1/z：越大越近
         Array.Clear(output);
 
-        var cam = opts.Camera;
-        var yaw = cam.YawDeg * Math.PI / 180.0;
-        var pitch = cam.PitchDeg * Math.PI / 180.0;
-        var focal = height / 2.0 / Math.Tan(cam.FovDeg * Math.PI / 360.0);
-        var centerY = opts.HeadOnly ? 28.0 : 16.0;    // 只看头时把镜头对准头部中心
-
-        // 由近到远画：近面先把深度落好，远处的像素在着色之前就被 z 测试挡掉。
-        var ordered = quads
-            .OrderBy(q => ViewDepth(q, centerY, yaw, pitch))
-            .ToList();
-
         // 按扫描带并行：每条带只写自己的 y 区间，深度/颜色缓冲互不争用，不用加锁。
         // 单线程下这台机器实测 630×1020 要 58ms（约 17fps，走路动画会发跳）；
         // 这台机器的单核算力地板就在 50ns 量级（同密度空循环实测 51ns/次），
@@ -83,8 +75,7 @@ public static class SkinRenderer
         var bands = Math.Max(1, Math.Min(Environment.ProcessorCount, (height + 127) / 128));
         if (bands == 1)
         {
-            RasterizeAll(ordered, color, depth, width, height, 0, height, centerY, yaw, pitch,
-                cam.Distance, focal, skin.Texture);
+            RasterizeAll(faces, color, depth, width, height, 0, height, skin.Texture);
         }
         else
         {
@@ -92,8 +83,7 @@ public static class SkinRenderer
             {
                 var y0 = band * height / bands;
                 var y1 = (band + 1) * height / bands;
-                RasterizeAll(ordered, color, depth, width, height, y0, y1, centerY, yaw, pitch,
-                    cam.Distance, focal, skin.Texture);
+                RasterizeAll(faces, color, depth, width, height, y0, y1, skin.Texture);
             });
         }
 
@@ -102,22 +92,19 @@ public static class SkinRenderer
     }
 
     /// <summary>把全部面片画进 [clipY0, clipY1) 这一段扫描带</summary>
-    private static void RasterizeAll(IReadOnlyList<Quad> quads, float[] color, float[] depth,
-        int width, int height, int clipY0, int clipY1, double centerY, double yaw, double pitch,
-        double distance, double focal, SkinBitmap texture)
+    private static void RasterizeAll(IReadOnlyList<ScreenQuad> faces, float[] color, float[] depth,
+        int width, int height, int clipY0, int clipY1, SkinBitmap texture)
     {
         Span<Vertex> v = stackalloc Vertex[4];
-        foreach (var quad in quads)
+        foreach (var face in faces)
         {
-            var visible = true;
-            for (var i = 0; i < 4; i++)
-            {
-                v[i] = Project(quad, i, centerY, yaw, pitch, distance, focal, width, height);
-                if (v[i].Z <= 0.05) visible = false; // 有顶点跑到相机后面：整片跳过（模型很小，够用）
-            }
-            if (!visible) continue;
-            Rasterize(color, depth, width, height, clipY0, clipY1, v[0], v[1], v[2], texture);
-            Rasterize(color, depth, width, height, clipY0, clipY1, v[0], v[2], v[3], texture);
+            v[0] = ToVertex(face.A);
+            v[1] = ToVertex(face.B);
+            v[2] = ToVertex(face.C);
+            v[3] = ToVertex(face.D);
+            var uv = face.Source.Uv;
+            Rasterize(color, depth, width, height, clipY0, clipY1, v[0], v[1], v[2], texture, uv);
+            Rasterize(color, depth, width, height, clipY0, clipY1, v[0], v[2], v[3], texture, uv);
         }
     }
 
@@ -125,65 +112,25 @@ public static class SkinRenderer
     private readonly record struct Vertex(
         float Sx, float Sy, float Z, float Iz, float Uz, float Vz);
 
-    /// <summary>面片质心在相机空间的深度（排序用；越小越近）</summary>
-    private static double ViewDepth(Quad quad, double centerY, double yaw, double pitch)
+    /// <summary>屏幕顶点 → 光栅化顶点：UV 预先乘 1/z，内循环里只剩乘加。</summary>
+    private static Vertex ToVertex(ScreenVertex p)
     {
-        var cx = (quad.A.X + quad.B.X + quad.C.X + quad.D.X) / 4;
-        var cy = (quad.A.Y + quad.B.Y + quad.C.Y + quad.D.Y) / 4 - centerY;
-        var cz = (quad.A.Z + quad.B.Z + quad.C.Z + quad.D.Z) / 4;
-
-        var z1 = -cx * Math.Sin(yaw) + cz * Math.Cos(yaw);
-        var z2 = cy * Math.Sin(pitch) + z1 * Math.Cos(pitch);
-        return -z2;   // 相机在 +distance 侧朝 -Z 看：z2 越大越近
-    }
-
-    /// <summary>取面片第 i 个顶点：绕模型中心旋转 → 透视投影，并带上对应的纹理坐标</summary>
-    private static Vertex Project(Quad quad, int corner, double centerY, double yaw, double pitch,
-        double distance, double focal, int width, int height)
-    {
-        var p = quad.Corner(corner);
-
-        // 1) 平移到模型竖直中心
-        var x = p.X;
-        var y = p.Y - centerY;
-        var z = p.Z;
-        // 2) 绕 Y 轴（yaw）：+yaw 让模型向右转
-        var cy = Math.Cos(yaw);
-        var sy = Math.Sin(yaw);
-        var x1 = x * cy + z * sy;
-        var z1 = -x * sy + z * cy;
-        // 3) 绕 X 轴（pitch）
-        var cp = Math.Cos(pitch);
-        var sp = Math.Sin(pitch);
-        var y1 = y * cp - z1 * sp;
-        var z2 = y * sp + z1 * cp;
-        // 4) 放到相机前方：相机在 +Z 侧的 distance 处、朝 -Z 看，
-        //    这样模型正面（+Z）朝相机（用 z2 + distance 会把相机放到 -Z 侧，看到的是背面）
-        var zc = distance - z2;
-
-        // 纹理坐标：UV 矩形按 左上 / 右上 / 右下 / 左下 对应顶点 0..3
-        var u0 = quad.Uv.X;
-        var u1 = quad.Uv.Right;
-        var v0 = quad.Uv.Y;
-        var v1 = quad.Uv.Bottom;
-        double u = corner switch { 0 or 3 => u0, _ => u1 };
-        double vv = corner switch { 0 or 1 => v0, _ => v1 };
-        if (quad.MirrorU) u = quad.Uv.X + quad.Uv.Right - u;
-
-        var iz = (float)(1.0 / zc);
-        return new Vertex(
-            (float)(width / 2.0 + x1 * focal / zc),
-            (float)(height / 2.0 - y1 * focal / zc),
-            (float)zc, iz, (float)u * iz, (float)vv * iz);
+        var iz = (float)(1.0 / p.Z);
+        return new Vertex((float)p.Sx, (float)p.Sy, (float)p.Z, iz, (float)p.U * iz, (float)p.V * iz);
     }
 
     /// <summary>
     /// 重心坐标光栅化 + 透视校正 UV + 逐像素 Z 测试 + 直通 alpha 混合。
     /// 内循环刻意只用 float 乘加：每像素一次除法（取 1/iz）——
     /// 之前每像素约 10 次除法，630×1020 下一帧要 100ms，动画只有 10fps。
+    /// <para><paramref name="uvRect"/> 是本面片在皮肤图集里的纹理矩形：采样必须钳在这个
+    /// 矩形内。轮廓边缘的像素是被"保守填充"（三角形外半像素也算进来）的，此时插值出的
+    /// UV 会越过面片边界，直接送去采样就会读到图集里相邻部件的纹素——
+    /// 表现为模型边缘一条杂色的 1px 描边（用户反馈的"边缘渲染错误"），
+    /// 读到 alpha=0 的纹素时还会让轮廓变成虚线。</para>
     /// </summary>
     private static void Rasterize(float[] color, float[] depth, int width, int height,
-        int clipY0, int clipY1, Vertex a, Vertex b, Vertex c, SkinBitmap texture)
+        int clipY0, int clipY1, Vertex a, Vertex b, Vertex c, SkinBitmap texture, RectI uvRect)
     {
         var minX = (int)MathF.Floor(MathF.Min(a.Sx, MathF.Min(b.Sx, c.Sx)));
         var maxX = (int)MathF.Ceiling(MathF.Max(a.Sx, MathF.Max(b.Sx, c.Sx)));
@@ -194,6 +141,11 @@ public static class SkinRenderer
         minY = Math.Max(minY, 0); maxY = Math.Min(maxY, height - 1);
         minY = Math.Max(minY, clipY0); maxY = Math.Min(maxY, clipY1 - 1);   // 本带负责的行
         if (minY > maxY) return;
+
+        var uMin = uvRect.X;
+        var uMax = uvRect.Right - 1;
+        var vMin = uvRect.Y;
+        var vMax = uvRect.Bottom - 1;
 
         var area = (b.Sx - a.Sx) * (c.Sy - a.Sy) - (c.Sx - a.Sx) * (b.Sy - a.Sy);
         if (MathF.Abs(area) < 1e-6f) return;
@@ -255,7 +207,11 @@ public static class SkinRenderer
 
                 var u = (w0 * a.Uz + w1 * b.Uz + w2 * c.Uz) * inv;
                 var v = (w0 * a.Vz + w1 * b.Vz + w2 * c.Vz) * inv;
-                texture.Sample((int)u, (int)v, texel);
+                var su = (int)u;
+                var sv = (int)v;
+                if (su < uMin) su = uMin; else if (su > uMax) su = uMax;
+                if (sv < vMin) sv = vMin; else if (sv > vMax) sv = vMax;
+                texture.Sample(su, sv, texel);
                 var ta = texel[3] * (1f / 255f);
                 if (ta <= 0) continue;
 

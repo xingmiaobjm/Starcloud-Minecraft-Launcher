@@ -1,6 +1,9 @@
 // Python 插件运行时（进程外沙箱）：python.exe 子进程跑 main.py，
 // 宿主与子进程走 stdin/stdout 行式 JSON 协议（host SDK：Assets/pluginsdk/starcloud_host.py）。
-// 子进程无法直接触达启动器内存；参数/通知/面板通过响应载荷声明式上报，由宿主过滤后落地。
+// 子进程无法直接触达启动器内存：
+//   · 参数 / 通知 / 面板通过响应载荷**声明式上报**，由宿主过滤后落地；
+//   · 其余 ctx 能力（版本 / 实例 / 资源 / 设置 / 存储…）走 host_call 回调，
+//     宿主在等响应的间隙处理这类请求，权限校验与 JS 插件完全同一套代码。
 
 using System.Diagnostics;
 using System.Text;
@@ -14,12 +17,20 @@ public sealed class PyPluginRuntime : IPluginRuntime
 
     private readonly string _pluginDir;
     private readonly string _hostSdkPath;
+    private readonly string _pluginId;
+    private readonly Func<string, string, string, string> _hostCall;
     private Process? _proc;
 
-    public PyPluginRuntime(string pluginDir, string hostSdkPath)
+    /// <summary>最近一次通信失败的原始原因（诊断用，避免只看到"无响应"）</summary>
+    private string? _lastError;
+
+    public PyPluginRuntime(string pluginDir, string hostSdkPath, string pluginId,
+        Func<string, string, string, string>? hostCall = null)
     {
         _pluginDir = pluginDir;
         _hostSdkPath = hostSdkPath;
+        _pluginId = pluginId;
+        _hostCall = hostCall ?? ((_, _, _) => "{\"ok\":false,\"error\":\"当前宿主没有提供回调\"}");
     }
 
     /// <summary>探测本机 Python（Windows：PATH python.exe / py 启动器；unix：PATH python3 / python）；未安装返回 null</summary>
@@ -101,7 +112,7 @@ public sealed class PyPluginRuntime : IPluginRuntime
                 },
             });
             if (resp is not { } loadResp)
-                return $"Python 插件无响应（退出码 {_proc?.ExitCode}，stderr 见插件日志）";
+                return $"Python 插件无响应（{_lastError ?? $"退出码 {ExitCodeText()}"}）";
             if (!IsOk(loadResp, out var error)) return error;
             ApplyResponse(loadResp, ctx);
             return null;
@@ -115,7 +126,17 @@ public sealed class PyPluginRuntime : IPluginRuntime
     public void InvokeHook(string hookName, PluginContext ctx)
     {
         if (_proc is null || _proc.HasExited) return;
-        var resp = Request(new Dictionary<string, object?> { ["op"] = "call", ["hook"] = hookName });
+        var payload = new Dictionary<string, object?> { ["op"] = "call", ["hook"] = hookName };
+        // 事件钩子：把 ctx.event 一起送过去（宿主 SDK 会组装成 ctx.event = {"name":…,"data":…}）
+        if (ctx.Event is { } evt)
+        {
+            payload["event"] = new Dictionary<string, object?>
+            {
+                ["name"] = evt.Name,
+                ["data"] = JsonDocument.Parse(evt.Data).RootElement,
+            };
+        }
+        var resp = Request(payload);
         if (resp is not { } callResp)
             throw new InvalidOperationException("Python 插件无响应（子进程可能已退出）");
         if (!IsOk(callResp, out var error)) throw new InvalidOperationException(error);
@@ -160,7 +181,10 @@ public sealed class PyPluginRuntime : IPluginRuntime
         return false;
     }
 
-    /// <summary>同步请求-响应（行式 JSON）；超时 15s / 进程死亡返回 null</summary>
+    /// <summary>
+    /// 同步请求-响应（行式 JSON）；超时 15s / 进程死亡返回 null。
+    /// 期间子进程可能反过来发 host_call（ctx 能力调用），就地执行并回一行 host_reply。
+    /// </summary>
     private JsonElement? Request(Dictionary<string, object?> payload)
     {
         var proc = _proc ?? throw new InvalidOperationException("Python 子进程未启动");
@@ -169,16 +193,92 @@ public sealed class PyPluginRuntime : IPluginRuntime
             proc.StandardInput.WriteLine(JsonSerializer.Serialize(payload));
             proc.StandardInput.Flush();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var lineTask = proc.StandardOutput.ReadLineAsync(cts.Token).AsTask();
-            lineTask.Wait(cts.Token);
-            var line = lineTask.Result;
-            if (line is null) return null;
-            return JsonDocument.Parse(line).RootElement.Clone();
+            while (true)
+            {
+                var lineTask = proc.StandardOutput.ReadLineAsync(cts.Token).AsTask();
+                lineTask.Wait(cts.Token);
+                var line = lineTask.Result;
+                if (line is null) return null;
+                if (line.Length == 0) continue;
+
+                JsonElement parsed;
+                try
+                {
+                    parsed = JsonDocument.Parse(line).RootElement.Clone();
+                }
+                catch (JsonException)
+                {
+                    continue; // 子进程往 stdout 打了非协议内容：忽略，别把它当响应
+                }
+                if (parsed.ValueKind == JsonValueKind.Object &&
+                    parsed.TryGetProperty("op", out var op) &&
+                    op.ValueKind == JsonValueKind.String &&
+                    op.GetString() == "host_call")
+                {
+                    HandleHostCall(proc, parsed);
+                    continue; // 继续等真正的响应
+                }
+                return parsed;
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _lastError = "与 Python 子进程通信失败：" + ex;
             return null;
         }
+    }
+
+    /// <summary>子进程退出码文本；仍在运行时不去读 ExitCode（那会抛 "Process must exit..."）</summary>
+    private string ExitCodeText()
+    {
+        try
+        {
+            return _proc is { HasExited: true } p ? $"退出码 {p.ExitCode}" : "子进程仍在运行";
+        }
+        catch
+        {
+            return "退出码未知";
+        }
+    }
+
+    /// <summary>处理子进程的能力回调：{"op":"host_call","id":n,"api":"instances.list","args":[…]}</summary>
+    private void HandleHostCall(Process proc, JsonElement call)
+    {
+        var id = call.TryGetProperty("id", out var idNode) && idNode.ValueKind == JsonValueKind.Number
+            ? idNode.GetInt64()
+            : 0L;
+        var api = call.TryGetProperty("api", out var apiNode) ? apiNode.GetString() ?? "" : "";
+        var args = call.TryGetProperty("args", out var argsNode) ? argsNode.GetRawText() : "[]";
+
+        string reply;
+        try
+        {
+            reply = _hostCall(_pluginId, api, args);
+        }
+        catch (Exception ex)
+        {
+            reply = "{\"ok\":false,\"error\":" + JsonSerializer.Serialize(ex.Message) + "}";
+        }
+
+        // 宿主回调返回 {"ok":…,"result":…}，补上 id 让子进程对上号
+        var payload = new Dictionary<string, object?> { ["op"] = "host_reply", ["id"] = id };
+        try
+        {
+            using var doc = JsonDocument.Parse(reply);
+            var root = doc.RootElement;
+            payload["ok"] = root.TryGetProperty("ok", out var ok) &&
+                            ok.ValueKind == JsonValueKind.True;
+            // Clone：JsonElement 绑定在 JsonDocument 的生命周期上，using 结束后序列化会抛 ObjectDisposed
+            if (root.TryGetProperty("result", out var result)) payload["result"] = result.Clone();
+            if (root.TryGetProperty("error", out var error)) payload["error"] = error.GetString();
+        }
+        catch (JsonException)
+        {
+            payload["ok"] = false;
+            payload["error"] = "宿主回调返回了无法解析的结果";
+        }
+        proc.StandardInput.WriteLine(JsonSerializer.Serialize(payload));
+        proc.StandardInput.Flush();
     }
 
     public void Dispose()

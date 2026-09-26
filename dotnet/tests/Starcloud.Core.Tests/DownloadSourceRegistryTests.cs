@@ -10,6 +10,9 @@ public class DownloadSourceRegistryTests
     /// <summary>降级阈值：跟随实现，避免测试里散落魔法数字</summary>
     private const int DegradeAfterFailures = DownloadSourceRegistry.DegradeAfterFailures;
 
+    /// <summary>「无视 Range」判定阈值：同样跟随实现</summary>
+    private const int RangeIgnoredThreshold = DownloadSourceRegistry.RangeIgnoredThreshold;
+
     private static DownloadSourceRegistry Registry(string source = "auto", string? customMirror = "") =>
         new(() => new LauncherSettings { DownloadSource = source, DownloadCustomMirrorUrl = customMirror });
 
@@ -144,7 +147,7 @@ public class DownloadSourceRegistryTests
         var pool = Registry().RacingPool();
 
         Assert.Equal(
-            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Rainyun, SourceKind.Official],
+            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Official],
             pool);
     }
 
@@ -154,7 +157,7 @@ public class DownloadSourceRegistryTests
         var pool = Registry(customMirror: "https://mirror.example.com").RacingPool();
 
         Assert.Equal(
-            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Rainyun, SourceKind.Custom,
+            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Custom,
              SourceKind.Official],
             pool);
     }
@@ -168,7 +171,7 @@ public class DownloadSourceRegistryTests
         for (var i = 0; i < DegradeAfterFailures; i++) reg.RecordFailure(SourceKind.Bmclapi);
 
         Assert.Equal(
-            [SourceKind.Fastmirror, SourceKind.Rainyun, SourceKind.Bmclapi, SourceKind.Official],
+            [SourceKind.Fastmirror, SourceKind.Bmclapi, SourceKind.Official],
             reg.RacingPool());
     }
 
@@ -205,14 +208,28 @@ public class DownloadSourceRegistryTests
     }
 
     [Fact]
-    public void MarkNoRangeSupport_该源退出分片池()
+    public void 某通道连续无视Range后该源只在该通道不能分片()
     {
         var reg = Registry();
-        reg.MarkNoRangeSupport(SourceKind.Rainyun);
+        var maven = DownloadSourceRegistry.ChannelOf(
+            "https://libraries.minecraft.net/com/example/lib/1.0/lib-1.0.jar");
+        var client = DownloadSourceRegistry.ChannelOf(
+            "https://piston-data.mojang.com/v1/objects/aa/client.jar");
 
-        Assert.Equal(
-            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Official],
-            reg.RacingPool());
+        // 一次不算数（镜像 302 到随机节点，个别节点不认 Range 很正常）
+        reg.RecordRangeIgnored(SourceKind.Bmclapi, maven);
+        Assert.False(reg.NoRangeSupport(SourceKind.Bmclapi, maven));
+
+        for (var i = 0; i < RangeIgnoredThreshold - 1; i++)
+            reg.RecordRangeIgnored(SourceKind.Bmclapi, maven);
+        Assert.True(reg.NoRangeSupport(SourceKind.Bmclapi, maven));
+
+        // 关键：同一进程里 BMCLAPI 给客户端 jar 分片的本事不受影响
+        Assert.False(reg.NoRangeSupport(SourceKind.Bmclapi, client));
+
+        // 命中 206 即清零（节点抖动不该永久罚一个源）
+        reg.RecordRangeHonored(SourceKind.Bmclapi, maven);
+        Assert.False(reg.NoRangeSupport(SourceKind.Bmclapi, maven));
     }
 
     [Fact]
@@ -300,5 +317,109 @@ public class DownloadSourceRegistryTests
     {
         foreach (var kind in Enum.GetValues<SourceKind>())
             Assert.False(string.IsNullOrWhiteSpace(DownloadSourceRegistry.Name(kind)));
+    }
+
+    // ── 12. 按 URL 取竞速池（非 Mojang 域名不伪造同址"源"） ─────
+
+    [Fact]
+    public void RacingPoolFor_Mojang域名给出完整镜像池()
+    {
+        const string url = "https://piston-data.mojang.com/v1/objects/ab/cd/client.jar";
+
+        Assert.Equal(Registry().RacingPool(), Registry().RacingPoolFor(url));
+    }
+
+    [Fact]
+    public void RacingPoolFor_非Mojang域名只留一项()
+    {
+        // Modrinth / CurseForge 这类域名所有源都改写为同一 URL：池里塞 5 个只会重复打同一台 CDN，
+        // 还会把无关镜像记成不健康。并行提速由分片 worker 提供，不靠重复造源。
+        const string url = "https://cdn.modrinth.com/data/abc/versions/1/sodium.jar";
+
+        Assert.Equal([SourceKind.Official], Registry().RacingPoolFor(url));
+        // 用户显式指定了单一源：池内就是那一个（改写对它同样是空操作，URL 不变）
+        Assert.Equal([SourceKind.Bmclapi], Registry("bmclapi").RacingPoolFor(url));
+    }
+
+    // ── 13. 主机级 Range 能力记忆 ──────────────────────────────
+
+    [Fact]
+    public void RangeSupport_默认未知_记录后按主机读回()
+    {
+        var reg = Registry();
+
+        Assert.Null(reg.RangeSupport("cdn.modrinth.com"));
+
+        reg.MarkRangeSupport("cdn.modrinth.com", true);
+        Assert.True(reg.RangeSupport("cdn.modrinth.com"));
+
+        reg.MarkRangeSupport("cdn.modrinth.com", false); // 后来发现不支持：以最新为准
+        Assert.False(reg.RangeSupport("cdn.modrinth.com"));
+        Assert.Null(reg.RangeSupport("edge.forgecdn.net")); // 别的域名不受影响
+    }
+
+    [Fact]
+    public void IsMojangHost_与URL判定同口径()
+    {
+        Assert.True(DownloadSourceRegistry.IsMojangHost("piston-data.mojang.com"));
+        Assert.True(DownloadSourceRegistry.IsMojangHost("PISTON-DATA.MOJANG.COM"));
+        Assert.False(DownloadSourceRegistry.IsMojangHost("cdn.modrinth.com"));
+        Assert.False(DownloadSourceRegistry.IsMojangHost(""));
+    }
+
+    // ── 14. 主机级并行度调节器（实测 BMCLAPI 8 条并发会被 429） ──
+
+    [Fact]
+    public void ParallelGovernor_默认保守_连续成功后才放开()
+    {
+        ParallelGovernor.ResetForTests();
+        const string host = "cdn.example.com";
+
+        var start = ParallelGovernor.LimitFor(host);
+        Assert.InRange(start, 1, ChunkedFileDownloader.MaxWorkersPerFile);
+
+        for (var i = 0; i < 64; i++) ParallelGovernor.ReportSuccess(host);
+
+        Assert.Equal(ChunkedFileDownloader.MaxWorkersPerFile, ParallelGovernor.LimitFor(host));
+    }
+
+    [Fact]
+    public void ParallelGovernor_被限流立刻减半并进入冷却()
+    {
+        ParallelGovernor.ResetForTests();
+        const string host = "bmclapi2.bangbang93.com";
+        for (var i = 0; i < 64; i++) ParallelGovernor.ReportSuccess(host);
+        var peak = ParallelGovernor.LimitFor(host);
+
+        ParallelGovernor.ReportThrottled(host);
+
+        Assert.Equal(Math.Max(1, peak / 2), ParallelGovernor.LimitFor(host));
+        Assert.True(ParallelGovernor.CooldownFor(host) > TimeSpan.Zero, "限流后必须有冷却时间");
+    }
+
+    [Fact]
+    public void ParallelGovernor_冷却与并发度按主机隔离()
+    {
+        ParallelGovernor.ResetForTests();
+        const string throttled = "slow.example.com";
+        const string healthy = "fast.example.com";
+
+        for (var i = 0; i < 64; i++) ParallelGovernor.ReportSuccess(healthy);
+        ParallelGovernor.ReportThrottled(throttled);
+
+        Assert.True(ParallelGovernor.CooldownFor(throttled) > TimeSpan.Zero);
+        Assert.Equal(TimeSpan.Zero, ParallelGovernor.CooldownFor(healthy));
+        Assert.True(ParallelGovernor.LimitFor(healthy) > ParallelGovernor.LimitFor(throttled));
+    }
+
+    [Fact]
+    public void ParallelGovernor_并发度不会掉到0()
+    {
+        ParallelGovernor.ResetForTests();
+        const string host = "flaky.example.com";
+
+        for (var i = 0; i < 8; i++) ParallelGovernor.ReportThrottled(host);
+
+        Assert.Equal(1, ParallelGovernor.LimitFor(host));
     }
 }

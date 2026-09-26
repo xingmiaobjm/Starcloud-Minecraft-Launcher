@@ -46,16 +46,22 @@ dotnet/
     │       │         YggdrasilService、StarcloudIdService
     │       ├── Java/ModLoader：JavaService、FabricService、SystemMemory、MemoryAdvisor
     │       ├── 内容管理：ModrinthService、ContentLibraryService、ModConflictService、
+    │       │             CurseForgeService / CurseForgePackInstaller（CurseForge 资源源与整合包）、
+    │       │             SearchTranslationService（中文搜索词 → 英文，词典 / MC 百科 / 机翻）、
     │       │             SaveService、SaveLibraryService、PendingWorldStore、IconCacheService
     │       ├── 诊断：EnvironmentCheckService、GameDiagnosticsService、CrashAnalysisService、
     │       │         CrashLogTrimmer、LauncherLog
     │       ├── 任务：TaskCenterService（全局任务总线：下载/启动/Java 搜索统一登记）
+    │       ├── 联机：MultiplayerService（提供方注册表 / 会话 / 状态轮询）、
+    │       │         IMultiplayerProvider（联机 SDK 契约）、
+    │       │         ProtocolMultiplayerProvider + MultiplayerSdkProtocol（内置陶瓦联机）、
+    │       │         MultiplayerSdkManifests（第三方联机 SDK 清单）
     │       └── Nova：NovaService、NovaTools、NovaAgentLoop、OpenAiSseClient、
     │                 NovaPermissions、NovaMoments、NovaInviteService、NovaFpsWatcher
     └── Starcloud.App/                # WinUI 3 前台（WindowsPackageType=None）
         ├── App.xaml / App.xaml.cs
         ├── MainWindow.xaml(.cs)      # 亚克力 + 自定义背景层 + NavigationView 壳 + 调度中心抽屉
-        ├── Assets/                   # 内置壁纸 / 3D 皮肤模型 / authlib-injector / 插件 SDK
+        ├── Assets/                   # 内置壁纸 / 3D 皮肤模型 / authlib-injector / 插件 SDK / 品牌标记
         ├── Interop/                  # SwapChainPanel 原生互操作（3D 皮肤视图）
         ├── Services/
         │   ├── AppServices.cs        # 服务单例容器（对应旧 Tauri AppState）
@@ -70,31 +76,57 @@ dotnet/
         │   └── Loc.cs                # 本地化服务：Loc.T / Loc.TCore + 11 个 XAML 附加属性
         ├── Strings/
         │   └── en-US.json            # 英文词典（键 = 简体中文原文；源语言即键）
-        └── Views/
-            ├── CardHoverBehavior.cs        # 卡片悬浮/按压反馈附加属性（Composition Scale）
-            ├── EmptyStateView.xaml(.cs)    # 统一空状态（图标 + 标题 + 副标题 + 可选按钮）
+        └── Views/                          # 页面留在这一层，其余按角色分目录（命名空间与目录一致）
             ├── HomePage.xaml(.cs)          # 首页：版本列表 + 账户/启动卡
             ├── VersionsPage.xaml(.cs)      # 版本管理列表
             ├── VersionDetailPage.xaml(.cs) # 版本详情（隔离设置/Mod/存档/导出）
             ├── SavesPage.xaml(.cs)         # 存档跨版本聚合 + 复制启动
+            ├── MultiplayerPage.xaml(.cs)   # 联机：陶瓦联机 / 第三方联机 SDK（建房·进房·状态·日志）
             ├── DownloadPage.xaml(.cs)      # 版本列表 + 安装进度
-            ├── AccountsPage.xaml(.cs)      # 微软 / 第三方 / Starcloud ID 账户
-            ├── AuthDialogs.cs              # 就地登录对话框（微软设备码 / 第三方密码）
+            ├── AccountsPage.xaml(.cs)      # 账户列表（一级）：Starcloud ID 卡 + 游戏账户卡片流
+            ├── AccountAddPage.xaml(.cs)    # 添加游戏账户（二级）：左选身份 / 右填表单（微软·第三方·离线）
+            ├── AccountDetailPage.xaml(.cs) # 账户详情（二级）：形象与皮肤 / 账户信息（含皮肤库）
             ├── PluginsPage.xaml(.cs)       # 插件管理（安装/启停/权限与免责声明确认）
             ├── PluginPanelPage.xaml(.cs)   # 插件面板宿主（WebView 承载插件 panel.html）
-            ├── ContentDownloadDialog.xaml(.cs) # 内容库安装对话框（Mod/整合包/资源包等）
-            ├── Skin3DView.cs               # 3D 皮肤预览（SwapChainPanel + 模型渲染）
-            ├── ThemedDialog.cs             # 主题一致的对话框基类
             ├── NovaPage.xaml(.cs)          # Nova 助手页
-            ├── NovaChatView.xaml(.cs)      # Nova 对话视图（页面内嵌与浮窗共用）
-            ├── NovaOverlayWindow.xaml(.cs) # Nova 浮窗窗口
             ├── SettingsPage.xaml(.cs)      # 设置（路径/内存/Java/并发/主题/背景）
             ├── LogsPage.xaml(.cs)          # 启动器日志
-            ├── WindowBackgroundHost.cs     # 背景图 / 模糊层 / 毛玻璃遮罩三层
-            ├── PageRows.cs                 # 列表行共享 record
-            ├── ComboItem.cs                # ComboBox 项共享 record
-            ├── InstanceActions.cs          # 版本操作共享逻辑
-            └── LaunchTips.cs               # 启动提示共享逻辑
+            ├── Behaviors/                  # 附加属性行为（XAML 里挂载，无自定义控件）
+            │   ├── CardHoverBehavior.cs    # 卡片悬浮/按压反馈（Composition Scale）
+            │   ├── RowHoverBehavior.cs     # 列表行悬停抬升 + 高亮覆盖层
+            │   ├── HoverShadowBehavior.cs  # 跟手光斑与悬停抬升（窗口级指针判定）
+            │   └── ExpandBehavior.cs       # 抽屉展开/收起高度动画
+            ├── Controls/                   # 自绘控件
+            │   ├── BrandMark.xaml(.cs)     # Starcloud 品牌标记（矢量复刻，含小尺寸单块版）
+            │   ├── EmptyStateView.xaml(.cs)# 统一空状态（图标 + 标题 + 副标题 + 可选按钮）
+            │   ├── NovaChatView.xaml(.cs)  # Nova 对话视图（页面内嵌与浮窗共用）
+            │   ├── SkinFigureView.cs       # 3D 玩家形象（原生渲染；账户详情页与皮肤库预览）
+            │   └── Skin3DView.cs           # 旧 WebView2 皮肤视图（已被 SkinFigureView 取代，待清理）
+            ├── Dialogs/                    # 对话框与对话框流程
+            │   ├── ThemedDialog.cs         # 主题一致的对话框基类
+            │   ├── AuthDialogs.cs          # 仅「启动时就地登录」用的微软设备码 / 第三方密码流程
+            │   ├── MsLoginWindow.xaml(.cs) # 内置微软登录窗口（WebView2 内完成验证，可回退浏览器）
+            │   ├── MultiplayerDialogs.cs   # 联机弹窗（加入房间的邀请码输入）
+            │   ├── ContentDownloadDialog.xaml(.cs) # 内容库安装对话框（Mod/整合包/资源包等）
+            │   ├── ModPackDialogs.cs       # 整合包导出 / 导入 / 备份回档
+            │   ├── CrashDialog.cs          # 崩溃分析结果
+            │   ├── EnvCheckDialogs.cs      # 环境自检
+            │   ├── UpdateDialog.cs         # 自更新
+            │   └── LaunchTips.cs           # 启动提示共享逻辑
+            ├── Overlays/                   # 独立浮窗
+            │   └── NovaOverlayWindow.xaml(.cs) # Nova 浮窗窗口
+            ├── Rows/                       # 列表行模型与行辅助
+            │   ├── RowModels.cs            # 各页面的行 record / 视图模型 / 模板选择器
+            │   └── VersionRowHelpers.cs    # 版本类型与加载器判定（缓存后单次读 JSON）+ 图标解析
+            └── Shared/                     # 页面共用小工具
+                ├── AccountFlows.cs         # 第三方登录公共动作（账户页表单与启动前弹窗共用）
+                ├── SkinThumbnails.cs       # 皮肤卡片小立绘（软件光栅化 → PNG → 磁盘指纹缓存）
+                ├── InstanceActions.cs      # 版本操作共享逻辑（重命名/复制/删除/查看 JSON）
+                ├── MrPackFlow.cs           # .mrpack 拖入流程
+                ├── RemoteImageHelpers.cs   # 社区图标与玩家头像解析（缓存优先 + 直连兜底）
+                ├── ModTitleHelper.cs       # Mod 中文名缓存与解析
+                ├── ComboItem.cs            # ComboBox 项共享 record
+                └── WindowBackgroundHost.cs # 背景图 / 模糊层 / 毛玻璃遮罩三层
 ```
 
 ## 3. 核心服务（Starcloud.Core）
@@ -108,6 +140,10 @@ dotnet/
 | `InstallerService` | 原版安装（版本 JSON + client jar + 库 + natives 解压 + 资源索引与对象）；Fabric 安装（拉取 meta.fabricmc.net profile 合并保存）；`inheritsFrom` 递归加载与 `MergeVersions`；`RulesAllow`（os:windows 规则判定） | DownloadService |
 | `GameLauncher` | 启动命令行构建（新旧两代参数格式、`${var}` 替换、内置 G1GC 优化、classpath 拼接、引号转义）；第三方账户追加 `-javaagent:authlib-injector.jar=<base>` 与 `--userType`；`Process.Start` 启动 | InstallerService |
 | `AccountStore` | 账户存储（`accounts.json`，仅存身份信息：uuid/username/type/默认标记/第三方服务器地址，**不落盘任何令牌**）；微软与第三方账户增改、默认账户切换 | — |
+| `SkinLibraryService` | 多皮肤管理：「一皮肤一 PNG + library.json」的皮肤库（`skins/`）；导入（本地 / 链接）、纹理校验（64×32 / 64×64 / 等比放大，与渲染层同一 `PngDecoder`）、型号（auto/classic/slim）、重命名、删除；索引原子写 | PngDecoder、DownloadService |
+| `SkinPresets` / `PngEncoder` | 默认皮肤：官方 9 个默认角色的清单（角色 → 资产文件 → 版型，资产在 App 的 `Assets/Skins/default/`）；`PngEncoder` 是卡片缩略图落盘用的极简 PNG 编码器 | 客户端 jar 提取的皮肤资产 |
+| `OfflineSkins` / `LoopbackSkinServer` | 离线账户换肤通道：只监听 `127.0.0.1` 随机端口的极简 HTTP 服务（`GET /skin/<uuid>.png`）+ `--userProperties` 构造（1.19.3 起整体 Base64，更早版本原样 JSON）。**对 1.19.3+ 只保证不报错**（客户端要求签名属性），≤ 1.19.2 游戏内直接生效 | SkinLibraryService、AccountStore |
+| `SkinUploadService` | 把库内皮肤同步到账号本身：微软 `PUT /minecraft/profile/skins`（multipart `variant`+`file`，Bearer 用内存令牌）；第三方 `PUT {base}/api/v1/user/profile/skin`（JSON+base64）。失败按状态码翻译成可读说明 | AccountStore 会话 |
 | `YggdrasilService` | 第三方认证（authlib-injector / Yggdrasil）：认证服务器地址解析（`serverLocation` 别名跳转，最多 3 跳）、`authenticate` 换票、皮肤 textures 解析；地址由用户填写，仓库不硬编码第三方认证服务 | — |
 | `LaunchAccountService` | 启动前账户解析：命中内存会话则产出 `LaunchCredentials`，未命中抛 `AccountLoginRequiredException` 触发就地登录 | AccountStore |
 | `TaskCenterService` | 全局任务总线：长任务登记（标题/进度/速度/分源贡献），UI 定时快照刷新；保留最近 60 条 | — |
@@ -162,7 +198,7 @@ dotnet/
   └─ InstallVersionContentAsync（与原版相同的内容安装）
 ```
 
-### 5.3 微软登录（AccountsPage）
+### 5.3 微软登录（AccountAddPage / 启动时就地登录）
 
 ```
 StartDeviceCodeAsync → 展示 user_code + verification_uri
@@ -197,6 +233,29 @@ StartDeviceCodeAsync → 展示 user_code + verification_uri
                       → event Exited(int)（退出收尾 / 崩溃诊断 / 8s 内自动重试）
 ```
 
+### 5.4.1 运行态监控（GameRuntimeMonitor）
+
+运行态的**唯一来源**是 Core 单例 `GameRuntimeMonitor.Instance`（Nova 的启动路径也在 Core 里，
+够不到 `AppServices`，所以监控器本身落在 Core）。UI 不自己读进程、不自己读锁文件，只订阅事件。
+
+```
+启动路径：GameRuntimeMonitor.Attach(session, ctx, cmdline) → ProcessSampler(pid) 1s 心跳
+冷启动：Start() → 读 <.minecraft>/starcloud/game-session.json（跨进程唯一真相）
+                  → 判活（isAliveProbe 可注入）→ 恢复成 RecoveredFromLock=true 的会话
+                    + 读 GameLaunchContextStore（缺失则按当前版本配置降级显示）
+每次心跳：采样成功 → PushSample（环形缓冲 600 点）→ Changed(新快照)
+          连续 3 次失败 → SamplingPaused=true（页面「采样已暂停」+「重试」）
+进程退出：→ 落一条 GameRunRecord（KilledByUser 之外的非零退出码记为 Crashed）
+          → RunFinished(record) + Changed(null)
+```
+
+- 锁文件由 `GameSessionGuard` 写、`GameRuntimeMonitor` 读，是**跨进程唯一真相**：启动器重启后靠它
+  认出「上一轮启动器拉起的游戏」
+- `GameRunInfo` 是不可变快照，每次采样整体替换；`Samples(n)` 供 sparkline
+- `CommandLine` 含 `--accessToken`，**只在内存持有、不落盘**；恢复路径拿不到 → null（复制命令置灰）
+- 日志尾：接管路径读 `GameSession` 的内存环形缓冲；恢复路径只 `Seek(-64KB, End)` 读最新一局日志文件尾
+- 事件在**后台线程**触发，页面用 `DispatcherQueue.TryEnqueue` 回 UI 线程（见 `RunningStatusPage`）
+
 ### 5.5 Java 管理（SettingsPage）
 
 ```
@@ -226,7 +285,8 @@ JavaService.ListRuntimesAsync（启动器下载的 + 系统 PATH/JAVA_HOME）
 - 鉴权令牌（微软 access/refresh token、第三方 access token）只存内存不落盘：应用重启后
   首次启动游戏需要重新登录；密码只作请求参数，不落盘、不写日志。
 - OptiFine 未接入（原版、Fabric、Quilt、Forge、NeoForge 已支持）。
-- Terracotta 联机为旧 Tauri 架构特性，.NET 版暂未实现。
+- 联机（陶瓦联机 / 第三方联机 SDK）依赖厂商提供的本地 HTTP 控制面；房主侧仍需在游戏内先
+  「对局域网开放」，全自动接力暂不支持。详见 `docs/designs/2026-09-21-multiplayer-sdk-design.md`。
 
 ## 8. 本地化层（D3）
 

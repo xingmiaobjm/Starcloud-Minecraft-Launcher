@@ -29,6 +29,7 @@ public sealed record LaunchOptions(
     string? PostLaunchCommand = null,
     string? AgentJarPath = null,
     string? AgentBase = null,
+    string? PlayerSkinUrl = null,
     Plugins.IPluginLaunchHook? PluginHook = null);
 
 /// <summary>已认证账户凭据（微软 / 第三方账户）；合规要求启动必须携带真实凭证</summary>
@@ -51,7 +52,11 @@ public sealed class GameLauncher
     {
         var dotMc = options.SharedDir; // 共享根：libraries/assets/natives/classpath/jar 全走共享
         var versionId = version.Id;
-        var versionDir = _installer.VersionDir(dotMc, versionId);
+        // 实例目录名才是「这次启动的实例」：jar 与 natives 都由安装器按实例目录名落盘。
+        // JSON 里的 id 可能只是原版号（例如第二个 26.3 实例目录叫 26.3-2，JSON id 仍是 26.3），
+        // 拿它拼路径会指向不存在的目录，jar 被丢掉后 Java 直接报 ClassNotFoundException。
+        var instanceId = string.IsNullOrWhiteSpace(options.VersionId) ? versionId : options.VersionId;
+        var versionDir = _installer.VersionDir(dotMc, instanceId);
         var nativesDir = Path.Combine(versionDir, "natives");
 
         // 类路径：windows 内的库（规则过滤；NeoForge 版本 JSON 有重复库条目，需保序去重）
@@ -60,16 +65,19 @@ public sealed class GameLauncher
             .Where(l => l.Downloads?.Artifact is { Url: not "" })
             .Select(l => Path.Combine(dotMc, "libraries", l.Downloads!.Artifact!.Path ?? ""))
             .ToList();
-        var ownJar = _installer.VersionJarPath(dotMc, versionId);
+        var ownJar = ResolveClientJar(dotMc, instanceId, versionId)
+                     ?? throw new InvalidOperationException(
+                         $"实例 {instanceId} 缺少客户端 jar（{instanceId}.jar）：请先在版本页执行「补全」再启动");
         classpathEntries.Add(ownJar);
         var classpath = string.Join(PlatformInfo.ClasspathSeparator,
             classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
 
         // 参数替换
         var assets = version.Assets ?? version.AssetIndex?.Id ?? "legacy";
-        // 合规：离线兜底已移除，凭证缺失直接失败（上游应先走就地登录流程）
+        // 凭证必须由上游解析传入（在线账户走内存会话，离线账户为名字派生的占位身份）；
+        // 这里不做任何兜底生成，缺失即是上游漏了解析步骤
         var cred = options.Credentials
-            ?? throw new InvalidOperationException("未提供账户凭证：请先登录微软或第三方账户");
+            ?? throw new InvalidOperationException("未提供账户凭证：请先登录微软 / 第三方账户，或添加一个离线账户");
         var authUuid = cred.Uuid;
         var authToken = cred.AccessToken;
         var vars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -86,7 +94,13 @@ public sealed class GameLauncher
             ["auth_xuid"] = cred.Xuid ?? "0",
             ["clientid"] = "starcloud",
             ["user_type"] = cred.UserType,
-            ["user_properties"] = "{}",
+            // 本机自定义皮肤：客户端只认 profile 的 textures 属性里的 http(s) URL，
+            // 于是把本机回环皮肤服务的地址经 --userProperties 交过去。
+            // 离线与正版账户都走这条（传不传由上游 LaunchAccountService 决定）；
+            // 第三方账户的皮肤在皮肤站上，不注入
+            ["user_properties"] = options.PlayerSkinUrl is { Length: > 0 } skinUrl
+                ? OfflineSkins.BuildUserProperties(authUuid, options.PlayerName, skinUrl, versionId)
+                : "{}",
             ["version_type"] = version.Type ?? "release",
             ["launcher_name"] = "Starcloud",
             ["launcher_version"] = "1.0.0",
@@ -203,6 +217,45 @@ public sealed class GameLauncher
         return string.Join(' ', parts);
     }
 
+    /// <summary>
+    /// 定位实例的客户端 jar。查找顺序（同级目录只认一个，避免把 sources/javadoc 当客户端）：
+    /// 1) <c>versions/&lt;实例&gt;/&lt;实例&gt;.jar</c> —— 安装器落盘位置（改名/多实例并存的常态）
+    /// 2) 实例目录里唯一的客户端 jar —— 手工改过目录名的存量实例
+    /// 3) <c>versions/&lt;JSON id&gt;/&lt;JSON id&gt;.jar</c> —— 加载器实例继承原版时兜底
+    /// </summary>
+    public static string? ResolveClientJar(string dotMinecraft, string instanceId, string? jsonId)
+    {
+        var exact = Path.Combine(dotMinecraft, "versions", instanceId, instanceId + ".jar");
+        if (File.Exists(exact)) return exact;
+
+        var dir = Path.Combine(dotMinecraft, "versions", instanceId);
+        if (Directory.Exists(dir))
+        {
+            var jars = Directory.EnumerateFiles(dir, "*.jar", SearchOption.TopDirectoryOnly)
+                .Where(j => !IsSideArtifact(j))
+                .OrderByDescending(f => new FileInfo(f).Length)
+                .ToList();
+            if (jars.Count > 0) return jars[0];
+        }
+
+        if (!string.IsNullOrWhiteSpace(jsonId) &&
+            !string.Equals(jsonId, instanceId, StringComparison.OrdinalIgnoreCase))
+        {
+            var byJsonId = Path.Combine(dotMinecraft, "versions", jsonId, jsonId + ".jar");
+            if (File.Exists(byJsonId)) return byJsonId;
+        }
+        return null;
+    }
+
+    /// <summary>sources / javadoc / dev 之类不是客户端主 jar</summary>
+    private static bool IsSideArtifact(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        return name.EndsWith("-sources", StringComparison.OrdinalIgnoreCase) ||
+               name.EndsWith("-javadoc", StringComparison.OrdinalIgnoreCase) ||
+               name.EndsWith("-dev", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>设置未指定 Java 时：按版本要求的 Java 主版本选运行时（精确匹配优先，其次最小超集），缺则自动下载</summary>
     private async Task<string> ResolveJavaAsync(MinecraftVersion version, string dotMc, CancellationToken ct)
     {
@@ -282,7 +335,7 @@ public sealed class GameLauncher
         var p = Process.Start(psi) ?? throw new InvalidOperationException("游戏进程启动失败");
         // 退出统一由 GameSession 的 WaitForExitAsync 收口，此处不再 EnableRaisingEvents
         var logFile = Path.Combine(LauncherPaths.GameLogsDir, $"game-{DateTime.Now:yyyyMMdd-HHmmss}.log");
-        var session = new GameSession(p, versionId, logFile);
+        var session = new GameSession(p, versionId, logFile, commandLine);
         LauncherLog.Write("game", $"启动 {versionId}（pid {session.Pid}），日志 {logFile}");
         return session;
     }

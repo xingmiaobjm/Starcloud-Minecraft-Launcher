@@ -90,7 +90,10 @@ public sealed class YggdrasilService
             resp = await _http.PostAsync($"{baseUrl}/authserver/authenticate",
                 new StringContent(JsonSerializer.Serialize(new
                 {
-                    agent = new { name = "MinecraftLauncher", version = 1 },
+                    // 规范硬性要求：agent.name 必须**正好**是 "Minecraft"。
+                    // 写自家名字（"MinecraftLauncher"）会被皮肤站一类的服务端直接拒：
+                    // LittleSkin 报的就是 "agent.name must be equal to Minecraft"。
+                    agent = new { name = "Minecraft", version = 1 },
                     username,
                     password,
                     clientToken,

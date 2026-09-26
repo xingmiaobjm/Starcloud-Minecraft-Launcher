@@ -2,6 +2,7 @@
 
 using Starcloud.Core.Plugins;
 using Starcloud.Core.Services;
+using Starcloud.Core.Services.Multiplayer;
 
 namespace Starcloud.App.Services;
 
@@ -17,6 +18,17 @@ public sealed class AppServices
     public InstallerService Installer { get; }
     public FabricService Fabric { get; }
     public ModrinthService Mods { get; }
+
+    /// <summary>CurseForge 资源源（搜索 / 项目文件 / 直链）与整合包安装</summary>
+    public CurseForgeService CurseForge { get; }
+    public CurseForgePackInstaller CurseForgePacks { get; }
+
+    /// <summary>
+    /// 搜索词翻译（中文 → 英文）：Modrinth / CurseForge 只有英文项目名，
+    /// 走内置词典 → MC 百科 → 机器翻译，带内存 + 磁盘缓存
+    /// </summary>
+    public SearchTranslationService SearchTranslation { get; }
+
     public ContentLibraryService ContentLibrary { get; }
     public GameLauncher Launcher { get; }
     public AccountStore Accounts { get; }
@@ -25,11 +37,18 @@ public sealed class AppServices
     public JavaService Java { get; }
     public ForgeInstallerService Forge { get; }
     public MrPackInstallerService MrPack { get; }
+
+    /// <summary>MultiMC / Prism 实例包导入（自包含，解压即用）</summary>
+    public MultiMcPackService MultiMc { get; }
     public ModPackExportService ModPackExport { get; }
     public VersionBackupService VersionBackup { get; }
     public SaveService Saves { get; }
     public SaveLibraryService SaveLibrary { get; }
     public LaunchAccountService LaunchAccount { get; }
+
+    /// <summary>联机：内置陶瓦联机 + 第三方联机 SDK 清单（提供方注册表 / 会话 / 状态轮询）</summary>
+    public MultiplayerService Multiplayer { get; }
+
     public StarcloudIdService StarcloudId { get; }
     public GameDiagnosticsService Diagnostics { get; }
     public LaunchPreflightService Preflight { get; }
@@ -49,6 +68,15 @@ public sealed class AppServices
     public PluginHost PluginHost { get; }
     public PluginService Plugins { get; }
 
+    /// <summary>皮肤库（多皮肤管理：导入 / 重命名 / 删除 / 型号）</summary>
+    public SkinLibraryService Skins { get; }
+
+    /// <summary>换肤上传（微软官方 API / 第三方 Yggdrasil）</summary>
+    public SkinUploadService SkinUpload { get; }
+
+    /// <summary>皮肤站衣柜（第三方账号：列出皮肤站上的皮肤并切换）</summary>
+    public SkinStationService SkinStation { get; }
+
     /// <summary>自更新（检查清单 / 下载校验 / 拉起更新脚本）</summary>
     public SelfUpdateService SelfUpdate { get; }
 
@@ -57,6 +85,9 @@ public sealed class AppServices
 
     /// <summary>界面动效总开关（跟随系统 / 始终开启 / 关闭）</summary>
     public MotionService Motion { get; }
+
+    /// <summary>游戏运行态（1s 采样 / 跨启动器恢复 / 运行历史），Core 单例</summary>
+    public GameRuntimeMonitor Runtime => GameRuntimeMonitor.Instance;
 
     private AppServices()
     {
@@ -73,18 +104,36 @@ public sealed class AppServices
         Java = new JavaService(Download);
         Forge = new ForgeInstallerService(Download, Java);
         Mods = new ModrinthService(Download, ResourceCache);
+        CurseForge = new CurseForgeService(Download, () => Settings);
+        CurseForgePacks = new CurseForgePackInstaller(Download, CurseForge);
+        SearchTranslation = new SearchTranslationService(Download);
         ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
         Yggdrasil = new YggdrasilService();
         MrPack = new MrPackInstallerService(Download);
-        ModPackExport = new ModPackExportService(Mods);
+        MultiMc = new MultiMcPackService();
+        ModPackExport = new ModPackExportService(Mods, CurseForge);
         VersionBackup = new VersionBackupService();
         Saves = new SaveService();
         SaveLibrary = new SaveLibraryService(Manifest, Saves);
         LaunchAccount = new LaunchAccountService(Accounts, () => Settings);
+        // 联机：默认玩家名跟随当前账户（没单独设联机昵称时），与启动身份同名才不会在游戏里认错人
+        Multiplayer = new MultiplayerService(
+            Download,
+            () => Settings,
+            () => Accounts.Accounts.FirstOrDefault(a => a.IsDefault)?.Username
+                ?? Accounts.Accounts.FirstOrDefault()?.Username,
+            SaveSettings);
         StarcloudId = new StarcloudIdService();
+        // 皮肤库（多皮肤管理）+ 离线皮肤注入：账户指向库内条目，启动器按需起本机纹理服务
+        Skins = new SkinLibraryService();
+        SkinUpload = new SkinUploadService();
+        SkinStation = new SkinStationService();
+        OfflineSkins.Configure(Accounts, Skins);
+        // 清掉 0.3.1 早期「代码画出来的」老预置皮肤（用户自己导入的不动）
+        SkinPresetMigration.PurgeLegacyPresetSkins(Skins, Accounts);
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         Preflight = new LaunchPreflightService(Installer, Download, Manifest);
         CrashAnalyzer = new CrashAnalysisService(Installer);
@@ -93,14 +142,46 @@ public sealed class AppServices
         NovaPermissions = new NovaPermissionStore();
         NovaLog = new NovaActionLog();
         Recording = new RecordingService(NovaPermissions, NovaLog);
+        // 自更新只依赖设置，提前建：Nova 工具表要用它（check_updates）
+        SelfUpdate = new SelfUpdateService(() => Settings);
         NovaMoments = new NovaMomentsService();
         NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download,
             AgentJarPath, () => PluginHost);
-        // Agent 工具注册表先于 Nova 建（Nova 持有 Agent 循环，工具复用上面的服务）
-        NovaTools = new NovaToolRegistry(Manifest, Installer, Forge, Fabric, Mods, ContentLibrary,
-            () => Settings, SaveSettings);
+        // Agent 工具注册表先于 Nova 建（Nova 持有 Agent 循环，工具复用上面的服务）。
+        // 工具面覆盖启动器全部功能：必需服务直接传，只有 UI 层才有的能力（录屏/插件/外观）走宿主适配器。
+        NovaTools = new NovaToolRegistry(new NovaToolContext
+        {
+            Manifest = Manifest,
+            Installer = Installer,
+            Mods = Mods,
+            Library = ContentLibrary,
+            Settings = () => Settings,
+            SaveSettings = SaveSettings,
+            Forge = Forge,
+            Fabric = Fabric,
+            CurseForge = CurseForge,
+            Translation = SearchTranslation,
+            Diagnostics = Diagnostics,
+            Crash = CrashAnalyzer,
+            Conflicts = ModConflicts,
+            EnvCheck = EnvCheck,
+            Preflight = Preflight,
+            Java = Java,
+            Launcher = Launcher,
+            Accounts = LaunchAccount,
+            Store = Accounts,
+            Saves = Saves,
+            SaveLibrary = SaveLibrary,
+            Backups = VersionBackup,
+            Export = ModPackExport,
+            MrPack = MrPack,
+            CurseForgePacks = CurseForgePacks,
+            Multiplayer = Multiplayer,
+            Updates = SelfUpdate,
+            Host = new NovaHostActions(this),
+        });
         Nova = new NovaService(Mods, Diagnostics, ModConflicts, NovaPermissions,
-            NovaLog, NovaMoments, NovaInvites, Saves, NovaTools);
+            NovaLog, NovaMoments, NovaInvites, Saves, NovaTools, StarcloudId, SearchTranslation);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
         // 插件系统：宿主版本号取自启动器程序集（minLauncherVersion 校验 / ctx 透出）
@@ -109,11 +190,27 @@ public sealed class AppServices
             "Assets", "pluginsdk", "starcloud_host.py");
         PluginHost = new PluginHost(
             $"{asmVer.Major}.{asmVer.Minor}.{asmVer.Build}",
-            LauncherPaths.PluginLogsDir, pluginHostSdk);
+            LauncherPaths.PluginLogsDir, pluginHostSdk,
+            // 插件 SDK 服务包：与 Nova 共用同一套执行层，两条入口行为一致
+            new Starcloud.Core.Plugins.PluginHostServices
+            {
+                Settings = () => Settings,
+                SaveSettings = SaveSettings,
+                Manifest = Manifest,
+                Installer = Installer,
+                Download = Download,
+                Accounts = Accounts,
+                LaunchAccount = LaunchAccount,
+                Tasks = TaskCenterService.Instance,
+                Tools = NovaTools,
+                Bridge = new PluginHostActions(),
+            });
         Plugins = new PluginService(PluginHost);
-        SelfUpdate = new SelfUpdateService(() => Settings);
         Appearance = new AppearanceService();
         Motion = new MotionService(() => Settings);
+        // 运行态监控：先注入依赖再起心跳（恢复探测需要 dotMinecraft 与历史库）
+        GameRuntimeMonitor.Instance.Configure(() => Settings.DotMinecraft);
+        GameRuntimeMonitor.Instance.Start();
         LauncherLog.Write("app", $"启动器就绪，数据目录 {LauncherPaths.DataDir}");
     }
 

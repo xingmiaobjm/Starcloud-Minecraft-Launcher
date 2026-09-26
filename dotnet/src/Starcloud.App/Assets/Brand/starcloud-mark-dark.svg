@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="316 297 400 400" width="400" height="400" role="img" aria-label="Starcloud 标记 · 深底">
+  <title>Starcloud 标记 · 深底（浅线）</title>
+  <!--
+    Starcloud / 星云创新 · 主标记 · 深底用
+    与浅底版同构，只把线换成 #E6EAF2；黄面与星保持原样（星落在黄面上，任何底色都成立）。
+    用于深色界面、深色任务栏、暗色官网。
+  -->
+  <g transform="translate(-6,-4)">
+    <g fill="none" stroke="#E6EAF2" stroke-width="9">
+      <rect x="348" y="348" width="150" height="150" rx="34"/>
+      <rect x="348" y="526" width="150" height="150" rx="34"/>
+      <rect x="526" y="526" width="150" height="150" rx="34"/>
+    </g>
+    <g transform="translate(601,423) rotate(12) scale(1.08) translate(-601,-423)">
+      <rect x="526" y="348" width="150" height="150" rx="34" fill="#FFD322"/>
+      <path fill="#111418"
+            d="M601,380 L614.28,408.72 L645.70,412.48 L622.24,433.98 L628.63,465.02 L601,449.6
+               L573.37,465.02 L579.51,433.98 L556.30,412.48 L587.72,408.72 Z"/>
+    </g>
+  </g>
+</svg>

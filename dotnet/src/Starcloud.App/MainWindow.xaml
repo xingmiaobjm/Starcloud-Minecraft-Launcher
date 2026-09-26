@@ -4,6 +4,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Starcloud.App.Views"
+    xmlns:beh="using:Starcloud.App.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
     Title="Starcloud Minecraft Launcher">
 
@@ -15,14 +17,44 @@
 
         <Grid.Resources>
             <!-- 自绘窗口按钮（SVG 路径图标）：尺寸与系统 caption 一致（46x48），
-                 hover 走 Button 默认的浅色底，仅去圆角/描边；关闭按钮 hover 变红。 -->
+                 悬停反馈只由按钮内那层跟手光斑表达（见各按钮的 carrier），模板本身不画底色。 -->
+            <!-- caption 按钮的自绘模板：只要"透明底 + 内容"。
+                 WinUI 的默认按钮模板在 PointerOver/Pressed 状态下会把模板底色换成主题刷
+                 （ButtonBackgroundPointerOver，整块 46×48）。那层跟跟手光斑不是一回事：
+                 它不跟光标走、范围是整个按钮，叠在一起就成了大小两层。
+                 与其一个个去覆写资源键（实测不可靠），不如换成这个模板——没有底色，就没有可显示的范围。 -->
+            <ControlTemplate x:Key="CaptionButtonTemplate" TargetType="Button">
+                <Grid Background="Transparent">
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CommonStates">
+                            <VisualState x:Name="Normal" />
+                            <VisualState x:Name="PointerOver" />
+                            <VisualState x:Name="Pressed" />
+                            <VisualState x:Name="Disabled">
+                                <VisualState.Setters>
+                                    <Setter Target="CaptionContent.Opacity" Value="0.4" />
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                    <ContentPresenter x:Name="CaptionContent"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      Padding="{TemplateBinding Padding}"
+                                      Foreground="{TemplateBinding Foreground}"
+                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                </Grid>
+            </ControlTemplate>
+
             <Style x:Key="CaptionButtonStyle" TargetType="Button">
+                <Setter Property="Template" Value="{StaticResource CaptionButtonTemplate}" />
                 <Setter Property="Width" Value="46" />
                 <Setter Property="Height" Value="48" />
                 <Setter Property="MinWidth" Value="0" />
                 <Setter Property="MinHeight" Value="0" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
@@ -42,8 +74,9 @@
         <!-- 标题栏：品牌左 + 系统按钮右（ExtendsContentIntoTitleBar）；不透明实色，不透视背景 -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource AppPaneBackgroundBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="10">
-                <FontIcon Glyph="&#xE728;" FontSize="16" Foreground="{ThemeResource BrandBlueBrush}" />
-                <TextBlock Text="Starcloud" FontWeight="SemiBold" FontSize="14"
+                <!-- 品牌标记：浅底/深底两份主标记按主题自动换源 -->
+                <ctrl:BrandMark Width="22" Height="22" VerticalAlignment="Center" />
+                <TextBlock Text="Starcloud" FontWeight="Medium" FontSize="14"
                            VerticalAlignment="Center" />
                 <!-- 测试版标识：启动器自身版本号（读 csproj <Version>，见 MainWindow.xaml.cs） -->
                 <Border CornerRadius="6" Padding="6,2" VerticalAlignment="Center"
@@ -61,31 +94,24 @@
             <Button x:Name="NovaOrb" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
                      Padding="0" CornerRadius="8"
                      Background="Transparent" BorderThickness="0"
-                     local:HoverShadowBehavior.IsEnabled="True"
-                     local:HoverShadowBehavior.Carrier="{Binding ElementName=NovaShadow}"
+                    beh:HoverShadowBehavior.IsEnabled="True"
+                    beh:HoverShadowBehavior.GlowRadius="16"
+                    beh:HoverShadowBehavior.Carrier="{Binding ElementName=NovaShadow}"
                      loc:Loc.Name="Nova 助手"
                     loc:Loc.Tip="Nova：待命"
                     Click="NovaOrb_Click">
                 <Grid Width="32" Height="32">
-                    <Border CornerRadius="8"
+                    <Border x:Name="NovaOrbRing" CornerRadius="8"
                             Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
-                    <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显（读作"按下/凹陷"） -->
-                    <Border x:Name="NovaShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
-                        <Border.Background>
-                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#3E000000" Offset="0" />
-                                <GradientStop Color="#30000000" Offset="0.18" />
-                                <GradientStop Color="#22000000" Offset="0.40" />
-                                <GradientStop Color="#14000000" Offset="0.62" />
-                                <GradientStop Color="#08000000" Offset="0.82" />
-                                <GradientStop Color="#00000000" Offset="1" />
-                            </RadialGradientBrush>
-                        </Border.Background>
-                    </Border>
-                    <FontIcon x:Name="NovaOrbGlyph" Glyph="&#xE99A;" FontSize="15"
-                              Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显（读作"按下/凹陷"）。
+                         档位色在 GlowLayer 里按主题各一套；Peak=1.55 是这类小圆块的加强档。 -->
+                    <ctrl:GlowLayer x:Name="NovaShadow" CornerRadius="8" Peak="1.55" />
+                    <!-- Nova 图标 = 品牌标记（小尺寸版）。多色标记没法用字形，所以五态着色
+                         改画在外圈描边上（见 MainWindow.xaml.cs 的 ApplyNovaState）。 -->
+                    <ctrl:BrandMark Small="True" Width="15" Height="15"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
                     <!-- 有提案：右上角 amber 小圆点 -->
                     <Ellipse x:Name="NovaOrbDot" Width="8" Height="8" Fill="#F59E0B"
                              HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -97,8 +123,9 @@
               <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
                       Padding="0" CornerRadius="8"
                       Background="Transparent" BorderThickness="0"
-                      local:HoverShadowBehavior.IsEnabled="True"
-                      local:HoverShadowBehavior.Carrier="{Binding ElementName=TaskCenterShadow}"
+                     beh:HoverShadowBehavior.IsEnabled="True"
+                     beh:HoverShadowBehavior.GlowRadius="16"
+                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=TaskCenterShadow}"
                       loc:Loc.Name="调度中心" loc:Loc.Tip="调度中心"
                      Click="TaskCenterBtn_Click">
                 <Grid Width="32" Height="32">
@@ -107,26 +134,16 @@
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
                     <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显 -->
-                    <Border x:Name="TaskCenterShadow" CornerRadius="8" Opacity="0" IsHitTestVisible="False">
-                        <Border.Background>
-                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#3E000000" Offset="0" />
-                                <GradientStop Color="#30000000" Offset="0.18" />
-                                <GradientStop Color="#22000000" Offset="0.40" />
-                                <GradientStop Color="#14000000" Offset="0.62" />
-                                <GradientStop Color="#08000000" Offset="0.82" />
-                                <GradientStop Color="#00000000" Offset="1" />
-                            </RadialGradientBrush>
-                        </Border.Background>
-                    </Border>
-                    <FontIcon Glyph="&#xE9F5;" FontSize="14"
+                    <ctrl:GlowLayer x:Name="TaskCenterShadow" CornerRadius="8" Peak="1.55" />
+                    <!-- ic_message_allread（消息已读）：一个「已处理」的意象，比计时器更贴任务列表 -->
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC89;" FontSize="14"
                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                     <!-- 徽标走主题强调色（暗色主题为品牌绿），accent 面上强制黑字加粗 -->
                     <Border x:Name="TaskBadge" Background="{ThemeResource AccentFillColorDefaultBrush}"
                             CornerRadius="7" MinWidth="15" Height="15"
                             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-3,0"
                             Padding="3,0" Visibility="Collapsed">
-                        <TextBlock x:Name="TaskBadgeText" FontSize="9" FontWeight="Bold"
+                        <TextBlock x:Name="TaskBadgeText" FontSize="9" FontWeight="Medium"
                                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                                    HorizontalAlignment="Center" />
                     </Border>
@@ -136,29 +153,20 @@
             <Button x:Name="AccountButton" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,8,0"
                     Padding="0" CornerRadius="8"
                     Background="Transparent" BorderThickness="0"
-                    local:HoverShadowBehavior.IsEnabled="True"
-                    local:HoverShadowBehavior.Carrier="{Binding ElementName=AccountShadow}"
+                   beh:HoverShadowBehavior.IsEnabled="True"
+                   beh:HoverShadowBehavior.GlowRadius="16"
+                   beh:HoverShadowBehavior.Carrier="{Binding ElementName=AccountShadow}"
                     loc:Loc.Name="个人中心"
                     loc:Loc.Tip="个人中心"
                     Click="AccountButton_Click">
                 <Grid Width="32" Height="32">
                     <Ellipse Fill="{ThemeResource CardBackgroundFillColorSecondaryBrush}" />
-                    <!-- 内阴影层：头像内部的渐深覆盖，悬停时渐显 -->
-                    <Ellipse x:Name="AccountShadow" Opacity="0" IsHitTestVisible="False">
-                        <Ellipse.Fill>
-                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#3E000000" Offset="0" />
-                                <GradientStop Color="#30000000" Offset="0.18" />
-                                <GradientStop Color="#22000000" Offset="0.40" />
-                                <GradientStop Color="#14000000" Offset="0.62" />
-                                <GradientStop Color="#08000000" Offset="0.82" />
-                                <GradientStop Color="#00000000" Offset="1" />
-                            </RadialGradientBrush>
-                        </Ellipse.Fill>
-                    </Ellipse>
-                    <TextBlock x:Name="AccountAvatarText" FontSize="13" FontWeight="SemiBold"
+                    <!-- 内阴影层：头像内部的渐深覆盖，悬停时渐显。
+                         圆角取 16 = 32×32 的半边长，等价于原先那个 Ellipse 的圆形轮廓。 -->
+                    <ctrl:GlowLayer x:Name="AccountShadow" CornerRadius="16" Peak="1.55" />
+                    <TextBlock x:Name="AccountAvatarText" FontSize="13" FontWeight="Medium"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    <FontIcon x:Name="AccountAvatarGlyph" Glyph="&#xE77B;" FontSize="15"
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="AccountAvatarGlyph" Glyph="&#xEB8F;" FontSize="15"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </Grid>
             </Button>
@@ -167,23 +175,45 @@
                  几何体必须内联在 PathIcon.Data 里——放在 ResourceDictionary 再 StaticResource
                  引用会在运行期抛 XamlParseException（Failed to assign to property 'PathIcon.Data'）。 -->
             <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}"
-                    loc:Loc.Name="最小化" loc:Loc.Tip="最小化" Click="MinimizeButton_Click">
-                <PathIcon Width="10" Height="10">
-                    <PathIcon.Data>
-                        <PathGeometry>
-                            <PathFigure StartPoint="0,4.5" IsClosed="True">
-                                <LineSegment Point="10,4.5" />
-                                <LineSegment Point="10,5.5" />
-                                <LineSegment Point="0,5.5" />
-                            </PathFigure>
-                        </PathGeometry>
-                    </PathIcon.Data>
-                </PathIcon>
+                    loc:Loc.Name="最小化" loc:Loc.Tip="最小化" Click="MinimizeButton_Click"
+                    beh:HoverShadowBehavior.IsEnabled="True"
+                    beh:HoverShadowBehavior.GlowRadius="40"
+                    beh:HoverShadowBehavior.TriggerInset="6"
+                    beh:HoverShadowBehavior.Carrier="{Binding ElementName=MinimizeShadow}">
+                <!-- 三层数字各管一件事：
+                     ① 点击热区 = 按钮本体 46×48（CaptionButtonStyle 的 Width/Height）；
+                     ② 点亮范围 = 热区四边各内收 TriggerInset=6 → 34×36，光标进到中间才亮；
+                     ③ 亮起来的形状 = 40×40 的圆角方块（CornerRadius=8，同全站图标块的语言）。
+                        半径必须大于方形半对角线（28.3），否则渐变在四个角之前就淡到 0，
+                        视觉上只剩一个内切圆——GlowRadius=40 就是为了让四个角也被染到。 -->
+                <Grid>
+                    <ctrl:GlowLayer x:Name="MinimizeShadow" Width="40" Height="40" CornerRadius="8"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" Peak="1.55" />
+                    <PathIcon Width="10" Height="10">
+                        <PathIcon.Data>
+                            <PathGeometry>
+                                <PathFigure StartPoint="0,4.5" IsClosed="True">
+                                    <LineSegment Point="10,4.5" />
+                                    <LineSegment Point="10,5.5" />
+                                    <LineSegment Point="0,5.5" />
+                                </PathFigure>
+                            </PathGeometry>
+                        </PathIcon.Data>
+                    </PathIcon>
+                </Grid>
             </Button>
             <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButtonStyle}"
-                    loc:Loc.Name="最大化" loc:Loc.Tip="最大化" Click="MaximizeButton_Click">
-                <!-- 最大化 / 还原两个图标叠放，按窗口状态切显隐（见 UpdateMaximizeGlyph） -->
-                <Grid Width="10" Height="10">
+                    loc:Loc.Name="最大化" loc:Loc.Tip="最大化" Click="MaximizeButton_Click"
+                    beh:HoverShadowBehavior.IsEnabled="True"
+                    beh:HoverShadowBehavior.GlowRadius="40"
+                    beh:HoverShadowBehavior.TriggerInset="6"
+                    beh:HoverShadowBehavior.Carrier="{Binding ElementName=MaximizeShadow}">
+                <!-- 同最小化键：热区 46×48 / 点亮区 34×36 / 光斑载体 40×40 圆角方块（圆角 8） -->
+                <Grid>
+                    <ctrl:GlowLayer x:Name="MaximizeShadow" Width="40" Height="40" CornerRadius="8"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" Peak="1.55" />
+                    <!-- 最大化 / 还原两个图标叠放，按窗口状态切显隐（见 UpdateMaximizeGlyph） -->
+                    <Grid Width="10" Height="10">
                     <PathIcon x:Name="MaximizeIcon" Width="10" Height="10">
                         <PathIcon.Data>
                             <PathGeometry>
@@ -225,39 +255,40 @@
                             </PathGeometry>
                         </PathIcon.Data>
                     </PathIcon>
+                    </Grid>
                 </Grid>
             </Button>
             <Button x:Name="CloseButton" Style="{StaticResource CaptionButtonStyle}"
-                    loc:Loc.Name="关闭" loc:Loc.Tip="关闭" Click="CloseButton_Click">
-                <Button.Resources>
-                    <!-- 关闭按钮 hover/按下：红底白字（与系统一致） -->
-                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#C42B1C" />
-                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#B22A1C" />
-                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFFFF" />
-                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFFFF" />
-                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
-                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
-                </Button.Resources>
-                <PathIcon Width="10" Height="10">
-                    <PathIcon.Data>
-                        <PathGeometry>
-                            <PathFigure StartPoint="0,0" IsClosed="True">
-                                <LineSegment Point="1.2,0" />
-                                <LineSegment Point="10,8.8" />
-                                <LineSegment Point="10,10" />
-                                <LineSegment Point="8.8,10" />
-                                <LineSegment Point="0,1.2" />
-                            </PathFigure>
-                            <PathFigure StartPoint="8.8,0" IsClosed="True">
-                                <LineSegment Point="10,0" />
-                                <LineSegment Point="10,1.2" />
-                                <LineSegment Point="1.2,10" />
-                                <LineSegment Point="0,10" />
-                                <LineSegment Point="0,8.8" />
-                            </PathFigure>
-                        </PathGeometry>
-                    </PathIcon.Data>
-                </PathIcon>
+                    loc:Loc.Name="关闭" loc:Loc.Tip="关闭" Click="CloseButton_Click"
+                    beh:HoverShadowBehavior.IsEnabled="True"
+                    beh:HoverShadowBehavior.GlowRadius="40"
+                    beh:HoverShadowBehavior.TriggerInset="6"
+                    beh:HoverShadowBehavior.Carrier="{Binding ElementName=CloseShadow}">
+                <Grid>
+                    <!-- 同最小化键：热区 46×48 / 点亮区 34×36 / 光斑载体 40×40 圆角方块（圆角 8） -->
+                    <ctrl:GlowLayer x:Name="CloseShadow" Width="40" Height="40" CornerRadius="8"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" Peak="1.55" />
+                    <PathIcon Width="10" Height="10">
+                        <PathIcon.Data>
+                            <PathGeometry>
+                                <PathFigure StartPoint="0,0" IsClosed="True">
+                                    <LineSegment Point="1.2,0" />
+                                    <LineSegment Point="10,8.8" />
+                                    <LineSegment Point="10,10" />
+                                    <LineSegment Point="8.8,10" />
+                                    <LineSegment Point="0,1.2" />
+                                </PathFigure>
+                                <PathFigure StartPoint="8.8,0" IsClosed="True">
+                                    <LineSegment Point="10,0" />
+                                    <LineSegment Point="10,1.2" />
+                                    <LineSegment Point="1.2,10" />
+                                    <LineSegment Point="0,10" />
+                                    <LineSegment Point="0,8.8" />
+                                </PathFigure>
+                            </PathGeometry>
+                        </PathIcon.Data>
+                    </PathIcon>
+                </Grid>
             </Button>
         </StackPanel>
 
@@ -270,6 +301,8 @@
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
             IsTitleBarAutoPaddingEnabled="False"
+            FontFamily="{StaticResource ScUiFontFamily}"
+            FontWeight="Medium"
             SelectionChanged="Nav_SelectionChanged">
             <!-- 左侧导航栏底色：模板里 RootSplitView 用 {ThemeResource NavigationViewDefaultPaneBackground}
                  / NavigationViewExpandedPaneBackground 取色，这两个 key 由框架主题字典定义且优先级高于
@@ -304,48 +337,74 @@
             <NavigationView.MenuItems>
                 <!-- 分组排列：游戏（首页/版本/下载/存档）→ 分隔线 → 个人与扩展（账户/插件/Nova）；
                      设置与日志固定在底部 FooterMenuItems（设置全导航最底） -->
-                <NavigationViewItem loc:Loc.Text="首页" Tag="home" Icon="Home" />
+                <NavigationViewItem loc:Loc.Text="首页" Tag="home">
+                    <NavigationViewItem.Icon>
+                        <!-- 原先用 Icon="Home"（SymbolIcon → Segoe 字形），为了整条导航同一套图标改用图标库字形 -->
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC77;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="版本" Tag="versions">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE81C;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA94;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="下载" Tag="download">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE896;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE90C;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="存档" Tag="saves">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8B7;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" />
                     </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem loc:Loc.Text="联机" Tag="multiplayer">
+                    <NavigationViewItem.Icon>
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB91;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <!-- 运行状态：Content 换成横排（文案 + 运行中圆点），故不能在条目上用 loc:Loc.Text
+                     （ContentControl 分支会把 Content 整个覆盖掉），文案落在内部 TextBlock 上 -->
+                <NavigationViewItem Tag="running" loc:Loc.Name="运行状态">
+                    <NavigationViewItem.Icon>
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC3B;" />
+                    </NavigationViewItem.Icon>
+                    <NavigationViewItem.Content>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock loc:Loc.Text="运行状态" VerticalAlignment="Center" />
+                            <Ellipse x:Name="RunningDot" Width="6" Height="6" Margin="8,0,0,0"
+                                     VerticalAlignment="Center" Visibility="Collapsed"
+                                     Fill="{ThemeResource SystemFillColorSuccessBrush}" />
+                        </StackPanel>
+                    </NavigationViewItem.Content>
                 </NavigationViewItem>
                 <NavigationViewItemSeparator />
                 <NavigationViewItem loc:Loc.Text="账户" Tag="accounts">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE77B;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB8F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="插件" Tag="plugins">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE71D;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEABC;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="Nova" Tag="ai">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE99A;" />
+                        <!-- Nova = 品牌标记：IconElement 位只能用图片图标 -->
+                        <ImageIcon Source="{StaticResource NovaMarkSmall}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem loc:Loc.Text="启动器日志" Tag="logs">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE7C3;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC64;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="设置" Tag="settings">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE713;" />
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC04;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
@@ -386,18 +445,18 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE9F5;" FontSize="15"
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC89;" FontSize="15"
                                       Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-                            <TextBlock loc:Loc.Text="调度中心" FontSize="17" FontWeight="SemiBold"
+                            <TextBlock loc:Loc.Text="调度中心" FontSize="17" FontWeight="Medium"
                                        VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button x:Name="TaskCenterCloseBtn" Grid.Column="1"
-                                Padding="8" MinWidth="0" MinHeight="0" VerticalAlignment="Center"
-                                Background="Transparent" BorderThickness="0"
-                                loc:Loc.Name="关闭" Click="TaskCenterClose_Click">
-                            <FontIcon Glyph="&#xE711;" FontSize="13"
+                        <ctrl:GlowButton x:Name="TaskCenterCloseBtn" Grid.Column="1"
+                                         Padding="8" MinWidth="0" MinHeight="0" VerticalAlignment="Center"
+                                         Background="Transparent" BorderThickness="0"
+                                         loc:Loc.Name="关闭" Click="TaskCenterClose_Click">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA86;" FontSize="13"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </Button>
+                        </ctrl:GlowButton>
                     </Grid>
 
                     <!-- 状态行：进行中任务数 / 记录条数 -->
@@ -409,13 +468,13 @@
                                   Padding="0,0,6,0" loc:Loc.Name="任务列表">
                         <StackPanel>
                             <!-- 调度队列：正在执行的任务卡（进度 / 速度 / 多源贡献带） -->
-                            <TextBlock loc:Loc.Text="调度队列" FontSize="14" FontWeight="SemiBold"
+                            <TextBlock loc:Loc.Text="调度队列" FontSize="14" FontWeight="Medium"
                                        Margin="2,0,0,8" />
                             <StackPanel x:Name="TaskRunningHost" Spacing="2" />
 
                             <!-- 队列为空：极简空态（图标 + 无） -->
                             <StackPanel x:Name="QueueEmptyHost" Spacing="8" Margin="0,30,0,26">
-                                <FontIcon Glyph="&#xE8FD;" FontSize="22" HorizontalAlignment="Center"
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC70;" FontSize="22" HorizontalAlignment="Center"
                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                 <TextBlock loc:Loc.Text="无" FontSize="13" HorizontalAlignment="Center"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -423,15 +482,15 @@
 
                             <!-- 历史通知：任务收尾与启动器提示的时间流水 -->
                             <Grid Margin="2,20,0,8">
-                                <TextBlock loc:Loc.Text="历史通知" FontSize="14" FontWeight="SemiBold"
+                                <TextBlock loc:Loc.Text="历史通知" FontSize="14" FontWeight="Medium"
                                            VerticalAlignment="Center" />
-                                <Button x:Name="NoticeClearBtn" HorizontalAlignment="Right"
-                                        Visibility="Collapsed" loc:Loc.Text="清空通知"
-                                        FontSize="12" Padding="8,2" MinWidth="0" MinHeight="0"
-                                        VerticalAlignment="Center"
-                                        Background="Transparent" BorderThickness="0"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Click="NoticeClear_Click" />
+                                <ctrl:GlowButton x:Name="NoticeClearBtn" HorizontalAlignment="Right"
+                                                 Visibility="Collapsed" loc:Loc.Text="清空通知"
+                                                 FontSize="12" Padding="8,2" MinWidth="0" MinHeight="0"
+                                                 VerticalAlignment="Center"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                 Click="NoticeClear_Click" />
                             </Grid>
                             <StackPanel x:Name="NoticeHost" Spacing="7" />
                         </StackPanel>
@@ -467,30 +526,32 @@
                                 Background="{ThemeResource LayerFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1">
-                            <FontIcon Glyph="&#xE99A;" FontSize="15"
-                                      Foreground="{ThemeResource BrandBlueBrush}" />
+                            <!-- Nova 图标 = 品牌标记（多色，字形画不出来） -->
+                            <ctrl:BrandMark Small="True" Width="15" Height="15"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Nova" FontWeight="SemiBold" FontSize="14" />
-                            <TextBlock loc:Loc.Text="启动器里的 AI 助手，会干活的那种" FontSize="11"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="Nova" FontWeight="Medium" FontSize="14" />
+                            <!-- 云端额度：登录后常驻一行，用户不用翻设置页也知道还能用多少 -->
+                            <TextBlock x:Name="NovaPanelQuota" FontSize="11" Visibility="Collapsed"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
-                        <Button Grid.Column="2" Padding="6,2" MinWidth="0" VerticalAlignment="Center"
-                                Background="Transparent" BorderThickness="0"
-                                loc:Loc.Name="打开 Nova 页"
-                                loc:Loc.Tip="打开 Nova 页（许可层 / 流水 / LLM 设置）"
-                                Click="NovaPanelSettings_Click">
-                            <FontIcon Glyph="&#xE713;" FontSize="13"
+                        <ctrl:GlowButton Grid.Column="2" Padding="6,2" MinWidth="0" VerticalAlignment="Center"
+                                         Background="Transparent" BorderThickness="0"
+                                         loc:Loc.Name="打开 Nova 页"
+                                         loc:Loc.Tip="打开 Nova 页（许可层 / 操作日志 / LLM 设置）"
+                                         Click="NovaPanelSettings_Click">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC04;" FontSize="13"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </Button>
+                        </ctrl:GlowButton>
                     </Grid>
 
                     <!-- 未登录：引导去 Nova 页登录 -->
                     <StackPanel Grid.Row="1" x:Name="NovaPanelLogin" Spacing="10"
                                 VerticalAlignment="Center" Visibility="Collapsed">
-                        <TextBlock loc:Loc.Text="Nova 还没上线" FontWeight="SemiBold" />
-                        <TextBlock loc:Loc.Text="登录 Starcloud ID 后，我才能帮你找包、修崩溃、调帧数——你说一句就行。"
+                        <TextBlock loc:Loc.Text="Nova 尚未登录" FontWeight="Medium" />
+                        <TextBlock loc:Loc.Text="登录 Starcloud ID 后可使用云端模型，以及邀请、时刻等在线能力；凭据只保存在本机。"
                                    FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <Button Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="去 Nova 页登录"
@@ -498,7 +559,7 @@
                     </StackPanel>
 
                     <!-- 已登录：对话（复用 NovaChatView） -->
-                    <local:NovaChatView Grid.Row="1" x:Name="NovaPanelChat" />
+                    <ctrl:NovaChatView Grid.Row="1" x:Name="NovaPanelChat" />
                 </Grid>
             </Border>
         </Popup>

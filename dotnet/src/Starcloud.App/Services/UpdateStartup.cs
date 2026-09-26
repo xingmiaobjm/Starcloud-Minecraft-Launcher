@@ -2,6 +2,7 @@
 
 using Microsoft.UI.Xaml;
 using Starcloud.App.Views;
+using Starcloud.App.Views.Dialogs;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Services;

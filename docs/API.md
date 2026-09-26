@@ -168,8 +168,10 @@ public sealed class GameLauncher
         LaunchOptions options, CancellationToken ct = default);
 
     // 启动进程（CreateNoWindow，stdout/stderr 重定向并落盘），返回游戏会话
-    // GameSession：Pid / LogFile / HasExited / ExitCode / Uptime / Tail(n)
-    //             Kill(entireTree) / WaitForExitAsync() / event OutputLine / event Exited(int)
+    // GameSession：VersionId / Pid / StartedAt / LogFile / HasExited / ExitCode / Uptime
+    //             CommandLine（含 --accessToken，仅内存持有、不落盘，供“复制命令”用）
+    //             Tail(n) / Kill(entireTree) / WaitForExitAsync()
+    //             event OutputLine(string) / event Exited(int)
     public GameSession Launch(string commandLine, string workingDirectory, string versionId,
         IReadOnlyDictionary<string, string>? envVars = null);
 

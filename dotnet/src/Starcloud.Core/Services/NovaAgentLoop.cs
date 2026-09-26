@@ -46,7 +46,10 @@ public sealed class NovaAgentLoop
         "2. 安装、修改设置等写操作先想清楚参数再调用，调用即代表你已把影响写进回复让用户确认；" +
         "3. 版本号、项目 ID 一律来自工具结果，绝不臆造；" +
         "4. 一次说清楚要做什么，不要连续空转；" +
-        "5. 工具失败时如实说明原因，给用户手动步骤。";
+        "5. 工具失败时如实说明原因，给用户手动步骤；" +
+        "6. 工具很多，只调必要的那个；工具返回的原文不要贴给用户，" +
+        "提炼成一句结论（例如「1.21.1 的钠已装到实例 X」），需要用户点头的写进确认清单；" +
+        "7. 回复仍然遵守简短要求：1~2 句，最多 3 条要点。";
 
     /// <summary>
     /// 跑一轮 Agent 对话：流式文本 + 工具调用。
@@ -94,17 +97,11 @@ public sealed class NovaAgentLoop
 
             // 把 assistant 的工具调用请求记回 messages（OpenAI 协议要求）
             var calls = acc.Complete();
-            messages.Add(new
-            {
-                role = "assistant",
-                content = text.Length > 0 ? text.ToString() : null,
-                tool_calls = calls.Select(c => new
-                {
-                    id = c.Id,
-                    type = "function",
-                    @function = new { name = c.Name, arguments = c.Arguments },
-                }).ToArray(),
-            });
+            messages.Add(new ChatMessage(
+                "assistant",
+                text.Length > 0 ? text.ToString() : null,
+                ToolCalls: calls.Select(c => new ChatToolCall(
+                    c.Id, "function", new ChatToolCallFunction(c.Name, c.Arguments))).ToArray()));
             text.Clear();
 
             // 只读立即执行；写操作攒进确认清单
@@ -114,7 +111,7 @@ public sealed class NovaAgentLoop
                 var tool = _tools.Find(call.Name);
                 if (tool is null)
                 {
-                    messages.Add(new { role = "tool", tool_call_id = call.Id, content = $"未知工具 {call.Name}" });
+                    messages.Add(new ChatMessage("tool", $"未知工具 {call.Name}", call.Id));
                     continue;
                 }
 
@@ -125,7 +122,7 @@ public sealed class NovaAgentLoop
                     try { result = await _tools.ExecuteAsync(call.Name, call.Arguments, ct); }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex) { result = $"执行失败：{ex.Message}"; }
-                    messages.Add(new { role = "tool", tool_call_id = call.Id, content = result });
+                    messages.Add(new ChatMessage("tool", result, call.Id));
                 }
                 else
                 {
@@ -160,11 +157,13 @@ public sealed class NovaAgentLoop
     {
         var msgs = new List<object>
         {
-            new { role = "system", content = NovaService.SystemPrompt + AgentPromptSuffix },
+            new ChatMessage("system", NovaService.SystemPrompt + AgentPromptSuffix),
         };
         if (history is { Count: > 0 })
-            msgs.AddRange(history.Select(t => new { role = t.Role, content = t.Content }));
-        msgs.Add(new { role = "user", content = message });
+            msgs.AddRange(history
+                .Where(t => !string.IsNullOrWhiteSpace(t.Content)) // 空正文轮会被服务端 400
+                .Select(t => new ChatMessage(t.Role, t.Content)));
+        msgs.Add(new ChatMessage("user", message));
         return msgs;
     }
 

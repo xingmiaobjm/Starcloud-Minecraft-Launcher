@@ -5,6 +5,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Starcloud.App.Views"
+    xmlns:beh="using:Starcloud.App.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
@@ -18,14 +20,14 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel Spacing="4">
-                        <TextBlock loc:Loc.Text="插件" FontSize="28" FontWeight="SemiBold" />
+                    <StackPanel Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
+                        <TextBlock loc:Loc.Text="插件" FontSize="28" FontWeight="Medium" />
                         <TextBlock loc:Loc.Text="安装 .mclplug 插件包扩展启动器（仅开放启动参数扩展与 UI 扩展，账号校验永不对插件开放）"
                                    TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
                     <Button x:Name="InstallBtn" Grid.Column="1" loc:Loc.Text="安装插件…"
-                            Style="{StaticResource AccentButtonStyle}" FontWeight="Bold"
+                            Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
                             MinWidth="120" VerticalAlignment="Center" Click="Install_Click" />
                 </Grid>
 
@@ -40,20 +42,20 @@
                         BorderThickness="1" CornerRadius="16" Padding="16"
                         Visibility="{x:Bind PanelsCardVisible, Mode=OneWay}">
                     <StackPanel Spacing="8">
-                        <TextBlock loc:Loc.Text="插件面板" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock loc:Loc.Text="插件面板" FontWeight="Medium" FontSize="13" />
                         <ItemsControl ItemsSource="{x:Bind PanelRows, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="local:PluginPanelRow">
-                                    <Button Margin="0,2,6,2" Padding="12,6" Click="OpenPanel_Click"
+                                    <ctrl:GlowButton Margin="0,2,6,2" Padding="12,6" Click="OpenPanel_Click"
                                             Tag="{x:Bind Id}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <FontIcon Glyph="&#xE8A5;" FontSize="14"
+                                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEABC;" FontSize="14"
                                                       Foreground="{ThemeResource BrandBlueBrush}" />
                                             <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" />
                                             <TextBlock Text="{x:Bind PluginName}" FontSize="11"
                                                        Opacity="0.6" VerticalAlignment="Center" />
                                         </StackPanel>
-                                    </Button>
+                                    </ctrl:GlowButton>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -65,7 +67,7 @@
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="16" Padding="16">
                     <StackPanel Spacing="8">
-                        <TextBlock loc:Loc.Text="已安装" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock loc:Loc.Text="已安装" FontWeight="Medium" FontSize="13" />
                         <ListView x:Name="PluginList" SelectionMode="None">
                             <!-- 框架原生增删/重排转场：安装/卸载后行淡入淡出并平滑让位 -->
                             <ListView.ItemContainerTransitions>
@@ -86,8 +88,8 @@
                                 <DataTemplate x:DataType="local:PluginRow">
                                     <Grid ColumnSpacing="12" Padding="12,10" CornerRadius="8"
                                           Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                          local:HoverShadowBehavior.IsEnabled="True"
-                                          local:HoverShadowBehavior.Carrier="{Binding ElementName=PluginCardGlow}">
+                                          beh:HoverShadowBehavior.IsEnabled="True"
+                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=PluginCardGlow}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
@@ -95,37 +97,23 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <!-- 跟随光标的卡片内阴影 -->
-                                        <Border x:Name="PluginCardGlow" Grid.ColumnSpan="4" CornerRadius="8"
-                                                Opacity="0" IsHitTestVisible="False">
-                                            <Border.Background>
-                                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5"
-                                                                     RadiusX="0.2" RadiusY="0.5">
-                                                    <GradientStop Color="#28000000" Offset="0" />
-                                                    <GradientStop Color="#1F000000" Offset="0.18" />
-                                                    <GradientStop Color="#16000000" Offset="0.40" />
-                                                    <GradientStop Color="#0D000000" Offset="0.62" />
-                                                    <GradientStop Color="#05000000" Offset="0.82" />
-                                                    <GradientStop Color="#00000000" Offset="1" />
-                                                </RadialGradientBrush>
-                                            </Border.Background>
-                                        </Border>
+                                        <ctrl:GlowLayer x:Name="PluginCardGlow" Grid.ColumnSpan="4" CornerRadius="8" />
                                         <StackPanel Grid.Column="0" Spacing="2">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{x:Bind Name}" FontWeight="Medium" />
                                                 <TextBlock Text="{x:Bind Version}" FontSize="11" Opacity="0.65"
                                                            VerticalAlignment="Center" />
-                                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                                        CornerRadius="4" Padding="6,1"
+                                                <Border Style="{StaticResource ScChipAccent}"
                                                         Visibility="{x:Bind OfficialVisibility}">
-                                                    <TextBlock loc:Loc.Text="官方" FontSize="10"
-                                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                                    <TextBlock loc:Loc.Text="官方"
+                                                               Style="{StaticResource ScChipAccentText}" />
                                                 </Border>
-                                                <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                                        BorderThickness="1" CornerRadius="4" Padding="6,1"
+                                                <!-- 提示芯片：与版本页的类型/隔离芯片同一套形态（App.xaml 视觉基元），
+                                                     语义色只说"需要留意"，不做成错误 -->
+                                                <Border Style="{StaticResource ScChipCaution}"
                                                         Visibility="{x:Bind UnverifiedVisibility}">
-                                                    <TextBlock loc:Loc.Text="第三方未验证" FontSize="10"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    <TextBlock loc:Loc.Text="第三方未验证"
+                                                               Style="{StaticResource ScChipCautionText}" />
                                                 </Border>
                                             </StackPanel>
                                             <TextBlock Text="{x:Bind Description}" FontSize="12"
@@ -134,11 +122,11 @@
                                             <TextBlock Text="{x:Bind Detail}" FontSize="11" TextWrapping="Wrap"
                                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                         </StackPanel>
-                                        <Button Grid.Column="1" loc:Loc.Text="打开面板" FontSize="12"
+                                        <ctrl:GlowButton Grid.Column="1" loc:Loc.Text="打开面板" FontSize="12"
                                                 Padding="10,4" VerticalAlignment="Center"
                                                 Visibility="{x:Bind PanelsVisibility}"
                                                 Tag="{x:Bind Id}" Click="OpenPanel_Click" />
-                                        <Button Grid.Column="2" loc:Loc.Text="卸载" FontSize="12"
+                                        <ctrl:GlowButton Grid.Column="2" loc:Loc.Text="卸载" FontSize="12"
                                                 Padding="10,4" VerticalAlignment="Center"
                                                 Tag="{x:Bind Id}" Click="Uninstall_Click" />
                                         <!-- 行对象每次刷新都重建，OneTime 即可（回写由 Toggled 事件走服务层） -->
@@ -150,14 +138,17 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <local:EmptyStateView x:Name="EmptyText" HorizontalAlignment="Left"
-                                              Glyph="&#xE71D;"
+                        <ctrl:EmptyStateView x:Name="EmptyText" HorizontalAlignment="Left"
+                                              Glyph="&#xEABC;"
                                               loc:Loc.Title="还没有安装插件" />
-                        <TextBlock loc:Loc.Text="把 .mclplug 文件放到这里：点「安装插件…」选择插件包，安装后打开开关启用。"
-                                   FontSize="11" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </StackPanel>
                 </Border>
+
+                <!-- 放置说明：原先在卡片最后一行，读起来像卡片内容的一部分；
+                     挪到卡片外当页面注脚，形态与空状态提示一致 -->
+                <TextBlock loc:Loc.Text="把 .mclplug 文件放到这里：点「安装插件…」选择插件包，安装后打开开关启用。"
+                           FontSize="12" TextWrapping="Wrap" Margin="4,0,0,0"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
 
                 <!-- 安装结果提示 -->
                 <InfoBar x:Name="NotifyBar" IsOpen="False" IsClosable="True" Severity="Success" />

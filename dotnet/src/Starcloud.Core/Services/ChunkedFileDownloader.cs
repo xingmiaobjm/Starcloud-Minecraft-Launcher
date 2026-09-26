@@ -1,5 +1,12 @@
 // 多源分片竞速下载器：同一文件切分片 → 多源并行拉取 → 按偏移写入 → 整文件 SHA1 校验
 // 设计见 docs/designs/2026-09-12-multi-source-download-design.md §3.2 / §4.1
+//
+// 提速要点（2026-09-21 实测：CDN 单连接常被限到 1–3 MB/s，4 条并行能拿到 3.1×）：
+//   1. 单文件默认 8 条并发连接（原 4 条），片大小按「每 worker 约 2 片」自适应（1–8 MiB）；
+//   2. 进程级 worker 预算 32：批量下载时不会把连接数打爆，单文件仍独占最多 8 条；
+//   3. 读缓冲 512 KiB（原 256 KiB），文件句柄带 FileOptions.Asynchronous + RandomAccess 定位写；
+//   4. 空闲看门狗一条流一个（原来每次读都新建 CTS，满速时每秒数百个定时器，见 IdleTimeout.cs）；
+//   5. 字节遥测 10 Hz 聚合上报（原来每 256 KiB 就 lock + 排序 + 事件三连）。
 
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -16,17 +23,37 @@ public sealed class ChunkedFileDownloader
     /// <summary>≥ 该体积才分片（小文件分片开销大于收益）</summary>
     public const long Threshold = 4 * 1024 * 1024;
 
-    /// <summary>默认片大小</summary>
-    public const long ChunkSize = 4 * 1024 * 1024;
+    /// <summary>片大小下限：每片一条请求，片太小会让首字节/握手开销吃掉并行收益</summary>
+    public const long MinChunkSize = 1024 * 1024;
 
-    /// <summary>单片文件的最大片数</summary>
-    public const int MaxChunks = 16;
+    /// <summary>片大小上限：再大也不会更快，只会让尾片拖长</summary>
+    public const long MaxChunkSize = 8 * 1024 * 1024;
 
-    /// <summary>单个文件的并发分片 worker 数</summary>
-    public const int MaxWorkers = 4;
+    /// <summary>单片文件的片数上限</summary>
+    public const int MaxChunks = 64;
 
-    /// <summary>分片读缓冲：256 KiB</summary>
-    private const int BufferSize = 256 * 1024;
+    /// <summary>单文件并发分片 worker 数（并行连接是主要提速手段）</summary>
+    public const int MaxWorkersPerFile = 8;
+
+    /// <summary>进程级 worker 预算：多文件同时下载时的总并发连接上限</summary>
+    public const int GlobalWorkerBudget = 32;
+
+    /// <summary>分片读缓冲：512 KiB（ArrayPool 租借，无 GC 压力）</summary>
+    private const int BufferSize = 512 * 1024;
+
+    /// <summary>字节遥测聚合窗口：窗口内字节合并成一次上报</summary>
+    private const int TelemetryWindowMs = 100;
+
+    /// <summary>空闲判死：连续这么久读不到字节就换源/重试</summary>
+    private const int IdleTimeoutMs = 15_000;
+
+    /// <summary>连接 + 响应头超时</summary>
+    private const int ConnectTimeoutSec = 20;
+
+    /// <summary>源质量预检：每个候选源试 1 字节的上限（并行做，总开销 ≤ 这个数）</summary>
+    private const int WarmupTimeoutSec = 10;
+
+    private static readonly SemaphoreSlim Budget = new(GlobalWorkerBudget, GlobalWorkerBudget);
 
     private readonly HttpClient _http;
     private readonly DownloadSourceRegistry _sources;
@@ -40,24 +67,42 @@ public sealed class ChunkedFileDownloader
     /// <summary>日志出口（由 DownloadService 注入，默认 null = 零开销）</summary>
     public Action<string>? Log { get; set; }
 
-    /// <summary>分片计划：区间精确覆盖 [0, size)，无重叠无空洞，片数 ≤ MaxChunks</summary>
-    internal static IReadOnlyList<(long Start, long Length)> PlanChunks(long size)
+    /// <summary>
+    /// 分片计划：区间精确覆盖 [0, size)、无重叠无空洞，片数 ≤ MaxChunks。
+    /// 目标 = 每个 worker 约 2 片（一片在跑、一片在等），片大小夹在 1–8 MiB 且按 1 MiB 对齐。
+    /// </summary>
+    internal static IReadOnlyList<(long Start, long Length)> PlanChunks(long size, int workers = MaxWorkersPerFile)
     {
         if (size <= 0) return [];
 
-        var chunk = ChunkSize;
+        var w = Math.Clamp(workers, 1, MaxWorkersPerFile);
+        var target = (size + w * 2L - 1) / (w * 2L);
+        var chunk = AlignMiB(Math.Clamp(target, MinChunkSize, MaxChunkSize));
         if ((size + chunk - 1) / chunk > MaxChunks)
-        {
-            // 片数超上限 → 扩大片大小并向上对齐到 1 MiB
-            const long align = 1024 * 1024;
-            var need = (size + MaxChunks - 1) / MaxChunks;
-            chunk = (need + align - 1) / align * align;
-        }
+            chunk = AlignMiB((size + MaxChunks - 1) / MaxChunks); // 超大文件：按片数上限均分
 
         var plan = new List<(long Start, long Length)>();
         for (long start = 0; start < size; start += chunk)
             plan.Add((start, Math.Min(chunk, size - start)));
         return plan;
+    }
+
+    private static long AlignMiB(long bytes) =>
+        (bytes + 1024 * 1024 - 1) / (1024 * 1024) * (1024 * 1024);
+
+    /// <summary>
+    /// 本文件的并行连接数 = 候选源里**最宽松**的历史容忍度（再夹在 1..每文件上限内）。
+    /// <para>为什么不能只看池里第一个源：池首常是被 429 限过的镜像（限到 1 条），
+    /// 而这片文件实际是官方 CDN 在扛 —— 按镜像的限流值收并发等于把整文件压成单连接
+    /// （实测 0.29 MB/s，而官方多连接应有 1 MB/s 以上）。</para>
+    /// </summary>
+    internal int ConcurrencyFor(string url, IReadOnlyList<SourceKind> pool)
+    {
+        var widest = pool
+            .Select(k => ParallelGovernor.LimitFor(HostOf(_sources.Rewrite(url, k))))
+            .DefaultIfEmpty(MaxWorkersPerFile)
+            .Max();
+        return Math.Max(1, Math.Min(MaxWorkersPerFile, widest));
     }
 
     /// <summary>
@@ -71,73 +116,185 @@ public sealed class ChunkedFileDownloader
 
         Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
         var tmp = destFile + ".sc-tmp";
-        var plan = PlanChunks(size);
-        var pool = new CandidateSet(_sources.RacingPool());
+        var pool = new CandidateSet(_sources.RacingPoolFor(url));
         if (pool.Count == 0) throw new IOException($"没有可用的下载源: {Path.GetFileName(destFile)}");
 
-        var usage = new ConcurrentDictionary<SourceKind, long>();
-        var attempts = Math.Max(1, maxRetries);
-        var queue = new ConcurrentQueue<(long Start, long Length)>(plan);
+        // 首次分片前做一次源质量预检（进程内一次）
+        if (_sources.WarmupNeeded) await WarmupAsync(url, pool, ct);
+        if (pool.Count == 0) throw new IOException($"没有支持分片的下载源: {Path.GetFileName(destFile)}");
 
-        TaskCenterService.Instance.ReportRacingBegin(size);
+        var plan = PlanChunks(size, MaxWorkersPerFile);
+        var allowed = Math.Min(MaxWorkersPerFile, plan.Count);
+        var wanted = Math.Min(allowed, ConcurrencyFor(url, pool.Snapshot()));
+        var usage = new ConcurrentDictionary<string, long>(StringComparer.Ordinal);
+        // 每个分片的重试额度必须至少覆盖池里全部源：否则重试次数用完了还没轮到官方兜底，
+        // 整文件就会因为「假死镜像先被轮询到」而失败，退化到单连接整文件下载（实测慢十倍）。
+        var attempts = Math.Max(Math.Max(1, maxRetries), pool.Count);
+        var queue = new ConcurrentQueue<(long Start, long Length)>(plan);
+        var token = new object();
+
+        // 进程级预算：能租几条算几条（至少 1 条），批量下载时自动让路给别的文件
+        var leased = 0;
+        while (leased < wanted && await Budget.WaitAsync(0, ct)) leased++;
+        if (leased == 0)
+        {
+            await Budget.WaitAsync(ct);
+            leased = 1;
+        }
+
+        TaskCenterService.Instance.ReportRacingBegin(token, Path.GetFileName(destFile), size);
         try
         {
+            // FileOptions.Asynchronous：RandomAccess 的定位写在异步句柄上才是真异步（否则走线程池模拟）
             using (var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.Write, FileShare.None,
-                       FileOptions.None, size))
+                       FileOptions.Asynchronous, size))
             {
-                var workers = Enumerable.Range(0, Math.Min(MaxWorkers, plan.Count)).Select(_ => Task.Run(async () =>
+                var running = Enumerable.Range(0, leased).Select(_ => Task.Run(async () =>
                 {
                     while (queue.TryDequeue(out var chunk))
-                        await FetchChunkAsync(handle, url, chunk, pool, usage, onBytes, attempts, ct);
+                        await FetchChunkAsync(handle, url, chunk, pool, usage, onBytes, attempts, token, ct);
                 }, ct));
-                await Task.WhenAll(workers);
+                await Task.WhenAll(running);
             }
+
             // 完整性闸门：分片重试只会计多不会计少，成功字节 < 文件大小 = 有分片静默缺失，
-            // 绝不能当成功落盘 → 抛错走调用方的整文件退化（断点续传）
-            if (usage.Values.Sum() < size)
-                throw new IOException(
-                    $"分片不完整：成功 {usage.Values.Sum() / 1048576.0:F1} MB / 应为 {size / 1048576.0:F1} MB");
+            // 绝不能当成功落盘 → 抛错走调用方的整文件退化
+            var got = usage.Values.Sum();
+            if (got < size)
+                throw new IOException($"分片不完整：成功 {got / 1048576.0:F1} MB / 应为 {size / 1048576.0:F1} MB");
 
             VerifyAndCommit(tmp, destFile, sha1);
         }
         catch
         {
             TryDelete(tmp);
-            TaskCenterService.Instance.ReportRacingEnd(false);
+            TaskCenterService.Instance.ReportRacingEnd(token, false, usage.Values.Sum());
             throw;
         }
-        TaskCenterService.Instance.ReportRacingEnd(true);
+        finally
+        {
+            Budget.Release(leased);
+        }
+        TaskCenterService.Instance.ReportRacingEnd(token, true, size);
 
-        Log?.Invoke($"分片竞速 {Path.GetFileName(destFile)}（{size / 1024.0 / 1024.0:F1}MB / {plan.Count} 片）："
+        Log?.Invoke($"分片竞速 {Path.GetFileName(destFile)}"
+                    + $"（{size / 1024.0 / 1024.0:F1}MB / {plan.Count} 片 / {leased} 并发）："
                     + string.Join(" / ", usage.OrderByDescending(kv => kv.Value)
-                        .Select(kv => $"{DownloadSourceRegistry.Name(kv.Key)} {kv.Value / 1024.0 / 1024.0:F1}MB")));
+                        .Select(kv => $"{kv.Key} {kv.Value / 1024.0 / 1024.0:F1}MB")));
+    }
+
+    /// <summary>
+    /// 源质量预检：第一次分片前给每个候选镜像发一个 1 字节 Range 请求（并行、每源 10 秒封顶）。
+    /// <para>为什么值得：源质量在单机网络上很稳定——实测 FastMirror 的 TLS 一直是坏的、RainYun 返回站点页面；
+    /// 不预检的话它们和可用源同样靠前，每个大文件都要先浪费一轮重试才轮到官方兜底，
+    /// 严重时整个文件退化成单连接整文件下载（0.1–0.3 MB/s）。官方源不预检（它是兜底，没有更后面的源可换）。</para>
+    /// </summary>
+    private async Task WarmupAsync(string url, CandidateSet pool, CancellationToken ct)
+    {
+        _sources.MarkWarmupDone();   // 无论结果如何都只做一次，预检本身也发请求
+        var probes = pool.Snapshot().Where(k => k != SourceKind.Official).ToList();
+        if (probes.Count == 0) return;
+        await Task.WhenAll(probes.Select(kind => ProbeSourceAsync(url, kind, pool, ct)));
+    }
+
+    private async Task ProbeSourceAsync(string url, SourceKind kind, CandidateSet pool, CancellationToken ct)
+    {
+        var target = _sources.Rewrite(url, kind);
+        var host = HostOf(target);
+        var label = Label(kind, host);
+        var channel = DownloadSourceRegistry.ChannelOf(url);
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, target);
+            req.Headers.Range = new RangeHeaderValue(0, 0);
+            req.Version = HttpVersion.Version11;
+            req.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+            using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            conn.CancelAfter(TimeSpan.FromSeconds(WarmupTimeoutSec));
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
+
+            if (resp.StatusCode == HttpStatusCode.PartialContent)
+            {
+                _sources.MarkRangeSupport(host, true);
+                _sources.RecordRangeHonored(kind, channel);
+                _sources.RecordSuccess(kind);      // 可用 → 排到其它镜像前面
+                Log?.Invoke($"源预检：{label} 可用（支持分片）");
+                return;
+            }
+            if (resp.StatusCode == HttpStatusCode.OK)
+            {
+                // 无视 Range 直接给整文件。镜像会 302 到随机节点，个别节点不认 Range 属正常，
+                // 所以只计数；连续够多（本通道）才认定它不能分片，届时分片选择处会跳过它。
+                _sources.RecordRangeIgnored(kind, channel);
+                if (_sources.NoRangeSupport(kind, channel))
+                {
+                    pool.Remove(kind);
+                    Log?.Invoke($"源预检：{label} 在{ChannelText(channel)}通道上不支持分片，退出本次竞速池");
+                }
+                else
+                {
+                    Log?.Invoke($"源预检：{label} 回了整文件（未采纳 Range），本次仍参与但排后");
+                }
+                return;
+            }
+            _sources.MarkDegraded(kind);
+            Log?.Invoke($"源预检：{label} 返回 {(int)resp.StatusCode}，本进程内靠后使用");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // 调用方取消：什么都不记
+        }
+        catch (Exception ex)
+        {
+            _sources.MarkDegraded(kind);
+            Log?.Invoke($"源预检：{label} 不可用（{ex.Message}），本进程内靠后使用");
+        }
     }
 
     /// <summary>取下一片，失败换源重试（同一片累计重试上限 = maxRetries）</summary>
     private async Task FetchChunkAsync(SafeFileHandle handle, string url, (long Start, long Length) chunk,
-        CandidateSet pool, ConcurrentDictionary<SourceKind, long> usage, Action<long>? onBytes,
-        int attempts, CancellationToken ct)
+        CandidateSet pool, ConcurrentDictionary<string, long> usage, Action<long>? onBytes,
+        int attempts, object token, CancellationToken ct)
     {
         var failed = 0;
+        var channel = DownloadSourceRegistry.ChannelOf(url);
         while (true)
         {
             var kind = pool.Next();
+            var target = _sources.Rewrite(url, kind);
+            var host = HostOf(target);
+            var label = Label(kind, host);
+
+            // 已判定该源在**这条通道**上不能分片 → 换下一个源；池空则抛错，由调用方退化整文件。
+            // 注意粒度是「源 + 通道」：BMCLAPI 的 /maven 节点不认 Range，不代表它给客户端 jar 分片也不行。
+            if (_sources.NoRangeSupport(kind, channel))
+            {
+                pool.Remove(kind);
+                continue;
+            }
+
             bool ranged;
             try
             {
-                ranged = await FetchRangeAsync(handle, _sources.Rewrite(url, kind), kind, chunk, usage, onBytes, ct);
+                ranged = await FetchRangeAsync(handle, target, kind, host, label, channel, chunk, usage,
+                    onBytes, token, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
             {
                 _sources.RecordFailure(kind);
+                Log?.Invoke($"{label} 分片失败（{ex.Message}）→ 换源重试");
                 if (++failed >= attempts) throw;
-                await Task.Delay(TimeSpan.FromMilliseconds(200 * failed), ct);
+                // 退避：平方增长；被限流时按主机的冷却时间等（限流不会因为立刻重试就消失）
+                var backoff = TimeSpan.FromMilliseconds(400 * failed * failed);
+                var cooldown = ParallelGovernor.CooldownFor(host);
+                await Task.Delay(cooldown > backoff ? cooldown : backoff, ct);
                 continue;
             }
 
             if (ranged)
             {
                 _sources.RecordSuccess(kind);
+                ParallelGovernor.ReportSuccess(host);
                 return;
             }
             // 源忽略 Range 返回整文件：已退出分片池，立即换源且不消耗重试额度
@@ -146,72 +303,110 @@ public sealed class ChunkedFileDownloader
     }
 
     /// <summary>拉取单个分片并按偏移写入；返回 false 表示该源不支持 Range（已被踢出分片池）</summary>
-    private async Task<bool> FetchRangeAsync(SafeFileHandle handle, string target, SourceKind kind,
-        (long Start, long Length) chunk, ConcurrentDictionary<SourceKind, long> usage,
-        Action<long>? onBytes, CancellationToken ct)
+    private async Task<bool> FetchRangeAsync(SafeFileHandle handle, string target, SourceKind kind, string host,
+        string label, SourceChannel channel, (long Start, long Length) chunk,
+        ConcurrentDictionary<string, long> usage,
+        Action<long>? onBytes, object token, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, target);
         req.Headers.Range = new RangeHeaderValue(chunk.Start, chunk.Start + chunk.Length - 1);
+        // 分片必须走 HTTP/1.1：HTTP/2 会把 8 条"并行"分片多路复用到一条 TCP 连接上，
+        // 结果是流量被单连接拥塞窗口掐住（实测：同样 8 分片，HTTP/2 只有单连接速度，
+        // 且慢速 CDN 上会因流控停顿触发空闲超时反复重试）。HTTP/1.1 = 每片一条连接，才真的有 8 倍并行。
+        req.Version = HttpVersion.Version11;
+        req.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
         HttpResponseMessage resp;
         try
         {
             using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            conn.CancelAfter(TimeSpan.FromSeconds(20)); // 连接 + 响应头超时
+            conn.CancelAfter(TimeSpan.FromSeconds(ConnectTimeoutSec));
             resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new IOException($"连接 {DownloadSourceRegistry.Name(kind)} 20 秒无响应");
+            throw new IOException($"连接 {label} {ConnectTimeoutSec} 秒无响应");
         }
 
-        if (resp.StatusCode == HttpStatusCode.OK)
+        using (resp)
         {
-            _sources.MarkNoRangeSupport(kind);
-            return false;
-        }
-        resp.EnsureSuccessStatusCode();
-        if (resp.StatusCode != HttpStatusCode.PartialContent)
-            throw new IOException($"下载源 {DownloadSourceRegistry.Name(kind)} 返回 {(int)resp.StatusCode}");
-
-        var declared = resp.Content.Headers.ContentLength;
-        if (declared is > 0 && declared != chunk.Length)
-            throw new IOException($"分片长度不符：期望 {chunk.Length}，实际 {declared}");
-
-        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
-        var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-        try
-        {
-            long offset = chunk.Start;
-            long remaining = chunk.Length;
-            while (remaining > 0)
+            if (resp.StatusCode == HttpStatusCode.OK)
             {
-                // 空闲超时：15 秒读不到字节判死重试该分片（禁用总时长限制后防止连接卡死永久挂起）
-                using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                idle.CancelAfter(TimeSpan.FromSeconds(15));
-                int read;
-                try
+                // 该源忽略 Range 回了整文件：按「源 + 通道」计数（换源，但不消耗重试额度）。
+                // 不在这里直接判死：镜像会 302 到随机节点，个别节点不认 Range 很常见。
+                _sources.RecordRangeIgnored(kind, channel);
+                return false;
+            }
+            if (resp.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+            {
+                ParallelGovernor.ReportThrottled(host); // 按主机记住：下次这个域名少开几条连接
+                throw new IOException($"{label} 限流（HTTP {(int)resp.StatusCode}）");
+            }
+
+            resp.EnsureSuccessStatusCode();
+            if (resp.StatusCode != HttpStatusCode.PartialContent)
+                throw new IOException($"下载源 {label} 返回 {(int)resp.StatusCode}");
+
+            Log?.Invoke($"分片 {chunk.Start / 1048576.0:F0}MB/{chunk.Length / 1048576.0:F1}MB ← {label} HTTP/{resp.Version}");
+            _sources.MarkRangeSupport(host, true);  // 实测支持分片 → 同主机后续文件直接走分片
+            _sources.RecordRangeHonored(kind, channel); // 这条通道上确实能分片：清掉之前的忽略计数
+
+            var declared = resp.Content.Headers.ContentLength;
+            if (declared is > 0 && declared != chunk.Length)
+                throw new IOException($"分片长度不符：期望 {chunk.Length}，实际 {declared}");
+
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            try
+            {
+                using var idle = new IdleTimeout(ct, IdleTimeoutMs);
+                long offset = chunk.Start;
+                long remaining = chunk.Length;
+                long pending = 0;                          // 聚合中的未上报字节
+                var lastFlush = Environment.TickCount64;
+
+                void FlushTelemetry()
                 {
-                    read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), idle.Token);
-                    if (read <= 0) throw new IOException($"分片响应提前结束（{DownloadSourceRegistry.Name(kind)}）");
+                    if (pending <= 0) return;
+                    var n = pending;
+                    pending = 0;
+                    usage.AddOrUpdate(label, n, (_, v) => v + n);
+                    onBytes?.Invoke(n);
+                    TaskCenterService.Instance.ReportSourceBytes(label, n);
+                    lastFlush = Environment.TickCount64;
                 }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+
+                while (remaining > 0)
                 {
-                    throw new IOException($"分片 15 秒无数据（{DownloadSourceRegistry.Name(kind)}）");
+                    int read;
+                    try
+                    {
+                        read = await stream.ReadAsync(
+                            buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), idle.Token);
+                        if (read <= 0) throw new IOException($"分片响应提前结束（{label}）");
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        throw new IOException($"分片 {IdleTimeoutMs / 1000} 秒无数据（{label}）");
+                    }
+                    idle.Touch();
+
+                    await RandomAccess.WriteAsync(handle, buffer.AsMemory(0, read), offset, ct);
+                    offset += read;
+                    remaining -= read;
+                    pending += read;
+                    // 10 Hz 聚合：进度条要平顺，但不必每 512 KiB 就锁一次调度中心
+                    if (Environment.TickCount64 - lastFlush >= TelemetryWindowMs) FlushTelemetry();
                 }
-                await RandomAccess.WriteAsync(handle, buffer.AsMemory(0, read), offset, ct);
-                offset += read;
-                remaining -= read;
-                usage.AddOrUpdate(kind, read, (_, v) => v + read);
-                onBytes?.Invoke(read);
-                TaskCenterService.Instance.ReportSourceBytes(DownloadSourceRegistry.Name(kind), read);
+                FlushTelemetry();
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+
         // 分片整体成功 → 按分片长度计入进度（去重，不受重试重复字节影响）
-        TaskCenterService.Instance.ReportChunkDone(chunk.Length);
+        TaskCenterService.Instance.ReportChunkDone(token, chunk.Length);
         return true;
     }
 
@@ -240,6 +435,23 @@ public sealed class ChunkedFileDownloader
         }
     }
 
+    private static string HostOf(string url) =>
+        DownloadSourceRegistry.HostOf(url);
+
+    /// <summary>展示用源名：Mojang 镜像报镜像名，非 Mojang 域名（不会被改写）直接报主机名</summary>
+    private static string Label(SourceKind kind, string host) =>
+        DownloadSourceRegistry.IsMojangHost(host) ? DownloadSourceRegistry.Name(kind) : host;
+
+    /// <summary>展示用通道名（仅用于日志）</summary>
+    private static string ChannelText(SourceChannel channel) => channel switch
+    {
+        SourceChannel.Meta => "版本清单",
+        SourceChannel.Client => "客户端",
+        SourceChannel.Assets => "资源",
+        SourceChannel.Maven => "库",
+        _ => "普通",
+    };
+
     /// <summary>分片阶段的候选源集合（可并发剔除不支持 Range 的源）</summary>
     private sealed class CandidateSet
     {
@@ -249,6 +461,12 @@ public sealed class ChunkedFileDownloader
         public CandidateSet(IEnumerable<SourceKind> items) => _items = items.ToArray();
 
         public int Count => _items.Length;
+
+        /// <summary>池内第一个源（用于按主机查并行度，不消耗轮询游标）</summary>
+        public SourceKind First => _items.Length > 0 ? _items[0] : SourceKind.Official;
+
+        /// <summary>当前池快照（质量预检用；数组引用读取本身是原子的）</summary>
+        public IReadOnlyList<SourceKind> Snapshot() => _items;
 
         /// <summary>轮询取下一个源</summary>
         public SourceKind Next()

@@ -54,6 +54,10 @@ public sealed class LibraryEntry
 
     [JsonPropertyName("downloaded_at")]
     public DateTime DownloadedAt { get; set; } = DateTime.Now;
+
+    /// <summary>来源（modrinth / curseforge）；老索引没这个字段时按 Modrinth 处理</summary>
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = ContentSourceIds.Modrinth;
 }
 
 /// <summary>资源库索引（library.json）</summary>
@@ -63,11 +67,11 @@ public sealed class LibraryIndex
     public List<LibraryEntry> Entries { get; set; } = [];
 }
 
-/// <summary>入库元信息（来自 Modrinth 或本地文件）</summary>
+/// <summary>入库元信息（来自 Modrinth / CurseForge 或本地文件）</summary>
 public sealed record LibraryAdoptInfo(
     string Title, string? IconUrl, string? Author, string? ProjectId,
     string? VersionId, string? VersionNumber, List<string> GameVersions, List<string> Loaders,
-    string? SourceUrl);
+    string? SourceUrl, string Source = ContentSourceIds.Modrinth);
 
 /// <summary>Modrinth 身份（哈希反查结果）</summary>
 public sealed record ModrinthIdentity(string ProjectId, string VersionId, string VersionNumber,
@@ -236,6 +240,7 @@ public sealed class ContentLibraryService
             GameVersions = info.GameVersions,
             Loaders = info.Loaders,
             SourceUrl = info.SourceUrl,
+            Source = info.Source,
             DownloadedAt = DateTime.Now,
         };
 

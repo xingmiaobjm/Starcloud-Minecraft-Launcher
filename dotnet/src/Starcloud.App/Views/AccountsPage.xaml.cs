@@ -1,10 +1,19 @@
-// 账户页：Starcloud ID 登录/注册（LauncherX 式大标题）+ 游戏账户管理（微软设备码 / 第三方外置登录）
+// 账户页（一级）：Starcloud ID 卡（登录 / 注册 / 会话管理都在这张卡里）+ 游戏账户列表。
+//
+// 账户列表照 HMCL 来：一行一个账户（头像 / 名字 / 类型 / 正在用的皮肤 / 进详情），
+// 默认账户排在最前，其余操作都在二级页里：
+//   点一行 → AccountDetailPage（形象与皮肤 / 账户信息）
+//   右上「添加账户」→ AccountAddPage（左选身份、右填表单）
+// 一级页本身不再弹任何对话框，只保留「退出登录」这种需要二次确认的动作。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Rows;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
 
 namespace Starcloud.App.Views;
@@ -13,6 +22,12 @@ public sealed partial class AccountsPage : Page
 {
     private readonly AppServices _s = AppServices.Instance;
 
+    /// <summary>
+    /// 二级页（添加账户 / 账户详情）做完事回到本页时留下的结果，由 Loaded 取走显示一次。
+    /// 页面是 NavigationCacheMode=Disabled，返回时整页重建，所以需要一个跨实例的交接点。
+    /// </summary>
+    internal static string? PendingStatus;
+
     public AccountsPage()
     {
         InitializeComponent();
@@ -20,18 +35,24 @@ public sealed partial class AccountsPage : Page
         {
             RefreshStarcloudState();
             RefreshList();
+            if (PendingStatus is { Length: > 0 } pending)
+            {
+                PendingStatus = null;
+                ShowStatus(pending);
+            }
         };
     }
 
-    // ── Starcloud ID：标题 + 登录/注册/会话管理 ──
+    // ── Starcloud ID：标题 + 登录 / 注册 / 会话管理 ──
 
     private void RefreshStarcloudState()
     {
         if (_s.StarcloudId.Current is not { } session)
         {
-            ScTitleText.Text = Loc.T("登录 Starcloud 账号以使用更多功能");
-            ScSubtitleText.Text = Loc.T("在此登录或注册 Starcloud ID，也可管理用于启动的游戏账户");
-            ScLoginPanel.Visibility = Visibility.Visible;
+            ScTitleText.Text = Loc.T("账户");
+            ScSubtitleText.Text = Loc.T("管理用于启动的游戏账户与 Starcloud ID；点一行进入详情");
+            ScLoginPanel.Visibility = ScRegisterPanel.Visibility == Visibility.Visible
+                ? Visibility.Collapsed : Visibility.Visible;
             ScUserPanel.Visibility = Visibility.Collapsed;
             return;
         }
@@ -39,11 +60,13 @@ public sealed partial class AccountsPage : Page
         ScTitleText.Text = Loc.T("欢迎回来，{0}", session.DisplayName);
         ScSubtitleText.Text = Loc.T("Starcloud ID 已登录，在线功能已就绪");
         ScLoginPanel.Visibility = Visibility.Collapsed;
+        ScRegisterPanel.Visibility = Visibility.Collapsed;
         ScUserPanel.Visibility = Visibility.Visible;
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
             ? "?" : session.DisplayName[..1].ToUpperInvariant();
         ScNameText.Text = session.DisplayName;
-        ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId, session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道"));
+        ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId,
+            session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道"));
         ScKeyText.Text = MaskKey(session.ApiKey);
     }
 
@@ -92,63 +115,59 @@ public sealed partial class AccountsPage : Page
         }
     }
 
+    // ── 注册：在同一张卡内展开，不再弹对话框 ──
+
+    private void ScToRegister_Click(object sender, RoutedEventArgs e)
+    {
+        ScLoginPanel.Visibility = Visibility.Collapsed;
+        ScRegisterPanel.Visibility = Visibility.Visible;
+        ScRegisterBtn.IsEnabled = true;
+        ScRegErrorText.Visibility = Visibility.Collapsed;
+        ScRegIdBox.Focus(FocusState.Programmatic);
+        ClearBars();
+    }
+
+    private void ScCancelRegister_Click(object sender, RoutedEventArgs e)
+    {
+        ScRegErrorText.Visibility = Visibility.Collapsed;
+        ScRegisterPanel.Visibility = Visibility.Collapsed;
+        ScLoginPanel.Visibility = Visibility.Visible;
+    }
+
     private async void ScRegister_Click(object sender, RoutedEventArgs e)
     {
-        var idBox = new TextBox { PlaceholderText = Loc.T("用户名或邮箱") };
-        var pwdBox = new PasswordBox { PlaceholderText = Loc.T("至少 6 位") };
-        var pwd2Box = new PasswordBox { PlaceholderText = Loc.T("再次输入密码") };
-        var errText = new TextBlock
+        string? error = null;
+        if (string.IsNullOrWhiteSpace(ScRegIdBox.Text)) error = Loc.T("Starcloud ID 不能为空");
+        else if (ScRegPwdBox.Password.Length < 6) error = Loc.T("密码至少 6 位");
+        else if (ScRegPwdBox.Password != ScRegPwd2Box.Password) error = Loc.T("两次输入的密码不一致");
+        if (error is not null)
         {
-            FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
-            Visibility = Visibility.Collapsed,
-            TextWrapping = TextWrapping.Wrap,
-        };
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock { Text = Loc.T("Starcloud ID") });
-        panel.Children.Add(idBox);
-        panel.Children.Add(new TextBlock { Text = Loc.T("密码") });
-        panel.Children.Add(pwdBox);
-        panel.Children.Add(new TextBlock { Text = Loc.T("确认密码") });
-        panel.Children.Add(pwd2Box);
-        panel.Children.Add(errText);
+            ScRegErrorText.Text = error;
+            ScRegErrorText.Visibility = Visibility.Visible;
+            return;
+        }
 
-        var dlg = new ThemedDialog
-        {
-            Title = Loc.T("注册 Starcloud ID"),
-            Content = panel,
-            PrimaryButtonText = Loc.T("创建账户"),
-            CloseButtonText = Loc.T("取消"),
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Content.XamlRoot,
-        };
-        dlg.Closing += (s, args) =>
-        {
-            if (args.Result != ContentDialogResult.Primary) return;
-            string? err = null;
-            if (string.IsNullOrWhiteSpace(idBox.Text)) err = Loc.T("Starcloud ID 不能为空");
-            else if (pwdBox.Password.Length < 6) err = Loc.T("密码至少 6 位");
-            else if (pwdBox.Password != pwd2Box.Password) err = Loc.T("两次输入的密码不一致");
-            if (err is not null)
-            {
-                args.Cancel = true;
-                errText.Text = err;
-                errText.Visibility = Visibility.Visible;
-            }
-        };
-
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        ScRegisterBtn.IsEnabled = false;
         try
         {
-            await _s.StarcloudId.RegisterAsync(idBox.Text.Trim(), pwdBox.Password, SelectedChannel);
-            ScIdBox.Text = idBox.Text.Trim();
+            await _s.StarcloudId.RegisterAsync(ScRegIdBox.Text.Trim(), ScRegPwdBox.Password, SelectedChannel);
+            ScIdBox.Text = ScRegIdBox.Text.Trim();
             ScPwdBox.Password = "";
+            ScRegPwdBox.Password = "";
+            ScRegPwd2Box.Password = "";
+            ScRegisterPanel.Visibility = Visibility.Collapsed;
+            ScLoginPanel.Visibility = Visibility.Visible;
             ScPwdBox.Focus(FocusState.Programmatic);
             ShowStatus(Loc.T("注册成功，请登录"));
         }
         catch (Exception ex)
         {
-            ShowError(ex.Message);
+            ScRegErrorText.Text = ex.Message;
+            ScRegErrorText.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            ScRegisterBtn.IsEnabled = true;
         }
     }
 
@@ -192,72 +211,49 @@ public sealed partial class AccountsPage : Page
         _s.NovaRuntime.NotifyLoginChanged(); // 退出后 Orb 面板回到未登录引导
     }
 
-    // ── 游戏账户：添加入口 + 登录方式选择 ──
+    // ── 游戏账户：二级页入口 ──
 
-    private async void AddAccount_Click(object sender, RoutedEventArgs e)
+    private void AddAccount_Click(object sender, RoutedEventArgs e) =>
+        (App.MainWindow as MainWindow)?.NavigateToAddAccount();
+
+    private void AccountList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        var dlg = new ThemedDialog
-        {
-            Title = Loc.T("请选择您的登录方式"),
-            Content = Loc.T("选择要添加的游戏账户类型：正版 Microsoft 账户，或你自己的第三方认证服务器账户。"),
-            PrimaryButtonText = "Microsoft",
-            SecondaryButtonText = Loc.T("第三方登录"),
-            CloseButtonText = Loc.T("取消"),
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Content.XamlRoot,
-        };
-        var result = await dlg.ShowAsync();
-        if (result == ContentDialogResult.Primary)
-            await StartMsLogin();
-        else if (result == ContentDialogResult.Secondary)
-            await AddExternalAccountAsync();
+        if (e.ClickedItem is AccountRow row) OpenDetail(row.Uuid);
     }
 
-    private async Task AddExternalAccountAsync()
-    {
-        var name = await AuthDialogs.ExternalPasswordAsync(Content.XamlRoot, _s.Yggdrasil, _s.Accounts);
-        if (name is null) return;
-        RefreshList();
-        ShowStatus(Loc.T("第三方登录 {0} 已添加", name));
-    }
-
-    private async Task StartMsLogin()
-    {
-        var result = await AuthDialogs.MicrosoftDeviceCodeAsync(Content.XamlRoot, _s.MicrosoftAuth, _s.Accounts, ShowError);
-        if (result is null) return;
-        RefreshList();
-        ShowStatus(Loc.T("Microsoft 账户已登录：{0}", result.Username));
-    }
+    private void OpenDetail(string uuid) =>
+        (App.MainWindow as MainWindow)?.NavigateToAccountDetail(uuid);
 
     // ── 已保存账户列表 ──
 
     private void RefreshList()
     {
+        // 默认账户排在最前：一级页只回答"用哪个账户启动"，它得在第一眼看得到的地方
         var rows = _s.Accounts.Accounts
-            .Select(a => new AccountRow(a.Uuid, a.Username,
-                a.Type switch
-                {
-                    "microsoft" => Loc.T("微软账户"),
-                    "external" => a.ServerName is { Length: > 0 }
-                        ? Loc.T("第三方账户 · {0}", a.ServerName)
-                        : Loc.T("第三方账户"),
-                    _ => a.Type,
-                },
-                a.IsDefault,
-                AvatarHelper.Resolve(a.Type, a.Uuid, a.Username, a.ServerBase)))
+            .OrderByDescending(a => a.IsDefault)
+            .Select(a => new AccountRow(a.Uuid, a.Username, TypeLabel(a), a.IsDefault,
+                AvatarHelper.Resolve(a.Type, a.Uuid, a.Username, a.ServerBase,
+                    AvatarHelper.LocalSkinPath(a)),
+                SkinTextOf(a)))
             .ToList();
         AccountList.ItemsSource = rows;
         MotionFx.StaggerListItems(AccountList);
         var empty = rows.Count == 0;
         AccountEmptyText.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         AccountList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-
-        // 右侧 3D 形象：跟随默认账户（无默认取第一个；无账户渲染内置 Steve）
-        var current = _s.Accounts.Accounts.FirstOrDefault(a => a.IsDefault)
-                      ?? _s.Accounts.Accounts.FirstOrDefault();
-        PlayerView.WalkEnabled = _s.Settings.AccountWalkAnimation;
-        PlayerView.SetAccount(current?.Type, current?.Uuid, current?.Username, current?.ServerBase);
+        AccountCountText.Text = Loc.T("{0} 个账户", rows.Count);
+        AccountCountChip.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    private static string TypeLabel(StoredAccount account) => account.Type switch
+    {
+        "microsoft" => Loc.T("微软账户"),
+        "external" => account.ServerName is { Length: > 0 }
+            ? Loc.T("第三方账户 · {0}", account.ServerName)
+            : Loc.T("第三方账户"),
+        "offline" => Loc.T("离线账户"),
+        _ => account.Type,
+    };
 
     private void SetDefault_Click(object sender, RoutedEventArgs e)
     {
@@ -266,22 +262,11 @@ public sealed partial class AccountsPage : Page
         RefreshList();
     }
 
-    private async void Remove_Click(object sender, RoutedEventArgs e)
+    /// <summary>行尾那一列显示的皮肤名（没指定皮肤时为空，整列随之隐藏）</summary>
+    private string SkinTextOf(StoredAccount account)
     {
-        if ((sender as FrameworkElement)?.Tag is not string uuid) return;
-        var acc = _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid);
-        var dlg = new ThemedDialog
-        {
-            Title = Loc.T("删除账户"),
-            Content = Loc.T("确定要删除账户 {0} 吗？", acc?.Username ?? uuid),
-            PrimaryButtonText = Loc.T("删除"),
-            CloseButtonText = Loc.T("取消"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = Content.XamlRoot,
-        };
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
-        _s.Accounts.Remove(uuid);
-        RefreshList();
+        if (account.SkinId is not { Length: > 0 } skinId) return "";
+        return _s.Skins.Find(skinId)?.Name ?? "";
     }
 
     // ── 工具 ──
@@ -298,6 +283,12 @@ public sealed partial class AccountsPage : Page
         StatusInfo.Message = message;
         StatusInfo.IsOpen = true;
         ErrorBar.IsOpen = false;
+    }
+
+    private void ClearBars()
+    {
+        ErrorBar.IsOpen = false;
+        StatusInfo.IsOpen = false;
     }
 
     private static string MaskKey(string key) =>

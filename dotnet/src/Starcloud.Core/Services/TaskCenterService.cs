@@ -157,9 +157,12 @@ public sealed class TaskCenterService
     private long _emaSpeed;                 // 指数滑动平均速度（字节/秒）
     private long _lastTick;
     private int _active;                    // 活动下载计数（>0 期间任务保持 Running）
+    private int _closeLoop;                 // 收尾循环单飞标志（1 = 已在跑）
 
     /// <summary>下载字节上报（DownloadService 各路径调用，n 为本次增量字节）。
-    /// 首次调用自动登记常驻任务；活动结束约 3 秒后自动完成。</summary>
+    /// 首次调用自动登记常驻任务；活动结束约 3 秒后自动完成。
+    /// <para>调用方已按 10 Hz 聚合上报，这里不再做逐次去抖；收尾循环是单飞的
+    /// （原来每次上报都 `_ = CloseWhenIdleAsync()`，满速下载时每秒几百个睡眠任务）。</para></summary>
     public void ReportDownloadBytes(long n)
     {
         if (n <= 0) return;
@@ -168,7 +171,7 @@ public sealed class TaskCenterService
         {
             _downloadTask ??= BeginUnsafe("资源下载");
             task = _downloadTask;
-            _active++;
+            Volatile.Write(ref _active, Volatile.Read(ref _active) + 1);
             var now = Environment.TickCount64;
             if (_lastTick > 0)
             {
@@ -183,27 +186,49 @@ public sealed class TaskCenterService
             task.Detail = FormatSpeed(_emaSpeed);
         }
         Changed?.Invoke();
+        EnsureCloseLoop();
+    }
+
+    /// <summary>启动单飞的收尾循环（已在跑就直接返回）</summary>
+    private void EnsureCloseLoop()
+    {
+        if (Interlocked.CompareExchange(ref _closeLoop, 1, 0) != 0) return;
         _ = CloseWhenIdleAsync();
     }
 
-    /// <summary>活动归零后延迟收尾；期间又有新字节则继续</summary>
+    /// <summary>
+    /// 活动归零后延迟收尾：每 3 秒结算一次计数，归零即完成常驻任务。
+    /// 只要期间还有上报（_active > 0）就继续等，所以实现是「一个循环 + 计数器」，而不是「每次上报一个任务」。
+    /// </summary>
     private async Task CloseWhenIdleAsync()
     {
-        while (true)
+        try
         {
-            await Task.Delay(3000);
-            AppTask task;
-            lock (_gate)
+            while (true)
             {
-                _active--;
-                if (_active > 0) return;
-                task = _downloadTask!;
-                _downloadTask = null;
-                _lastTick = 0;
-                _emaSpeed = 0;
+                await Task.Delay(3000);
+                AppTask task;
+                lock (_gate)
+                {
+                    var pending = Volatile.Read(ref _active);
+                    if (pending > 0)
+                    {
+                        Volatile.Write(ref _active, 0); // 本轮活动已结算，继续等下一轮
+                        continue;
+                    }
+                    if (_downloadTask is null) return;  // 已被清空：收工
+                    task = _downloadTask;
+                    _downloadTask = null;
+                    _lastTick = 0;
+                    _emaSpeed = 0;
+                }
+                Finish(task, AppTaskState.Completed, "下载完成");
+                return;
             }
-            Finish(task, AppTaskState.Completed, "下载完成");
-            return;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _closeLoop, 0);
         }
     }
 
@@ -215,27 +240,40 @@ public sealed class TaskCenterService
         return task;
     }
 
-    // ── 多源竞速下载（单个大文件：进度 = 已下字节/总字节，Detail 列各源累计） ──
+    // ── 多源竞速下载（分片大文件：进度 = 各文件已完成分片 / 各文件总大小，Detail 列各源累计） ──
+    //
+    // 支持**多文件并发**（整合包安装时同时会有好几个大文件在分片）：每个在跑的文件带一个 token，
+    // 只按 token 记账，最后一个文件收尾时才结束这条任务。早期版本是单文件全局字段，
+    // 并发时后开始的文件会把前一个的进度清零（表现为进度条来回跳）。
+
+    private sealed class RacingFile
+    {
+        public string Name = "";
+        public long Size;
+        public long Done;
+    }
 
     private AppTask? _racingTask;
-    private long _racingTotal;
-    private long _racingChunkDone;                          // 已完成分片字节（分片级去重，进度用它）
+    private readonly Dictionary<object, RacingFile> _racingFiles = new();
     private readonly Dictionary<string, long> _racingBytes = new();
+    private bool _racingFailed;
 
     /// <summary>竞速下载开始（文件总大小已知 → 显示确定进度）</summary>
-    public void ReportRacingBegin(long totalSize)
+    public void ReportRacingBegin(object token, string fileName, long totalSize)
     {
         AppTask task;
         lock (_gate)
         {
             _racingTask ??= BeginUnsafe("多源竞速下载");
             task = _racingTask;
-            _racingTotal = totalSize;
-            _racingChunkDone = 0;
-            _racingBytes.Clear();
-            task.Progress = 0;
-            task.Mirrors = [];
-            task.Detail = "分片竞速中…";
+            if (_racingFiles.Count == 0)
+            {
+                _racingFailed = false;
+                _racingBytes.Clear();
+                task.Mirrors = [];
+            }
+            _racingFiles[token] = new RacingFile { Name = fileName, Size = Math.Max(0, totalSize) };
+            UpdateRacingProgress();
         }
         Changed?.Invoke();
     }
@@ -254,39 +292,66 @@ public sealed class TaskCenterService
     }
 
     /// <summary>单个分片成功完成（FetchRangeAsync return true 前）：进度按分片去重累计，单调准确</summary>
-    public void ReportChunkDone(long chunkLength)
+    public void ReportChunkDone(object token, long chunkLength)
     {
         lock (_gate)
         {
             if (_racingTask is null) return;
-            _racingChunkDone += chunkLength;
-            _racingTask.Progress = _racingTotal > 0
-                ? Math.Min(1.0, (double)_racingChunkDone / _racingTotal) : null;
-            _racingTask.Detail = _racingTotal > 0
-                ? $"已下载 {_racingChunkDone / 1048576.0:F1} MB / {_racingTotal / 1048576.0:F1} MB"
-                : $"已下载 {_racingChunkDone / 1048576.0:F1} MB";
+            if (_racingFiles.TryGetValue(token, out var file)) file.Done += chunkLength;
+            UpdateRacingProgress();
         }
         Changed?.Invoke();
     }
 
-    /// <summary>竞速下载收尾（ok=false 显示失败，任务保留最近记录）</summary>
-    public void ReportRacingEnd(bool ok)
+    /// <summary>竞速下载收尾（ok=false 显示失败，任务保留最近记录）；并发时等最后一个文件结束</summary>
+    public void ReportRacingEnd(object token, bool ok, long actualBytes)
     {
-        AppTask? task;
-        double total;
+        AppTask? task = null;
+        List<AppTaskMirror>? mirrors = null;
+        var failed = false;
         lock (_gate)
         {
-            task = _racingTask;
-            total = _racingTotal;
-            _racingTask = null;
-            _racingTotal = 0;
+            _racingFiles.Remove(token);
+            if (!ok) _racingFailed = true;
+            if (_racingFiles.Count > 0)
+            {
+                UpdateRacingProgress();
+            }
+            else
+            {
+                task = _racingTask;
+                mirrors = task?.Mirrors.Count > 0 ? task.Mirrors : null;
+                failed = _racingFailed;
+                _racingTask = null;
+                _racingBytes.Clear();
+            }
         }
-        if (task is null) return;
+        if (task is null)
+        {
+            Changed?.Invoke();
+            return;
+        }
+
         // 完成态用实际收到的字节标注（探测的分母可能虚大，如「24/37 完成」= 分母错、文件实际 24MB）
-        var done = task.Mirrors.Sum(m => m.Bytes);
-        if (ok) Finish(task, AppTaskState.Completed,
+        var done = mirrors?.Sum(m => m.Bytes) ?? actualBytes;
+        if (!failed) Finish(task, AppTaskState.Completed,
             done > 0 ? $"下载完成（{done / 1048576.0:F1} MB）" : "下载完成");
         else Finish(task, AppTaskState.Failed, "竞速失败（已换源重试或整文件回退）");
+    }
+
+    /// <summary>按各在跑文件的分片完成量刷新进度与 Detail（调用方持锁）</summary>
+    private void UpdateRacingProgress()
+    {
+        var task = _racingTask;
+        if (task is null) return;
+        var total = _racingFiles.Values.Sum(f => f.Size);
+        var done = _racingFiles.Values.Sum(f => f.Done);
+        task.Progress = total > 0 ? Math.Min(1.0, (double)done / total) : null;
+        var name = _racingFiles.Count == 1 ? _racingFiles.Values.First().Name : "";
+        task.Detail = total > 0
+            ? $"已下载 {done / 1048576.0:F1} MB / {total / 1048576.0:F1} MB"
+              + (name.Length > 0 ? $"（{name}）" : $"（{_racingFiles.Count} 个文件）")
+            : $"已下载 {done / 1048576.0:F1} MB";
     }
 
     internal static string FormatSpeed(long bytesPerSec) => bytesPerSec switch

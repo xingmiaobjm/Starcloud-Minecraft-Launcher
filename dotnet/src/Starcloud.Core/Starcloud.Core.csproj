@@ -11,6 +11,16 @@
     <PackageReference Include="Jint" Version="3.1.6" />
   </ItemGroup>
 
+  <!-- 皮肤预览的 GPU 光栅化（Rendering/SkinGpuRenderer.cs）：
+       Vortice 是 D3D11/DXGI/D3DCompile 的托管封装，纯 P/Invoke，不引原生运行时。
+       只在 Windows 上实际创建设备，其他平台/无显卡时自动回退软件光栅化。 -->
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
+    <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.6.2" />
+    <PackageReference Include="Vortice.Mathematics" Version="1.9.2" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Starcloud.Core.Tests" />
   </ItemGroup>

@@ -1,6 +1,5 @@
 // 设置页
 
-using System.Text.RegularExpressions;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -10,7 +9,10 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Controls;
+using Starcloud.App.Views.Dialogs;
 using Starcloud.Core.Services;
+using System.Text.RegularExpressions;
 using Windows.Storage.Pickers;
 
 namespace Starcloud.App.Views;
@@ -82,6 +84,7 @@ public sealed partial class SettingsPage : Page
                 _ => 0,
             };
             CustomMirrorBox.Text = s.DownloadCustomMirrorUrl ?? "";
+            CurseForgeKeyBox.Text = s.CurseForgeApiKey ?? "";
 
             // 通用
             ThemeCombo.SelectedIndex = s.Theme switch
@@ -101,6 +104,7 @@ public sealed partial class SettingsPage : Page
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             AutoUpdateSwitch.IsOn = s.AutoUpdateEnabled;
             WalkAnimSwitch.IsOn = s.AccountWalkAnimation;
+            EmbeddedLoginSwitch.IsOn = s.MicrosoftLoginEmbedded;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
 
             // 背景与外观（D1）
@@ -140,6 +144,13 @@ public sealed partial class SettingsPage : Page
         // 此时右侧 SectionGame 等控件尚未创建，直接跳过（XAML 已自带正确的初始可见性）
         if (SectionGame is null) return;
         var tag = (CategoryList.SelectedItem as FrameworkElement)?.Tag as string ?? "game";
+
+        // 选中态落到各行控件自己的 IsActive 上：选中底、跟手光斑、圆角都由 CategoryNavItem
+        // 的模板提供，三者同源同形，不再出现「阴影框与按钮框错位」
+        CatGame.IsActive = tag == "game";
+        CatJava.IsActive = tag == "java";
+        CatDownload.IsActive = tag == "download";
+        CatGeneral.IsActive = tag == "general";
 
         var target = tag switch
         {
@@ -382,9 +393,9 @@ public sealed partial class SettingsPage : Page
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        var del = new Button
+        var del = new GlowButton
         {
-            Content = new FontIcon { Glyph = "\uE74D", FontSize = 12 },
+            Content = new FontIcon { FontFamily = IconFont.Family,  Glyph = "\uEAA5", FontSize = 12 },
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8, 4, 8, 4),
@@ -559,6 +570,15 @@ public sealed partial class SettingsPage : Page
         SavedBar.IsOpen = true;
     }
 
+    // 微软登录方式：切换即落盘（下次点「微软登录」时生效，不打断正在进行的登录）
+    private void EmbeddedLoginSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.MicrosoftLoginEmbedded = EmbeddedLoginSwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
     // ── 通用：软件更新（设计：.trae/documents/auto-update-feature.md） ──
 
     // 自动检查更新：切换即落盘（下次启动生效）
@@ -650,6 +670,12 @@ public sealed partial class SettingsPage : Page
         BuiltinWallpaperPanel.Visibility = mode == "builtin" ? Visibility.Visible : Visibility.Collapsed;
         LocalImagePanel.Visibility = mode == "file" ? Visibility.Visible : Visibility.Collapsed;
         ClearImageBtn.IsEnabled = !string.IsNullOrWhiteSpace(_s.Settings.BackgroundImagePath);
+
+        // 「模糊强度 / 不透明度」描述的是壁纸自己：背景关闭（纯毛玻璃）时它们没有作用对象，
+        // 置灰比让人拖半天没反应更清楚。毛玻璃强度两层都吃（壁纸遮罩 + 窗口亚克力），始终可用。
+        var hasWallpaper = AppearanceService.ResolveBackgroundPath(_s.Settings) is not null;
+        BgBlurSlider.IsEnabled = hasWallpaper;
+        BgOpacitySlider.IsEnabled = hasWallpaper;
     }
 
     private void BackgroundMode_Changed(object s, SelectionChangedEventArgs e)
@@ -791,6 +817,7 @@ public sealed partial class SettingsPage : Page
         s0.ResourceCacheEnabled = ResourceCacheSwitch.IsOn;
         s0.DownloadSource = (SourceCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
         s0.DownloadCustomMirrorUrl = CustomMirrorBox.Text.Trim();
+        s0.CurseForgeApiKey = CurseForgeKeyBox.Text.Trim();
 
         // 全局环境变量
         s0.GlobalEnvVars = ReadGlobalEnv();
@@ -800,6 +827,7 @@ public sealed partial class SettingsPage : Page
         s0.UiAnimations = (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         s0.UiLanguage = (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "zh-CN";
         s0.VersionIsolated = IsolationDefaultRadio.SelectedIndex == 0;
+        s0.MicrosoftLoginEmbedded = EmbeddedLoginSwitch.IsOn;
 
         s0.Save();
         MainWindow.RefreshAppearance();

@@ -133,4 +133,60 @@ public sealed class PluginContext
 
     /// <summary>日志输出：ctx.logger.info / warn / error</summary>
     public PluginLogger Logger { get; init; } = null!;
+
+    // ── 扩展能力（v1.2 起；未声明对应权限时成员为 null / undefined） ──
+
+    /// <summary>官方版本清单（launcher:instances_read）</summary>
+    public PluginVersionsApi? Versions { get; init; }
+
+    /// <summary>已安装实例与维护（launcher:instances_read / launcher:instances_write）</summary>
+    public PluginInstancesApi? Instances { get; init; }
+
+    /// <summary>游戏进程（launcher:game_launch）：启动 / 状态 / 结束</summary>
+    public PluginGameApi? Game { get; init; }
+
+    /// <summary>社区资源（launcher:content_read / launcher:content_write）</summary>
+    public PluginContentApi? Content { get; init; }
+
+    /// <summary>下载到插件 data 目录（launcher:download）</summary>
+    public PluginDownloadApi? Download { get; init; }
+
+    /// <summary>插件自己的 HTTP 请求（launcher:network）</summary>
+    public PluginHttpApi? Http { get; init; }
+
+    /// <summary>启动器全局设置（launcher:settings_read / launcher:settings_write）</summary>
+    public PluginSettingsApi? Settings { get; init; }
+
+    /// <summary>账户身份只读列表（launcher:accounts_read；永不暴露令牌）</summary>
+    public PluginAccountsApi? Accounts { get; init; }
+
+    /// <summary>启动器 / 游戏 / 插件日志（launcher:logs_read）</summary>
+    public PluginLogsApi? Logs { get; init; }
+
+    /// <summary>任务中心（launcher:tasks）</summary>
+    public PluginTasksApi? Tasks { get; init; }
+
+    /// <summary>存档与备份（launcher:saves_read / launcher:saves_write）</summary>
+    public PluginSavesApi? Saves { get; init; }
+
+    /// <summary>联机（launcher:multiplayer）</summary>
+    public PluginMultiplayerApi? Multiplayer { get; init; }
+
+    /// <summary>外观（launcher:appearance）</summary>
+    public PluginAppearanceApi? Appearance { get; init; }
+
+    /// <summary>启动器更新查询（launcher:updates）</summary>
+    public PluginUpdatesApi? Updates { get; init; }
+
+    /// <summary>插件私有键值存储（launcher:storage）</summary>
+    public PluginStorageApi? Storage { get; init; }
+
+    /// <summary>剪贴板 / 打开链接与目录 / 确认框 / 开页（launcher:clipboard / shell / ui_panel）</summary>
+    public PluginSystemApi? System { get; init; }
+
+    /// <summary>事件订阅（launcher:events）</summary>
+    public PluginEventsApi? Events { get; init; }
+
+    /// <summary>本次事件载荷（仅 onLauncherEvent 钩子非 null）</summary>
+    public PluginEventContext? Event { get; init; }
 }

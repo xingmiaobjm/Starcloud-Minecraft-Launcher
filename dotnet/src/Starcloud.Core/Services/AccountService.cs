@@ -1,8 +1,9 @@
-// 账户存储：微软设备码登录 + 第三方（Yggdrasil 外置登录）。
-// 合规：鉴权 token（accessToken/refreshToken）仅存内存会话，绝不落盘；
+// 账户存储：微软设备码登录 + 第三方（Yggdrasil 外置登录）+ 离线账户（单人 / 局域网）。
+// 鉴权 token（accessToken/refreshToken）仅存内存会话，绝不落盘；
 // 磁盘只保存身份信息（uuid/用户名/服务器地址/设备标识 clientToken）。
-// 离线账户已按合规要求移除，Load 时静默清除历史遗留条目。
+// 离线身份的 UUID 走官方 nameUUIDFromBytes("OfflinePlayer:<name>") 算法，与各启动器互通。
 
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -40,6 +41,16 @@ public sealed class StoredAccount
     /// <summary>Yggdrasil 设备标识（非鉴权 token，终身固定复用）</summary>
     [JsonPropertyName("client_token")]
     public string? ClientToken { get; set; }
+
+    // ── 皮肤（多皮肤管理：账户只引用皮肤库里的条目） ──
+
+    /// <summary>该账户使用的皮肤库条目 id（null = 没指定，按账户默认头像渲染）</summary>
+    [JsonPropertyName("skin_id")]
+    public string? SkinId { get; set; }
+
+    /// <summary>账户级的型号覆盖："auto" / "classic" / "slim"（null = 跟随皮肤条目）</summary>
+    [JsonPropertyName("skin_model")]
+    public string? SkinModel { get; set; }
 }
 
 /// <summary>一次应用会话内的账户凭证（仅内存，进程退出即失效，绝不序列化）</summary>
@@ -51,6 +62,33 @@ public sealed class AccountStore
     private readonly Dictionary<string, AccountSession> _sessions = []; // uuid → 会话凭证
 
     public IReadOnlyList<StoredAccount> Accounts => _accounts;
+
+    /// <summary>离线账户类型标识</summary>
+    public const string OfflineType = "offline";
+
+    /// <summary>
+    /// 离线身份 UUID：等价于 Java 的 <c>UUID.nameUUIDFromBytes("OfflinePlayer:&lt;name&gt;".getBytes(UTF_8))</c>
+    /// （MD5 派生的 v3 UUID，带连字符的标准写法）。所有主流启动器都按同一算法算离线 UUID，
+    /// 因此本地存档里的玩家数据、服务器白名单在换启动器后仍能对上同一个人。
+    /// </summary>
+    public static string OfflineUuid(string username)
+    {
+        var bytes = MD5.HashData(Encoding.UTF8.GetBytes("OfflinePlayer:" + (username ?? "")));
+        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x30); // version = 3（name-based, MD5）
+        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80); // variant = RFC 4122
+        // 三个多字节字段按大端解释：Java 的 UUID.toString() 就是这样打印哈希字节的
+        return new Guid(
+                unchecked((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]),
+                unchecked((short)((bytes[4] << 8) | bytes[5])),
+                unchecked((short)((bytes[6] << 8) | bytes[7])),
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15])
+            .ToString();
+    }
+
+    /// <summary>离线用户名合法性：官方允许 3-16 位字母 / 数字 / 下划线</summary>
+    public static bool IsValidOfflineName(string username) =>
+        !string.IsNullOrWhiteSpace(username) && username.Length is >= 3 and <= 16 &&
+        username.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 
     public static AccountStore Load()
     {
@@ -69,9 +107,15 @@ public sealed class AccountStore
                 /* 损坏则从空开始 */
             }
         }
-        // 合规：历史遗留的离线账户静默清除并回写
-        if (store._accounts.RemoveAll(a => a.Type == "offline") > 0)
-            store.Save();
+        // 历史遗留条目迁移：离线账户缺 uuid（早期版本只存了名字）时按名字补算
+        var migrated = false;
+        foreach (var a in store._accounts.Where(a => a.Type == OfflineType &&
+                                                     string.IsNullOrWhiteSpace(a.Uuid)))
+        {
+            a.Uuid = OfflineUuid(a.Username);
+            migrated = true;
+        }
+        if (migrated) store.Save();
         return store;
     }
 
@@ -129,13 +173,46 @@ public sealed class AccountStore
                 ServerBase = serverBase,
                 ServerAlias = serverAlias,
                 ServerName = serverName,
-                ClientToken = Guid.NewGuid().ToString("N"),
+                // 设备标识按规范写成标准 UUID（带连字符）：严格校验的认证服务器会直接拒收非 UUID
+                ClientToken = Guid.NewGuid().ToString(),
                 IsDefault = _accounts.Count == 0,
             };
             _accounts.Add(existing);
         }
         if (string.IsNullOrEmpty(existing.ClientToken))
-            existing.ClientToken = Guid.NewGuid().ToString("N");
+            existing.ClientToken = Guid.NewGuid().ToString();
+        Save();
+        return existing;
+    }
+
+    /// <summary>
+    /// 添加或更新离线账户身份（按用户名派生 UUID 去重）。离线身份无凭证可存，
+    /// 启动时用占位令牌走本地 / 局域网游戏，不参与任何在线验证。
+    /// </summary>
+    public StoredAccount AddOrUpdateOffline(string username)
+    {
+        var name = (username ?? "").Trim();
+        if (!IsValidOfflineName(name))
+            throw new ArgumentException("离线用户名需为 3-16 位字母、数字或下划线");
+
+        var uuid = OfflineUuid(name);
+        var existing = _accounts.FirstOrDefault(a => a.Uuid == uuid);
+        if (existing is not null)
+        {
+            existing.Username = name;
+            existing.Type = OfflineType;
+        }
+        else
+        {
+            existing = new StoredAccount
+            {
+                Uuid = uuid,
+                Username = name,
+                Type = OfflineType,
+                IsDefault = _accounts.Count == 0,
+            };
+            _accounts.Add(existing);
+        }
         Save();
         return existing;
     }
@@ -160,6 +237,31 @@ public sealed class AccountStore
     {
         foreach (var a in _accounts) a.IsDefault = a.Uuid == uuid;
         Save();
+    }
+
+    /// <summary>给账户指定皮肤库条目（skinId = null 表示取消指定）</summary>
+    public StoredAccount? SetSkin(string uuid, string? skinId, string? model = null)
+    {
+        var account = _accounts.FirstOrDefault(a => a.Uuid == uuid);
+        if (account is null) return null;
+        account.SkinId = string.IsNullOrWhiteSpace(skinId) ? null : skinId;
+        account.SkinModel = string.IsNullOrWhiteSpace(skinId) ? null : SkinModels.Normalize(model);
+        Save();
+        return account;
+    }
+
+    /// <summary>皮肤被库里删掉后清引用（避免账户指向不存在的皮肤）</summary>
+    public int ClearSkinReference(string skinId)
+    {
+        var affected = 0;
+        foreach (var a in _accounts.Where(a => a.SkinId == skinId))
+        {
+            a.SkinId = null;
+            a.SkinModel = null;
+            affected++;
+        }
+        if (affected > 0) Save();
+        return affected;
     }
 
     public StoredAccount? Default =>

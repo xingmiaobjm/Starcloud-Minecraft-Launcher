@@ -61,7 +61,8 @@ public sealed class ModrinthService
         var facets = new List<IReadOnlyList<string>> { new[] { $"project_type:{projectType}" } };
         if (!string.IsNullOrWhiteSpace(loader)) facets.Add([$"categories:{loader}"]);
         if (!string.IsNullOrWhiteSpace(category)) facets.Add([$"categories:{category}"]);
-        if (!string.IsNullOrWhiteSpace(gameVersion)) facets.Add([$"versions:{gameVersion}"]);
+        // 版本筛选只认官方版本 id：实例名（用户自己起的名字）会让 Modrinth 直接回 400
+        if (GameVersionFilter.OrNull(gameVersion) is { } gv) facets.Add([$"versions:{gv}"]);
 
         var url = $"{ApiBase}/search?limit={limit}&offset={offset}&index={index}" +
                   $"&query={Uri.EscapeDataString(query ?? "")}" +
@@ -88,8 +89,8 @@ public sealed class ModrinthService
         var filters = new List<string>();
         if (!string.IsNullOrWhiteSpace(loader))
             filters.Add($"loaders={Uri.EscapeDataString(JsonSerializer.Serialize(new[] { loader }))}");
-        if (!string.IsNullOrWhiteSpace(gameVersion))
-            filters.Add($"game_versions={Uri.EscapeDataString(JsonSerializer.Serialize(new[] { gameVersion }))}");
+        if (GameVersionFilter.OrNull(gameVersion) is { } listVersion) // 同上：实例名不是版本号
+            filters.Add($"game_versions={Uri.EscapeDataString(JsonSerializer.Serialize(new[] { listVersion }))}");
         if (filters.Count > 0) url += "?" + string.Join("&", filters);
         var json = await _downloader.GetStringAsync(url, ct);
         var versions = JsonSerializer.Deserialize<List<ModrinthVersion>>(json) ?? [];
@@ -183,6 +184,14 @@ public sealed class ModrinthHit
 
     [JsonPropertyName("loaders")]
     public List<string> Loaders { get; set; } = [];
+
+    /// <summary>来源标记（modrinth / curseforge）；Modrinth 响应里没有这个字段，留空即 Modrinth</summary>
+    [JsonIgnore]
+    public string? Source { get; set; }
+
+    /// <summary>项目主页（CurseForge 用；Modrinth 由 slug 拼）</summary>
+    [JsonIgnore]
+    public string? WebUrl { get; set; }
 }
 
 /// <summary>分类标签（/v2/tag/category）</summary>
@@ -221,6 +230,9 @@ public sealed class ModrinthVersion
 
     [JsonPropertyName("dependencies")]
     public List<ModrinthDependency> Dependencies { get; set; } = [];
+
+    [JsonIgnore]
+    public string? Source { get; set; }
 
     [JsonIgnore]
     public ModrinthFile? PrimaryFile =>

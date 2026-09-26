@@ -234,14 +234,14 @@ public sealed partial class NovaMomentsService
     /// <summary>战报文本（NOVA_DESIGN.md 文案规范：具体不空谈，只写事实）</summary>
     public string BuildReportText(NovaSessionReport r)
     {
-        var sb = new StringBuilder("【本局战报】");
+        var sb = new StringBuilder("【本局记录】");
         sb.Append($"\n• 对局：{r.StartedAt:HH:mm} ~ {r.EndedAt:HH:mm}（{r.DurationText}）");
         if (!string.IsNullOrEmpty(r.Version)) sb.Append($"\n• 版本：{r.Version}");
         sb.Append($"\n• 进度：解锁 {r.Advancements} 个，其中挑战 {r.Challenges} 个");
-        sb.Append($"\n• 死亡：{r.Deaths} 次{(string.IsNullOrEmpty(r.WorstDeath) ? "" : $"（印象最深：{TrimForEcho(r.WorstDeath)}）")}");
-        sb.Append($"\n• 高光：已收藏 {r.MomentsSaved} 个 Nova 时刻");
+        sb.Append($"\n• 死亡：{r.Deaths} 次{(string.IsNullOrEmpty(r.WorstDeath) ? "" : $"（其中：{TrimForEcho(r.WorstDeath)}）")}");
+        sb.Append($"\n• 记录：已保存 {r.MomentsSaved} 个时刻");
         if (r.Advancements + r.Challenges + r.Deaths == 0)
-            sb.Append("\n这局没在日志里留下事件——挂机了？还是日志通路没接上。");
+            sb.Append("\n本局日志中没有可记录的事件（可能全程未产生进度、挑战或死亡事件）。");
         return sb.ToString();
     }
 

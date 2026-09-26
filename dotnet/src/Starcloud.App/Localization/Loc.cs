@@ -5,13 +5,14 @@
 // 不走 x:Uid/.resw/PrimaryLanguageOverride：非打包应用下那套机制不持久化、无法清空、
 // ResourceLoader 还有不遵循 override 的历史问题（WindowsAppSDK#5335 / #2806）。
 
-using System.Text;
-using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Starcloud.App.Views;
+using Starcloud.App.Views.Controls;
+using System.Text;
+using System.Text.Json;
 
 namespace Starcloud.App.Localization;
 

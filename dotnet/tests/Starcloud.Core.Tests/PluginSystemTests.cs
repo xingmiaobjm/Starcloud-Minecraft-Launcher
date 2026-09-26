@@ -1,6 +1,6 @@
 // 插件系统 + 第三方登录（Yggdrasil）+ 账户存储 单元测试
 // 覆盖：权限白名单/黑名单、身份参数拦截、manifest 校验、签名降级、
-//       别名跳转与 3 跳防环、authenticate、皮肤纹理解码、离线账户清除与令牌不落盘。
+//       别名跳转与 3 跳防环、authenticate、皮肤纹理解码、离线账户身份与令牌不落盘。
 
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -579,21 +579,71 @@ public class PluginHostTests : IDisposable
     }
 }
 
-// ── 账户存储：离线清除 + 令牌不落盘 ───────────────────────────
+// ── 账户存储：离线身份 + 令牌不落盘 ───────────────────────────
 
+/// <summary>这些用例读写进程级 accounts.json，与其它写同一文件的用例串行执行</summary>
+[Collection("进程内单例")]
 public class AccountStoreTests
 {
     [Fact]
-    public void Load_静默清除历史离线账户并回写()
+    public void Load_保留离线账户并补算缺失的派生UUID()
     {
         File.WriteAllText(LauncherPaths.AccountsFile,
-            """[{"uuid":"o1","username":"offline1","type":"offline"},{"uuid":"m1","username":"msa","type":"microsoft"}]""");
+            """[{"uuid":"","username":"Notch","type":"offline"},{"uuid":"m1","username":"msa","type":"microsoft"}]""");
 
         var store = AccountStore.Load();
 
+        Assert.Equal(2, store.Accounts.Count);
+        var offline = store.Accounts.First(a => a.Type == AccountStore.OfflineType);
+        Assert.Equal("Notch", offline.Username);
+        // 官方 nameUUIDFromBytes 算法：与 Java 端 UUID.toString() 完全一致
+        Assert.Equal("b50ad385-829d-3141-a216-7e7d7539ba7f", offline.Uuid);
+        // 迁移结果已回写（下次启动不必再算）
+        Assert.Contains("b50ad385-829d-3141-a216-7e7d7539ba7f",
+            File.ReadAllText(LauncherPaths.AccountsFile));
+    }
+
+    [Fact]
+    public void 离线UUID算法与Java官方实现一致()
+    {
+        // 已知向量（Java: UUID.nameUUIDFromBytes("OfflinePlayer:Notch".getBytes(UTF_8)))
+        Assert.Equal("b50ad385-829d-3141-a216-7e7d7539ba7f", AccountStore.OfflineUuid("Notch"));
+        // 大小写敏感（Java 端同样如此）：不同名字必须是不同身份
+        Assert.NotEqual(AccountStore.OfflineUuid("Notch"), AccountStore.OfflineUuid("notch"));
+        // 标准带连字符写法，且版本位 / 变体位符合 v3 UUID 规范
+        var uuid = AccountStore.OfflineUuid("AB");
+        Assert.Equal(36, uuid.Length);
+        Assert.Equal('3', uuid[14]);
+        Assert.Contains(uuid[19], "89ab");
+    }
+
+    [Fact]
+    public void 离线用户名校验_3到16位字母数字下划线()
+    {
+        Assert.True(AccountStore.IsValidOfflineName("Player_1"));
+        Assert.True(AccountStore.IsValidOfflineName("abc"));
+        Assert.False(AccountStore.IsValidOfflineName("ab"));
+        Assert.False(AccountStore.IsValidOfflineName("abcdefghijklmnopq"));
+        Assert.False(AccountStore.IsValidOfflineName("玩家"));
+        Assert.False(AccountStore.IsValidOfflineName("bad name"));
+        Assert.False(AccountStore.IsValidOfflineName(""));
+    }
+
+    [Fact]
+    public void 添加离线账户_按名字派生UUID并可设为默认()
+    {
+        var store = new AccountStore();
+        var acc = store.AddOrUpdateOffline("Steve");
+
+        Assert.Equal(AccountStore.OfflineType, acc.Type);
+        Assert.Equal(AccountStore.OfflineUuid("Steve"), acc.Uuid);
+        Assert.True(acc.IsDefault); // 第一个账户自动成为默认
+
+        // 同名重复添加：不产生第二条，只更新
+        store.AddOrUpdateOffline("Steve");
         Assert.Single(store.Accounts);
-        Assert.Equal("microsoft", store.Accounts[0].Type);
-        Assert.DoesNotContain("offline", File.ReadAllText(LauncherPaths.AccountsFile));
+
+        Assert.Throws<ArgumentException>(() => store.AddOrUpdateOffline("x"));
     }
 
     [Fact]
@@ -622,4 +672,61 @@ public class AccountStoreTests
         Assert.False(store.Accounts.First(x => x.Uuid == "u1").IsDefault);
         Assert.True(store.Accounts.First(x => x.Uuid == "u2").IsDefault);
     }
+
+    // ── 离线启动身份解析 ──────────────────────────────────────────
+
+    [Fact]
+    public async Task 离线模式解析身份不要求任何会话凭证()
+    {
+        var store = new AccountStore();
+        store.AddOrUpdateOffline("Steve"); // 只写身份，绝不写会话（离线本来就没有凭证）
+        var svc = new LaunchAccountService(store, () => new LauncherSettings { LastUsername = null });
+        svc.Mode = "offline";
+
+        var player = await svc.ResolveAsync();
+
+        Assert.Equal("Steve", player.Name);
+        Assert.NotNull(player.Credentials);
+        Assert.Equal(store.Accounts[0].Uuid, player.Credentials!.Uuid);
+        Assert.Equal("legacy", player.Credentials.UserType);
+        Assert.False(string.IsNullOrEmpty(player.Credentials.AccessToken)); // 占位令牌必须非空
+        Assert.Null(player.ExternalBase); // 离线身份不注入 authlib-injector
+    }
+
+    [Fact]
+    public async Task 离线模式无离线账户时给出可读错误()
+    {
+        var store = new AccountStore();
+        store.AddOrUpdateMicrosoft("u1", "A");
+        var svc = new LaunchAccountService(store, () => new LauncherSettings());
+        svc.Mode = "offline";
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => svc.ResolveAsync());
+        Assert.Contains("离线账户", ex.Message);
+    }
+
+    [Fact]
+    public async Task 在线模式缺凭证仍然要求就地登录()
+    {
+        var store = new AccountStore();
+        store.AddOrUpdateOffline("Steve");
+        var svc = new LaunchAccountService(store, () => new LauncherSettings());
+        svc.Mode = "microsoft";
+
+        // 默认账户是离线身份，与正版模式不匹配 → 提示先登录，而不是静默降级成离线
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.ResolveAsync());
+    }
+
+    [Theory]
+    [InlineData("ms:Alex", "microsoft")]
+    [InlineData("ext:Alex", "external")]
+    [InlineData("off:Alex", "offline")]
+    [InlineData(null, "microsoft")]
+    [InlineData("Alex", "microsoft")]
+    public void 上次玩家名前缀决定默认模式(string? last, string expected) =>
+        Assert.Equal(expected, LaunchAccountService.ModeOfLastUsername(last));
+
+    [Fact]
+    public void LastUsername前缀与模式一一对应() =>
+        Assert.Equal("off:Steve", LaunchAccountService.PrefixFor("offline") + "Steve");
 }

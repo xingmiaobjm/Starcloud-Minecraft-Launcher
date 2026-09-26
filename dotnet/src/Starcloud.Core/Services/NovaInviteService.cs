@@ -190,7 +190,7 @@ public sealed class NovaInviteService
         return false;
     }
 
-    /// <summary>把令牌变成「拉人即玩」确认清单（点头才动手，动手写流水）</summary>
+    /// <summary>把令牌变成「拉人即玩」确认清单（点头才执行，执行写操作日志）</summary>
     public async Task<NovaPlan> BuildJoinPlanAsync(
         NovaInviteToken token, LauncherSettings settings, CancellationToken ct = default)
     {

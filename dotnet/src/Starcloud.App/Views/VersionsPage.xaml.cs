@@ -1,13 +1,16 @@
 // 版本页：本地已安装版本列表（搜索/分类过滤、实例档案徽章、右键/「…」完整菜单）
 // 计划：docs/plans/2026-09-09-version-management-plan.md T4/T7
 
-using System.Diagnostics;
-using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Rows;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
+using System.Diagnostics;
+using System.IO;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -232,6 +235,12 @@ public sealed partial class VersionsPage : Page
         var file = await picker.PickSingleFileAsync();
         if (file is null) return;
         await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, file.Path);
+        RefreshList();
+    }
+
+    private async void ImportFromLink_Click(object sender, RoutedEventArgs e)
+    {
+        await ModPackDialogs.ImportFromLinkAsync(Content.XamlRoot, _s);
         RefreshList();
     }
 

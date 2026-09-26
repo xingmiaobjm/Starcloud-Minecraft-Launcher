@@ -16,9 +16,9 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 启动器自身版本（当前为测试版 V0.2.4）：标题栏「测试版 V0.2.3」标识与安装包命名的唯一来源 -->
-    <Version>0.2.4</Version>
-    <!-- 应用图标（占位符，由 tools/gen-app-icon.ps1 生成）：同时嵌入 exe 资源供资源管理器/安装器使用 -->
+    <!-- 启动器自身版本（当前为测试版 V0.3.1）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
+    <Version>0.3.1</Version>
+    <!-- 应用图标（品牌标记，由 tools/gen-app-icon.ps1 生成）：嵌入 exe 资源供资源管理器/任务栏/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -42,12 +42,24 @@
     <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
     <!-- 默认玩家皮肤（Steve）：账户页 3D 形象在无网络 / 皮肤源失败时的兜底 -->
     <Content Include="Assets\steve.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 默认皮肤（9 个官方默认角色，wide/slim 按官方版型各取一套）：账户详情页「默认皮肤」卡片 -->
+    <Content Include="Assets\Skins\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 品牌标记：标题栏左上角按主题加载这两份；与 starcloud-brand/mark/export/ 下的同名文件一致，
+         改品牌时整份替换即可。
+         starcloud-mark-small.svg（16–24px 单块版）同时是 gen-app-icon.ps1 的输入和运行时的
+         Nova 图标（BrandMark Small="True"、导航项 ImageIcon），所以也要随输出目录发布。 -->
+    <Content Include="Assets\Brand\starcloud-mark-light.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\starcloud-mark-dark.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\starcloud-mark-small.svg" CopyToOutputDirectory="PreserveNewest" />
     <!-- 3D 玩家形象：skinview3d 引擎 bundle + 宿主页（WebView2 经 app3d.local 虚拟域加载） -->
     <Content Include="Assets\3d\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- authlib-injector（第三方认证）：LaunchOptions -javaagent 注入，随输出目录发布 -->
     <Content Include="Assets\authlib-injector\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- Python 插件宿主 SDK（plugin-spec.md）：main.py 插件经进程外协议加载 -->
     <Content Include="Assets\pluginsdk\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- HarmonyOS 图标库字体（字体图标）：FontIcon 经 ms-appx 加载，必须随输出目录发布；
+         同目录的 LICENSE 说明来源与许可（MIT）。 -->
+    <Content Include="Assets\Fonts\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 本地化词典（D3）：嵌入式资源，逻辑名 Starcloud.App.Strings.<lang>.json -->

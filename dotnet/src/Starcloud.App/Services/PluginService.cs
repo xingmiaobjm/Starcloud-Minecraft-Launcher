@@ -208,6 +208,12 @@ public sealed class PluginService
                 LauncherLog.Write("plugin",
                     $"[{plugin.Manifest.Id}] 启动期自动加载失败：{err.Message}");
         }
+        // 全部插件就绪后再广播 launcher.ready：订阅方此时才能确定「其他插件也在了」
+        Host.RaiseEvent("launcher.ready", new
+        {
+            version = Host.LauncherVersion,
+            plugins = Host.LoadedCount,
+        });
     }
 
     // ── 免责确认（规范 §4：用户手动确认才能启用） ──

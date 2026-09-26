@@ -1,7 +1,5 @@
 // 首页：PCL2 式左卡（版本列表 → 启动 → 账户），版本条目支持右键菜单
 
-using System.Diagnostics;
-using System.IO;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -11,7 +9,12 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Rows;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
+using System.Diagnostics;
+using System.IO;
 
 namespace Starcloud.App.Views;
 
@@ -72,7 +75,7 @@ public sealed partial class HomePage : Page
 
     private void Initialize()
     {
-        SetMode(_s.Settings.LastUsername is { } u && u.StartsWith("ext:") ? "external" : "microsoft");
+        SetMode(LaunchAccountService.ModeOfLastUsername(_s.Settings.LastUsername));
         LoadVersions();
         RefreshAccounts();
         RefreshGuide();
@@ -108,16 +111,25 @@ public sealed partial class HomePage : Page
     private void SetMode(string mode)
     {
         _s.LaunchAccount.Mode = mode;
-        ModeMsBtn.IsChecked = mode == "microsoft";
-        ModeExternalBtn.IsChecked = mode == "external";
         // 选中项黄底加粗，未选中恢复常规
-        ModeMsBtn.FontWeight = mode == "microsoft" ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
-        ModeExternalBtn.FontWeight = mode == "external" ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
+        foreach (var (btn, name) in new[]
+                 {
+                     (ModeMsBtn, "microsoft"),
+                     (ModeExternalBtn, "external"),
+                     (ModeOfflineBtn, "offline"),
+                 })
+        {
+            btn.IsChecked = mode == name;
+            btn.FontWeight = mode == name
+                ? Microsoft.UI.Text.FontWeights.Bold
+                : Microsoft.UI.Text.FontWeights.Normal;
+        }
         RefreshAccounts();
     }
 
     private void ModeMs_Click(object s, RoutedEventArgs e) => SetMode("microsoft");
     private void ModeExternal_Click(object s, RoutedEventArgs e) => SetMode("external");
+    private void ModeOffline_Click(object s, RoutedEventArgs e) => SetMode("offline");
 
     // ── 版本列表 ──
     private void LoadVersions()
@@ -273,9 +285,21 @@ public sealed partial class HomePage : Page
             .ToList();
 
         var def = _s.Accounts.Default;
-        AccountCombo.Visibility = list.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var hasAny = list.Count > 0;
+        AccountCombo.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
 
-        if (list.Count > 0)
+        // 该模式一个账户都没有：不给一句死文案，给一个能就地登录的按钮（名字按当前模式走）。
+        // 空态由按钮说话，所以名字行收起；头像位留「?」占位。
+        NoAccountBtn.Visibility = hasAny ? Visibility.Collapsed : Visibility.Visible;
+        NoAccountBtn.Content = Loc.T(_s.LaunchAccount.Mode switch
+        {
+            "external" => "登录第三方账户",
+            "offline" => "添加离线账户",
+            _ => "登录微软账户",
+        });
+        AccountNameText.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
+
+        if (hasAny)
         {
             AccountCombo.ItemsSource = list
                 .Select(a => new ComboItem(a.Uuid, a.IsDefault ? Loc.T("{0}（默认）", a.Username) : a.Username))
@@ -285,12 +309,87 @@ public sealed partial class HomePage : Page
         }
         else
         {
-            AccountNameText.Text = _s.LaunchAccount.Mode == "microsoft"
-                ? Loc.T("尚无正版账户")
-                : Loc.T("尚无第三方账户，请先到账户页登录");
-            AvatarText.Text = "?";
+            // 必须把上一个模式留下的选中项清掉：不清的话 RefreshNameFromSelection 会照着旧的
+            // SelectedValue 把刚才那个账户的名字和头像又填回来，空态就成了一团错乱。
+            AccountCombo.ItemsSource = null;
+            AccountCombo.SelectedValue = null;
         }
         RefreshNameFromSelection();
+    }
+
+    /// <summary>
+    /// 空态那颗按钮：就地走对应登录方式，成功即刷新卡片（不必再去账户页兜一圈）。
+    /// 登录框是异步弹出的，期间禁用按钮防连点叠窗。
+    /// </summary>
+    private async void NoAccountBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var root = Content.XamlRoot;
+        NoAccountBtn.IsEnabled = false;
+        try
+        {
+            switch (_s.LaunchAccount.Mode)
+            {
+                case "offline":
+                    if (await AddOfflineAccountAsync(root) is null) return;
+                    break;
+                case "external":
+                    if (await AuthDialogs.ExternalPasswordAsync(root) is null) return;
+                    break;
+                default:
+                    if (await AuthDialogs.MicrosoftDeviceCodeAsync(
+                            root, _s.MicrosoftAuth, _s.Accounts, ShowAccountError) is null) return;
+                    break;
+            }
+            _s.NovaRuntime.NotifyLoginChanged();
+            RefreshAccounts();
+        }
+        finally
+        {
+            NoAccountBtn.IsEnabled = true;
+        }
+    }
+
+    /// <summary>离线账户只差一个名字，就地填完即用（离线身份无凭证可存，所以没有"登录"这一步）</summary>
+    private async Task<string?> AddOfflineAccountAsync(XamlRoot root)
+    {
+        var box = new TextBox
+        {
+            PlaceholderText = Loc.T("玩家名（3-16 位字母、数字或下划线）"),
+            MaxLength = 16,
+            Width = 320,
+        };
+        var dlg = new ThemedDialog
+        {
+            Title = Loc.T("添加离线账户"),
+            Content = box,
+            PrimaryButtonText = Loc.T("添加"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = root,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return null;
+
+        var name = box.Text.Trim();
+        if (!AccountStore.IsValidOfflineName(name))
+        {
+            ShowAccountError(Loc.T("用户名不合法：需为 3-16 位字母、数字或下划线"));
+            return null;
+        }
+        try
+        {
+            return _s.Accounts.AddOrUpdateOffline(name).Uuid;
+        }
+        catch (Exception ex)
+        {
+            ShowAccountError(Loc.T("添加失败：{0}", ex.Message));
+            return null;
+        }
+    }
+
+    private void ShowAccountError(string message)
+    {
+        LocalErrorBar.Message = message;
+        LocalErrorBar.IsOpen = true;
     }
 
     private void RefreshNameFromSelection()
@@ -309,7 +408,8 @@ public sealed partial class HomePage : Page
     private static ImageSource? ResolveAvatar(StoredAccount? acc, string name)
     {
         if (acc is null) return null;
-        return AvatarHelper.Resolve(acc.Type, acc.Uuid, name, acc.ServerBase);
+        return AvatarHelper.Resolve(acc.Type, acc.Uuid, name, acc.ServerBase,
+            AvatarHelper.LocalSkinPath(acc));
     }
 
     private void AccountCombo_SelectionChanged(object s, SelectionChangedEventArgs e)
@@ -347,6 +447,12 @@ public sealed partial class HomePage : Page
                     break;
                 case LaunchStage.Failed:
                     tc.Fail(_launchTask, LaunchErrorText.Text is { Length: > 0 } m ? m : Loc.T("启动失败"));
+                    _launchTask = null;
+                    break;
+                case LaunchStage.Idle:
+                    // 收起启动页（用户取消登录 / 取消启动 / 返回主页）也要在调度中心收尾：
+                    // 否则任务会一直挂在「运行中」，还停在最后一步的文案上（例如「验证账户凭据…」）。
+                    tc.Cancel(_launchTask);
                     _launchTask = null;
                     break;
             }
@@ -470,8 +576,8 @@ public sealed partial class HomePage : Page
         LaunchVersionText.Text = versionId;
         LaunchLoginModeText.Text = mode switch
         {
-            "microsoft" => Loc.T("正版登录"),
             "external" => Loc.T("第三方登录"),
+            "offline" => Loc.T("离线登录"),
             _ => Loc.T("正版登录"),
         };
         LaunchTipText.Text = LaunchTips.Next();
@@ -691,6 +797,7 @@ public sealed partial class HomePage : Page
                 eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars,
                 eff.PreCmd, eff.PostCmd,
                 AgentJarPath: agentJar, AgentBase: player.ExternalBase,
+                PlayerSkinUrl: player.SkinUrl,
                 PluginHook: _s.PluginHost);
             _activeOptions = options;
 
@@ -837,6 +944,15 @@ public sealed partial class HomePage : Page
         var session = await _s.Launcher.LaunchVersionAsync(dotMc, versionId, options);
         _gameProcess = session;
         _sessionHandle?.Bind(session.Pid);       // 会话锁绑定真实 pid（防双开判活）
+        // 运行状态监控：本方法拿不到上游解析的 eff（重试路径的 options 可变），就地 Resolve 一次
+        var ctxEff = InstanceLayout.Resolve(dotMc, versionId,
+            new InstanceSettingsStore(dotMc).Get(versionId), _s.Settings,
+            MemoryAdvisor.Probe(options.GameDir));
+        _s.Runtime.Attach(session, GameLaunchContextStore.Capture(versionId, ctxEff,
+            GameLaunchContextStore.CountFiles(Path.Combine(options.GameDir, "mods")),
+            GameLaunchContextStore.CountFiles(Path.Combine(options.GameDir, "shaderpacks")),
+            GameLaunchContextStore.CountFiles(Path.Combine(options.GameDir, "resourcepacks"))),
+            session.CommandLine);
         session.OutputLine += OnGameOutputLine;  // 实时日志（spec §5）
         session.Exited += OnGameExited;          // 退出收尾 / 崩溃诊断 / 自动重试（spec §7、§8.1）
         if (_cancelRequested)
@@ -854,9 +970,12 @@ public sealed partial class HomePage : Page
         _s.NovaRuntime.OnGameLaunched(versionId, session.Id);
         App.RunningVersionId = versionId;
         new InstanceSettingsStore(dotMc).TouchPlayed(versionId); // 记录版本档案「上次启动」
-        _s.Settings.LastUsername = options.Credentials is { } c && c.UserType == "mojang"
-            ? "ext:" + options.PlayerName
-            : "ms:" + options.PlayerName;
+        _s.Settings.LastUsername = LaunchAccountService.PrefixFor(options.Credentials?.UserType switch
+        {
+            "mojang" => "external",
+            "legacy" => "offline",
+            _ => "microsoft",
+        }) + options.PlayerName;
         _s.Settings.LastVersion = versionId;
         _s.Settings.Save();
         LauncherLog.Write("launch", $"已拉起 {versionId}（pid {session.Pid}，退出码待定）");
@@ -1043,7 +1162,7 @@ public sealed partial class HomePage : Page
     private void TileMods_Click(object s, RoutedEventArgs e) =>
         (App.MainWindow as MainWindow)?.NavigateTo("download");
     private void TileMultiplayer_Click(object s, RoutedEventArgs e) =>
-        LocalErrorBar.Message = "联机功能将在后续版本提供";
+        (App.MainWindow as MainWindow)?.NavigateTo("multiplayer");
 
     // ── 启动自检（版本 / 账户 / Java） ──
     private bool? _javaOk;   // null=检测中
@@ -1103,7 +1222,7 @@ public sealed partial class HomePage : Page
     private static void SetCheckRow(FontIcon icon, TextBlock text, HyperlinkButton go,
         bool ok, string label, string detail, string action)
     {
-        icon.Glyph = ok ? "\uE73E" : "\uE7BA";
+        icon.Glyph = ok ? "\uEA7C" : "\uEBA6";
         icon.Foreground = ok
             ? ThemeBrush("SystemFillColorSuccessBrush")
             : ThemeBrush("SystemFillColorCriticalBrush") ?? icon.Foreground;

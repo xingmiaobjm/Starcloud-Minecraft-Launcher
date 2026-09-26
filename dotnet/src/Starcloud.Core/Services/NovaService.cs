@@ -2,15 +2,18 @@
 //
 // 能力阶段（信任递进，每一步只在用户点头之后）：
 //   阶段一 顾问：崩溃自愈 / 兼容侦探 / 游戏体检 / 整合包推荐 —— 只给建议，不落盘
-//   阶段二 动手：版本修复 / 模组停用 / 开箱即玩配置 —— 先给确认清单，点头才执行，执行写流水
+//   阶段二 执行：版本修复 / 模组停用 / 开箱即玩配置 —— 先给确认清单，点头才执行，执行写操作日志
 //   （阶段三「主动」Nova 时刻、阶段四「在场」游戏内浮窗：视觉通路未上线，仅提供许可层开关与说明）
 //
-// 产品基石（不可跳过）：任何落盘动作先出 NovaPlan 确认清单，用户确认后执行并记入可审计流水。
+// 产品基石（不可跳过）：任何落盘动作先出 NovaPlan 确认清单，用户确认后执行并记入可审计的操作日志。
 //
-// LLM 降级链（严禁请求因无额度而失败卡死）：
-//   1. 用户自填 Key（OpenAI 兼容 /chat/completions，零成本）
-//   2. 本地规则引擎兜底（能力指令不走 LLM，永不失败）
-//   合规说明：内置云端模型通道已按合规要求移除（无 B25 大模型许可证），只保留用户自接模型 → 本地兜底。
+// LLM 降级链（严禁请求因无额度而失败卡死；三级依次尝试）：
+//   1. 用户自填 Key（OpenAI 兼容 /chat/completions，零成本；配了就用它）
+//   2. Starcloud 云端中转（Starcloud ID 下发的 API Key → /v1/ai/*，每用户每周 100 万 token，服务端记账）
+//   3. 本地规则引擎兜底（能力指令不走 LLM，永不失败）
+// 合规说明：模型凭据不下发到客户端，上游合约由 Starcloud ID 服务端持有，客户端只拿本用户的 Key。
+// 服务端实现要求见 docs/designs/2026-09-21-nova-gateway-server-spec.md。
+// 额度：客户端只做「显示 + 讲清楚 + 降级」，不本地计数（多端不一致，也挡不住刷）。
 
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
@@ -54,6 +57,12 @@ public sealed class NovaService
     private readonly SaveService _saves;
     private readonly NovaAgentLoop? _agent;
 
+    /// <summary>中文搜索词 → 英文（可选）：本地推荐/搜索要用英文才搜得到东西</summary>
+    private readonly SearchTranslationService? _translation;
+
+    /// <summary>Starcloud ID 会话来源：云端中转的 API Key 从这里取（未接入时为 null，只走自填 Key / 本地兜底）</summary>
+    private readonly StarcloudIdService? _starcloudId;
+
     /// <summary>最近一次体检结果（用于「修复 <版本号>」的指代解析）</summary>
     private DiagReport? _lastDiag;
 
@@ -67,6 +76,8 @@ public sealed class NovaService
     {
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, // max_tokens 未指定时不发该字段
+        // 兜底：匿名对象里的 PascalCase 也会被压成 snake_case，服务端不会再收到 "Content" 这类键
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
@@ -75,7 +86,8 @@ public sealed class NovaService
         GameDiagnosticsService diag, ModConflictService conflicts,
         NovaPermissionStore permissions, NovaActionLog log,
         NovaMomentsService moments, NovaInviteService invites, SaveService saves,
-        NovaToolRegistry? tools = null)
+        NovaToolRegistry? tools = null, StarcloudIdService? starcloudId = null,
+        SearchTranslationService? translation = null)
     {
         _mods = mods;
         _diag = diag;
@@ -85,6 +97,8 @@ public sealed class NovaService
         _moments = moments;
         _invites = invites;
         _saves = saves;
+        _starcloudId = starcloudId;
+        _translation = translation;
         if (tools is not null) _agent = new NovaAgentLoop(this, tools);
     }
 
@@ -106,9 +120,9 @@ public sealed class NovaService
         bool fullLog = false, int? maxTokens = null)
     {
         if (string.IsNullOrWhiteSpace(message))
-            return new NovaReply("说一句人话就行，比如「崩了帮我看看」「找个 1.20.1 的优化整合包」。", null, false);
+            return new NovaReply("请描述要处理的问题，例如「启动崩溃，帮我看看」「找一个 1.20.1 的优化整合包」。", null, false);
 
-        var local = await RouteLocalAsync(message, settings, ct);
+        var local = await SafeRouteLocalAsync(message, settings, ct);
         if (local is not null) return local;
 
         // 崩溃日志裁剪：只把因果链（栈顶 / Caused by: / System Details / Suspected Mods）发给模型；
@@ -117,14 +131,45 @@ public sealed class NovaService
         var trim = fullLog ? CrashLogTrimmer.Passthrough(body) : CrashLogTrimmer.TrimCrashLog(body);
         var sendHistory = TrimHistory(history, fullLog);
 
-        // 未命中能力指令 → LLM 降级链（用户自接模型 → 本地兜底）
+        // 未命中能力指令 → LLM 降级链：用户自接模型 → 云端中转 → 本地兜底
+        LlmStreamException? llmFailure = null;
         try
         {
             var text = await UserLlmChatAsync(settings, trim.Text, sendHistory, ct, maxTokens);
             if (text is not null) return new NovaReply(text, null, true, trim);
         }
         catch (OperationCanceledException) { throw; }
+        catch (LlmStreamException ex) { llmFailure = ex; } // 记下原因：下面两通道都没成时讲给用户
         catch { /* 用户 Key 失效/欠费 → 降级本地兜底，不卡死 */ }
+
+        // 第 2 级：Starcloud 云端中转（Starcloud ID 登录时下发的 Key，服务端按周记账）
+        NovaGatewayException? gatewayNotice = null;
+        if (GatewayKey(settings) is { } gatewayKey)
+        {
+            try
+            {
+                var text = await NovaGatewayClient.ChatAsync(
+                    gatewayKey, BuildMessages(trim.Text, sendHistory), NovaGatewayClient.DefaultModel, maxTokens, ct);
+                if (!string.IsNullOrWhiteSpace(text)) return new NovaReply(text, null, true, trim);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { /* 网关超时 → 本地兜底 */ }
+            catch (OperationCanceledException) { throw; }
+            catch (NovaGatewayException ex) when (ex.StatusCode > 0)
+            {
+                // 记下来，但先不返回：用户自己接了模型时，他自己的报错更接近真相
+                LauncherLog.Write("nova", $"云端中转失败：{Describe(ex)}");
+                gatewayNotice = ex;
+            }
+            catch (Exception ex) { LauncherLog.Write("nova", $"云端中转失败：{Describe(ex)}"); }
+        }
+
+        // 自接模型的报错优先于云端：用户配的是哪个通道，就先说哪个通道的问题
+        if (llmFailure is not null && settings.ActiveLlmProfile() is { } badProfile)
+            return new NovaReply(LlmNotice(llmFailure, badProfile), null, false, trim);
+
+        // 额度用尽 / 未授权是「用户需要知道」的状态：讲清楚并给出下一步，不静默冒充兜底
+        if (gatewayNotice is not null)
+            return new NovaReply(GatewayNotice(gatewayNotice), null, false, trim);
 
         return new NovaReply(LocalFallback(message), null, false, trim);
     }
@@ -139,15 +184,15 @@ public sealed class NovaService
         [EnumeratorCancellation] CancellationToken ct = default,
         bool fullLog = false, int? maxTokens = null,
         Action<NovaReply>? onFullReply = null,
-        Action<string, string>? onToolStarted = null)
+        Action<string>? onToolStarted = null)
     {
         if (string.IsNullOrWhiteSpace(message))
         {
-            yield return "说一句人话就行，比如「崩了帮我看看」「找个 1.20.1 的优化整合包」。";
+            yield return "请描述要处理的问题，例如「启动崩溃，帮我看看」「找一个 1.20.1 的优化整合包」。";
             yield break;
         }
 
-        var local = await RouteLocalAsync(message, settings, ct);
+        var local = await SafeRouteLocalAsync(message, settings, ct);
         if (local is not null)
         {
             onFullReply?.Invoke(local);
@@ -173,8 +218,9 @@ public sealed class NovaService
                         yield return d.Delta;
                         break;
                     case AgentToolStarted t:
-                        // UI 状态行：让用户看到 Nova 正在干什么（只读工具立即执行的透明化）
-                        onToolStarted?.Invoke(t.Tool, t.ArgsPreview);
+                        // UI 动作提示：只给工具名（界面自己翻成「正在搜索 Modrinth 资源…」）。
+                        // 参数预览属于内部细节，不进对话，也不该出现在气泡里。
+                        onToolStarted?.Invoke(t.Tool);
                         break;
                     case AgentPlanProposed p:
                         // 文本增量已进气泡，这里只把确认清单挂到消息上（UI 渲染确认卡）
@@ -185,17 +231,68 @@ public sealed class NovaService
             if (agentStarted) yield break;
         }
 
-        IAsyncEnumerable<string>? userStream = null;
-        try
-        {
-            userStream = UserLlmChatStreamAsync(settings, trim.Text, sendHistory, ct, maxTokens);
-        }
-        catch (OperationCanceledException) { throw; }
-        catch { /* 用户 Key 失效/欠费 → 降级本地兜底 */ }
+        // 纯文本链：用户自接模型 → 云端中转。任一级产出增量即结束；
+        // 已经出过字又断流时如实说明（半截回答不能冒充完整回答）。
+        var channels = new List<IAsyncEnumerable<string>>();
+        if (HasUserProfile(settings))
+            channels.Add(UserLlmChatStreamAsync(settings, trim.Text, sendHistory, ct, maxTokens));
+        if (GatewayKey(settings) is { } streamKey)
+            channels.Add(NovaGatewayClient.StreamDeltasAsync(
+                streamKey, BuildMessages(trim.Text, sendHistory), maxTokens, ct));
 
-        if (userStream is not null)
+        NovaGatewayException? notice = null;
+        LlmStreamException? llmNotice = null;
+        foreach (var channel in channels)
         {
-            await foreach (var delta in userStream) yield return delta;
+            var produced = false;
+            var truncated = false;
+            await using var en = channel.GetAsyncEnumerator(ct);
+            while (true)
+            {
+                bool has;
+                try { has = await en.MoveNextAsync(); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { truncated = produced; break; }
+                catch (OperationCanceledException) { throw; }
+                catch (NovaGatewayException ex) when (ex.StatusCode > 0)
+                {
+                    LauncherLog.Write("nova", $"云端中转通道失败：{Describe(ex)}");
+                    notice ??= ex; break;
+                }
+                // 自接模型失败：记下状态码与上游原文，两条通道都没出字时讲给用户听
+                catch (LlmStreamException ex)
+                {
+                    LauncherLog.Write("nova", $"自接模型通道失败：{Describe(ex)}");
+                    llmNotice ??= ex; break;
+                }
+                catch (Exception ex) // 网络层失败 → 换下一级（没出过字就是静默降级）
+                {
+                    LauncherLog.Write("nova", $"对话通道失败：{Describe(ex)}");
+                    truncated = produced; break;
+                }
+                if (!has) break;
+                if (string.IsNullOrEmpty(en.Current)) continue;
+                produced = true;
+                yield return en.Current;
+            }
+
+            if (produced)
+            {
+                if (truncated) yield return "\n（连接中断，以上是已经收到的部分；可以再问一次。）";
+                yield break;
+            }
+        }
+
+        // 配了自接模型却打不通 → 直接说清是哪一步错了（模型名 / Key / 地址），别再退回兜底文案
+        if (llmNotice is not null && settings.ActiveLlmProfile() is { } badProfile)
+        {
+            yield return LlmNotice(llmNotice, badProfile);
+            yield break;
+        }
+
+        // 有额度/授权类失败 → 讲清楚原因与下一步；否则才是「没匹配到本地功能」
+        if (notice is not null)
+        {
+            yield return GatewayNotice(notice);
             yield break;
         }
 
@@ -222,6 +319,22 @@ public sealed class NovaService
     }
 
     // ── 本地能力路由（命中返回 null 表示未命中） ──
+    /// <summary>
+    /// 本地能力路由的兜底壳：本地引擎（搜索 / 诊断 / 扫目录）出错不能让整条对话变成「出错了」。
+    /// 记一条日志后返回 null，上层继续走 LLM / Agent——用户至少还能拿到回答。
+    /// </summary>
+    private async Task<NovaReply?> SafeRouteLocalAsync(
+        string message, LauncherSettings settings, CancellationToken ct)
+    {
+        try { return await RouteLocalAsync(message, settings, ct); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("nova", $"本地能力路由失败（转交模型处理）：{Describe(ex)}");
+            return null;
+        }
+    }
+
     private async Task<NovaReply?> RouteLocalAsync(
         string input, LauncherSettings settings, CancellationToken ct)
     {
@@ -272,7 +385,7 @@ public sealed class NovaService
             var report = _moments.LastReport;
             return new NovaReply(
                 report is null
-                    ? "还没有战报——启动一局游戏，下机时我自动汇总这局的高光与翻车瞬间。"
+                    ? "暂无记录。启动一局游戏后，退出时会自动生成本局汇总。"
                     : _moments.BuildReportText(report),
                 null, false);
         }
@@ -287,7 +400,12 @@ public sealed class NovaService
             return PlanSmoothStart(settings);
 
         if (lower.Contains("整合包") || lower.Contains("modpack"))
+        {
+            // 有可用模型时交给 Agent：它会先翻译关键词、按版本/加载器搜、还能直接装；
+            // 本地引擎只会按下载量列 5 条（中文关键词在 Modrinth 上基本搜不到）。没模型时才本地兜底。
+            if (HasLlmChannel(settings)) return null;
             return new NovaReply(await FindModpacksTextAsync(input, settings, ct), null, false);
+        }
 
         if (lower.Contains("时刻") || lower.Contains("录屏") || lower.Contains("录像") ||
             lower.Contains("录制"))
@@ -340,8 +458,8 @@ public sealed class NovaService
         // 模式匹配 → 具体方案（不泛泛而谈）
         (string Match, string Advice)[] rules =
         [
-            ("outofmemoryerror", $"内存不足。{memHint}；回复「开箱即玩」我直接帮你调好。"),
-            ("heap space", $"堆内存溢出。{memHint}；回复「开箱即玩」我直接帮你调好。"),
+                ("outofmemoryerror", $"内存不足。{memHint}；回复「开箱即玩」可获取按本机硬件生成的配置清单。"),
+                ("heap space", $"堆内存溢出。{memHint}；回复「开箱即玩」可获取按本机硬件生成的配置清单。"),
             ("unsupportedclassversionerror",
                 "Java 版本不对。class file version 65 = Java 21，61 = Java 17，60 = Java 16，52 = Java 8。装对应版本后到「设置」选择它。"),
             ("incompatible mod set", "模组集合不兼容（缺前置或版本冲突）。回复「检查模组冲突」我来定位红灯项。"),
@@ -381,7 +499,7 @@ public sealed class NovaService
 
         var fixable = report.Issues.Where(i => i.AutoFixable).Select(i => i.VersionId).Distinct().ToList();
         if (fixable.Count > 0)
-            sb.Append($"回复「修复 {fixable[0]}」我给你确认清单，点头后才动手修复" +
+            sb.Append($"回复「修复 {fixable[0]}」我会给出确认清单，确认后才会执行修复" +
                       (fixable.Count > 1 ? $"（共 {fixable.Count} 个版本可修复）" : "") + "。");
         return sb.ToString().TrimEnd();
     }
@@ -440,7 +558,7 @@ public sealed class NovaService
         foreach (var c in report.Conflicts)
             sb.Append($"\n• [{c.Kind}] {c.Detail}\n  建议：{c.Suggestion}");
         if (report.Conflicts.Any(c => c.Kind == "重复安装"))
-            sb.Append("\n回复「处理冲突」我会把停用清单列给你，点头后才动手。");
+            sb.Append("\n回复「处理冲突」我会列出停用清单，确认后才会执行。");
         return sb.ToString();
     }
 
@@ -506,7 +624,7 @@ public sealed class NovaService
                 "每个版本的存档/模组/配置独立存放，互不污染"),
         };
         var plan = new NovaPlan(Guid.NewGuid().ToString("N")[..12],
-            "开箱即玩：一键傻瓜配置",
+        "配置推荐：按本机硬件生成",
             items,
             ct =>
             {
@@ -518,7 +636,7 @@ public sealed class NovaService
                 return Task.FromResult(
                     $"已应用：最大内存 {maxMem} MB · 最小 512 MB · G1GC 内置参数已启用 · 版本隔离已开启。重新启动游戏生效。");
             });
-        return new NovaReply($"看了你的机器配置（物理内存 {physMb / 1024} GB），傻瓜配置如下，点头我就写进设置：", plan, false);
+        return new NovaReply($"已读取本机配置（物理内存 {physMb / 1024} GB）。推荐配置如下，确认后写入启动器设置：", plan, false);
     }
 
     // ── 能力 5：查找整合包（阶段一 · 顾问，Modrinth） ──
@@ -526,7 +644,14 @@ public sealed class NovaService
         string raw, LauncherSettings settings, CancellationToken ct)
     {
         var query = ExtractQuery(raw);
-        var gameVer = settings.LastVersion;
+        // 当前实例的**原版版本号**（实例名不是版本号：直接当 facets 用会让 Modrinth 回 400）
+        var gameVer = InstanceVersion.BaseGameVersion(settings.DotMinecraft, settings.LastVersion);
+        // Modrinth / CurseForge 只有英文名：中文关键词先翻一道，否则搜出来永远是 0 条
+        if (_translation is not null && SearchTranslationService.ContainsCjk(query))
+        {
+            try { query = (await _translation.TranslateAsync(query, ct)).Effective; }
+            catch { /* 翻译不可用就用原词搜，别让推荐挂在这 */ }
+        }
 
         var res = await _mods.SearchAsync(query, "modpack", null, gameVer, 0, 5, "downloads", null, ct);
         var relaxed = false;
@@ -559,6 +684,7 @@ public sealed class NovaService
     [
         "整合包", "modpack", "帮我", "我想", "想要", "找个", "找一个", "来个", "推荐",
         "查找", "搜索", "找下", "找", "适合", "好玩", "试试", "一下", "一个",
+        "给我", "有没有", "有什么", "我",   // 别收「要」：要塞（stronghold）这类正经词会被吃掉
         "的", "了", "吗", "呢", "？", "?", "！", "!", "。", "，", ",", "、",
     ];
 
@@ -577,23 +703,23 @@ public sealed class NovaService
         var sb = new StringBuilder();
         sb.AppendLine(_moments.IsSessionActive
             ? $"我正在观察 {_moments.SessionVersion} 的游戏日志（从 {_moments.SessionStart:HH:mm} 开始），" +
-              "达成进度/完成挑战/翻车瞬间都会被我注意到。"
+              "进度、挑战与异常退出都会被记录。"
             : "当前没有进行中的游戏会话；游戏启动后我自动开始观察。");
         sb.AppendLine("时刻卡记录的是文字事实（坐标、时间、事件）；画面由录屏保存成 mp4，两者对得上时间。");
 
         var pending = _moments.Candidates.Where(c => c.State == "proposed").ToList();
         if (pending.Count > 0)
         {
-            sb.AppendLine($"我有 {pending.Count} 个候选瞬间等你点头（在 Nova 面板处理）：");
+            sb.AppendLine($"有 {pending.Count} 个待确认时刻（在 Nova 页处理）：");
             foreach (var c in pending.Take(3))
                 sb.Append($"• {c.TimeText} {c.Caption}\n");
         }
         else if (_moments.Moments.Count > 0)
         {
-            sb.AppendLine($"已收藏 {_moments.Moments.Count} 个时刻；说「战报」看最近一局的汇总。");
+            sb.AppendLine($"已记录 {_moments.Moments.Count} 个时刻；发送「战报」查看最近一局汇总。");
         }
 
-        sb.Append("动手许可层（默认全关，开启 = 显式授权）：\n" +
+        sb.Append("操作许可（默认全部关闭，开启即显式授权）：\n" +
                   $"• {recT}：{recB}");
         return sb.ToString();
     }
@@ -607,7 +733,7 @@ public sealed class NovaService
         var server = string.IsNullOrWhiteSpace(token.Server) ? "" : $"\n服务器 {token.Server}（连接码 {token.Code}）";
         return new NovaReply(
             $"收到「{token.Name}」的邀请：{token.Loader} {token.Mc}{mods}.{server}\n" +
-            "确认清单如下，点头我就开装，装好直接进服：",
+                "确认清单如下，确认后开始安装，装好后可直接进服：",
             plan, false);
     }
 
@@ -639,7 +765,7 @@ public sealed class NovaService
         if (settings.VersionIsolated)
             sb.AppendLine("• 版本隔离已开启，多实例互不污染");
         sb.Append("诚实说明：我看不见你游戏内的实时帧数（视觉通路未上线），以上是配置侧诊断。\n" +
-                  "带光影时先试关光影对比；回复「开箱即玩」我给你确认清单一键调优。");
+                "带光影时先关闭光影对比；回复「开箱即玩」可获取调优确认清单。");
         return sb.ToString();
     }
 
@@ -787,62 +913,140 @@ public sealed class NovaService
     }
 
     private static string HelpText() =>
-        "我是 Nova——被允许动手的 AI 助手。你说一句人话，我打理启动器里的脏活累活；所有落盘动作先给确认清单，点头才执行。\n" +
-        "现在就能用的：\n" +
-        "1. 崩溃自愈 —— 「崩了」「装了光影一直闪退」，我读崩溃报告定位问题\n" +
-        "2. 游戏体检 —— 「游戏体检」，发现损坏文件后回复「修复 版本号」，我列清单你点头\n" +
-        "3. 兼容侦探 —— 「检查模组冲突」，回复「处理冲突」我把停用清单列给你确认\n" +
-        "4. 开箱即玩 —— 「开箱即玩」，我按你的机器生成傻瓜配置，确认后一键应用\n" +
-        "5. 找整合包 —— 「找个 1.20.1 的优化整合包」\n" +
-        "6. 录屏 —— 「开始录屏」，从显卡缓冲区采集 + 硬件编码落盘（需先在 Nova 页开启录屏许可）\n" +
-        "第四阶段「游戏内在场」在开发中（规划中）。";
+        "我是 Nova，Starcloud 启动器内置的助手，可以在你确认后执行操作：所有会改动文件的操作都会先列出确认清单，确认后才执行，并记入操作记录。\n" +
+        "当前可用的功能：\n" +
+        "1. 崩溃排查 —— 发送「崩了」「装了光影后一直闪退」，或直接贴崩溃日志，我会读取崩溃报告定位原因\n" +
+        "2. 游戏体检 —— 发送「游戏体检」检查文件完整性；发现问题后发送「修复 版本号」，确认清单后执行\n" +
+        "3. 模组冲突 —— 发送「检查模组冲突」定位冲突；发送「处理冲突」列出停用清单待确认\n" +
+        "4. 配置推荐 —— 发送「开箱即玩」，按本机硬件生成推荐配置，确认后应用\n" +
+        "5. 资源查找 —— 发送「找一个 1.20.1 的优化整合包」\n" +
+        "6. 录屏 —— 发送「开始录屏」，从显卡缓冲区采集并硬件编码存到本地（需先在 Nova 页开启录屏许可）\n" +
+        "游戏内浮窗仍在开发中。";
 
     private static string LocalFallback(string message) =>
-        $"这句我没听懂（「{TrimForEcho(message)}」）。我能动手的范围：崩了帮我看看 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找整合包。" +
-        "到 Nova 页「新增模型」接入你自己的模型后，闲聊我也能接住。";
+        $"没有匹配到本地功能（输入：「{TrimForEcho(message)}」）。可以试试：崩溃排查 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找整合包。" +
+        "其他问题可以在 Nova 页「新增模型」接入你自己的模型后再问。";
 
     private static string TrimForEcho(string s) => s.Length <= 24 ? s : s[..24] + "…";
+
+    // ── LLM 降级链 · 通道判定 / 消息组装 / 失败文案（三级共用） ──
+
+    /// <summary>
+    /// 用户自填模型档案：地址 + 模型名齐全就算配置好（Key 可空，本地服务不要 Key）。
+    /// 规则见 <see cref="LauncherSettings.ReadyLlmProfile"/>。
+    /// </summary>
+    private static NovaLlmProfile? UserProfileReady(LauncherSettings settings) =>
+        settings.ReadyLlmProfile();
+
+    private static bool HasUserProfile(LauncherSettings settings) => UserProfileReady(settings) is not null;
+
+    /// <summary>
+    /// 有没有可用的模型通道（自接模型 / 云端中转）：本地引擎与 Agent 的分工线。
+    /// 有模型 → 内容搜索这类「要动脑」的活交给 Agent；没模型 → 本地引擎兜底，保证离线也能答。
+    /// </summary>
+    private bool HasLlmChannel(LauncherSettings settings) =>
+        UserProfileReady(settings) is not null || GatewayKey(settings) is not null;
+
+    /// <summary>
+    /// 云端中转的可用 Key：开关打开 + 云端通道已登录（测试通道的本地假 Key 不参与）。
+    /// 不可用 → null（调用方直接跳过这一级）。
+    /// </summary>
+    private string? GatewayKey(LauncherSettings settings) =>
+        NovaGatewayClient.CanUse(settings, _starcloudId?.Current) ? _starcloudId!.Current!.ApiKey : null;
+
+    /// <summary>发给模型的完整消息数组：system 人格 + 已裁剪的历史 + 本轮输入。</summary>
+    internal static List<object> BuildMessages(string message, IReadOnlyList<NovaChatTurn>? history)
+    {
+        var messages = new List<object> { new ChatMessage("system", SystemPrompt) };
+        if (history is { Count: > 0 })
+            // 空正文轮（计划卡轮 / 中断轮）会被服务端按 400 拒绝，发之前先剔掉
+            messages.AddRange(history
+                .Where(t => !string.IsNullOrWhiteSpace(t.Content))
+                .Select(t => new ChatMessage(t.Role, t.Content)));
+        messages.Add(new ChatMessage("user", message));
+        return messages;
+    }
+
+    /// <summary>
+    /// 自接模型通道失败的用户可读说明：把上游状态码与原文摊开，并给出下一步。
+    /// 以前这里静默降级，用户只看到「没匹配到本地功能」，配错了也无从下手。
+    /// </summary>
+    private static string LlmNotice(LlmStreamException ex, NovaLlmProfile profile)
+    {
+        var name = string.IsNullOrWhiteSpace(profile.Name) ? profile.Model : profile.Name;
+        var status = ex.StatusCode;
+        var why = status > 0
+            ? $"你自己的模型「{name}」这次没能应答（{DescribeLlmFailure(status)}）。"
+            : $"连不上你的模型「{name}」。";
+        var detail = LlmEndpoint.Explain(status, LlmEndpoint.Summarize(ex.ResponseBody), profile.BaseUrl);
+        return $"{why}\n{detail}";
+    }
+
+    private static string DescribeLlmFailure(int status) => status switch
+    {
+        400 => "请求被拒绝",
+        401 or 403 => "Key 无效",
+        404 => "地址不对",
+        429 => "被限流",
+        >= 500 => "上游故障",
+        _ => $"HTTP {status}",
+    };
+
+    /// <summary>
+    /// 云端中转失败的用户可见说明：原因（额度用尽 / 未授权 / 上游故障）+ 下一步能做什么。
+    /// 「额度用尽」还额外说明本地能力不受影响——降级是产品承诺，不是道歉。
+    /// </summary>
+    private static string GatewayNotice(NovaGatewayException ex)
+    {
+        var tail = ex.IsQuotaExceeded
+            ? "本地能力（崩溃排查 / 游戏体检 / 模组冲突 / 资源查找）不受影响，可以直接继续用；也可以在 Nova 页接入自己的模型接着问。"
+            : "可以在 Nova 页查看云端额度与登录状态；换成自己的模型也能继续问。";
+        return ex.Message + "\n" + tail;
+    }
 
     // ── LLM 降级链 · 第 1 级：用户自填 Key（OpenAI 兼容协议，零成本，多模型档案取当前） ──
     private static async Task<string?> UserLlmChatAsync(
         LauncherSettings settings, string message,
         IReadOnlyList<NovaChatTurn>? history, CancellationToken ct, int? maxTokens = null)
     {
-        var profile = settings.ActiveLlmProfile();
-        var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
-        var apiKey = profile?.ApiKey?.Trim();
-        var model = profile?.Model?.Trim();
-        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model))
+        if (UserProfileReady(settings) is not { } profile)
             return null; // 未配置 → 静默降级到下一级
+        var url = LlmEndpoint.ChatUrl(profile.BaseUrl);
+        var apiKey = profile.ApiKey.Trim();
+        var model = profile.Model.Trim();
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(30));
 
-        var messages = new List<object> { new { role = "system", content = SystemPrompt } };
-        if (history is { Count: > 0 })
-            messages.AddRange(history.Select(t => new { t.Role, t.Content }));
-        messages.Add(new { role = "user", content = message });
+        var messages = BuildMessages(message, history);
 
         var http = SharedHttp;
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
-            JsonSerializer.Serialize(new { model, messages, max_tokens = maxTokens }, JsonOpts),
+            OpenAiSseClient.BuildChatRequestJson(model, messages, tools: null, maxTokens, stream: false),
             Encoding.UTF8, "application/json");
         var resp = await http.SendAsync(req, cts.Token);
-        resp.EnsureSuccessStatusCode();
         var json = await resp.Content.ReadAsStringAsync(cts.Token);
+        if (!resp.IsSuccessStatusCode)
+            throw new LlmStreamException(
+                $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {LlmEndpoint.Summarize(json)}",
+                (int)resp.StatusCode, json);
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.GetProperty("choices")[0]
             .GetProperty("message").GetProperty("content").GetString();
     }
 
-    /// <summary>Nova 人格：少折腾多玩会；具体不空谈；确认后执行；不臆造事实；简短回答。</summary>
+    /// <summary>Nova 人格：结论先行；短；具体不空谈；确认后执行；不臆造事实；语气平实。</summary>
     internal const string SystemPrompt =
-        "你是 Nova，Minecraft 启动器 StarCloud 内置的 AI 助手，被允许动手但克制：" +
-        "给方案要具体到数值和步骤，不泛泛而谈；涉及改文件的方案先给确认清单等用户点头；" +
-        "不编造价格、日期和性能数据；回答尽量简短，能一句话说清的不写长篇；" +
-        "语气简短、接地气，用简体中文。";
+        "你是 Nova，Minecraft 启动器 StarCloud 内置的助手，可以在用户确认后执行操作：" +
+        "回答控制在 1~2 句（最多 3 条要点、120 字以内），只有用户明确要「详细步骤 / 清单」时才展开；" +
+        "不复述工具或日志返回的原文，只给结论和下一步；不写「还需要什么帮助吗」这类客套；" +
+        "回答结论先行，给出的方案要具体到文件、数值和步骤，不泛泛而谈；" +
+        "涉及改动文件的方案先列出确认清单等用户确认，不擅自执行；" +
+        "不编造价格、日期和性能数据，不确定就直说；" +
+        "语气平实、专业，像产品内置功能那样说明，不寒暄、不感叹、不用夸张比喻；" +
+        "用简体中文。";
 
     /// <summary>
     /// 向用户自填 Key 的 /chat/completions 发送流式请求，按 SSE 解析 OpenAI 兼容增量。
@@ -853,29 +1057,32 @@ public sealed class NovaService
         IReadOnlyList<NovaChatTurn>? history, [EnumeratorCancellation] CancellationToken ct,
         int? maxTokens = null)
     {
-        var profile = settings.ActiveLlmProfile();
-        var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
-        var apiKey = profile?.ApiKey?.Trim();
-        var model = profile?.Model?.Trim();
-        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model))
+        if (UserProfileReady(settings) is not { } profile)
             yield break;
+        var url = LlmEndpoint.ChatUrl(profile.BaseUrl);
+        var apiKey = profile.ApiKey.Trim();
+        var model = profile.Model.Trim();
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(30));
 
-        var messages = new List<object> { new { role = "system", content = SystemPrompt } };
-        if (history is { Count: > 0 })
-            messages.AddRange(history.Select(t => new { t.Role, t.Content }));
-        messages.Add(new { role = "user", content = message });
+        var messages = BuildMessages(message, history);
 
         var http = SharedHttp;
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
-            JsonSerializer.Serialize(new { model, messages, max_tokens = maxTokens, stream = true }, JsonOpts),
+            OpenAiSseClient.BuildChatRequestJson(model, messages, tools: null, maxTokens, stream: true),
             Encoding.UTF8, "application/json");
         using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            // 失败原因必须能到达用户：带上状态码与上游原文，交给上层翻译成人话
+            var err = await resp.Content.ReadAsStringAsync(cts.Token);
+            throw new LlmStreamException(
+                $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {LlmEndpoint.Summarize(err)}",
+                (int)resp.StatusCode, err);
+        }
 
         await foreach (var evt in OpenAiSseClient.ParseSseResponseAsync(resp, cts.Token))
         {
@@ -886,30 +1093,121 @@ public sealed class NovaService
     // ── Agent 循环 · LLM 通道（带 tools 的流式调用） ──
 
     /// <summary>
-    /// Agent 循环的一次流式调用：用户自填 Key（OpenAI 兼容 /chat/completions，原生支持 tools）。
-    /// 未配置用户模型时零事件返回，调用方回退纯文本链（本地兜底）。
+    /// Agent 循环的一次流式调用：用户自填 Key（OpenAI 兼容 tools）→ Starcloud 云端中转。
+    /// 通道按序尝试，前一个在产出任何事件之前失败就安静换下一个；
+    /// 全部不可用时零事件返回，调用方回退纯文本链（本地兜底）。
     /// </summary>
     internal async IAsyncEnumerable<SseEvent> AgentLlmStreamAsync(
         IReadOnlyList<object> messages, string toolsJson,
         int? maxTokens, LauncherSettings settings,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // 用户自填 Key 通道（OpenAI 兼容 /chat/completions + tools）
-        var profile = settings.ActiveLlmProfile();
-        var baseUrl = profile?.BaseUrl?.Trim().TrimEnd('/');
-        var apiKey = profile?.ApiKey?.Trim();
-        var model = profile?.Model?.Trim();
-        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(model))
-            yield break; // 未配置用户模型 → 零事件，上层回退纯文本链
-
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linked.CancelAfter(TimeSpan.FromSeconds(120)); // 工具轮往返更长，放宽到 2 分钟
-        var userHttp = SharedHttp;
-        await foreach (var evt in OpenAiSseClient.StreamChatAsync(
-            userHttp, $"{baseUrl}/chat/completions", apiKey, model,
-            messages, JsonSerializer.Deserialize<JsonElement>(toolsJson), maxTokens, linked.Token))
+
+        var tools = JsonSerializer.Deserialize<JsonElement>(toolsJson);
+        var channels = new List<IAsyncEnumerable<SseEvent>>();
+        if (UserProfileReady(settings) is { } profile)
+            channels.Add(UserAgentChannelAsync(profile, messages, tools, maxTokens, linked.Token));
+        if (GatewayKey(settings) is { } gatewayKey)
+            channels.Add(NovaGatewayClient.StreamChatAsync(
+                gatewayKey, messages, tools, NovaGatewayClient.DefaultModel, maxTokens, linked.Token));
+
+        var channelIndex = 0;
+        foreach (var channel in channels)
         {
-            yield return evt;
+            var produced = false;
+            var label = channelIndex++ == 0 && UserProfileReady(settings) is not null ? "自接模型" : "云端中转";
+            await using var en = channel.GetAsyncEnumerator(linked.Token);
+            while (true)
+            {
+                bool has;
+                try { has = await en.MoveNextAsync(); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { break; } // 本轮超时 → 换下一级
+                catch (OperationCanceledException) { throw; }                                    // 用户取消 → 上抛
+                catch (Exception ex) when (!produced) // 这个通道打不通（离线 / 无额度 / Key 失效）→ 试下一级
+                {
+                    LauncherLog.Write("nova", $"{label}通道失败（本轮尚无内容）：{Describe(ex)}");
+                    break;
+                }
+                if (!has) break;
+                produced = true;
+                yield return en.Current;
+            }
+            if (produced) yield break; // 已经出过内容，本轮不再换通道
         }
     }
+
+    /// <summary>
+    /// 自接模型通道（Agent 工具轮）：先按标准 OpenAI 形状发（带 tools）；
+    /// 上游用 400 拒掉请求体时（不少中转 / 本地服务会拒 tools 或直接嫌身体太大），
+    /// 自动去掉 tools 再发一次——宁可这一轮没有工具，也要先让用户拿到回答。
+    /// 每次失败都写进启动器日志（状态码 + 上游原文），否则用户只看到「400」无从下手。
+    /// </summary>
+    private async IAsyncEnumerable<SseEvent> UserAgentChannelAsync(
+        NovaLlmProfile profile, IReadOnlyList<object> messages, JsonElement tools,
+        int? maxTokens, [EnumeratorCancellation] CancellationToken ct)
+    {
+        var url = LlmEndpoint.ChatUrl(profile.BaseUrl);
+        var key = profile.ApiKey.Trim();
+        var model = profile.Model.Trim();
+
+        // ① 标准形状：带 tools
+        var produced = false;
+        Exception? failure = null;
+        await using (var en = OpenAiSseClient
+            .StreamChatAsync(SharedHttp, url, key, model, messages, tools, maxTokens, ct)
+            .GetAsyncEnumerator(ct))
+        {
+            while (true)
+            {
+                bool has;
+                try { has = await en.MoveNextAsync(); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { failure = ex; break; }
+                if (!has) break;
+                produced = true;
+                yield return en.Current;
+            }
+        }
+        if (produced) yield break;
+
+        // ② 400 = 上游不接受这个请求体（不认 tools / 身体太大 / 字段太新）→ 去掉 tools 再发一次
+        if (failure is LlmStreamException { StatusCode: 400 })
+        {
+            LauncherLog.Write("nova",
+                $"自接模型「{model}」带工具请求被拒（{Describe(failure)}），去掉工具重试一次");
+            await using var plain = OpenAiSseClient
+                .StreamChatAsync(SharedHttp, url, key, model, messages, tools: null, maxTokens, ct)
+                .GetAsyncEnumerator(ct);
+            while (true)
+            {
+                bool has;
+                try { has = await plain.MoveNextAsync(); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    // 重试也没成 → 抛第一次的 400：那才是最接近真相的原因
+                    LauncherLog.Write("nova", $"自接模型「{model}」去掉工具重试仍失败：{Describe(ex)}");
+                    throw failure;
+                }
+                if (!has) break;
+                produced = true;
+                yield return plain.Current;
+            }
+            yield break;
+        }
+
+        if (failure is not null)
+        {
+            LauncherLog.Write("nova", $"自接模型「{model}」调用失败：{Describe(failure)}");
+            throw failure;
+        }
+    }
+
+    private static string Describe(Exception ex) => ex switch
+    {
+        LlmStreamException s => $"HTTP {s.StatusCode} {LlmEndpoint.Summarize(s.ResponseBody)}",
+        _ => ex.Message,
+    };
 }

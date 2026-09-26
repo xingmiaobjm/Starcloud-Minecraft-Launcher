@@ -7,6 +7,7 @@
 // 不经过 UI 线程排版，列表滚动或数据回填时不会互相打架。
 
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -32,23 +33,48 @@ public static class MotionFx
     private static readonly Vector2 ExitControl1 = new(0.7f, 0f);
     private static readonly Vector2 ExitControl2 = new(1f, 0.5f);
 
-    /// <summary>默认入场时长（Fluent：中小表面 250ms 一档）</summary>
-    public const int EnterMs = 250;
+    /// <summary>
+    /// 全局动效节奏系数：项目刻意比 Fluent 标准档再从容一档（时长整体放大约 1.5 倍）。
+    /// 只放大时长、不改曲线形状——动效语言与缓动形状不变，只是被看见得更充分。
+    /// 零散写死的时长统一走 <see cref="Scale"/>，不要再各自写魔数。
+    /// </summary>
+    private const double Pace = 1.5;
+
+    /// <summary>把某个标准档时长按全局节奏放大</summary>
+    public static int Scale(int ms) => (int)Math.Round(ms * Pace);
+
+    /// <summary>默认入场时长（Fluent：中小表面 250ms 一档，按 <see cref="Pace"/> 放大）</summary>
+    public const int EnterMs = (int)(250 * Pace);
 
     /// <summary>默认退场时长（退场必须比入场快，读起来才利落）</summary>
-    public const int ExitMs = 140;
+    public const int ExitMs = (int)(140 * Pace);
 
     /// <summary>
-    /// 框架 PointerOver 的标准时长。WinUI 3 自己的 <c>VisualTransition</c>／状态切换都取这一档（167ms），
-    /// 拿不准指针反馈该用多久时就对齐它。
+    /// 框架 PointerOver 的基准时长。WinUI 3 自己的 <c>VisualTransition</c>／状态切换取这一档（167ms），
+    /// 拿不准指针反馈该用多久时就对齐它；同样按 <see cref="Pace"/> 放大。
     /// </summary>
-    public const int PointerOverMs = 167;
+    public const int PointerOverMs = (int)(167 * Pace);
 
     /// <summary>指针悬停淡入时长（Fluent Normal 档；比 PointerOverMs 再缓一档，避免"啪一下"亮起来）</summary>
-    public const int HoverFadeInMs = 200;
+    public const int HoverFadeInMs = (int)(200 * Pace);
 
     /// <summary>指针悬停淡出时长（Fluent Slow 档，刻意比淡入长，退出来才有可见的尾迹）</summary>
-    public const int HoverFadeOutMs = 300;
+    public const int HoverFadeOutMs = (int)(300 * Pace);
+
+    /// <summary>折叠区箭头旋转（右 → 下）时长</summary>
+    public const int ChevronMs = (int)(220 * Pace);
+
+    /// <summary>抽屉展开时长：比进场再从容一点，读起来"推出去"更确定</summary>
+    public const int DrawerExpandMs = (int)(280 * Pace);
+
+    /// <summary>抽屉收起时长：比展开快，收得干脆</summary>
+    public const int DrawerCollapseMs = (int)(200 * Pace);
+
+    /// <summary>
+    /// 抽屉收起时的内容淡出时长。<b>必须短于 <see cref="DrawerCollapseMs"/></b>：
+    /// 淡出若晚于高度归零，内容会在还留着残影时被整体移除，看上去就是"收起卡一下"。
+    /// </summary>
+    public const int DrawerFadeMs = (int)(160 * Pace);
 
     /// <summary>
     /// XAML <see cref="Storyboard"/> 用的 Fluent 进场样条（Fast Out, Slow In）。
@@ -74,20 +100,45 @@ public static class MotionFx
         ControlPoint2 = new Point(0.67, 1),
     };
 
+    /// <summary>
+    /// 缓动函数缓存：<c>CreateCubicBezierEasingFunction</c> 每次调用都会新建一个合成对象，
+    /// 而缓动本身是不可变的、可以跨动画复用。悬停、列表入场这些路径每帧都可能取一次，
+    /// 原先每次都新建，纯属给合成线程添垃圾；这里按 Compositor 各存一份。
+    /// </summary>
+    private static readonly ConditionalWeakTable<Compositor, Eases> EaseCache = new();
+
+    private sealed class Eases
+    {
+        public CompositionEasingFunction? Enter;
+        public CompositionEasingFunction? Exit;
+        public CompositionEasingFunction? Control;
+        public CompositionEasingFunction? Fade;
+    }
+
     /// <summary>合成层 Fluent 进场缓动（Fast Out, Slow In）。</summary>
-    public static CompositionEasingFunction EnterEase(Compositor compositor) =>
-        compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
+    public static CompositionEasingFunction EnterEase(Compositor compositor)
+    {
+        var eases = EaseCache.GetOrCreateValue(compositor);
+        return eases.Enter ??= compositor.CreateCubicBezierEasingFunction(EnterControl1, EnterControl2);
+    }
 
     /// <summary>合成层 Fluent 退场缓动（Slow Out, Fast In）。</summary>
-    public static CompositionEasingFunction ExitEase(Compositor compositor) =>
-        compositor.CreateCubicBezierEasingFunction(ExitControl1, ExitControl2);
+    public static CompositionEasingFunction ExitEase(Compositor compositor)
+    {
+        var eases = EaseCache.GetOrCreateValue(compositor);
+        return eases.Exit ??= compositor.CreateCubicBezierEasingFunction(ExitControl1, ExitControl2);
+    }
 
     /// <summary>
     /// 合成层 Fluent 控件缓动（ControlFastOutSlowIn，<c>(0.16,1)/(0.3,1)</c>）：
     /// 用于小控件、指示器这类"要比表面更快收尾"的位移。
     /// </summary>
-    public static CompositionEasingFunction ControlEase(Compositor compositor) =>
-        compositor.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+    public static CompositionEasingFunction ControlEase(Compositor compositor)
+    {
+        var eases = EaseCache.GetOrCreateValue(compositor);
+        return eases.Control ??= compositor.CreateCubicBezierEasingFunction(
+            new Vector2(0.16f, 1f), new Vector2(0.3f, 1f));
+    }
 
     /// <summary>
     /// 纯明暗交叉淡入淡出用的缓动：匀称的缓入缓出，中途斜率最大。
@@ -95,8 +146,12 @@ public static class MotionFx
     /// <b>纯明暗渐变</b>上会退化成"啪一下没了"——这正是悬停阴影显得生硬的原因；
     /// 匀称淡出才能让整个淡出过程被看见。内容进出场仍用 EnterEase/ExitEase。</para>
     /// </summary>
-    public static CompositionEasingFunction FadeEase(Compositor compositor) =>
-        compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 0f), new Vector2(0.67f, 1f));
+    public static CompositionEasingFunction FadeEase(Compositor compositor)
+    {
+        var eases = EaseCache.GetOrCreateValue(compositor);
+        return eases.Fade ??= compositor.CreateCubicBezierEasingFunction(
+            new Vector2(0.33f, 0f), new Vector2(0.67f, 1f));
+    }
 
     /// <summary>
     /// 淡入 + 位移到位。
@@ -227,7 +282,7 @@ public static class MotionFx
 
     /// <summary>列表错峰入场：第 i 项延迟 = min(i, <paramref name="maxStagger"/>) × <paramref name="stepMs"/></summary>
     public static void StaggerIn(FrameworkElement element, int index,
-        int stepMs = 26, int maxStagger = 9, float fromY = 18f)
+        int stepMs = (int)(26 * Pace), int maxStagger = 9, float fromY = 18f)
     {
         var step = Math.Clamp(index, 0, maxStagger) * stepMs;
         FadeSlideIn(element, fromY, EnterMs, step);

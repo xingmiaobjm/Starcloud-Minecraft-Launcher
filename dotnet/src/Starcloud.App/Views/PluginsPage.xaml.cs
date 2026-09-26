@@ -1,14 +1,15 @@
 // 插件管理页（plugin-spec.md）：安装 / 启停（免责确认）/ 卸载 / 面板入口。
 // 免责提示为强制流程：第三方未验证插件启用前必须用户手动确认（规范 §4）。
 
-using System.Collections.ObjectModel;
-using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Dialogs;
 using Starcloud.Core.Plugins;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 
 namespace Starcloud.App.Views;
 

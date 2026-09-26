@@ -35,6 +35,27 @@ public sealed record SseEvent(
 public sealed record CompletedToolCall(string Id, string Name, string Arguments);
 
 /// <summary>
+/// 一条对话消息（OpenAI 协议字段名写死在小写）。
+/// 之前历史轮是用匿名类型 <c>new { t.Role, t.Content }</c> 拼的，序列化出来是 "Role"/"Content"，
+/// 真实服务端大小写敏感 → 一律 400；改成显式类型后 builder 不会再漂。
+/// </summary>
+public sealed record ChatMessage(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("tool_call_id")] string? ToolCallId = null,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<ChatToolCall>? ToolCalls = null);
+
+/// <summary>assistant 轮里的一次工具调用（OpenAI 协议形状）</summary>
+public sealed record ChatToolCall(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("function")] ChatToolCallFunction Function);
+
+public sealed record ChatToolCallFunction(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("arguments")] string Arguments);
+
+/// <summary>
 /// 按 index 累积流式 tool_calls 增量：OpenAI 会把一次调用的 arguments 分多片发送，
 /// 必须按 index 拼接后才是完整 JSON。
 /// </summary>
@@ -67,16 +88,43 @@ public sealed class ToolCallAccumulator
     public bool IsEmpty => _parts.Count == 0;
 }
 
-/// <summary>LLM 流式请求失败（含响应体片段，便于诊断）</summary>
-public sealed class LlmStreamException(string message) : Exception(message);
+/// <summary>
+/// 自接模型的请求失败：message 含状态码与响应片段，另附结构化字段供 UI 解释。
+/// <see cref="StatusCode"/> = 0 表示请求没连上（地址 / 端口 / 服务未启动）。
+/// </summary>
+public sealed class LlmStreamException(string message, int statusCode = 0, string? responseBody = null)
+    : Exception(message)
+{
+    public int StatusCode { get; } = statusCode;
+    public string ResponseBody { get; } = responseBody ?? "";
+}
 
 public static class OpenAiSseClient
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // 兜底：即使以后有人塞进 PascalCase 的匿名对象，也会被压成 snake_case（Content → content），
+        // 不再变成服务端的 400。ChatMessage 上的 JsonPropertyName 优先于此策略。
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+
+    /// <summary>
+    /// 唯一的对话请求体构造入口：<c>{model, messages, tools?, max_tokens?, stream?}</c>。
+    /// 三条通道（自填 Key 流式 / 非流式 / 云端中转）共用，字段名只在这里定义一次。
+    /// </summary>
+    public static string BuildChatRequestJson(
+        string model, IReadOnlyList<object> messages, object? tools = null,
+        int? maxTokens = null, bool stream = true) =>
+        JsonSerializer.Serialize(new
+        {
+            model,
+            messages,
+            tools,
+            max_tokens = maxTokens,
+            stream = stream ? true : (bool?)null,
+        }, JsonOpts);
 
     /// <summary>
     /// OpenAI 兼容流式对话：<c>POST {url}</c>，body = {model, messages, tools?, stream:true}。
@@ -89,14 +137,15 @@ public static class OpenAiSseClient
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        var body = JsonSerializer.Serialize(
-            new { model, messages, tools, max_tokens = maxTokens, stream = true }, JsonOpts);
+        var body = BuildChatRequestJson(model, messages, tools, maxTokens, stream: true);
         req.Content = new StringContent(body, Encoding.UTF8, "application/json");
         using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!resp.IsSuccessStatusCode)
         {
             var err = await resp.Content.ReadAsStringAsync(ct);
-            throw new LlmStreamException($"HTTP {(int)resp.StatusCode}: {Truncate(err)}");
+            throw new LlmStreamException(
+                $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {Truncate(err)}",
+                (int)resp.StatusCode, err);
         }
         await foreach (var evt in ParseSseResponseAsync(resp, ct))
             yield return evt;
@@ -125,7 +174,10 @@ public static class OpenAiSseClient
         while (await reader.ReadLineAsync(ct) is { } line)
         {
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:")) continue;
-            var data = line.Length > 5 && line[4] == ' ' ? line[5..] : line[4..];
+            // "data: {...}" → 取下标 6；"data:{...}" → 取下标 5。
+            // 原来写的是 line[4] == ' '（下标 4 恒为 ':'），于是 data 一直带着前导冒号，
+            // JSON 解析次次失败被 catch 吞掉 —— 流式通道实际一条事件都没产出过。
+            var data = (line.StartsWith("data: ", StringComparison.Ordinal) ? line[6..] : line[5..]).Trim();
             if (data == "[DONE]") yield break;
             SseEvent? evt = null;
             try

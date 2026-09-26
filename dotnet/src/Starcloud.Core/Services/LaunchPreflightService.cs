@@ -79,9 +79,11 @@ public sealed class LaunchPreflightService
         // 客户端 jar
         if (version.Downloads?.Client is { Url: not "" } client)
         {
-            var jarPath = _installer.VersionJarPath(dotMinecraft, versionId);
-            if (!await Sha1MatchesAsync(jarPath, client.Sha1, ct))
-                report.Issues.Add(new PreflightIssue("jar", jarPath, null));
+            // 与启动器同口径：实例目录同名 jar 优先，其次目录内客户端 jar、JSON id 兜底
+            var jarPath = GameLauncher.ResolveClientJar(dotMinecraft, versionId, version.Id);
+            if (jarPath is null || !await Sha1MatchesAsync(jarPath, client.Sha1, ct))
+                report.Issues.Add(new PreflightIssue("jar",
+                    _installer.VersionJarPath(dotMinecraft, versionId), null));
         }
 
         // 库 + natives（与安装器同口径：规则过滤、有下载信息才检查）

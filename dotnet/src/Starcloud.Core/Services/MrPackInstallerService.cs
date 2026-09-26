@@ -49,10 +49,13 @@ public sealed class MrPackInstallerService
             var index = JsonSerializer.Deserialize<MrPackIndex>(File.ReadAllText(indexPath), JsonOpts)
                         ?? throw new InvalidOperationException("modrinth.index.json 解析失败");
 
-            var overridesDir = Path.Combine(tempDir, "overrides");
-            var overrideCount = Directory.Exists(overridesDir)
-                ? Directory.EnumerateFiles(overridesDir, "*", SearchOption.AllDirectories).Count()
-                : 0;
+            var overrideCount = 0;
+            foreach (var name in new[] { "overrides", "client-overrides" })
+            {
+                var dir = Path.Combine(tempDir, name);
+                if (Directory.Exists(dir))
+                    overrideCount += Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
+            }
 
             return new MrPackPackageInfo(
                 string.IsNullOrWhiteSpace(index.Name) ? Path.GetFileNameWithoutExtension(mrpackPath) : index.Name,
@@ -95,13 +98,17 @@ public sealed class MrPackInstallerService
             // 1. 批量下载声明的文件（mod / resourcepack / shader 等，按 index 相对路径落位）
             var files = (IReadOnlyList<MrPackFile>)index.Files
                 .Where(f => f.Downloads.Count > 0).ToList();
-            var batch = files
-                .Select(f => (
-                    Url: f.Downloads[0],
-                    Dest: Path.Combine(dotMc, f.Path.Replace('/', Path.DirectorySeparatorChar)),
-                    Sha1: f.Hashes?.Sha1,
-                    Size: f.Size))
-                .ToList();
+            var batch = new List<(string Url, string Dest, string? Sha1, long Size)>(files.Count);
+            foreach (var f in files)
+            {
+                // index 里的 path 是包内作者可写的字段，必须先过路径安全再落盘
+                if (PackPathGuard.Resolve(dotMc, f.Path) is not { } dest)
+                {
+                    LauncherLog.Write("mrpack", $"跳过非法路径条目：{f.Path}");
+                    continue;
+                }
+                batch.Add((f.Downloads[0], dest, f.Hashes?.Sha1, f.Size));
+            }
             if (batch.Count > 0)
             {
                 status?.Report($"正在下载整合包文件（{batch.Count} 个）…");
@@ -109,12 +116,13 @@ public sealed class MrPackInstallerService
                     settings.DownloadConcurrency, settings.DownloadMaxRetries, progress, ct);
             }
 
-            // 2. overrides/ 目录内容覆盖到实例根
-            var overridesDir = Path.Combine(tempDir, "overrides");
-            if (Directory.Exists(overridesDir))
+            // 2. overrides/ 与 client-overrides/ 覆盖到实例根（客户端专用覆盖后写，优先级更高）
+            foreach (var name in new[] { "overrides", "client-overrides" })
             {
-                status?.Report("正在应用 overrides…");
-                CopyDirectory(overridesDir, dotMc);
+                var dir = Path.Combine(tempDir, name);
+                if (!Directory.Exists(dir)) continue;
+                status?.Report($"正在应用 {name}…");
+                CopyDirectory(dir, dotMc);
             }
 
             return new MrPackInstallResult(
@@ -127,13 +135,23 @@ public sealed class MrPackInstallerService
         }
     }
 
+    /// <summary>递归复制目录内容；逐条过路径安全，非法条目跳过（防归档内的越界相对路径）</summary>
     private static void CopyDirectory(string src, string dst)
     {
         foreach (var dir in Directory.EnumerateDirectories(src, "*", SearchOption.AllDirectories))
-            Directory.CreateDirectory(Path.Combine(dst, Path.GetRelativePath(src, dir)));
+        {
+            var rel = Path.GetRelativePath(src, dir);
+            if (PackPathGuard.Resolve(dst, rel) is { } target) Directory.CreateDirectory(target);
+            else LauncherLog.Write("mrpack", $"跳过非法目录：{rel}");
+        }
         foreach (var file in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
         {
-            var dest = Path.Combine(dst, Path.GetRelativePath(src, file));
+            var rel = Path.GetRelativePath(src, file);
+            if (PackPathGuard.Resolve(dst, rel) is not { } dest)
+            {
+                LauncherLog.Write("mrpack", $"跳过非法文件：{rel}");
+                continue;
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
             File.Copy(file, dest, overwrite: true);
         }

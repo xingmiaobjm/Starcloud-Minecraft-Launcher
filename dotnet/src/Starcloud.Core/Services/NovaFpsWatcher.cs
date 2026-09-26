@@ -209,7 +209,7 @@ public sealed class NovaFpsWatcher : IDisposable
     public void Dispose() => Stop();
 }
 
-/// <summary>PDH P/Invoke（仅本文件内使用）。所有失败静默返回 false/null，由上层降级。</summary>
+/// <summary>PDH P/Invoke（同程序集 internal，供 NovaFpsWatcher 与 ProcessSampler 共用）。所有失败静默返回 false/null，由上层降级。</summary>
 internal static class PdhNative
 {
     private const int PDH_MORE_DATA = unchecked((int)0x800007D2);

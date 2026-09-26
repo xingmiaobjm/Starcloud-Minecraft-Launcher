@@ -293,4 +293,50 @@ public class SkinRenderingTests
         Assert.True(Opaque(head) > 0);
         Assert.True(Opaque(head) < Opaque(full), "只画头应该比整身像素少");
     }
+
+    [Fact]
+    public void 渲染_轮廓边缘只采面片自己的纹素()
+    {
+        // 回归：轮廓边缘会被"保守填充"（三角形外半像素也着色），插值出的 UV 会越过面片
+        // 矩形。修之前那些像素直接采到图集里相邻部件的纹素，模型边缘因此出现一条杂色
+        // 描边（读到 alpha=0 时还断成虚线）。
+        //
+        // 造一块"陷阱皮肤"：全图填洋红，再把所有面片的 UV 矩形涂绿 ——
+        // 输出里只要出现洋红，就说明采样跑出了面片矩形。
+        const int size = 64;
+        var rgba = new byte[size * size * 4];
+        for (var i = 0; i < size * size; i++)
+        {
+            rgba[i * 4] = 255; rgba[i * 4 + 1] = 0; rgba[i * 4 + 2] = 255; rgba[i * 4 + 3] = 255;
+        }
+
+        // 每个面片（含覆盖层）的矩形都涂成绿色。纹理与 SkinBitmap 共用同一个数组，
+        // 所以先建模型枚举面片、再改颜色即可。
+        var model = new SkinModel(new SkinBitmap(size, size, rgba), slim: false);
+        foreach (var cube in model.Cubes)
+            foreach (var face in cube.Faces)
+                for (var y = face.Y; y < face.Bottom; y++)
+                    for (var x = face.X; x < face.Right; x++)
+                    {
+                        var o = (y * size + x) * 4;
+                        rgba[o] = 0; rgba[o + 1] = 255; rgba[o + 2] = 0;
+                    }
+
+        foreach (var (yaw, pitch) in new[] { (24.0, 6.0), (0.0, 0.0), (-40.0, 25.0), (100.0, -30.0) })
+        {
+            var frame = SkinRenderer.Render(
+                model, new RenderOptions(new Camera(yaw, pitch, 96.0 / 1.4)), 300, 600);
+
+            for (var y = 0; y < frame.Height; y++)
+                for (var x = 0; x < frame.Width; x++)
+                {
+                    var o = (y * frame.Width + x) * 4;
+                    var a = frame.Bgra[o + 3];
+                    if (a == 0) continue;
+                    var b = frame.Bgra[o]; var g = frame.Bgra[o + 1]; var r = frame.Bgra[o + 2];
+                    Assert.False(r > a / 2 && b > a / 2 && g < a / 2,
+                        $"yaw={yaw} pitch={pitch} 的 ({x},{y}) 采到了面片 UV 之外的纹素");
+                }
+        }
+    }
 }

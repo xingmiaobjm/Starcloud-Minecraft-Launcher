@@ -63,12 +63,15 @@ launcher 自身解析（非依赖第三方下载器），微软 OAuth 设备码�
 - 功能：原版版本安装/删除、Fabric / Quilt / Forge / NeoForge 安装、微软设备码登录、
   第三方登录（authlib-injector / Yggdrasil）、游戏启动与防双开、调度中心（全局任务进度）、
   插件系统（`.mclplug`：启动参数扩展与插件面板）、存档跨版本管理与复制启动、
-  Nova 助手（Starcloud ID 登录、多服务商模型接入、游戏记录记忆、动手许可层与流水）、
+  联机（陶瓦联机 Terracotta，含第三方联机 SDK 清单接入）、
+  社区资源（Modrinth + CurseForge 双来源：搜索 / 文件 / 整合包）、
+  Nova 助手（Starcloud ID 登录、多服务商模型接入、游戏记录记忆、许可层与操作日志）、
   设置（游戏目录/内存/Java/下载并发/主题）、启动器日志
 - 约束：仅 Windows x64；鉴权令牌只存内存不落盘，每次应用会话首次启动游戏时
   需重新登录（微软设备码 / 第三方密码）；启动器与核心逻辑同进程直接调用（无 IPC）
 - 未决：OptiFine 未接入（原版 / Fabric / Quilt / Forge / NeoForge 已支持）；
-  陶瓦联机（Terracotta）为旧 Tauri 架构特性，.NET 版暂未实现；
+  联机已支持陶瓦联机（Terracotta，官方包原样运行 + 本地 HTTP 控制面）与第三方联机 SDK 清单，
+  但房主侧仍需游戏内先「对局域网开放」；
   跨平台版（`crossplatform/`）POC 已过，三平台 CI 冒烟待跑通
 
 ## Brand Commitments

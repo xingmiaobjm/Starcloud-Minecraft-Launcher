@@ -67,6 +67,13 @@
 | JVM 参数构建 | < 1ms | ~50ns |
 | 进程启动 | < 3s | ~1-2s |
 | 缓存命中延时 | < 1μs | LruCache O(1) |
+| 运行态采样 | < 1ms / 次 | ~0.1-0.3ms (1s 心跳) |
+
+运行态监控（`GameRuntimeMonitor`）默认 **1s** 心跳，每次只读本进程几项计数
+（`WorkingSet64` / `PeakWorkingSet64` / `Threads.Count` / `TotalProcessorTime` 差分），
+不枚举全机器进程；GPU 走 PDH `\GPU Engine(pid_*)\Utilization Percentage`，
+口径与 `NovaFpsWatcher.SampleGpuPercent` 一致，连续 2 次失败即判死本局不再尝试。
+采样间隔可在运行状态页改为 2s / 5s，事件在后台线程触发。
 
 ### 3.3 缓存命中率
 

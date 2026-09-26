@@ -5,6 +5,7 @@
     x:Class="Starcloud.App.Views.PluginPanelPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     NavigationCacheMode="Disabled">
@@ -18,8 +19,8 @@
 
         <!-- 页头：返回 + 标题 -->
         <StackPanel Orientation="Horizontal" Spacing="10">
-            <Button loc:Loc.Text="返回" Click="Back_Click" Padding="12,5" />
-            <TextBlock x:Name="PanelTitle" FontSize="24" FontWeight="SemiBold"
+            <ctrl:GlowButton loc:Loc.Text="返回" Click="Back_Click" Padding="12,5" />
+            <TextBlock x:Name="PanelTitle" FontSize="24" FontWeight="Medium"
                        VerticalAlignment="Center" TextWrapping="Wrap" />
         </StackPanel>
 

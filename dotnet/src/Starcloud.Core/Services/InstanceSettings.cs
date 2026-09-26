@@ -405,6 +405,14 @@ public static class InstanceLayout
         try
         {
             if (JsonNode.Parse(File.ReadAllText(jsonFile)) is not JsonObject obj) return;
+            // 改名会把 id 换成用户起的名字，原版版本号就丢了（整合包实例没有 inheritsFrom，
+            // 之后没法再知道它是哪个 MC 版本）。改之前先把原版号记在旁边的字段里，留给
+            // InstanceVersion 用：搜资源按版本筛、推荐整合包、判断加载器都靠它。
+            var baseVersion = obj["starcloudBaseVersion"]?.GetValue<string>();
+            baseVersion = GameVersionFilter.OrNull(baseVersion)
+                ?? GameVersionFilter.OrNull(obj["inheritsFrom"]?.GetValue<string>())
+                ?? GameVersionFilter.OrNull(obj["id"]?.GetValue<string>());
+            if (baseVersion is not null) obj["starcloudBaseVersion"] = baseVersion;
             obj["id"] = newId;
             File.WriteAllText(jsonFile, obj.ToJsonString(new JsonSerializerOptions
             {

@@ -44,6 +44,11 @@ dotnet run --project dotnet/src/Starcloud.App
 dotnet/src/Starcloud.App/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Starcloud.App.exe
 ```
 
+> **XAML 全量编译需要 MSVC 工具链**：`obj/` 被清掉后重新编译时，Windows App SDK 的
+> XAML 编译器会去 `<VS 安装根>\VC\Tools\MSVC` 找 `vcmeta.dll`；若该 VS 没装 C++ 组件
+> （报 `GetLatestMSVCVersion 任务意外失败`），显式指定一个装了 C++ 工具的目录即可：
+> `dotnet build dotnet/src/Starcloud.App -p:VCToolsInstallDir="C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\"`
+
 ## 目录结构
 
 ```
@@ -57,7 +62,13 @@ dotnet/src/Starcloud.App/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Starcloud.
 │   │   └── Starcloud.App/         # WinUI 3 桌面应用
 │   │       ├── MainWindow.xaml(.cs)       # 亚克力窗口 + NavigationView 壳 + 调度中心抽屉
 │   │       ├── Services/                  # AppServices 单例容器、插件服务、Nova 运行时
-│   │       └── Views/                     # 首页/版本/存档/下载/账户/插件/Nova/设置/日志 等页面
+│   │       └── Views/                     # 页面（首页/版本/存档/下载/账户/插件/Nova/设置/日志…）
+│   │           ├── Behaviors/             # 附加属性行为（悬停光斑/抬升/缩放/抽屉展开）
+│   │           ├── Controls/              # 自绘控件（空状态、Nova 对话、3D 皮肤形象）
+│   │           ├── Dialogs/               # 对话框（登录/整合包/崩溃/自更新/主题基类）
+│   │           ├── Overlays/              # 独立浮窗（Nova 浮窗）
+│   │           ├── Rows/                  # 列表行模型 + 版本类型/图标判定
+│   │           └── Shared/                # 页面共用小工具（版本操作、远程图标、窗口背景）
 │   └── tests/Starcloud.Core.Tests/        # Core 单元与集成测试（xUnit）
 ├── crossplatform/                 # 跨平台版（Uno Platform：macOS / Linux / Windows）
 │   ├── Starcloud.Cross.slnx
@@ -66,7 +77,7 @@ dotnet/src/Starcloud.App/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Starcloud.
 ├── legacy/                        # [旧] Rust + Tauri + Preact 实现（仅参考）
 ├── docs/                          # 架构 / API / 用户手册 / 插件规范
 ├── tools/                         # 打包与本地化脚本（build-installer.ps1 等）
-└── examples/plugins/hello-panel/  # 插件示例（.mclplug）
+└── examples/plugins/             # 插件示例（.mclplug）：hello-panel / instance-report
 ```
 
 ## 文档

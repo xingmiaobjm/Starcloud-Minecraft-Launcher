@@ -1,0 +1,6 @@
+0.3.1
+- Search translation: Chinese queries are translated to English in the background (built-in dictionary -> MC Mod Wiki -> machine translation, cached locally; the effective query is shown after searching).
+- CurseForge added as a resource source: search, project details and modpack installs, one-click switch next to Modrinth.
+- Multiplayer: built-in Terracotta plus a third-party SDK manifest list; the page is collapsed/paginated. The core is downloaded on first use and never bundled.
+- Branding: launcher title bar, taskbar and installer icons are now the Starcloud mark; dark theme accent switched to the same brand yellow as light.
+- UI and performance: view folders reorganised, download/settings pages rebuilt, hover shadow on light buttons, motion and list rendering tuned.

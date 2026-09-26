@@ -28,7 +28,7 @@ public sealed class NovaPermissionStore
     /// <summary>查询某档开关状态（默认关闭）</summary>
     public bool IsOn(string key) => _state.TryGetValue(key, out var p) && p.Enabled;
 
-    /// <summary>设置开关状态（UI 侧必须先弹确认清单再调用）；写一条许可流水</summary>
+    /// <summary>设置开关状态（UI 侧必须先弹确认清单再调用）；写一条许可记录</summary>
     public async Task SetAsync(string key, bool on, NovaActionLog log, CancellationToken ct = default)
     {
         _state[key] = new NovaPermission(key, on, on ? DateTime.Now : null);
@@ -42,7 +42,7 @@ public sealed class NovaPermissionStore
         log.Append(new NovaActionEntry(
             Guid.NewGuid().ToString("N")[..12], DateTime.Now, "permission",
             $"{title} 开关「{(on ? "开启" : "关闭")}」",
-            on ? "已授权" : "已撤销", "动手许可层状态变更"));
+            on ? "已授权" : "已撤销", "许可层状态变更"));
     }
 
     /// <summary>开关的展示名与边界说明（越界即停）</summary>
@@ -69,7 +69,7 @@ public sealed class NovaPermissionStore
     }
 }
 
-/// <summary>一条动手流水（可审计：何时/类别/做了什么/结果）</summary>
+/// <summary>一条操作日志（可审计：何时/类别/做了什么/结果）</summary>
 public sealed record NovaActionEntry(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("time")] DateTime Time,
@@ -81,7 +81,7 @@ public sealed record NovaActionEntry(
     public string TimeText => Time.ToString("MM-dd HH:mm");
 }
 
-/// <summary>动手流水日志（%APPDATA%/starcloud-launcher/nova.actions.json，保留最近 200 条）</summary>
+/// <summary>操作日志（%APPDATA%/starcloud-launcher/nova.actions.json，保留最近 200 条）</summary>
 public sealed class NovaActionLog
 {
     private const int MaxEntries = 200;
@@ -94,7 +94,7 @@ public sealed class NovaActionLog
     public IReadOnlyList<NovaActionEntry> Entries =>
         _entries.OrderByDescending(e => e.Time).ToList();
 
-    /// <summary>记录一条流水并落盘（失败静默：审计不可用时不得阻断正常流程）</summary>
+    /// <summary>记录一条日志并落盘（失败静默：审计不可用时不得阻断正常流程）</summary>
     public void Append(NovaActionEntry entry)
     {
         _entries.Add(entry);
@@ -107,7 +107,7 @@ public sealed class NovaActionLog
         catch { /* 审计落盘失败不阻断 */ }
     }
 
-    /// <summary>确认清单确认 → 执行 → 记流水；返回给用户看的结果摘要。</summary>
+    /// <summary>确认清单确认 → 执行 → 记日志；返回给用户看的结果摘要。</summary>
     public async Task<string> ExecuteConfirmedAsync(
         NovaPlan plan, CancellationToken ct = default)
     {
@@ -126,7 +126,7 @@ public sealed class NovaActionLog
         }
     }
 
-    /// <summary>确认清单被取消 → 记流水</summary>
+    /// <summary>确认清单被取消 → 记日志</summary>
     public void LogCancelled(NovaPlan plan) =>
         Append(new NovaActionEntry(plan.Id, DateTime.Now, "plan",
             plan.Title, "已取消", "用户在确认清单上点了取消"));

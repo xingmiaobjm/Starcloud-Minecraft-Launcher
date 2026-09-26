@@ -9,13 +9,14 @@
 // 时刻联动（NovaMomentsService）：游戏启动且「录屏」许可开启 → StartSession + 5 秒观察循环 + 自动录屏；
 // 命中高光 → CandidateProposed → 全局消息流追加候选卡（克制：一句话 + 一个按钮），点头才转正。
 
-using System.Collections.ObjectModel;
-using System.ComponentModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
+using Starcloud.App.Views.Overlays;
 using Starcloud.Core.Services;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 
 namespace Starcloud.App.Services;
 
@@ -50,8 +51,11 @@ public sealed class NovaRuntime
 
     public event Action<NovaState>? StateChanged;
 
-    /// <summary>动手流水变化（确认执行 / 取消 / 授权开关）→ Nova 页右栏刷新</summary>
+    /// <summary>操作日志变化（确认执行 / 取消 / 授权开关）→ Nova 页右栏刷新</summary>
     public event Action? LogChanged;
+
+    /// <summary>某条消息的正文被追加（流式增量）→ 对话视图把视口贴到底部</summary>
+    public event Action<NovaChatMessage>? MessageUpdated;
 
     /// <summary>「问 Nova」上下文注入：带一句话进输入框（页面 / 面板 / 底部条各自接）</summary>
     public event Action<string>? InputRequested;
@@ -86,7 +90,6 @@ public sealed class NovaRuntime
         }
         _observeTimer = timer;
 
-        if (_s.StarcloudId.IsLoggedIn) EnsureGreeting();
         RefreshState(); // 按已有会话初始化状态：否则冷启动时 Orb 面板会一直显示未登录引导
     }
 
@@ -151,6 +154,7 @@ public sealed class NovaRuntime
         if (!echoUser) Messages.RemoveAt(Messages.Count - 1); // 隐藏指令：进历史但不显示气泡
 
         var msg = new NovaChatMessage("assistant", "", Now());
+        msg.IsPending = true; // 从发出到首个增量之间显示三点动画（否则这段是空白）
         Messages.Add(msg);
         NovaPlan? plan = null; // 计划不挂在本条消息：计划文本留在气泡里，确认/取消走独立询问消息
         try
@@ -162,15 +166,25 @@ public sealed class NovaRuntime
                 {
                     if (reply.Plan is not null) plan = reply.Plan;
                 },
-                onToolStarted: (tool, args) =>
+                onToolStarted: tool =>
                 {
-                    // 工具状态行：只读工具立即执行的过程透明化，留在气泡里可回看
-                    RunOnUi(() => msg.Content += $"\n→ {Loc.T("正在执行")} {tool} {args}\n");
+                    // 动作提示：像代码助手那样单独一行小字（在气泡外），不写进正文，也不进对话历史
+                    RunOnUi(() =>
+                    {
+                        msg.ToolStatus = ToolActionLabel(tool);
+                        msg.IsPending = false; // 有动作提示了就收起三点动画
+                    });
                 });
             await foreach (var delta in stream)
             {
                 var d = delta;
-                RunOnUi(() => msg.Content += d);
+                RunOnUi(() =>
+                {
+                    msg.ToolStatus = "";   // 正文开始 → 动作提示收起
+                    msg.Content += d;
+                    msg.IsPending = false; // 有字了就别再挂着「等待中」（首轮可能只回工具状态行）
+                    MessageUpdated?.Invoke(msg); // 让对话视图跟着把视口贴到底部
+                });
             }
 
             _history.Add(new NovaChatTurn("assistant", msg.Content));
@@ -182,10 +196,21 @@ public sealed class NovaRuntime
         }
         catch (Exception ex)
         {
-            RunOnUi(() => msg.Content = Loc.T("出错了：{0}", ex.Message));
+            RunOnUi(() =>
+            {
+                msg.IsPending = false;
+                msg.ToolStatus = "";
+                msg.Content = Loc.T("出错了：{0}", ex.Message);
+                MessageUpdated?.Invoke(msg);
+            });
         }
         finally
         {
+            RunOnUi(() =>
+            {
+                msg.IsPending = false; // 收尾兜底：空回复也不能一直转圈
+                msg.ToolStatus = "";   // 动作提示只属于「正在做」的那几秒，收尾必须清掉
+            });
             _busy = false;
             RefreshState();
         }
@@ -198,7 +223,7 @@ public sealed class NovaRuntime
     /// <summary>实例右键「问 Nova」：把带实例上下文的一句话送进输入框</summary>
     public void RequestInput(string text) => RunOnUi(() => InputRequested?.Invoke(text));
 
-    // ── 确认清单：点头才动手，执行记流水（入口共用） ──
+    // ── 确认清单：点头才执行，执行记入操作日志（入口共用） ──
 
     public async Task ConfirmPlanAsync(NovaChatMessage msg)
     {
@@ -346,16 +371,23 @@ public sealed class NovaRuntime
         _observeTimer?.Stop();
     }
 
+    /// <summary>
+    /// 停掉常驻的循环定时器（游戏内观察循环）：主窗口关闭时调用。
+    /// <para>循环 <c>DispatcherQueueTimer</c> 会让 DispatcherQueue 一直有活可干，WinUI 的退出流程
+    /// 因此停不下来——详见 <c>MainWindow.StopBackgroundTimers</c>。</para>
+    /// </summary>
+    public void StopTimers() => StopObserving();
+
     // ── 游戏内浮窗联动（设计：nova-overlay-plan.md T4；浮窗单例由 Runtime 懒创建持有） ──
 
-    private Views.NovaOverlayWindow? _overlay;
+    private NovaOverlayWindow? _overlay;
     private NovaFpsWatcher? _watcher;
 
     private void ShowOverlay()
     {
         try
         {
-            _overlay ??= new Views.NovaOverlayWindow();
+            _overlay ??= new NovaOverlayWindow();
             _overlay.ShowOverlay();
         }
         catch { /* 浮窗创建失败不影响主流程（克制降级） */ }
@@ -462,17 +494,7 @@ public sealed class NovaRuntime
         Messages.Clear();
         _history.Clear();
         _candidatePlans.Clear();
-        if (_s.StarcloudId.Current is not null) EnsureGreeting();
         RefreshState();
-    }
-
-    private void EnsureGreeting()
-    {
-        if (Messages.Count > 0 || _s.StarcloudId.Current is not { } s) return;
-        Messages.Add(new NovaChatMessage("assistant",
-            Loc.T("你好，{0}！我是 Nova——你说一句人话，我打理启动器里的脏活累活；所有落盘动作先给确认清单，点头才执行。\n", s.DisplayName) +
-            Loc.T("试试：崩了帮我看看 / 游戏体检 / 检查模组冲突 / 开箱即玩 / 找个整合包"),
-            Now()));
     }
 
     // ── 消息辅助 ──
@@ -489,6 +511,18 @@ public sealed class NovaRuntime
     }
 
     private static string Now() => DateTime.Now.ToString("HH:mm");
+
+    /// <summary>
+    /// 工具名 → 给用户看的一句动作（「搜索 Modrinth 资源」→「正在搜索 Modrinth 资源…」）。
+    /// 显示名来自工具表，用户看到的是产品语言，不是 list_versions / search_modrinth 这种内部名字。
+    /// </summary>
+    private static string ToolActionLabel(string toolName)
+    {
+        var display = AppServices.Instance.NovaTools.Find(toolName)?.DisplayName;
+        return string.IsNullOrWhiteSpace(display)
+            ? Loc.T("正在处理…")
+            : Loc.T("正在{0}…", display);
+    }
 }
 
 /// <summary>
@@ -502,6 +536,8 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
     private NovaPlan? _plan;
     private string _planState;
     private string _resultText;
+    private bool _isPending;
+    private string _toolStatus = "";
 
     public NovaChatMessage(
         string role, string content, string timeText,
@@ -526,9 +562,46 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
             if (_content == value) return;
             _content = value;
             OnPropertyChanged(nameof(Content));
-            OnPropertyChanged(nameof(TextVisible)); // 气泡可见性跟内容走（流式空串 → 首个增量显形）
+            NotifyDerived(); // 气泡/正文/时间戳的可见性都跟内容走（流式空串 → 首个增量显形）
+            // 首个增量落地 = 不再是「等待中」：三点动画让位给正文
+            if (!string.IsNullOrEmpty(value) && _isPending) IsPending = false;
         }
     }
+
+    /// <summary>
+    /// 这一轮还在等首个增量（气泡里显示三点动画）。
+    /// 没有它的时候，从「发出消息」到「首个 token 到达」之间界面完全没动静，
+    /// 看起来就像 Nova 没回。
+    /// </summary>
+    public bool IsPending
+    {
+        get => _isPending;
+        set
+        {
+            if (_isPending == value) return;
+            _isPending = value;
+            NotifyDerived();
+        }
+    }
+
+    /// <summary>
+    /// 工具动作提示（「正在搜索 Modrinth 资源…」）：气泡外的一行小字，只在动作进行中显示。
+    /// 不写进 Content，所以既不会出现在对话气泡里，也不会被当成历史回喂给模型。
+    /// </summary>
+    public string ToolStatus
+    {
+        get => _toolStatus;
+        set
+        {
+            if (_toolStatus == value) return;
+            _toolStatus = value;
+            OnPropertyChanged(nameof(ToolStatus));
+            OnPropertyChanged(nameof(ToolStatusVisible));
+        }
+    }
+
+    public Visibility ToolStatusVisible => string.IsNullOrEmpty(_toolStatus)
+        ? Visibility.Collapsed : Visibility.Visible;
 
     public NovaPlan? Plan
     {
@@ -589,6 +662,17 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
     public Visibility TextVisible => string.IsNullOrEmpty(Content)
         ? Visibility.Collapsed : Visibility.Visible;
 
+    public Visibility PendingVisible => _isPending
+        ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>气泡本体：等待首个增量（三点动画）时也要在，不能留一片空白</summary>
+    public Visibility BubbleVisible => _isPending || !string.IsNullOrEmpty(Content)
+        ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>时间戳：等正文出现再显示（空气泡上挂个时间看着像坏了）</summary>
+    public Visibility TimeVisible => string.IsNullOrEmpty(Content)
+        ? Visibility.Collapsed : Visibility.Visible;
+
     public Visibility HasPlanVisible => Plan is null ? Visibility.Collapsed : Visibility.Visible;
 
     public Visibility PlanButtonsVisible =>
@@ -599,14 +683,26 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
 
     public string PlanStateText => PlanState switch
     {
-        "done" => Loc.T("✔ 已确认执行（已记入动手流水）") +
+        "done" => Loc.T("✔ 已确认执行（已记入操作日志）") +
                   (string.IsNullOrEmpty(ResultText) ? "" : $"\n{ResultText}"),
         "cancelled" => Loc.T("已取消，未做任何改动"),
-        "failed" => Loc.T("执行失败（已记入动手流水）：{0}", ResultText),
+        "failed" => Loc.T("执行失败（已记入操作日志）：{0}", ResultText),
         _ => "",
     };
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// 内容 / 等待状态一变，整套可见性都要重算。
+    /// 这里集中发通知：漏一个的表现就是「明明有内容却不显示」——正是这条记录踩过的坑。
+    /// </summary>
+    private void NotifyDerived()
+    {
+        OnPropertyChanged(nameof(TextVisible));
+        OnPropertyChanged(nameof(PendingVisible));
+        OnPropertyChanged(nameof(BubbleVisible));
+        OnPropertyChanged(nameof(TimeVisible));
+    }
 
     private void OnPropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

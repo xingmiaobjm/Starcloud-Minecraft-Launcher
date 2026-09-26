@@ -1,0 +1,20 @@
+{
+  "id": "com.example.instance.report",
+  "name": "实例与战绩简报",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "author": "Starcloud 示例",
+  "description": "示例插件：读取实例/账户/任务，订阅游戏事件，用插件私有存储累计游玩次数（docs/plugin-sdk.md §5）",
+  "permissions": [
+    "launcher:game_arguments",
+    "launcher:notification",
+    "launcher:instances_read",
+    "launcher:accounts_read",
+    "launcher:tasks",
+    "launcher:events",
+    "launcher:storage",
+    "launcher:logs_read"
+  ],
+  "optionalPermissions": [],
+  "compatibility": { "minLauncherVersion": "0.3.2" }
+}

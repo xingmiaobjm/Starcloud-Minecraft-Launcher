@@ -2,8 +2,6 @@
 // 原版：版本列表（正式版按大版本抽屉折叠）→ 详情（Forge/NeoForge/Fabric 抽屉三选一 + 开始下载）
 // 社区：Modrinth 搜索筛选安装（Mod/整合包/数据包/资源包/光影包）
 
-using System.Globalization;
-using System.IO;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,8 +10,13 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Rows;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Models;
 using Starcloud.Core.Services;
+using System.Globalization;
+using System.IO;
 
 namespace Starcloud.App.Views;
 
@@ -49,6 +52,8 @@ public sealed partial class DownloadPage : Page
     // 每个加载器的构建列表（null = 拉取中）与已选构建（null = 不安装）
     private readonly Dictionary<LoaderKind, List<LoaderBuild>?> _builds = [];
     private readonly Dictionary<LoaderKind, string?> _picked = [];
+    /// <summary>各加载器已生成的行（选中状态原地更新，列表不重建）</summary>
+    private readonly Dictionary<LoaderKind, List<LoaderBuildRow>> _buildRows = [];
 
     // ── 社区资源 ──
     private static readonly (string Tag, string SearchTitle, string Folder, string Verb)[] Sections =
@@ -98,11 +103,16 @@ public sealed partial class DownloadPage : Page
     private IReadOnlyList<ModrinthCategory>? _categories;
     private List<ModrinthHit> _lastHits = [];   // 当前搜索结果原始数据（行点击时按 ProjectId 找回，传入下载窗直达详情）
 
+    // 中文搜索词翻译：记住「输入原文 → 实际搜索词」，翻页时不重复联网翻译
+    private string? _queryOriginal;
+    private string _queryEffective = "";
+
     public DownloadPage()
     {
         InitializeComponent();
         _dq = DispatcherQueue.GetForCurrentThread();
         _okTimer = _dq.CreateTimer();
+        _okTimer.IsRepeating = false;   // 只在"下载完成"后亮 6 秒就收起，循环下去会一直重复收起
         _okTimer.Interval = TimeSpan.FromSeconds(6);
         _okTimer.Tick += (_, _) => OkBar.IsOpen = false;
         Loaded += async (_, _) => { await LoadVersionsAsync(); await EnsurePluginSlotsAsync(); };
@@ -161,7 +171,17 @@ public sealed partial class DownloadPage : Page
         // XAML 中首个条目 IsSelected="True" 会在 InitializeComponent 解析期间同步触发本事件，
         // 此时右侧面板尚未创建，直接跳过（XAML 已自带正确的初始可见性）
         if (CommunityPanel is null) return;
-        var isVanilla = CurrentCategory == "vanilla";
+        var category = CurrentCategory;
+        var isVanilla = category == "vanilla";
+
+        // 选中态落到各行控件自己的 IsActive 上：选中底、跟手光斑、圆角都由 CategoryNavItem
+        // 的模板提供，三者同源同形，不再出现「阴影框与按钮框错位」
+        CatVanilla.IsActive = category == "vanilla";
+        CatMod.IsActive = category == "mod";
+        CatModpack.IsActive = category == "modpack";
+        CatDatapack.IsActive = category == "datapack";
+        CatResourcepack.IsActive = category == "resourcepack";
+        CatShader.IsActive = category == "shader";
         var incoming = isVanilla ? VanillaPanel : CommunityPanel;
         var outgoing = isVanilla ? CommunityPanel : VanillaPanel;
 
@@ -274,7 +294,7 @@ public sealed partial class DownloadPage : Page
 
             var compositor = visual.Compositor;
             var anim = compositor.CreateVector3KeyFrameAnimation();
-            anim.Duration = TimeSpan.FromMilliseconds(260);
+            anim.Duration = TimeSpan.FromMilliseconds(MotionFx.Scale(260));
             anim.InsertKeyFrame(1f, target, MotionFx.ControlEase(compositor));
             visual.StartAnimation("Translation", anim);
         }
@@ -458,7 +478,7 @@ public sealed partial class DownloadPage : Page
 
             var compositor = visual.Compositor;
             var anim = compositor.CreateScalarKeyFrameAnimation();
-            anim.Duration = TimeSpan.FromMilliseconds(220);
+            anim.Duration = TimeSpan.FromMilliseconds(MotionFx.ChevronMs);
             anim.InsertKeyFrame(1f, angle, MotionFx.ControlEase(compositor));
             visual.StartAnimation("RotationAngleInDegrees", anim);
         }
@@ -660,9 +680,23 @@ public sealed partial class DownloadPage : Page
                 recBadgeText.Text = picked == recBuild.Version ? Loc.T("已选") : Loc.T("推荐");
             }
             count.Text = Loc.T("全部版本 ({0})", builds.Count);
-            list.ItemsSource = builds.Select(b => new LoaderBuildRow(
-                b.Version, b.Note is { } n ? Loc.T(n) : (b.Stable ? Loc.T("稳定版") : Loc.T("预览版")),
-                picked == b.Version)).ToList();
+            var rows = _buildRows.TryGetValue(kind, out var cached) ? cached : (_buildRows[kind] = []);
+            // 只有"构建列表本身变了"（首次拉取 / 换了 MC 版本）才重建集合；
+            // 单纯切换选中项时原地改这一行的状态——列表不重建，徽标即时切换，也不丢滚动位置。
+            if (!rows.Select(r => r.Version).SequenceEqual(builds.Select(b => b.Version)))
+            {
+                rows.Clear();
+                rows.AddRange(builds.Select(b => new LoaderBuildRow(
+                    b.Version, b.Note is { } n ? Loc.T(n) : (b.Stable ? Loc.T("稳定版") : Loc.T("预览版")),
+                    picked == b.Version)));
+                list.ItemsSource = null;
+                list.ItemsSource = rows;
+                MotionFx.StaggerListItems(list, maxItems: 6); // 首次铺开时错峰入场，不做硬切
+            }
+            else
+            {
+                for (var i = 0; i < rows.Count; i++) rows[i].Selected = picked == builds[i].Version;
+            }
             empty.Visibility = builds.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -927,6 +961,8 @@ public sealed partial class DownloadPage : Page
 
     private string? ResolveCategory()
     {
+        // CurseForge 的分类是另一套（名称而非 slug），不参与 Modrinth 的 facets 筛选
+        if (CurrentSource == ContentSourceIds.CurseForge) return null;
         if (CategoryRow.Visibility != Visibility.Visible) return null;
         return (CategoryCombo.SelectedItem as ComboBoxItem)?.Tag as string;
     }
@@ -992,7 +1028,24 @@ public sealed partial class DownloadPage : Page
     private void Filter_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!_communityInit || _suppress) return;
+        UpdateSourceUi();
         _ = SearchAsync(reset: true);
+    }
+
+    /// <summary>当前资源来源（modrinth / curseforge）：决定列表搜索与下载窗的默认来源</summary>
+    private string CurrentSource =>
+        (SourceCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? ContentSourceIds.Modrinth;
+
+    /// <summary>
+    /// 换来源后的界面适配：CurseForge 的分类体系与 Modrinth 的 slug 不同名，分类筛选直接灰显
+    /// （比"选了没效果"诚实）；缓存角标只属于 Modrinth 的磁盘缓存。
+    /// </summary>
+    private void UpdateSourceUi()
+    {
+        var curseForge = CurrentSource == ContentSourceIds.CurseForge;
+        CategoryCombo.IsEnabled = !curseForge;
+        CategoryCombo.Opacity = curseForge ? 0.5 : 1;
+        if (curseForge) CacheBadge.Visibility = Visibility.Collapsed;
     }
 
     // ── 社区搜索 ──
@@ -1022,8 +1075,24 @@ public sealed partial class DownloadPage : Page
         if (!forceRefresh) CacheBadge.Visibility = Visibility.Collapsed;
         try
         {
-            var result = await _s.Mods.SearchAsync(query, section, loader, gameVersion,
-                _offset, PageSize, index, category, ct, forceRefresh);
+            // 中文搜索词先翻成英文：Modrinth / CurseForge 的项目名都是英文，直接搜中文基本搜不到东西。
+            // 只有新搜索（reset）或用户改了关键词才翻；翻页沿用上一次的结果，不重复联网。
+            if (reset || !string.Equals(_queryOriginal, query, StringComparison.Ordinal))
+            {
+                var translated = await _s.SearchTranslation.TranslateAsync(query, ct);
+                _queryOriginal = query;
+                _queryEffective = translated.Effective;
+                ShowTranslatedHint(SearchTranslationHint.Describe(translated));
+            }
+            var searchQuery = _queryEffective;
+
+            // 来源分派：CurseForge 的分类体系与 Modrinth slug 不同名，分类筛选只在 Modrinth 生效
+            var fromCurseForge = CurrentSource == ContentSourceIds.CurseForge;
+            var result = fromCurseForge
+                ? await _s.CurseForge.SearchAsync(searchQuery, section, loader, gameVersion,
+                    _offset, PageSize, index, ct)
+                : await _s.Mods.SearchAsync(searchQuery, section, loader, gameVersion,
+                    _offset, PageSize, index, category, ct, forceRefresh);
             _total = result.TotalHits;
             _lastHits = result.Hits.ToList();
             var rows = result.Hits.Select(h => new ModRow
@@ -1045,7 +1114,7 @@ public sealed partial class DownloadPage : Page
             PrevBtn.IsEnabled = _offset > 0 && rows.Count > 0;
             NextBtn.IsEnabled = _offset + rows.Count < _total && rows.Count > 0;
 
-            var fromCache = _s.Mods.LastSearchFromCache;
+            var fromCache = !fromCurseForge && _s.Mods.LastSearchFromCache;
             CacheBadge.Visibility = fromCache ? Visibility.Visible : Visibility.Collapsed;
 
             // 命中缓存 → 后台直连网络拉新内容并替换；失败保留缓存内容、不弹错
@@ -1079,6 +1148,13 @@ public sealed partial class DownloadPage : Page
         NextBtn.IsEnabled = !busy && NextBtn.IsEnabled;
     }
 
+    /// <summary>把「实际拿去搜索的英文词」与来源贴到结果计数旁边；没翻译就收起</summary>
+    private void ShowTranslatedHint(string hint)
+    {
+        TranslatedHint.Text = hint;
+        TranslatedHint.Visibility = hint.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     // ── 社区分页 ──
     private void PrevBtn_Click(object sender, RoutedEventArgs e)
     {
@@ -1106,7 +1182,7 @@ public sealed partial class DownloadPage : Page
         var targetId = _s.Settings.LastVersion ?? "";
         var (mc, loader) = ResolveTargetFilters(info.Tag, targetId);
         var dialog = new ContentDownloadDialog(_s, info.Tag, loader, mc,
-            targetId, null, hit, InstallMrPackFromDialogAsync);
+            targetId, null, hit, InstallMrPackFromDialogAsync, CurrentSource);
         dialog.XamlRoot = XamlRoot;
         _ = dialog.ShowAsync();
     }
@@ -1123,11 +1199,43 @@ public sealed partial class DownloadPage : Page
                 loader ?? (kind == "mod" && versionLoader != "vanilla" ? versionLoader : null));
     }
 
-    /// <summary>下载窗内整合包安装入口：转 .mrpack 新建版本流程，完成后在下载页显示结果。</summary>
+    /// <summary>
+    /// 下载窗内整合包安装入口：按格式分派——.mrpack 走 Modrinth 安装器，
+    /// CurseForge 的 .zip（内含 manifest.json）走 CurseForge 安装器；两者共用同一套
+    /// 「缺原版/加载器就补装」的联动（<see cref="MrPackFlow.EnsureGameAndLoaderAsync"/>）。
+    /// </summary>
     private async Task InstallMrPackFromDialogAsync(string libPath)
     {
-        var summary = await InstallMrPackAsync(libPath);
+        var summary = libPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+            ? await InstallCurseForgePackAsync(libPath)
+            : await InstallMrPackAsync(libPath);
         ShowOk(Loc.T("整合包已安装。{0}", summary));
+    }
+
+    /// <summary>CurseForge 整合包：解析 manifest.json 逐文件下载，再补装原版与加载器</summary>
+    private async Task<string> InstallCurseForgePackAsync(string zipPath)
+    {
+        var dlg = new ThemedDialog
+        {
+            Title = Loc.T("安装整合包"),
+            Content = CreateInstallPanel(out var statusText, out var bar),
+            CloseButtonText = Loc.T("后台安装"),
+            XamlRoot = Content.XamlRoot,
+        };
+        _ = dlg.ShowAsync();
+
+        var status = new Progress<string>(s => _dq.TryEnqueue(() => statusText.Text = s));
+        var progress = new Progress<BatchProgress>(p => _dq.TryEnqueue(() =>
+        {
+            bar.Value = p.Percentage;
+            statusText.Text = p.Stage;
+        }));
+        var result = await _s.CurseForgePacks.InstallAsync(zipPath, _s.Settings,
+            status: status, progress: progress);
+        var summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, _s, progress);
+
+        try { dlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
+        return summary;
     }
 
     private void ShowOk(string message)

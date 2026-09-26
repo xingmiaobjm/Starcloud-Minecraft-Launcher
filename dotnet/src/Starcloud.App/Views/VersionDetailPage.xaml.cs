@@ -1,9 +1,6 @@
 // 版本详情子页：概览 / 内容 / 操作卡片（设置卡片由 T6 填充）
 // 计划：docs/plans/2026-09-09-version-management-plan.md T5
 
-using System.Diagnostics;
-using System.IO;
-using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -12,7 +9,14 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Controls;
+using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Rows;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
+using System.Diagnostics;
+using System.IO;
+using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -297,7 +301,7 @@ public sealed partial class VersionDetailPage : Page
             {
                 Text = save,
                 FontSize = 13,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontWeight = Microsoft.UI.Text.FontWeights.Medium,
                 Margin = new Thickness(0, 6, 0, 0),
             });
             foreach (var row in rows)
@@ -363,7 +367,7 @@ public sealed partial class VersionDetailPage : Page
         {
             Text = Loc.T("{0}（{1}）", label, count),
             FontSize = 13,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontWeight = Microsoft.UI.Text.FontWeights.Medium,
             Margin = new Thickness(0, 4, 0, 0),
         };
     }
@@ -371,7 +375,7 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>目录路径 + 「打开目录」按钮。</summary>
     private StackPanel OpenDirRow(string path)
     {
-        var open = new Button
+        var open = new GlowButton
         {
             Content = Loc.T("打开目录"),
             Tag = path,
@@ -442,14 +446,14 @@ public sealed partial class VersionDetailPage : Page
             VerticalAlignment = VerticalAlignment.Center,
             Children =
             {
-                new FontIcon { Glyph = "\uE8B7", FontSize = 14, Foreground = SecondaryBrush() },
+                new FontIcon { FontFamily = IconFont.Family,  Glyph = "\uEA90", FontSize = 14, Foreground = SecondaryBrush() },
                 new TextBlock { Text = row.FileName, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis },
                 new TextBlock { Text = row.StatusText, FontSize = 12, Foreground = SecondaryBrush() },
                 new TextBlock { Text = row.SizeText, FontSize = 12, Foreground = SecondaryBrush() },
             },
         };
 
-        var toggle = new Button
+        var toggle = new GlowButton
         {
             Content = row.ToggleVerb,
             Tag = row,
@@ -460,7 +464,7 @@ public sealed partial class VersionDetailPage : Page
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, Loc.T("{0} {1}", row.ToggleVerb, row.FileName));
         toggle.Click += ToggleFile_Click;
 
-        var del = new Button
+        var del = new GlowButton
         {
             Content = Loc.T("删除"),
             Tag = row,
@@ -671,7 +675,7 @@ public sealed partial class VersionDetailPage : Page
         var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
         var opacity = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
         {
-            From = 0, To = 1, Duration = new Duration(TimeSpan.FromMilliseconds(220)),
+            From = 0, To = 1, Duration = new Duration(TimeSpan.FromMilliseconds(MotionFx.Scale(220))),
             EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase
                 { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
         };
@@ -679,7 +683,7 @@ public sealed partial class VersionDetailPage : Page
         Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(opacity, "Opacity");
         var rise = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
         {
-            From = 10, To = 0, Duration = new Duration(TimeSpan.FromMilliseconds(220)),
+            From = 10, To = 0, Duration = new Duration(TimeSpan.FromMilliseconds(MotionFx.Scale(220))),
             EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase
                 { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
         };
@@ -1527,9 +1531,9 @@ public sealed partial class VersionDetailPage : Page
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        var del = new Button
+        var del = new GlowButton
         {
-            Content = new FontIcon { Glyph = "\uE74D", FontSize = 12 },
+            Content = new FontIcon { FontFamily = IconFont.Family,  Glyph = "\uEAA5", FontSize = 12 },
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8, 4, 8, 4),
@@ -1757,4 +1761,3 @@ public sealed partial class VersionDetailPage : Page
     private static Brush CautionBrush() =>
         (Brush)Application.Current.Resources["SystemFillColorCautionBrush"];
 }
-

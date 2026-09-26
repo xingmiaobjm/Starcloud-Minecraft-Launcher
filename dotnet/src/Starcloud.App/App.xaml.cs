@@ -17,6 +17,9 @@ public partial class App : Application
     // 当前运行中的版本 id（游戏进程存活期间非空）
     public static string? RunningVersionId;
 
+    // 跨页日志跳转：运行状态页点「打开日志」时置 "game"，日志页进入后消费一次
+    public static string? PendingLogSource;
+
     public App()
     {
         // 界面语言必须在任何 XAML 解析之前确定（D3 多语言）

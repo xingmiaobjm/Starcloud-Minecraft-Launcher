@@ -1,13 +1,15 @@
 // 存档页：跨版本列出 / 搜索 / 筛选世界，支持备份 zip / 删除 / 打开文件夹 / 跨版本复制启动
 // 设计：docs/designs/2026-09-10-saves-cross-version-design.md
 
-using System.Diagnostics;
-using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Rows;
 using Starcloud.Core.Services;
+using System.Diagnostics;
+using System.IO;
 
 namespace Starcloud.App.Views;
 
@@ -424,6 +426,7 @@ public sealed partial class SavesPage : Page
                 player.Credentials, eff.ServerAddress, eff.Language, eff.LanguageOverride,
                 eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars, null, null,
                 AgentJarPath: agentJar, AgentBase: player.ExternalBase,
+                PlayerSkinUrl: player.SkinUrl,
                 PluginHook: AppServices.Instance.PluginHost);
 
             var rec = new PendingWorldRecord
@@ -455,6 +458,13 @@ public sealed partial class SavesPage : Page
             }
 
             _sessionHandle?.Bind(_gameProcess.Pid);
+            // 运行状态监控：上下文取自本次已解析的 eff（不再重复 Resolve）
+            var gameRoot = eff.GameRoot;
+            _s.Runtime.Attach(_gameProcess, GameLaunchContextStore.Capture(targetId, eff,
+                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "mods")),
+                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "shaderpacks")),
+                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "resourcepacks"))),
+                _gameProcess.CommandLine);
             _gameProcess.Exited += _ => DispatcherQueue.TryEnqueue(async () => await OnGameExitedAsync());
             rec.ProcessId = _gameProcess.Pid;
             new PendingWorldStore(dotMc).Save(rec);

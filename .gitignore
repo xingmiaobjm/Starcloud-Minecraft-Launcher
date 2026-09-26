@@ -17,6 +17,13 @@ Thumbs.db
 *.log
 logs/
 launcher_data/
+
+# 第三方联机核心（陶瓦联机 / EasyTier 等）：许可要求随装随下，
+# 既不随安装包分发，也不进仓库（运行时落在 %APPDATA%\starcloud-launcher\multiplayer）
+terracotta*.exe
+terracotta*.dll
+easytier*
+**/multiplayer/core/
 # 插件运行时数据目录（本地运行产生）；注意用前导斜杠限定根目录，
 # 否则会连带忽略源码目录 dotnet/src/Starcloud.Core/Plugins/
 /plugins/
