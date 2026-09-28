@@ -2,8 +2,8 @@
 // 设计：docs/designs/2026-09-26-game-running-status-panel-design.md §5
 //
 // 刷新刻意分三层，不对齐频率：
-//   采样回调（1s，后台线程）→ 只更新数字、曲线、日志尾（pid 没变就不重建列表）
-//   pid 变化（起 / 止 / 换局）→ 整页重建（含启动配置与历史）
+//   采样回调（1s，后台线程）→ 只更新数字、曲线、日志尾（选中实例与实例集合都没变就不重建列表）
+//   实例变化（起 / 止 / 下拉换选中）→ 整页重建（含下拉、启动配置与历史）
 //   1s UI 定时器            → 只刷「已运行 00:42:17」这一行（采样暂停时 Changed 不再来）
 // 页面 NavigationCacheMode=Disabled，每次进入都是新实例：Loaded 订阅 / Unloaded 退订，避免泄漏。
 
@@ -38,6 +38,8 @@ public sealed partial class RunningStatusPage : Page
 
     private DispatcherQueueTimer? _uiTimer;
     private int _lastPid;
+    private int _lastCount;
+    private bool _syncingCombo;
     private bool _hooked;
     private bool _rendering;
     private bool _histExpanded;
@@ -63,6 +65,7 @@ public sealed partial class RunningStatusPage : Page
                 _s.Runtime.RunFinished += OnRunFinished;
             }
             _lastPid = _s.Runtime.Current?.Pid ?? 0;
+            _lastCount = _s.Runtime.Instances.Count;
             try { SyncSampleMenu(); }
             catch (Exception ex) { LauncherLog.Error("running", "SyncSampleMenu 抛出", ex); }
             try { Render(); }
@@ -115,11 +118,14 @@ public sealed partial class RunningStatusPage : Page
     private void OnRuntimeChanged(GameRunInfo? info)
     {
         var pid = info?.Pid ?? 0;
+        var count = _s.Runtime.Instances.Count;
         _dq.TryEnqueue(() =>
         {
-            var pidChanged = pid != _lastPid;
+            // 选中实例换了（含下拉切换）或实例集合变了（多开起止）都要整页重建
+            var changed = pid != _lastPid || count != _lastCount;
             _lastPid = pid;
-            if (pidChanged) Render();
+            _lastCount = count;
+            if (changed) Render();
             else RenderLive();
         });
     }
@@ -140,6 +146,7 @@ public sealed partial class RunningStatusPage : Page
 
             if (info is not null)
             {
+                RebuildInstanceCombo();
                 var ctx = ResolveContext(info.VersionId, out var fallback);
                 RenderHero(info, ctx);
                 RenderPerf(info);
@@ -185,10 +192,69 @@ public sealed partial class RunningStatusPage : Page
 
     // ── Hero ─────────────────────────────────────────────────
 
+    /// <summary>
+    /// 用正在跑的全部实例重建 Hero 第一行的下拉框（选中项 = 当前展示的实例）。
+    /// 同一个版本多开时靠 PID 区分，所以每一项都是「版本 · PID」。
+    /// </summary>
+    private void RebuildInstanceCombo()
+    {
+        var instances = _s.Runtime.Instances;
+        var selected = _s.Runtime.SelectedPid;
+
+        _syncingCombo = true;   // 填选项会触发 SelectionChanged，别让它再回头 Select 一次
+        try
+        {
+            HeroInstanceCombo.Items.Clear();
+            foreach (var info in instances)
+            {
+                var row = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                row.Children.Add(new TextBlock
+                {
+                    Text = info.VersionId,
+                    FontSize = 12,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = $"PID {info.Pid}",
+                    FontSize = 12,
+                    Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
+                    FontFamily = new FontFamily("Cascadia Code"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                HeroInstanceCombo.Items.Add(new ComboBoxItem { Content = row, Tag = info.Pid });
+            }
+
+            var index = 0;
+            for (var i = 0; i < instances.Count; i++)
+                if (instances[i].Pid == selected) { index = i; break; }
+            HeroInstanceCombo.SelectedIndex = instances.Count == 0 ? -1 : index;
+
+            // 只有一个实例时不必提示「共 N 个」，多开才把数量说出来
+            HeroInstanceCount.Text = Loc.T("共 {0} 个实例", instances.Count);
+            HeroInstanceCount.Visibility = instances.Count > 1
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+        finally { _syncingCombo = false; }
+    }
+
+    private void HeroInstanceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingCombo) return;
+        if (HeroInstanceCombo.SelectedItem is not ComboBoxItem { Tag: int pid }) return;
+        if (!_s.Runtime.Select(pid)) return;
+        _lastPid = pid;                 // Select 会抛 Changed，这里先对齐避免多一次整页重建
+        _lastCount = _s.Runtime.Instances.Count;
+        Render();
+    }
+
     private void RenderHero(GameRunInfo info, GameLaunchContext? ctx)
     {
-        HeroPid.Text = $"PID {info.Pid}";
-        HeroVersion.Text = info.VersionId;
         HeroIsolation.Text = DescribeIsolation(ctx);
         HeroMemory.Text = ctx is null ? "—" : Loc.T("{0} MB", ctx.MaxMemoryMb);
         HeroStarted.Text = info.StartedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
@@ -476,16 +542,13 @@ public sealed partial class RunningStatusPage : Page
             status = Loc.T("正常退出");
             brush = ThemeBrush("SuccessBrush");
         }
-        else if (r.ExitCode is int code)
-        {
-            status = Loc.T("退出码 {0}", code);
-            brush = ThemeBrush("DangerBrush");
-        }
         else
         {
-            // 启动器重启后收口的记录没有退出码，不染色，继承主题默认前景色
+            // 到这里只可能是「用户主动结束」或「启动器重启后收口的记录（没有退出码）」：
+            // 前者进程被强杀必然是非零退出码，但这不是崩溃（Crashed 已排除），安静收尾即可。
+            // 必须给真实画刷：模板是 Foreground="{x:Bind StatusBrush}"，null 会让整段文字不可见。
             status = Loc.T("已结束");
-            brush = null;
+            brush = ThemeBrush("TextFillColorSecondaryBrush");
         }
 
         return new GameRunRow(

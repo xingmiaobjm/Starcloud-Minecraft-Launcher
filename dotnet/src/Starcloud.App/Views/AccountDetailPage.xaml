@@ -29,7 +29,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头：返回 + 身份 + 设为默认 -->
+        <!-- 页头：返回 + 身份 + 设为首选 -->
         <StackPanel Grid.Row="0" Spacing="12">
             <ctrl:GlowButton Click="Back_Click" loc:Loc.Name="返回账户列表"
                     Background="Transparent" BorderThickness="0" Padding="8,4"
@@ -66,13 +66,13 @@
                         </Border>
                         <Border x:Name="HeaderDefaultBadge" Style="{StaticResource ScChipAccent}"
                                 Visibility="Collapsed">
-                            <TextBlock loc:Loc.Text="默认账户" Style="{StaticResource ScChipAccentText}" />
+                            <TextBlock loc:Loc.Text="首选账户" Style="{StaticResource ScChipAccentText}" />
                         </Border>
                     </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <ctrl:GlowButton x:Name="SetDefaultBtn" loc:Loc.Text="设为默认" Click="SetDefault_Click" />
+                    <ctrl:GlowButton x:Name="SetDefaultBtn" Click="SetDefault_Click" />
                 </StackPanel>
             </Grid>
         </StackPanel>
@@ -213,6 +213,16 @@
                               ContextRequested="SavedList_ContextRequested"
                               Padding="0" Margin="-4,0"
                               SizeChanged="CardGrid_SizeChanged">
+                        <GridView.Resources>
+                            <!-- 悬停/选中反馈只由卡片的跟手光斑表达，框架整卡底色一律关掉
+                                 （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                            <SolidColorBrush x:Key="GridViewItemBackground" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="Transparent" />
+                        </GridView.Resources>
                         <GridView.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <ItemsWrapGrid Orientation="Horizontal" ItemWidth="104" ItemHeight="152" />
@@ -237,7 +247,19 @@
                                             BorderThickness="1">
                                         <Grid>
                                             <!-- 跟手光斑（与账户卡同一套观感） -->
-                                            <ctrl:GlowLayer x:Name="SkinCardGlow" CornerRadius="10" />
+                                            <Border x:Name="SkinCardGlow" CornerRadius="10"
+                                                    Opacity="0" IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
 
                                             <!-- 添加皮肤（首位占位卡） -->
                                             <StackPanel Spacing="4" Padding="8"
@@ -313,6 +335,16 @@
                                   ItemClick="Preset_ItemClick"
                                   Padding="0" Margin="-4,0"
                                   SizeChanged="CardGrid_SizeChanged">
+                            <GridView.Resources>
+                                <!-- 悬停/选中反馈只由卡片的跟手光斑表达，框架整卡底色一律关掉
+                                     （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                                <SolidColorBrush x:Key="GridViewItemBackground" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="Transparent" />
+                            </GridView.Resources>
                             <GridView.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <ItemsWrapGrid Orientation="Horizontal" ItemWidth="104" ItemHeight="146" />
@@ -335,7 +367,19 @@
                                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                             BorderThickness="1">
                                         <Grid>
-                                            <ctrl:GlowLayer x:Name="PresetGlow" CornerRadius="10" />
+                                            <Border x:Name="PresetGlow" CornerRadius="10"
+                                                    Opacity="0" IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
                                             <Grid Padding="6" ToolTipService.ToolTip="{x:Bind ActionText}">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="*" />
@@ -400,6 +444,16 @@
                                   ItemClick="Station_ItemClick"
                                   Padding="0" Margin="-4,0" MinHeight="160"
                                   SizeChanged="Station_SizeChanged">
+                            <GridView.Resources>
+                                <!-- 悬停/选中反馈只由卡片的跟手光斑表达，框架整卡底色一律关掉
+                                     （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                                <SolidColorBrush x:Key="GridViewItemBackground" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="Transparent" />
+                            </GridView.Resources>
                             <GridView.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <ItemsWrapGrid Orientation="Horizontal" ItemWidth="104" ItemHeight="152" />
@@ -422,7 +476,19 @@
                                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                             BorderThickness="1">
                                         <Grid>
-                                            <ctrl:GlowLayer x:Name="StationGlow" CornerRadius="10" />
+                                            <Border x:Name="StationGlow" CornerRadius="10"
+                                                    Opacity="0" IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
                                             <Grid Padding="6" ToolTipService.ToolTip="{x:Bind ModelText}">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="*" />
@@ -465,7 +531,7 @@
                             BorderThickness="1" CornerRadius="16" Padding="20">
                         <StackPanel Spacing="10">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <ctrl:GlowButton x:Name="InfoSetDefaultBtn" loc:Loc.Text="设为默认"
+                                <ctrl:GlowButton x:Name="InfoSetDefaultBtn"
                                         Click="SetDefault_Click" />
                                 <ctrl:GlowButton x:Name="DeleteAccountBtn" loc:Loc.Text="删除账户"
                                         Background="Transparent" BorderThickness="0"

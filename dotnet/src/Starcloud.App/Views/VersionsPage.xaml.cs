@@ -185,7 +185,7 @@ public sealed partial class VersionsPage : Page
         // 快键按钮：DataContext 即行数据；菜单路径：Target.DataContext
         var row = (s as FrameworkElement)?.DataContext as LocalVersionRow ?? RowOf(s);
         if (row is null) return;
-        var running = App.RunningVersionId == row.Id;
+        var running = _s.Runtime.Instances.Any(i => i.VersionId == row.Id);
         var dlg = new ThemedDialog
         {
             Title = Loc.T("删除版本"),

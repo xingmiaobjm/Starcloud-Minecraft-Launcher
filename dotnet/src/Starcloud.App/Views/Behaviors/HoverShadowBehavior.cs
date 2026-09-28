@@ -32,8 +32,8 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Services;
-using Starcloud.App.Views.Controls;
 using Windows.Foundation;
+using Windows.UI;
 
 namespace Starcloud.App.Views.Behaviors;
 
@@ -193,6 +193,8 @@ public static class HoverShadowBehavior
                 state.Layer = layer;
                 state.LayerVisual = ElementCompositionPreview.GetElementVisual(layer);
                 state.Brush = ResolveBrush(layer);
+                // 内联渐变写死的是叠黑色：深色主题下立刻换成叠白，否则那一块比背景更暗
+                if (state.Brush is { } carrierBrush) RetintBrush(carrierBrush, element.ActualTheme);
                 if (state.Brush is null)
                 {
                     state.LayerVisual = null; // 载体上没有径向渐变：退回自建层，别留一个动不了的图层
@@ -252,6 +254,9 @@ public static class HoverShadowBehavior
         element.Loaded += OnLoaded;
         element.Unloaded -= OnUnloaded;
         element.Unloaded += OnUnloaded;
+        // 主题订阅与 Unhook 里的退订成对：模板内联光斑要在这里才能跟着切深浅
+        element.ActualThemeChanged -= OnThemeChanged;
+        element.ActualThemeChanged += OnThemeChanged;
     }
 
     private static void Unhook(FrameworkElement element)
@@ -661,19 +666,25 @@ public static class HoverShadowBehavior
             y -= origin.Y;
         }
 
-        // 半径按对角线取：卡片再大也能覆盖到边缘与角落（近处深、远处浅），不会出现"离光标远的那一侧没被染到"。
-        // 小元素（按钮/图标卡）用下限兜底，保持"一束光"的紧凑手感。
-        // 显式半径优先——可视空间比载体窄的地方（顶栏三连键）必须自己指定，否则尾巴被硬切出方边。
+        // 光斑是正圆：半径各向同性，再按像素换算成相对值（RadiusX = r/w、RadiusY = r/h）。
+        // 若直接把相对半径按长宽比铺满，光斑会被拉成一颗横椭圆。
+        // 半径基准取元素的"短边"（扁长行上就是行高），再 ×2.5 放大——纯短边（850×60 的行 → 60px）
+        // 光斑只有一小团，太挤。取对角线或最长边则会让整行被均匀染满、上下被硬切出一条横带（方边）。
+        // 倍数只决定横向铺多开：半径 = k×短边时，最近的那条边永远落在 d = 1/(2k) 的相对位置上，
+        // 所以 k 变大并不会让行边更硬（k=2 与 2.5 的行边灰度几乎一致），只是横向更宽。
+        // 显式半径优先——可视空间比载体窄的地方（顶栏三连键）必须自己指定。
         var manualRadius = GetGlowRadius(element);
-        var radiusPx = manualRadius > 0 ? manualRadius : Math.Max(36d, 0.6 * Math.Sqrt(w * w + h * h));
+        var radiusPx = manualRadius > 0 ? manualRadius : Math.Min(w, h) * 2.5;
+        var radiusX = radiusPx / w;
+        var radiusY = radiusPx / h;
         var cx = Math.Clamp(x / w, 0d, 1d);
         var cy = Math.Clamp(y / h, 0d, 1d);
 
         if (state.Brush is { } brush)
         {
             // 调用方自带的 XAML 径向渐变：坐标与半径都是 0~1 的相对值
-            brush.RadiusX = radiusPx / w;
-            brush.RadiusY = radiusPx / h;
+            brush.RadiusX = radiusX;
+            brush.RadiusY = radiusY;
             var center = new Point(cx, cy);
             brush.Center = center;
             brush.GradientOrigin = center;
@@ -683,7 +694,7 @@ public static class HoverShadowBehavior
         // 自建合成层：同一套映射模式（Relative），语义与上面完全一致
         var auto = state.AutoBrush!;
         auto.EllipseCenter = new Vector2((float)cx, (float)cy);
-        auto.EllipseRadius = new Vector2((float)(radiusPx / w), (float)(radiusPx / h));
+        auto.EllipseRadius = new Vector2((float)radiusX, (float)radiusY);
     }
 
     /// <summary>
@@ -803,9 +814,18 @@ public static class HoverShadowBehavior
     }
 
     /// <summary>
-    /// 自建光斑的渐变偏移与档位。颜色随主题走（<see cref="GlowLayer.GlowTint"/>）：
-    /// 浅色叠黑压暗、深色叠白提亮——深色下沿用黑只会让那一块比背景更暗。
+    /// 光斑渐变的档位透明度，末档 1.0 固定全透明（见 <see cref="GlowOffsets"/>）。
+    /// 与各页 XAML 里内联的 <c>&lt;RadialGradientBrush&gt;</c> 共用同一张表：0x28 → 0x05 依次衰减。
     /// </summary>
+    private static readonly byte[] GlowAlphas = [0x28, 0x1F, 0x16, 0x0D, 0x05];
+
+    /// <summary>
+    /// 光斑底色：浅色主题叠黑压暗、深色主题叠白提亮——深色下沿用黑只会让那一块比背景更暗。
+    /// </summary>
+    private static Color GlowTint(ElementTheme theme) =>
+        theme == ElementTheme.Dark ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 0, 0, 0);
+
+    /// <summary>光斑渐变各档的偏移位置（与 <see cref="GlowAlphas"/> 一一对应）</summary>
     private static readonly float[] GlowOffsets = [0f, 0.18f, 0.40f, 0.62f, 0.82f, 1f];
 
     /// <summary>
@@ -840,36 +860,55 @@ public static class HoverShadowBehavior
         state.AutoBrush = brush;
         state.AutoGeometry = geometry;
         state.LayerVisual = shapeVisual;
-        // 自建层不在可视化树里，GlowLayer 那套 ActualThemeChanged 轮不到它：
-        // 切主题时得自己把颜色重写一遍，否则旧深浅会留在屏幕上。
-        element.ActualThemeChanged -= OnThemeChanged;
-        element.ActualThemeChanged += OnThemeChanged;
+        // 自建层不在可视化树里，模板那套主题重写轮不到它；主题订阅统一在 Hook 里挂，
+        // 切主题时由 OnThemeChanged 把颜色重写一遍，否则旧深浅会留在屏幕上。
         return shapeVisual;
     }
 
     /// <summary>
-    /// 往自建光斑画刷里写颜色：底色随主题（<see cref="GlowLayer.GlowTint"/>），
-    /// 档位与 <see cref="GlowLayer"/> 共用一张表，末档全透明收尾。
+    /// 往自建光斑画刷里写颜色：底色随主题（<see cref="GlowTint"/>），档位用 <see cref="GlowAlphas"/>，
+    /// 末档 1.0 全透明收尾。
     /// <para>创建时与切主题时都走这里，保证两条路径的观感一致。</para>
     /// </summary>
     private static void FillAutoBrush(CompositionRadialGradientBrush brush, ElementTheme theme)
     {
-        var tint = GlowLayer.GlowTint(theme);
-        var alphas = GlowLayer.GlowAlphas;
+        var tint = GlowTint(theme);
         for (var i = 0; i < GlowOffsets.Length; i++)
         {
-            var a = i < alphas.Length ? alphas[i] : (byte)0;
-            var color = Windows.UI.Color.FromArgb(a, tint.R, tint.G, tint.B);
+            var a = i < GlowAlphas.Length ? GlowAlphas[i] : (byte)0;
+            var color = Color.FromArgb(a, tint.R, tint.G, tint.B);
             if (i < brush.ColorStops.Count) brush.ColorStops[i].Color = color;
             else brush.ColorStops.Add(brush.Compositor.CreateColorGradientStop(GlowOffsets[i], color));
         }
     }
 
-    /// <summary>元素主题变了：把自建光斑的底色重写一遍（没有自建层的元素直接跳过）</summary>
+    /// <summary>
+    /// 元素主题变了：把光斑底色重写一遍。自建层改合成画刷（<see cref="FillAutoBrush"/>），
+    /// 模板/页面里内联的 XAML 径向渐变改颜色档（<see cref="RetintBrush"/>）。
+    /// </summary>
     private static void OnThemeChanged(FrameworkElement sender, object args)
     {
-        if (!States.TryGetValue(sender, out var state) || state.AutoBrush is not { } brush) return;
-        try { FillAutoBrush(brush, sender.ActualTheme); } catch { /* 静默降级 */ }
+        if (!States.TryGetValue(sender, out var state)) return;
+        try
+        {
+            if (state.AutoBrush is { } auto) FillAutoBrush(auto, sender.ActualTheme);
+            else if (state.Brush is { } brush) RetintBrush(brush, sender.ActualTheme);
+        }
+        catch { /* 静默降级 */ }
+    }
+
+    /// <summary>
+    /// 把内联径向渐变统一成当前主题的底色：只改每档的 RGB，alpha 原样保留。
+    /// <para>内联渐变写死了叠黑色（浅色主题正确）；深色主题下不换白，那一块会比背景更暗。
+    /// 保留 alpha 是因为加强档（标题栏 0x3E）与卡片档（0x28）的差别全在透明度上。</para>
+    /// </summary>
+    private static void RetintBrush(RadialGradientBrush brush, ElementTheme theme)
+    {
+        var tint = GlowTint(theme);
+        foreach (var stop in brush.GradientStops)
+        {
+            stop.Color = Color.FromArgb(stop.Color.A, tint.R, tint.G, tint.B);
+        }
     }
 
     /// <summary>元素是否有可见底色：纯透明底或没设底色的（图标按钮）不算</summary>

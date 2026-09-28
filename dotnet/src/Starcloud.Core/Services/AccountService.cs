@@ -142,7 +142,7 @@ public sealed class AccountStore
                 Uuid = uuid,
                 Username = username,
                 Type = "microsoft",
-                IsDefault = _accounts.Count == 0,
+                IsDefault = _accounts.All(a => a.Type != "microsoft" || !a.IsDefault),
             };
             _accounts.Add(existing);
         }
@@ -175,7 +175,7 @@ public sealed class AccountStore
                 ServerName = serverName,
                 // 设备标识按规范写成标准 UUID（带连字符）：严格校验的认证服务器会直接拒收非 UUID
                 ClientToken = Guid.NewGuid().ToString(),
-                IsDefault = _accounts.Count == 0,
+                IsDefault = _accounts.All(a => a.Type != "external" || !a.IsDefault),
             };
             _accounts.Add(existing);
         }
@@ -209,7 +209,7 @@ public sealed class AccountStore
                 Uuid = uuid,
                 Username = name,
                 Type = OfflineType,
-                IsDefault = _accounts.Count == 0,
+                IsDefault = _accounts.All(a => a.Type != OfflineType || !a.IsDefault),
             };
             _accounts.Add(existing);
         }
@@ -226,16 +226,24 @@ public sealed class AccountStore
 
     public void Remove(string uuid)
     {
+        var type = _accounts.FirstOrDefault(a => a.Uuid == uuid)?.Type;
         _accounts.RemoveAll(a => a.Uuid == uuid);
         _sessions.Remove(uuid);
-        if (_accounts.Count > 0 && _accounts.All(a => !a.IsDefault))
-            _accounts[0].IsDefault = true;
+        // 删掉的是该类型首选时，用同类型第一个补位；其它类型的首选不受影响
+        if (type is not null && _accounts.Any(a => a.Type == type) &&
+            !_accounts.Any(a => a.IsDefault && a.Type == type))
+            _accounts.First(a => a.Type == type).IsDefault = true;
         Save();
     }
 
+    /// <summary>设为首选。首选按账户类型各记一个：换离线首选不会清掉正版首选，
+    /// 否则一键启动切到另一种模式时会找不到该类型的账户。</summary>
     public void SetDefault(string uuid)
     {
-        foreach (var a in _accounts) a.IsDefault = a.Uuid == uuid;
+        var target = _accounts.FirstOrDefault(a => a.Uuid == uuid);
+        if (target is null) return;
+        foreach (var a in _accounts)
+            if (a.Type == target.Type) a.IsDefault = a.Uuid == uuid;
         Save();
     }
 
@@ -266,6 +274,11 @@ public sealed class AccountStore
 
     public StoredAccount? Default =>
         _accounts.FirstOrDefault(a => a.IsDefault) ?? _accounts.FirstOrDefault();
+
+    /// <summary>指定类型的首选账户；该类尚无标记首选时退化为该类型第一个</summary>
+    public StoredAccount? DefaultOf(string type) =>
+        _accounts.FirstOrDefault(a => a.IsDefault && a.Type == type) ??
+        _accounts.FirstOrDefault(a => a.Type == type);
 }
 
 /// <summary>微软设备码登录（设备码 → 轮询 → XBL → XSTS → Minecraft API）

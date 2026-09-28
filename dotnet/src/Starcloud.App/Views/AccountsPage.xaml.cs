@@ -1,7 +1,7 @@
 // 账户页（一级）：Starcloud ID 卡（登录 / 注册 / 会话管理都在这张卡里）+ 游戏账户列表。
 //
 // 账户列表照 HMCL 来：一行一个账户（头像 / 名字 / 类型 / 正在用的皮肤 / 进详情），
-// 默认账户排在最前，其余操作都在二级页里：
+// 首选账户排在最前，其余操作都在二级页里：
 //   点一行 → AccountDetailPage（形象与皮肤 / 账户信息）
 //   右上「添加账户」→ AccountAddPage（左选身份、右填表单）
 // 一级页本身不再弹任何对话框，只保留「退出登录」这种需要二次确认的动作。
@@ -228,13 +228,13 @@ public sealed partial class AccountsPage : Page
 
     private void RefreshList()
     {
-        // 默认账户排在最前：一级页只回答"用哪个账户启动"，它得在第一眼看得到的地方
+        // 首选账户排在最前：一级页只回答"用哪个账户启动"，它得在第一眼看得到的地方
         var rows = _s.Accounts.Accounts
             .OrderByDescending(a => a.IsDefault)
             .Select(a => new AccountRow(a.Uuid, a.Username, TypeLabel(a), a.IsDefault,
                 AvatarHelper.Resolve(a.Type, a.Uuid, a.Username, a.ServerBase,
                     AvatarHelper.LocalSkinPath(a)),
-                SkinTextOf(a)))
+                SkinTextOf(a), DefaultActionTextOf(a)))
             .ToList();
         AccountList.ItemsSource = rows;
         MotionFx.StaggerListItems(AccountList);
@@ -253,6 +253,15 @@ public sealed partial class AccountsPage : Page
             : Loc.T("第三方账户"),
         "offline" => Loc.T("离线账户"),
         _ => account.Type,
+    };
+
+    /// <summary>「设为…」按钮的措辞随账户类型走：首选是按类型各记一个的</summary>
+    private static string DefaultActionTextOf(StoredAccount account) => account.Type switch
+    {
+        "microsoft" => Loc.T("设为首选微软账户"),
+        "external" => Loc.T("设为首选第三方账户"),
+        "offline" => Loc.T("设为首选离线账户"),
+        _ => Loc.T("设为首选账户"),
     };
 
     private void SetDefault_Click(object sender, RoutedEventArgs e)

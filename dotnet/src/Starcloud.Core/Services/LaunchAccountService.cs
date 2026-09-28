@@ -67,8 +67,8 @@ public sealed class LaunchAccountService(
     {
         if (Mode == "offline")
         {
-            var off = accounts.Default;
-            if (off is null || off.Type != AccountStore.OfflineType)
+            var off = accounts.DefaultOf(AccountStore.OfflineType);
+            if (off is null)
                 throw new InvalidOperationException("尚无离线账户，请先到账户页添加一个离线账户");
             // 离线账户：没有会话服务器可问皮肤，改用本机回环服务 + userProperties 注入
             return Task.FromResult(new ResolvedPlayer(off.Username,
@@ -77,8 +77,8 @@ public sealed class LaunchAccountService(
         }
 
         var external = Mode == "external";
-        var acc = accounts.Default;
-        if (acc is null || acc.Type != (external ? "external" : "microsoft"))
+        var acc = accounts.DefaultOf(Mode);
+        if (acc is null)
             throw new InvalidOperationException(external
                 ? "尚无第三方账户，请先到账户页登录"
                 : "尚无微软账户，请先到账户页登录");

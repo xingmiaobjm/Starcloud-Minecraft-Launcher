@@ -373,7 +373,6 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         {
             CornerRadius = new CornerRadius(8),
             Background = ThemedBrush("ScRowShadeBrush"),
-            Padding = new Thickness(10, 6, 10, 6),
         };
         var hover = new Border
         {
@@ -382,11 +381,29 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             Opacity = 0,
             IsHitTestVisible = false,
         };
-        // 跟手光斑用页面同款 GlowLayer：深色主题下由它自动提档，弹窗里也照样看得见
-        var glow = new GlowLayer { CornerRadius = new CornerRadius(8) };
+        // 跟手光斑：内联径向渐变（与页面同款六档），底色由 HoverShadowBehavior 按主题重写
+        var glow = new Border { CornerRadius = new CornerRadius(8), Opacity = 0, IsHitTestVisible = false };
+        var glowBrush = new RadialGradientBrush
+        {
+            Center = new Windows.Foundation.Point(0.5, 0.5),
+            GradientOrigin = new Windows.Foundation.Point(0.5, 0.5),
+            RadiusX = 0.9,
+            RadiusY = 0.9,
+        };
+        var glowStops = new (byte A, double Offset)[]
+        {
+            (0x28, 0), (0x1F, 0.18), (0x16, 0.40), (0x0D, 0.62), (0x05, 0.82), (0x00, 1),
+        };
+        foreach (var (a, offset) in glowStops)
+            glowBrush.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(a, 0, 0, 0), Offset = offset });
+        glow.Background = glowBrush;
         host.Children.Add(hover);
         host.Children.Add(glow);
-        host.Children.Add(content);
+        // 内容层：内边距放在这一层，让内容内缩而 hover/glow 铺满整行；
+        // 若内边距直接加在 host 上，hover/glow 会被排布到内边距里、比行小一圈。
+        var padded = new Grid { Padding = new Thickness(10, 6, 10, 6) };
+        padded.Children.Add(content);
+        host.Children.Add(padded);
 
         HoverShadowBehavior.SetIsEnabled(host, true);
         HoverShadowBehavior.SetCarrier(host, glow);

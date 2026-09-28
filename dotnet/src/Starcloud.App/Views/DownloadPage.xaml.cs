@@ -334,20 +334,9 @@ public sealed partial class DownloadPage : Page
         ApplyLatestTile(LatestSnapshotTile, LatestSnapshotIcon, LatestSnapshotId, LatestSnapshotMeta, snap);
         LatestCard.Visibility = rel is not null || snap is not null ? Visibility.Visible : Visibility.Collapsed;
 
-        // 正式版且未搜索时按大版本抽屉折叠；搜索或快照/远古版平铺
-        if (TypeTag == "release" && q.Length == 0)
-        {
-            VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionGroupTemplate"];
-            VersionList.ItemsSource = rows
-                .GroupBy(r => MajorOf(r.Id))
-                .Select(g => new VersionGroupRow { Major = g.Key, Count = g.Count(), Items = g.ToList() })
-                .ToList();
-        }
-        else
-        {
-            VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionFlatTemplate"];
-            VersionList.ItemsSource = rows;
-        }
+        // 全部版本统一平铺（含正式版）：行外观与主页版本行一致
+        VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionFlatTemplate"];
+        VersionList.ItemsSource = rows;
 
         MotionFx.StaggerListItems(VersionList);
     }
@@ -366,13 +355,6 @@ public sealed partial class DownloadPage : Page
         icon.Source = VersionRowHelpers.VersionIcon(version.Type);
         idText.Text = version.Id;
         metaText.Text = Loc.T("发布于 {0}", FormatReleaseTime(version.ReleaseTime));
-    }
-
-    /// <summary>大版本分组键："1.21.1" → "1.21"（取前两段）</summary>
-    private static string MajorOf(string id)
-    {
-        var parts = id.Split('.');
-        return parts.Length <= 2 ? id : string.Join('.', parts[..2]);
     }
 
     /// <summary>指定类型里发布时间最新的一版（ReleaseTime 为 ISO 串，可直接按序比较）</summary>
@@ -407,14 +389,6 @@ public sealed partial class DownloadPage : Page
         OpenDetail(row.Id);
     }
 
-    private void VersionGroupItem_Click(object s, ItemClickEventArgs e)
-    {
-        if (_busy || e.ClickedItem is not DownloadRow row) return;
-        PrepareDetailAnimation(s is ListViewBase list && list.ContainerFromItem(e.ClickedItem) is FrameworkElement c
-            ? FindDescendant<FrameworkElement>(c, "ChildIconHost") : null);
-        OpenDetail(row.Id);
-    }
-
     /// <summary>点「最新版本」瓦片：直接进该版本详情</summary>
     private void LatestTile_Click(object s, RoutedEventArgs e)
     {
@@ -442,51 +416,6 @@ public sealed partial class DownloadPage : Page
     }
 
     private const string DetailAnimKey = "DownloadVersionIcon";
-
-    /// <summary>大版本抽屉组头：点击切换展开/收起（高度平滑过渡由 ExpandBehavior 负责，箭头同步旋转）</summary>
-    private void VersionGroupHeader_Click(object s, RoutedEventArgs e)
-    {
-        if (s is not FrameworkElement { DataContext: VersionGroupRow row } header) return;
-        row.IsExpanded = !row.IsExpanded;
-        if (FindDescendant<FontIcon>(header, "ChevronIcon") is { } chevron)
-            SetChevronAngle(chevron, row.IsExpanded ? 90f : 0f, animate: true);
-    }
-
-    /// <summary>组头箭头首次进入可视树：按当前展开态摆好角度（收起 = 指向右侧）</summary>
-    private void VersionChevron_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FontIcon chevron) return;
-        var expanded = (chevron.DataContext as VersionGroupRow)?.IsExpanded == true;
-        SetChevronAngle(chevron, expanded ? 90f : 0f, animate: false);
-    }
-
-    /// <summary>箭头旋转（合成动画，绕自身中心）</summary>
-    private static void SetChevronAngle(FontIcon chevron, float angle, bool animate)
-    {
-        try
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(chevron);
-            visual.CenterPoint = new System.Numerics.Vector3(
-                (float)chevron.ActualWidth / 2f, (float)chevron.ActualHeight / 2f, 0f);
-
-            if (!animate || !AppServices.Instance.Motion.Enabled)
-            {
-                visual.StopAnimation("RotationAngleInDegrees");
-                visual.RotationAngleInDegrees = angle;
-                return;
-            }
-
-            var compositor = visual.Compositor;
-            var anim = compositor.CreateScalarKeyFrameAnimation();
-            anim.Duration = TimeSpan.FromMilliseconds(MotionFx.ChevronMs);
-            anim.InsertKeyFrame(1f, angle, MotionFx.ControlEase(compositor));
-            visual.StartAnimation("RotationAngleInDegrees", anim);
-        }
-        catch
-        {
-            // 静默：动效失败不影响展开
-        }
-    }
 
     /// <summary>在可视子树里按 x:Name 查找元素（DataTemplate 内部控件）</summary>
     private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement

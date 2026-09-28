@@ -713,7 +713,7 @@ public class AccountStoreTests
         var svc = new LaunchAccountService(store, () => new LauncherSettings());
         svc.Mode = "microsoft";
 
-        // 默认账户是离线身份，与正版模式不匹配 → 提示先登录，而不是静默降级成离线
+        // 一个正版账户都没有（首选按类型各记一个，离线首选不会顶替正版）→ 提示先登录，而不是静默降级成离线
         await Assert.ThrowsAsync<InvalidOperationException>(() => svc.ResolveAsync());
     }
 

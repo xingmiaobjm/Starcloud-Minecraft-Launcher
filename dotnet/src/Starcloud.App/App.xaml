@@ -99,8 +99,8 @@
             </Style>
 
             <!-- ══ 可复用按钮：ctrl:GlowButton（跟手内阴影写进模板） ══
-                 此前跟手阴影的调用点要自己摆一层 <ctrl:GlowLayer x:Name="…"> 并挂成 Carrier，
-                 而那层的 CornerRadius 是手写魔数 —— 它必须与「按钮表面真正的圆角」一致，但表面圆角
+                 此前跟手阴影的调用点要自己摆一层光斑载体（内联径向渐变）并挂成 Carrier，
+                 而那一层的 CornerRadius 是手写魔数 —— 它必须与「按钮表面真正的圆角」一致，但表面圆角
                  多半来自 ControlCornerRadius 或页面样式，两边没有联动。一旦不一致，光斑的四个角
                  就会从按钮外面溢出来（主页磁贴 8 vs 12、版本行光斑 8 vs 框架行底色 4 都是这个毛病）。
                  现在把光斑收进按钮模板：圆角与按钮表面读同一个 {TemplateBinding CornerRadius}，
@@ -127,7 +127,21 @@
                             CornerRadius="{TemplateBinding CornerRadius}"
                             AutomationProperties.AccessibilityView="Raw" />
 
-                    <ctrl:GlowLayer x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}" />
+                    <!-- 跟手光斑：内联径向渐变（底色按主题由 HoverShadowBehavior 重写，浅叠黑 / 深叠白）；
+                         圆角读同一个模板值，与按钮表面结构上不可能错配。 -->
+                    <Border x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#28000000" Offset="0" />
+                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                <GradientStop Color="#16000000" Offset="0.40" />
+                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                <GradientStop Color="#05000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
 
                     <ContentPresenter x:Name="ContentPresenter"
                                       Foreground="{TemplateBinding Foreground}"
@@ -205,7 +219,19 @@
                         </Border.BackgroundTransition>
                     </Border>
 
-                    <ctrl:GlowLayer x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}" />
+                    <Border x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#28000000" Offset="0" />
+                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                <GradientStop Color="#16000000" Offset="0.40" />
+                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                <GradientStop Color="#05000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
 
                     <ContentPresenter x:Name="ContentPresenter"
                                       Foreground="{TemplateBinding Foreground}"
@@ -265,7 +291,19 @@
                     <Border x:Name="HoverLayer" CornerRadius="{TemplateBinding CornerRadius}"
                             Opacity="0" IsHitTestVisible="False"
                             Background="{ThemeResource ScRowShadeBrush}" />
-                    <ctrl:GlowLayer x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}" />
+                    <Border x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#28000000" Offset="0" />
+                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                <GradientStop Color="#16000000" Offset="0.40" />
+                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                <GradientStop Color="#05000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
 
                     <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0"
                                 VerticalAlignment="Center">
@@ -454,6 +492,21 @@
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
+                    <!-- 强调色主按钮（Button Style="AccentButtonStyle"）的配色修正。
+                         框架 generic.xaml 里 AccentButtonBackground / AccentButtonForeground 这一族是
+                         「主题字典内部的 StaticResource 别名」（AccentButtonBackground → AccentFillColorDefaultBrush
+                         → SystemAccentColorDark1），别名在框架自己的字典里就解析完了，所以本文件上面覆盖的
+                         AccentFillColor* / TextOnAccentFillColor* 打不到它：主按钮底色会变成 #FFBC00（那是悬浮色），
+                         文字还是框架的白字——黄底白字对比度约 1.4:1，而且同一张卡里会同时出现两种黄。
+                         这里直接覆盖别名本身，取值与上面的 AccentFillColor* / TextOnAccentFillColor* 对齐。 -->
+                    <SolidColorBrush x:Key="AccentButtonBackground" Color="#FFD322" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#FFBC00" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#E6A800" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#99FFD322" />
+                    <SolidColorBrush x:Key="AccentButtonForeground" Color="#E61A1A1A" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#E61A1A1A" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#B31A1A1A" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#5C1A1A1A" />
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#FFFFFF" TintOpacity="0.72" FallbackColor="#FFF9F9F9" />
@@ -509,6 +562,17 @@
                     <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#5C1A1A1A" />
+                    <!-- 强调色主按钮配色修正（根因说明见浅色主题同名注释：框架把 AccentButton*
+                         写成了主题字典内的 StaticResource 别名，只有覆盖别名本身才生效）。
+                         深色与浅色同用品牌黄 + 黑字，理由见上面 AccentFillColorDefaultBrush 的注释。 -->
+                    <SolidColorBrush x:Key="AccentButtonBackground" Color="#FFD322" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#FFBC00" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#E6A800" />
+                    <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#99FFD322" />
+                    <SolidColorBrush x:Key="AccentButtonForeground" Color="#E61A1A1A" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#E61A1A1A" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#B31A1A1A" />
+                    <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#5C1A1A1A" />
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#2B2B2B" TintOpacity="0.75" FallbackColor="#FF1F1F1F" />

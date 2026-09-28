@@ -11,7 +11,6 @@
 // 异步收敛：插件钩子是同步的（JS 引擎同步执行、Python 走行式协议），因此所有宿主异步
 // 调用都在 PluginSync 里收敛成同步返回；工作体放到线程池上跑，避免占着 UI 线程时死锁。
 
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Starcloud.Core.Services;
@@ -286,7 +285,6 @@ public sealed class PluginInstancesApi(PluginApiCore c)
             ?? throw new InvalidOperationException("当前宿主没有提供版本清单服务");
         var dotMc = _c.DotMc;
         var store = new InstanceSettingsStore(dotMc);
-        var running = GameSessionGuard.Current(dotMc)?.VersionId;
         return manifest.ListInstalled(dotMc)
             .Select(i =>
             {
@@ -298,7 +296,7 @@ public sealed class PluginInstancesApi(PluginApiCore c)
                     ("category", p.Category ?? ""),
                     ("note", p.Note ?? ""),
                     ("lastPlayedAt", p.LastPlayedAt?.ToString("o")),
-                    ("running", string.Equals(running, i.Id, StringComparison.OrdinalIgnoreCase)));
+                    ("running", GameSessionGuard.IsVersionAlive(dotMc, i.Id)));
             })
             .ToArray();
     }
@@ -440,17 +438,20 @@ public sealed class PluginGameApi(PluginApiCore c)
 {
     private readonly PluginApiCore _c = c;
 
-    /// <summary>当前游戏进程状态：{ running, versionId, pid, startedAt, uptimeSeconds }</summary>
+    /// <summary>
+    /// 当前游戏进程状态：{ running, versionId, pid, startedAt, uptimeSeconds }。
+    /// 多开时取「运行状态页下拉选中的那一局」（跟随 SelectedPid），插件与界面看到的是同一局。
+    /// </summary>
     public Dictionary<string, object?> Status()
     {
         _c.Require(PluginPermissions.GameLaunch, "查询游戏进程状态");
-        var cur = GameSessionGuard.Current(_c.DotMc);
+        var cur = GameRuntimeMonitor.Instance.Current;
         return cur is null
             ? _c.Obj(("running", false), ("versionId", null), ("pid", 0),
                 ("startedAt", null), ("uptimeSeconds", 0))
             : _c.Obj(("running", true), ("versionId", cur.VersionId), ("pid", cur.Pid),
                 ("startedAt", cur.StartedAt.ToString("o")),
-                ("uptimeSeconds", (int)Math.Max(0, (DateTime.Now - cur.StartedAt).TotalSeconds)));
+                ("uptimeSeconds", (int)Math.Max(0, cur.Uptime.TotalSeconds)));
     }
 
     /// <summary>
@@ -463,22 +464,18 @@ public sealed class PluginGameApi(PluginApiCore c)
         return _c.ToolOk("launch_game", new { version_id = versionId });
     }
 
-    /// <summary>强制结束当前游戏进程（等同任务管理器结束 java 进程，未保存的进度会丢）</summary>
+    /// <summary>
+    /// 强制结束当前游戏进程（等同任务管理器结束 java 进程，未保存的进度会丢）。
+    /// 多开时结束「运行状态页下拉选中的那一局」，并标记为用户主动结束（不算崩溃）。
+    /// </summary>
     public Dictionary<string, object?> Kill()
     {
         _c.Require(PluginPermissions.GameLaunch, "结束游戏进程");
-        var cur = GameSessionGuard.Current(_c.DotMc);
+        var monitor = GameRuntimeMonitor.Instance;
+        var cur = monitor.Current;
         if (cur is null) return _c.Obj(("ok", false), ("message", "当前没有正在运行的游戏"));
-        try
-        {
-            using var p = Process.GetProcessById(cur.Pid);
-            p.Kill(entireProcessTree: true);
-            return _c.Obj(("ok", true), ("message", $"已结束 {cur.VersionId}（pid {cur.Pid}）"));
-        }
-        catch (Exception ex)
-        {
-            return _c.Obj(("ok", false), ("message", $"结束进程失败：{ex.Message}"));
-        }
+        monitor.Kill(cur.Pid);
+        return _c.Obj(("ok", true), ("message", $"已结束 {cur.VersionId}（pid {cur.Pid}）"));
     }
 
     /// <summary>某实例最近的游戏日志尾部（先补齐行数上限，再由启动器读取）</summary>

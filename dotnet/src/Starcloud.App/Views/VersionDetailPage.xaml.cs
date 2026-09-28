@@ -102,7 +102,7 @@ public sealed partial class VersionDetailPage : Page
         IsolatedBadge.Visibility = isolated ? Visibility.Visible : Visibility.Collapsed;
         ApplyIcon(VersionRowHelpers.DisplayIconPath(dotMc, _versionId, profile.IconPath));
 
-        var running = App.RunningVersionId == _versionId;
+        var running = _s.Runtime.Instances.Any(i => i.VersionId == _versionId);
         RunningBanner.IsOpen = running;
         RenameBtn.IsEnabled = !running;
         CopyBtn.IsEnabled = !running;
@@ -1061,7 +1061,7 @@ public sealed partial class VersionDetailPage : Page
 
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        var running = App.RunningVersionId == _versionId;
+        var running = _s.Runtime.Instances.Any(i => i.VersionId == _versionId);
         var profile = _store.Get(_versionId);
         var isolated = InstanceLayout.IsIsolated(profile, _s.Settings);
         var message = running
@@ -1169,8 +1169,9 @@ public sealed partial class VersionDetailPage : Page
         }
         finally
         {
-            RenameBtn.IsEnabled = App.RunningVersionId != _versionId;
-            CopyBtn.IsEnabled = App.RunningVersionId != _versionId;
+            var running = _s.Runtime.Instances.Any(i => i.VersionId == _versionId);
+            RenameBtn.IsEnabled = !running;
+            CopyBtn.IsEnabled = !running;
         }
         ApplyIsolation(target);
     }

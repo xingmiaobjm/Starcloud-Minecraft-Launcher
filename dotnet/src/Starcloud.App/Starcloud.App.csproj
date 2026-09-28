@@ -16,8 +16,8 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 启动器自身版本（当前为测试版 V0.3.1）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
-    <Version>0.3.1</Version>
+    <!-- 启动器自身版本（当前为测试版 V0.3.2）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
+    <Version>0.3.2</Version>
     <!-- 应用图标（品牌标记，由 tools/gen-app-icon.ps1 生成）：嵌入 exe 资源供资源管理器/任务栏/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>

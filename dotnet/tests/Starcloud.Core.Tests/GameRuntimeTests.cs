@@ -144,7 +144,8 @@ public class GameRuntimeTests
         using var dotMc = new TempDotMc();
         using var data = new TempDataDir();
         WriteLockFile(dotMc, Environment.ProcessId, "1.21.1-fabric", DateTime.Now.AddMinutes(-5));
-        GameLaunchContextStore.Write(dotMc.Path, Context("1.21.1-fabric", maxMem: 8192));
+        GameLaunchContextStore.Write(dotMc.Path, Environment.ProcessId,
+            Context("1.21.1-fabric", maxMem: 8192));
 
         var mon = NewMonitor(dotMc.Path, data.Path, pid => pid == Environment.ProcessId);
         mon.IntervalMs = 250;
@@ -175,7 +176,7 @@ public class GameRuntimeTests
         using var dotMc = new TempDotMc();
         using var data = new TempDataDir();
         WriteLockFile(dotMc, 999_999, "1.21.1", DateTime.Now.AddMinutes(-1));
-        var lockFile = LauncherPaths.GameSessionFile(dotMc.Path);
+        var lockFile = LauncherPaths.GameSessionFile(dotMc.Path, 999_999);
         var before = File.ReadAllText(lockFile);
 
         var mon = NewMonitor(dotMc.Path, data.Path, _ => false);
@@ -266,8 +267,8 @@ public class GameRuntimeTests
             ExtraJvmArgs = ["-Dfoo=\"a b=c\"", "-Xmx2G", "--add-opens=java.base/java.lang=ALL-UNNAMED"],
         };
 
-        GameLaunchContextStore.Write(dotMc.Path, ctx);
-        var read = GameLaunchContextStore.Read(dotMc.Path, "1.21.1");
+        GameLaunchContextStore.Write(dotMc.Path, 4242, ctx);
+        var read = GameLaunchContextStore.Read(dotMc.Path, 4242, "1.21.1");
 
         Assert.NotNull(read);
         Assert.Equal(ctx.VersionId, read!.VersionId);
@@ -290,15 +291,18 @@ public class GameRuntimeTests
     public void 上下文损坏或版本不符时读到null()
     {
         using var dotMc = new TempDotMc();
-        var file = GameLaunchContextStore.FileFor(dotMc.Path);
+        var file = GameLaunchContextStore.FileFor(dotMc.Path, 4242);
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, "{ 坏掉的 json");
 
-        Assert.Null(GameLaunchContextStore.Read(dotMc.Path, "1.21.1"));
+        Assert.Null(GameLaunchContextStore.Read(dotMc.Path, 4242, "1.21.1"));
 
-        GameLaunchContextStore.Write(dotMc.Path, Context("1.21.1", maxMem: 4096));
-        Assert.NotNull(GameLaunchContextStore.Read(dotMc.Path, "1.21.1"));
-        Assert.Null(GameLaunchContextStore.Read(dotMc.Path, "1.20.1"));   // 上一局残留 → 丢弃
+        GameLaunchContextStore.Write(dotMc.Path, 4242, Context("1.21.1", maxMem: 4096));
+        Assert.NotNull(GameLaunchContextStore.Read(dotMc.Path, 4242, "1.21.1"));
+        Assert.Null(GameLaunchContextStore.Read(dotMc.Path, 4242, "1.20.1"));   // 上一局残留 → 丢弃
+
+        // 上下文按 pid 分文件：别的一局读不到这一局的
+        Assert.Null(GameLaunchContextStore.Read(dotMc.Path, 4243, "1.21.1"));
     }
 
     // ── 14. 完整命令行含敏感令牌时绝不落盘 ──
@@ -332,58 +336,79 @@ public class GameRuntimeTests
         }
     }
 
-    // ── 15. 与既有跨进程会话锁语义兼容 ──
+    // ── 15. 多开：注册表按 pid 分别记账，同版本多局互不影响 ──
 
     [Fact]
-    public void 会话锁与监控器恢复结论一致()
+    public void 同一版本可并存多局且注册表按实例记账()
     {
         using var dotMc = new TempDotMc();
+        var t0 = DateTime.Now.AddMinutes(-6);
+
+        // 探针注入，不依赖机器上真的跑着 java
+        static bool Alive(int pid) => pid is 101 or 202;
+
+        WriteLockFile(dotMc, 101, "1.21.1", t0);
+        WriteLockFile(dotMc, 202, "1.21.1", t0.AddMinutes(1));
+
+        var all = GameSessionGuard.All(dotMc.Path, Alive);
+        Assert.Equal(new[] { 101, 202 }, all.Select(l => l.Pid));   // 同版本两局并存，按启动时刻升序
+        Assert.All(all, l => Assert.Equal("1.21.1", l.VersionId));
+
+        // 登记 / 注销是「一实例一文件」，一个实例收口不触碰另一个
+        GameSessionGuard.Unpublish(dotMc.Path, 101);
+        Assert.False(File.Exists(LauncherPaths.GameSessionFile(dotMc.Path, 101)));
+        Assert.True(File.Exists(LauncherPaths.GameSessionFile(dotMc.Path, 202)));
+        var rest = Assert.Single(GameSessionGuard.All(dotMc.Path, Alive));
+        Assert.Equal(202, rest.Pid);
+
+        // 全部收口 → 注册表清空，版本也不再是「在跑」
+        GameSessionGuard.Unpublish(dotMc.Path, 202);
+        Assert.Empty(GameSessionGuard.All(dotMc.Path, Alive));
+        Assert.False(GameSessionGuard.IsAnyGameAlive(dotMc.Path));
+        Assert.False(GameSessionGuard.IsVersionAlive(dotMc.Path, "1.21.1"));
+    }
+
+    // ── 16. 多开：监控器可切换选中，收口只针对对应实例 ──
+
+    [Fact]
+    public void 多开时监控器能切换选中且只收口对应实例()
+    {
         using var data = new TempDataDir();
+        var store = new GameRunHistoryStore(data.Path);
+        var t0 = DateTime.Now.AddMinutes(-10);
 
-        var handle = GameSessionGuard.TryAcquire(dotMc.Path, "1.21.1", out var blockedBy);
-        Assert.NotNull(handle);
-        Assert.Null(blockedBy);
-        Assert.Null(GameSessionGuard.Current(dotMc.Path));   // pid 还是 0 → 没在跑
-
-        handle!.Bind(Environment.ProcessId);                 // 真实 pid，但进程名不是 java*
-        Assert.Null(GameSessionGuard.Current(dotMc.Path));   // 防 pid 复用：仍判没在跑
-
-        // 监控器注入「存活」探针，能从 guard 写的同一份锁文件恢复出同一局
-        var mon = NewMonitor(dotMc.Path, data.Path, pid => pid == Environment.ProcessId);
-        mon.IntervalMs = 250;
+        var mon = NewMonitor("", data.Path, _ => true, history: store);
         try
         {
-            mon.Start();
-            var info = WaitForRunning(mon);
+            mon.AttachForTest(101, "A", t0);
+            mon.AttachForTest(202, "B", t0.AddMinutes(1));
 
-            Assert.NotNull(info);
-            Assert.Equal("1.21.1", info!.VersionId);
-            Assert.Equal(Environment.ProcessId, info.Pid);
-            Assert.True(info.RecoveredFromLock);
+            var instances = mon.Instances;
+            Assert.Equal(new[] { 101, 202 }, instances.Select(i => i.Pid));
+            Assert.Equal(202, mon.SelectedPid);            // 后挂上的成为选中
+            Assert.Equal("B", mon.Current!.VersionId);
+
+            Assert.True(mon.Select(101));                  // 下拉切换
+            Assert.Equal(101, mon.SelectedPid);
+            Assert.Equal("A", mon.Current!.VersionId);
+            Assert.False(mon.Select(999));                 // 不存在的 pid 不切
+
+            mon.RaiseSessionExitedForTest(0, 101);         // 只结束切换后的这一局
+            Assert.Equal("B", mon.Current!.VersionId);     // 选中自动落到还在跑的那局
+            var rec = Assert.Single(store.Records);
+            Assert.Equal("A", rec.VersionId);
+            Assert.Single(mon.Instances);
+
+            mon.RaiseSessionExitedForTest(7, 202);         // 剩下的那局以非零退出码收口
+            Assert.Null(mon.Current);
+            Assert.Empty(mon.Instances);
+            Assert.Equal(2, store.Records.Count);
+            Assert.Equal("B", store.Records[0].VersionId);
+            Assert.True(store.Records[0].Crashed);
         }
         finally
         {
-            mon.Stop();
             mon.Dispose();
-        }
-
-        // 释放锁 → 文件消失 → guard 与监控器一致判「没在跑」
-        handle.Dispose();
-        Assert.False(File.Exists(LauncherPaths.GameSessionFile(dotMc.Path)));
-        Assert.Null(GameSessionGuard.Current(dotMc.Path));
-
-        var mon2 = NewMonitor(dotMc.Path, data.Path, _ => true);
-        mon2.IntervalMs = 250;
-        try
-        {
-            mon2.Start();
-            WaitForNotRunning(mon2, timeoutMs: 1000);
-            Assert.Null(mon2.Current);                       // 探针恒 true 也恢复不出东西
-        }
-        finally
-        {
-            mon2.Stop();
-            mon2.Dispose();
         }
     }
 
@@ -421,7 +446,7 @@ public class GameRuntimeTests
     }
 
     private static void WriteLockFile(TempDotMc dotMc, int pid, string versionId, DateTime startedAt) =>
-        GameSessionGuard.WriteLock(LauncherPaths.GameSessionFile(dotMc.Path), new GameSessionLock
+        GameSessionGuard.WriteLock(LauncherPaths.GameSessionFile(dotMc.Path, pid), new GameSessionLock
         {
             Pid = pid,
             VersionId = versionId,

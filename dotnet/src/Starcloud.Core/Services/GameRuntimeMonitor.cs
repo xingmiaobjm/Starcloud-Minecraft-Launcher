@@ -3,13 +3,15 @@
 //
 // 本类不知道 UI 的存在：只抛不可变快照与事件，由页面自己回 UI 线程。
 // 进程存活判定可注入（isAliveProbe），测试因此不依赖机器上真的跑着 java。
+//
+// 多实例：同一 .minecraft 下允许同时跑多局（同版本也可多开），每局一个 InstanceState，
+// 实例键就是 pid。对外展示 / 采样 / 结束 / 命令行 / 上下文一律以「选中实例」为准。
 
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>当前这一局的即时快照（不可变；采样更新时整体替换）</summary>
+/// <summary>某局游戏的即时快照（不可变；采样更新时整体替换）</summary>
 public sealed record GameRunInfo(
     int Pid,
     string VersionId,
@@ -20,7 +22,7 @@ public sealed record GameRunInfo(
 
 /// <summary>
 /// 运行态监控器（Core 单例，因为 Nova 启动路径在 Core 里够不到 AppServices）。
-/// 冷启动时靠锁文件 + 判活恢复「上一轮启动器拉起的游戏」，进程退出时落一条运行历史。
+/// 冷启动时靠实例注册文件 + 判活恢复「上一轮启动器拉起的游戏」，进程退出时落一条运行历史。
 /// </summary>
 public sealed class GameRuntimeMonitor : IDisposable
 {
@@ -35,8 +37,30 @@ public sealed class GameRuntimeMonitor : IDisposable
 
     public static GameRuntimeMonitor Instance { get; } = new();
 
+    /// <summary>单个游戏实例的全部跟踪状态</summary>
+    private sealed class InstanceState
+    {
+        public int Pid;
+        public string VersionId = "";
+        public DateTime StartedAt;
+        public GameSession? Session;
+        public ProcessSampler? Sampler;
+        public GameLaunchContext? Context;
+        public string? CommandLine;
+        public string? LogFile;
+        public bool Recovered;
+        public long PeakWorkingSet;
+        public int ConsecutiveFailures;
+        public bool SamplingPaused;
+        public bool KilledByUser;
+        public Action<int>? ExitedHandler;
+        public readonly LinkedList<GameRunSample> Samples = new();
+        public GameRunSample Latest;
+    }
+
     private readonly object _gate = new();
-    private readonly LinkedList<GameRunSample> _samples = new();
+    private readonly Dictionary<int, InstanceState> _states = new();
+    private int _selectedPid;
 
     private Func<string>? _dotMcProvider;
     private GameRunHistoryStore _history = new(LauncherPaths.DataDir);
@@ -45,20 +69,6 @@ public sealed class GameRuntimeMonitor : IDisposable
     private System.Threading.Timer? _timer;
     private bool _started;
     private int _intervalMs = 1000;
-
-    private GameSession? _session;
-    private ProcessSampler? _sampler;
-    private GameLaunchContext? _context;
-    private string? _commandLine;
-    private GameRunInfo? _info;
-    private int _pid;
-    private string _versionId = "";
-    private DateTime _startedAt;
-    private bool _recovered;
-    private long _peakWorkingSet;
-    private int _consecutiveFailures;
-    private bool _samplingPaused;
-    private bool _killedByUser;
 
     /// <summary>
     /// 注入依赖（AppServices 构造时调一次；测试传临时目录与假探针）。
@@ -76,14 +86,33 @@ public sealed class GameRuntimeMonitor : IDisposable
         }
     }
 
-    /// <summary>当前运行快照；没有游戏在跑时为 null（后台线程读，已加锁）</summary>
-    public GameRunInfo? Current { get { lock (_gate) return _info; } }
+    /// <summary>当前展示的这局快照（即选中实例；没有游戏在跑时为 null）。后台线程读，已加锁</summary>
+    public GameRunInfo? Current { get { lock (_gate) return BuildInfo(ResolveLocked(0)); } }
 
-    /// <summary>本局完整启动命令行（含 --accessToken，仅内存持有；恢复路径拿不到 → null）</summary>
-    public string? CommandLine { get { lock (_gate) return _commandLine; } }
+    /// <summary>正在跑的全部实例（按启动时刻升序；下拉切换用）</summary>
+    public IReadOnlyList<GameRunInfo> Instances
+    {
+        get
+        {
+            lock (_gate)
+            {
+                // 集合里都是非空实例，! 只为消掉 BuildInfo 的可空返回签名
+                return [.. _states.Values.OrderBy(s => s.StartedAt).Select(s => BuildInfo(s)!)];
+            }
+        }
+    }
 
-    /// <summary>本局生效的启动上下文；缺失（跨启动器重启且无落盘）时为 null</summary>
-    public GameLaunchContext? LaunchContext { get { lock (_gate) return _context; } }
+    /// <summary>当前选中的实例 pid；0 表示没有可展示的实例</summary>
+    public int SelectedPid { get { lock (_gate) return ResolveLocked(0)?.Pid ?? 0; } }
+
+    /// <summary>选中实例是否由用户在界面里主动结束（用于区分「用户结束」与「游戏崩溃」）</summary>
+    public bool KilledByUser { get { lock (_gate) return ResolveLocked(0)?.KilledByUser ?? false; } }
+
+    /// <summary>选中实例的完整启动命令行（含 --accessToken，仅内存持有；恢复路径拿不到 → null）</summary>
+    public string? CommandLine { get { lock (_gate) return ResolveLocked(0)?.CommandLine; } }
+
+    /// <summary>选中实例生效的启动上下文；缺失（跨启动器重启且无落盘）时为 null</summary>
+    public GameLaunchContext? LaunchContext { get { lock (_gate) return ResolveLocked(0)?.Context; } }
 
     /// <summary>运行历史（新 → 旧）</summary>
     public IReadOnlyList<GameRunRecord> History
@@ -91,18 +120,20 @@ public sealed class GameRuntimeMonitor : IDisposable
         get { lock (_gate) return [.. _history.Records]; }
     }
 
-    /// <summary>最近 <paramref name="last"/> 个采样点（sparkline 用）</summary>
+    /// <summary>选中实例最近 <paramref name="last"/> 个采样点（sparkline 用）</summary>
     public IReadOnlyList<GameRunSample> Samples(int last)
     {
         lock (_gate)
         {
-            if (last <= 0) return [];
-            return _samples.Count <= last ? [.. _samples] : _samples.Skip(_samples.Count - last).ToList();
+            var st = ResolveLocked(0);
+            if (st is null || last <= 0) return [];
+            var samples = st.Samples;
+            return samples.Count <= last ? [.. samples] : samples.Skip(samples.Count - last).ToList();
         }
     }
 
-    /// <summary>连续采样失败导致的暂停（页面显示「采样已暂停」并给「重试」）</summary>
-    public bool SamplingPaused { get { lock (_gate) return _samplingPaused; } }
+    /// <summary>选中实例的连续采样失败暂停（页面显示「采样已暂停」并给「重试」）</summary>
+    public bool SamplingPaused { get { lock (_gate) return ResolveLocked(0)?.SamplingPaused ?? false; } }
 
     /// <summary>采样间隔（毫秒）；变更后若在跑则重建定时器</summary>
     public int IntervalMs
@@ -123,7 +154,7 @@ public sealed class GameRuntimeMonitor : IDisposable
     /// <summary>是否采集 GPU 占用（默认开；关掉可省 PDH 开销）</summary>
     public bool CollectGpu { get; set; } = true;
 
-    /// <summary>运行快照变化（后台线程触发；null = 已无游戏在跑）</summary>
+    /// <summary>当前展示的那局快照变化（后台线程触发；null = 已无游戏在跑）</summary>
     public event Action<GameRunInfo?>? Changed;
 
     /// <summary>一局结束并已落历史（后台线程触发）</summary>
@@ -135,8 +166,11 @@ public sealed class GameRuntimeMonitor : IDisposable
         lock (_gate)
         {
             _started = true;
-            _samplingPaused = false;
-            _consecutiveFailures = 0;
+            foreach (var st in _states.Values)
+            {
+                st.SamplingPaused = false;
+                st.ConsecutiveFailures = 0;
+            }
             RestartTimerLocked();
         }
     }
@@ -152,54 +186,55 @@ public sealed class GameRuntimeMonitor : IDisposable
         }
     }
 
-    /// <summary>接管本进程启动的这一局（启动成功后由启动路径调用）</summary>
+    /// <summary>接管本进程启动的这一局（启动成功后由启动路径调用）；新的一局自然成为展示对象</summary>
     public void Attach(GameSession session, GameLaunchContext? context, string? commandLine) =>
         AttachCore(session.Pid, session.VersionId, session.StartedAt, session, context, commandLine);
 
-    /// <summary>结束当前游戏进程（连子进程）；被系统拒绝时由调用方提示</summary>
-    public void Kill()
+    /// <summary>切换要展示 / 操作的实例（下拉框用）；pid 不存在返回 false</summary>
+    public bool Select(int pid)
     {
         lock (_gate)
         {
-            _killedByUser = true;
-            if (_session is not null)
+            if (!_states.ContainsKey(pid)) return false;
+            if (_selectedPid == pid) return true;
+            _selectedPid = pid;
+        }
+        Changed?.Invoke(Current);
+        return true;
+    }
+
+    /// <summary>结束指定实例的游戏进程（pid ≤ 0 时结束选中实例，连子进程一起）</summary>
+    public void Kill(int pid = 0)
+    {
+        lock (_gate)
+        {
+            var st = ResolveLocked(pid);
+            if (st is null) return;
+            st.KilledByUser = true;
+            if (st.Session is not null)
             {
-                _session.Kill();
+                st.Session.Kill();
                 return;
             }
-            var pid = _pid;
-            if (_info is null || pid <= 0) return;
+            var target = st.Pid;
             try
             {
-                using var p = Process.GetProcessById(pid);
+                using var p = Process.GetProcessById(target);
                 if (!p.HasExited) p.Kill(entireProcessTree: true);
             }
             catch { /* 已退出 / 权限不足：交给下一次心跳收口 */ }
         }
     }
 
-    /// <summary>放弃跟踪（重启时调用；不删除历史）</summary>
-    public void Detach()
-    {
-        lock (_gate) CleanupLocked(deleteContext: true);
-        Changed?.Invoke(null);
-    }
-
-    /// <summary>日志尾若干行（接管路径读内存环形缓冲；恢复路径读最新一局日志文件尾部）</summary>
+    /// <summary>选中实例的日志尾若干行（接管路径读内存环形缓冲；恢复路径读本局日志文件尾部）</summary>
     public IReadOnlyList<string> TailLog(int count)
     {
         if (count <= 0) return [];
-        GameSession? session;
-        bool recovered;
-        lock (_gate)
-        {
-            if (_info is null) return [];
-            session = _session;
-            recovered = _recovered;
-        }
-        if (session is not null) return session.Tail(count);
-        if (!recovered) return [];
-        return ReadLogTail(count);
+        InstanceState? st;
+        lock (_gate) st = ResolveLocked(0);
+        if (st is null) return [];
+        if (st.Session is not null) return st.Session.Tail(count);
+        return st.LogFile is null ? [] : ReadLogTail(st.LogFile, count);
     }
 
     public void Dispose()
@@ -207,8 +242,13 @@ public sealed class GameRuntimeMonitor : IDisposable
         Stop();
         lock (_gate)
         {
-            _sampler?.Dispose();
-            _sampler = null;
+            foreach (var st in _states.Values)
+            {
+                st.Sampler?.Dispose();
+                st.Sampler = null;
+            }
+            _states.Clear();
+            _selectedPid = 0;
         }
     }
 
@@ -219,16 +259,18 @@ public sealed class GameRuntimeMonitor : IDisposable
         GameSession? session = null, GameLaunchContext? context = null, string? commandLine = null) =>
         AttachCore(pid, versionId, startedAt, session, context, commandLine);
 
-    /// <summary>测试用：模拟会话退出收口</summary>
-    internal void RaiseSessionExitedForTest(int exitCode) => OnSessionExited(exitCode);
+    /// <summary>测试用：模拟会话退出收口（pid ≤ 0 用当前选中实例）</summary>
+    internal void RaiseSessionExitedForTest(int exitCode, int pid = 0) => OnSessionExited(pid, exitCode);
 
-    /// <summary>测试用：直接推入一个采样点</summary>
+    /// <summary>测试用：直接给选中实例推入一个采样点</summary>
     internal void PushSampleForTest(in GameRunSample sample)
     {
         lock (_gate)
         {
-            PushSampleLocked(sample);
-            if (_info is not null) _info = BuildInfoLocked(sample);
+            var st = ResolveLocked(0);
+            if (st is null) return;
+            PushSampleLocked(st, sample);
+            st.Latest = sample;
         }
     }
 
@@ -237,30 +279,45 @@ public sealed class GameRuntimeMonitor : IDisposable
     private void AttachCore(int pid, string versionId, DateTime startedAt, GameSession? session,
         GameLaunchContext? context, string? commandLine)
     {
+        if (pid <= 0) return;   // pid 即实例键，无 pid 无法跟踪
         lock (_gate)
         {
-            _session = session;
-            _sampler?.Dispose();
-            _sampler = new ProcessSampler(pid);
-            _pid = pid;
-            _versionId = versionId;
-            _startedAt = startedAt;
-            _context = context;
-            _commandLine = commandLine;
-            _recovered = false;
-            _killedByUser = false;
-            _consecutiveFailures = 0;
-            _samplingPaused = false;
-            _peakWorkingSet = 0;
-            _samples.Clear();
+            if (_states.TryGetValue(pid, out var old))
+            {
+                if (old.Session is not null && old.ExitedHandler is not null) old.Session.Exited -= old.ExitedHandler;
+                old.Sampler?.Dispose();
+                _states.Remove(pid);
+            }
 
-            if (session is not null) session.Exited += OnSessionExited;
+            var st = new InstanceState
+            {
+                Pid = pid,
+                VersionId = versionId,
+                StartedAt = startedAt,
+                Session = session,
+                Sampler = new ProcessSampler(pid),
+                Context = context,
+                CommandLine = commandLine,
+                LogFile = session?.LogFile,
+            };
+            if (session is not null)
+            {
+                // 事件不带会话标识：必须用按 pid 绑定的闭包匹配，不能靠 sender
+                Action<int> handler = code => OnSessionExited(pid, code);
+                st.ExitedHandler = handler;
+                session.Exited += handler;
+            }
+            _states[pid] = st;
+            _selectedPid = pid;
 
+            // 注册文件由本监控器独占维护（跨启动器重启能看见本机在跑的游戏）
             var dotMc = _dotMcProvider?.Invoke();
-            if (context is not null && !string.IsNullOrEmpty(dotMc))
-                GameLaunchContextStore.Write(dotMc, context);
+            if (!string.IsNullOrEmpty(dotMc))
+            {
+                GameSessionGuard.Publish(dotMc, pid, versionId, startedAt, st.LogFile);
+                if (context is not null) GameLaunchContextStore.Write(dotMc, pid, context);
+            }
 
-            _info = BuildInfoLocked(default);
             if (_started) RestartTimerLocked();
         }
         Changed?.Invoke(Current);
@@ -274,163 +331,151 @@ public sealed class GameRuntimeMonitor : IDisposable
 
     private void Tick()
     {
-        GameRunInfo? changed = null;
-        bool changedRaised = false;
-        GameRunRecord? finished = null;
+        var finished = new List<GameRunRecord>();
+        var changed = false;
 
         lock (_gate)
         {
             if (!_started) return;
-            if (_samplingPaused) return;
 
-            if (_info is null)
+            DiscoverLocked();
+
+            foreach (var st in _states.Values.ToList())
             {
-                changedRaised = TryRecoverLocked(out changed);
-            }
-            else if (_sampler is null || !_sampler.TrySample(CollectGpu, out var sample))
-            {
-                _consecutiveFailures++;
-                if (_consecutiveFailures >= MaxConsecutiveFailures && !_samplingPaused)
+                if (st.SamplingPaused) continue;
+
+                if (st.Sampler is null || !st.Sampler.TrySample(CollectGpu, out var sample))
                 {
-                    _samplingPaused = true;
-                    changedRaised = true;
-                    changed = _info;
+                    st.ConsecutiveFailures++;
+                    if (st.ConsecutiveFailures >= MaxConsecutiveFailures && !st.SamplingPaused)
+                    {
+                        st.SamplingPaused = true;
+                        changed = true;
+                    }
+                    // 恢复路径没有 GameSession.Exited 事件，进程死掉只能靠心跳收口。
+                    // 收口发生在第 1 次失败（早于 3 次失败阈值），所以必须在这里就落历史并移除状态，
+                    // 否则页面会永远停在「运行中 + 采样已暂停」。
+                    if (st.Recovered && FinishLocked(st, null) is { } rec)
+                    {
+                        finished.Add(rec);
+                        changed = true;
+                    }
                 }
-                // 恢复路径没有 GameSession.Exited 事件，进程死掉只能靠心跳收口。
-                // 收口发生在第 1 次失败（早于 3 次失败阈值），所以这里必须自己补抛 null，
-                // 否则清空后的 _info 没有对应事件，页面会永远停在「运行中 + 采样已暂停」。
-                if (_recovered && (finished = FinishLocked(null)) is not null)
+                else
                 {
-                    changedRaised = true;
-                    changed = null;
+                    PushSampleLocked(st, sample);
+                    st.Latest = sample;
+                    st.ConsecutiveFailures = 0;
+                    changed = true;
                 }
-            }
-            else
-            {
-                PushSampleLocked(sample);
-                _consecutiveFailures = 0;
-                _info = BuildInfoLocked(sample);
-                changedRaised = true;
-                changed = _info;
             }
         }
 
-        if (finished is not null) RunFinished?.Invoke(finished);
-        if (changedRaised) Changed?.Invoke(changed);
+        foreach (var rec in finished) RunFinished?.Invoke(rec);
+        if (changed) Changed?.Invoke(Current);
     }
 
-    /// <summary>冷启动恢复：锁文件 + 判活探针；返回是否产生了新的运行快照</summary>
-    private bool TryRecoverLocked(out GameRunInfo? info)
+    /// <summary>扫描实例注册文件，纳入本进程尚未跟踪的存活实例（其它启动器窗口拉起的也算）</summary>
+    private void DiscoverLocked()
     {
-        info = null;
         var dotMc = _dotMcProvider?.Invoke();
-        if (string.IsNullOrEmpty(dotMc)) return false;
+        if (string.IsNullOrEmpty(dotMc)) return;
 
-        var lockInfo = ReadLockFile(dotMc);
-        if (lockInfo is null) return false;
-        if (!_isAliveProbe(lockInfo.Pid)) return false;
+        var alive = GameSessionGuard.All(dotMc, _isAliveProbe);
+        GameLaunchContextStore.PruneDead(dotMc, [.. alive.Select(l => l.Pid)]);
 
-        _pid = lockInfo.Pid;
-        _versionId = string.IsNullOrEmpty(lockInfo.VersionId) ? "未知版本" : lockInfo.VersionId;
-        _startedAt = lockInfo.StartedAt;
-        _recovered = true;
-        _consecutiveFailures = 0;
-        _peakWorkingSet = 0;
-        _samples.Clear();
-        _commandLine = null;
-        _sampler?.Dispose();
-        _sampler = new ProcessSampler(lockInfo.Pid);
-
-        var ctx = GameLaunchContextStore.Read(dotMc, _versionId);
-        if (ctx is null) GameLaunchContextStore.Delete(dotMc); // 上一局残留 / 版本不符 → 丢弃
-        _context = ctx;
-
-        _info = BuildInfoLocked(default);
-        info = _info;
-        return true;
+        foreach (var lk in alive)
+        {
+            if (_states.ContainsKey(lk.Pid)) continue;
+            var st = new InstanceState
+            {
+                Pid = lk.Pid,
+                VersionId = string.IsNullOrEmpty(lk.VersionId) ? "未知版本" : lk.VersionId,
+                StartedAt = lk.StartedAt,
+                Recovered = true,
+                LogFile = lk.LogFile,
+                Sampler = new ProcessSampler(lk.Pid),
+            };
+            var ctx = GameLaunchContextStore.Read(dotMc, lk.Pid, st.VersionId);
+            if (ctx is null) GameLaunchContextStore.Delete(dotMc, lk.Pid);   // 上一局残留 / 版本不符 → 丢弃
+            st.Context = ctx;
+            _states[lk.Pid] = st;
+        }
     }
 
-    /// <summary>收口并落一条运行历史；返回落盘记录（无事可收时返回 null）</summary>
-    private GameRunRecord? FinishLocked(int? exitCode)
+    /// <summary>解析目标实例：pid &gt; 0 取该实例；否则取选中实例（失效时退到最近启动的一个）</summary>
+    private InstanceState? ResolveLocked(int pid)
     {
-        if (_info is null) return null;
+        if (pid > 0) return _states.GetValueOrDefault(pid);
+        if (_states.TryGetValue(_selectedPid, out var selected)) return selected;
+        return _states.Count == 0 ? null : _states.Values.MaxBy(s => s.StartedAt);
+    }
+
+    /// <summary>收口并落一条运行历史，随后移除该实例状态；返回落盘记录</summary>
+    private GameRunRecord? FinishLocked(InstanceState st, int? exitCode)
+    {
         var endedAt = DateTime.Now;
-        var duration = _session is not null ? _session.Uptime : endedAt - _startedAt;
+        var duration = st.Session is not null ? st.Session.Uptime : endedAt - st.StartedAt;
+        var killedByUser = st.KilledByUser || st.Session?.KilledByUser == true;
         var rec = new GameRunRecord(
-            _versionId,
-            _startedAt,
+            st.VersionId,
+            st.StartedAt,
             endedAt,
             Math.Max(0, duration.TotalSeconds),
             exitCode,
-            _peakWorkingSet,
-            Crashed: !_killedByUser && exitCode is not (null or 0));
+            st.PeakWorkingSet,
+            Crashed: !killedByUser && exitCode is not (null or 0));
 
         _history.Append(rec);
-        CleanupLocked(deleteContext: true);
+        RemoveLocked(st);
         return rec;
     }
 
-    private void OnSessionExited(int exitCode)
+    private void OnSessionExited(int pid, int exitCode)
     {
         GameRunRecord? rec;
         lock (_gate)
         {
-            var session = _session;
-            if (session is not null) session.Exited -= OnSessionExited;
-            rec = FinishLocked(exitCode);
+            var st = ResolveLocked(pid);
+            if (st is null) return;
+            if (st.Session is not null && st.ExitedHandler is not null) st.Session.Exited -= st.ExitedHandler;
+            rec = FinishLocked(st, exitCode);
         }
         if (rec is not null) RunFinished?.Invoke(rec);
-        Changed?.Invoke(null);
+        Changed?.Invoke(Current);
     }
 
-    /// <summary>清空跟踪状态（不触发事件；调用方负责通知）</summary>
-    private void CleanupLocked(bool deleteContext)
+    /// <summary>移除实例状态（注销注册文件 + 删该实例的上下文、退订事件、释放采样器；不触发事件，调用方负责通知）</summary>
+    private void RemoveLocked(InstanceState st)
     {
         var dotMc = _dotMcProvider?.Invoke();
-        if (deleteContext && !string.IsNullOrEmpty(dotMc)) GameLaunchContextStore.Delete(dotMc);
-
-        if (_session is not null) _session.Exited -= OnSessionExited;
-        _sampler?.Dispose();
-        _sampler = null;
-        _session = null;
-        _context = null;
-        _commandLine = null;
-        _info = null;
-        _pid = 0;
-        _versionId = "";
-        _recovered = false;
-        _killedByUser = false;
-        _samplingPaused = false;
-        _consecutiveFailures = 0;
-        _peakWorkingSet = 0;
-        _samples.Clear();
-    }
-
-    private void PushSampleLocked(in GameRunSample sample)
-    {
-        _samples.AddLast(sample);
-        while (_samples.Count > SampleCapacity) _samples.RemoveFirst();
-        if (sample.PeakWorkingSetBytes > _peakWorkingSet) _peakWorkingSet = sample.PeakWorkingSetBytes;
-        if (sample.WorkingSetBytes > _peakWorkingSet) _peakWorkingSet = sample.WorkingSetBytes;
-    }
-
-    private GameRunInfo BuildInfoLocked(in GameRunSample latest) =>
-        new(_pid, _versionId, _startedAt, UptimeLocked(), _recovered, latest);
-
-    private TimeSpan UptimeLocked() =>
-        _session is not null ? _session.Uptime : DateTime.Now - _startedAt;
-
-    /// <summary>读取跨进程会话锁文件（只读；失效/损坏返回 null）</summary>
-    private static GameSessionLock? ReadLockFile(string dotMc)
-    {
-        try
+        if (!string.IsNullOrEmpty(dotMc))
         {
-            var file = LauncherPaths.GameSessionFile(dotMc);
-            if (!File.Exists(file)) return null;
-            return JsonSerializer.Deserialize<GameSessionLock>(File.ReadAllText(file));
+            GameSessionGuard.Unpublish(dotMc, st.Pid);
+            GameLaunchContextStore.Delete(dotMc, st.Pid);
         }
-        catch { return null; }
+
+        if (st.Session is not null && st.ExitedHandler is not null) st.Session.Exited -= st.ExitedHandler;
+        st.Sampler?.Dispose();
+        st.Sampler = null;
+        st.Session = null;
+        _states.Remove(st.Pid);
+        if (_selectedPid == st.Pid) _selectedPid = 0;
     }
+
+    private static void PushSampleLocked(InstanceState st, in GameRunSample sample)
+    {
+        st.Samples.AddLast(sample);
+        while (st.Samples.Count > SampleCapacity) st.Samples.RemoveFirst();
+        if (sample.PeakWorkingSetBytes > st.PeakWorkingSet) st.PeakWorkingSet = sample.PeakWorkingSetBytes;
+        if (sample.WorkingSetBytes > st.PeakWorkingSet) st.PeakWorkingSet = sample.WorkingSetBytes;
+    }
+
+    private static GameRunInfo? BuildInfo(InstanceState? st) =>
+        st is null ? null : new GameRunInfo(
+            st.Pid, st.VersionId, st.StartedAt,
+            st.Session is not null ? st.Session.Uptime : DateTime.Now - st.StartedAt,
+            st.Recovered, st.Latest);
 
     /// <summary>默认判活：pid 存活且进程名形如 java*（与 GameSessionGuard 同口径，防止 pid 复用误判）</summary>
     private static bool DefaultAliveProbe(int pid)
@@ -444,19 +489,13 @@ public sealed class GameRuntimeMonitor : IDisposable
         catch { return false; }
     }
 
-    /// <summary>读最新一局游戏日志的尾部若干行（只回读文件末尾 64 KB，不整文件加载）</summary>
-    private static IReadOnlyList<string> ReadLogTail(int count)
+    /// <summary>读取某局日志文件的尾部若干行（只回读文件末尾 64 KB，不整文件加载）</summary>
+    private static IReadOnlyList<string> ReadLogTail(string file, int count)
     {
         try
         {
-            var dir = LauncherPaths.GameLogsDir;
-            if (!Directory.Exists(dir)) return [];
-            var latest = Directory.EnumerateFiles(dir, "game-*.log")
-                .OrderByDescending(f => f, StringComparer.Ordinal)
-                .FirstOrDefault();
-            if (latest is null) return [];
-
-            using var fs = new FileStream(latest, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (!File.Exists(file)) return [];
+            using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var take = (int)Math.Min(TailReadBytes, fs.Length);
             fs.Seek(-take, SeekOrigin.End);
             var buf = new byte[take];

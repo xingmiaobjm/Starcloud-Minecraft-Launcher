@@ -17,7 +17,36 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="12,5" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+
+        <!-- ══ 本页字阶角色：整页只保留 12(辅助) / 14(正文) / 28(页标题) 三档，清掉 13 / 16 等离档值 ══ -->
+        <!-- 字段标签：12 + 次级色 -->
+        <Style x:Key="VdLabel" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+        <!-- 说明文字：12 + 次级色 + 自动换行 -->
+        <Style x:Key="VdHint" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+        <!-- 字段值：正文号 + 主色（与标签拉开层级） -->
+        <Style x:Key="VdValue" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+        </Style>
+        <!-- 分组小标题：与卡片抬头同号，靠 accent 脊柱区分层级 -->
+        <Style x:Key="VdGroupTitle" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+        </Style>
+        <!-- 横向一行（图标 + 文字 / accent 脊柱 + 标题）：整页统一的 8 间距节奏 -->
+        <Style x:Key="VdRow" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Spacing" Value="8" />
         </Style>
     </Page.Resources>
 
@@ -31,7 +60,7 @@
                 <ctrl:GlowButton Click="Back_Click" loc:Loc.Name="返回版本列表"
                         Background="Transparent" BorderThickness="0" Padding="8,4"
                         Margin="-8,0,0,0" HorizontalAlignment="Left">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
+                    <StackPanel Style="{StaticResource VdRow}">
                         <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE908;" FontSize="14" />
                         <TextBlock loc:Loc.Text="返回版本列表" />
                     </StackPanel>
@@ -55,20 +84,18 @@
                                 beh:TextOutlineBehavior.IsEnabled="True">
                         <TextBlock x:Name="TitleText" FontSize="28" FontWeight="Medium"
                                    TextTrimming="CharacterEllipsis" />
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock x:Name="KindText" FontSize="12" VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Style="{StaticResource VdRow}">
+                            <TextBlock x:Name="KindText" Style="{StaticResource VdLabel}"
+                                       VerticalAlignment="Center" />
                             <Border x:Name="CategoryBadge" Padding="8,2" CornerRadius="4"
                                     Background="{ThemeResource SubtleFillColorTertiaryBrush}"
                                     Visibility="Collapsed">
-                                <TextBlock x:Name="CategoryBadgeText" FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="CategoryBadgeText" Style="{StaticResource VdLabel}" />
                             </Border>
                             <Border x:Name="IsolatedBadge" Padding="8,2" CornerRadius="4"
                                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                     Visibility="Collapsed">
-                                <TextBlock loc:Loc.Text="独立目录" FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock loc:Loc.Text="独立目录" Style="{StaticResource VdLabel}" />
                             </Border>
                         </StackPanel>
                     </StackPanel>
@@ -94,7 +121,7 @@
             </StackPanel>
 
             <!-- 下方两栏：左侧分区导航 + 右侧内容（参考 HMCL 版本设置布局） -->
-            <Grid ColumnSpacing="20">
+            <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="180" />
                     <ColumnDefinition Width="*" />
@@ -114,41 +141,48 @@
                         <!-- 内容铺满整行：行内那层跟手光斑要盖满整条导航项（与选中底色同宽），
                              横向 StackPanel 的子项本来就靠左排，视觉与原先的 Left 一致。 -->
                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="FontSize" Value="13" />
+                        <Setter Property="FontSize" Value="14" />
                 </Style>
             </Grid.Resources>
 
-                <!-- 分区导航 -->
-                <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Stretch">
-                    <ctrl:GlowButton x:Name="NavOverview" Click="Nav_Click" Tag="0" Style="{StaticResource NavButtonStyle}"
-                            loc:Loc.Name="概览分区">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC77;" FontSize="15" />
-                            <TextBlock loc:Loc.Text="概览" />
-                        </StackPanel>
-                    </ctrl:GlowButton>
-                    <ctrl:GlowButton x:Name="NavContent" Click="Nav_Click" Tag="1" Style="{StaticResource NavButtonStyle}"
-                            loc:Loc.Name="Mod 管理分区">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" FontSize="15" />
-                            <TextBlock loc:Loc.Text="Mod 管理" />
-                        </StackPanel>
-                    </ctrl:GlowButton>
-                    <ctrl:GlowButton x:Name="NavSettings" Click="Nav_Click" Tag="2" Style="{StaticResource NavButtonStyle}"
-                            loc:Loc.Name="游戏设置分区">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC04;" FontSize="15" />
-                            <TextBlock loc:Loc.Text="游戏设置" />
-                        </StackPanel>
-                    </ctrl:GlowButton>
-                    <ctrl:GlowButton x:Name="NavArgs" Click="Nav_Click" Tag="3" Style="{StaticResource NavButtonStyle}"
-                            loc:Loc.Name="启动参数分区">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6D;" FontSize="15" />
-                            <TextBlock loc:Loc.Text="启动参数" />
-                        </StackPanel>
-                    </ctrl:GlowButton>
-                </StackPanel>
+                <!-- 分区导航：包成卡片，与设置页 / 下载页左侧分类栏同形态
+                     （圆角 + 1px 描边 + GlassCardBrush），不再让窗口背景从这条栏直接透出。
+                     高度贴合内容：本页整体在 ScrollViewer 里，撑满会在长内容下变成一条很高的空板。 -->
+                <Border Grid.Column="0" VerticalAlignment="Top"
+                        Background="{ThemeResource GlassCardBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="8">
+                    <StackPanel Spacing="4">
+                        <ctrl:GlowButton x:Name="NavOverview" Click="Nav_Click" Tag="0" Style="{StaticResource NavButtonStyle}"
+                                loc:Loc.Name="概览分区">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC77;" FontSize="15" />
+                                <TextBlock loc:Loc.Text="概览" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="NavContent" Click="Nav_Click" Tag="1" Style="{StaticResource NavButtonStyle}"
+                                loc:Loc.Name="Mod 管理分区">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" FontSize="15" />
+                                <TextBlock loc:Loc.Text="Mod 管理" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="NavSettings" Click="Nav_Click" Tag="2" Style="{StaticResource NavButtonStyle}"
+                                loc:Loc.Name="游戏设置分区">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC04;" FontSize="15" />
+                                <TextBlock loc:Loc.Text="游戏设置" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="NavArgs" Click="Nav_Click" Tag="3" Style="{StaticResource NavButtonStyle}"
+                                loc:Loc.Name="启动参数分区">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6D;" FontSize="15" />
+                                <TextBlock loc:Loc.Text="启动参数" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                    </StackPanel>
+                </Border>
 
                 <!-- 内容区 -->
                 <ScrollViewer Grid.Column="1" HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch"
@@ -157,73 +191,76 @@
                 <StackPanel x:Name="SecOverview" Spacing="16">
 
             <!-- 概览卡片 -->
-            <Border Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16">
+            <Border Style="{StaticResource ScCard}">
                 <StackPanel Spacing="12">
-                    <TextBlock loc:Loc.Text="概览" FontSize="16" FontWeight="Medium" />
-                    <StackPanel Spacing="8">
-                        <TextBlock loc:Loc.Text="游戏目录" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBlock x:Name="GameRootText" FontSize="12" IsTextSelectionEnabled="True"
-                                   TextTrimming="CharacterEllipsis"
-                                   FontFamily="Consolas" />
-                        <TextBlock loc:Loc.Text="上次启动" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBlock x:Name="LastPlayedText" FontSize="13" />
+                    <StackPanel Style="{StaticResource VdRow}">
+                        <Border Style="{StaticResource ScSectionSpine}" />
+                        <TextBlock loc:Loc.Text="概览" Style="{StaticResource ScSectionTitle}" />
                     </StackPanel>
-                    <StackPanel Spacing="4">
-                        <TextBlock loc:Loc.Text="类别" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBox x:Name="CategoryBox" loc:Loc.Name="类别"
-                                 TextChanged="CategoryBox_TextChanged"
-                                 loc:Loc.Placeholder="未分类" MaxLength="24" />
-                    </StackPanel>
-                    <StackPanel Spacing="4">
-                        <TextBlock loc:Loc.Text="备注" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBox x:Name="NoteBox" loc:Loc.Name="备注"
-                                 TextChanged="NoteBox_TextChanged"
-                                 loc:Loc.Placeholder="给这个版本写点什么…" AcceptsReturn="True"
-                                 MinHeight="72" MaxLength="500" />
+                    <StackPanel Spacing="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock loc:Loc.Text="游戏目录" Style="{StaticResource VdLabel}" />
+                            <TextBlock x:Name="GameRootText" Style="{StaticResource VdValue}"
+                                       IsTextSelectionEnabled="True"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontFamily="Consolas" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock loc:Loc.Text="上次启动" Style="{StaticResource VdLabel}" />
+                            <TextBlock x:Name="LastPlayedText" Style="{StaticResource VdValue}" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock loc:Loc.Text="类别" Style="{StaticResource VdLabel}" />
+                            <TextBox x:Name="CategoryBox" loc:Loc.Name="类别"
+                                     TextChanged="CategoryBox_TextChanged"
+                                     loc:Loc.Placeholder="未分类" MaxLength="24" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock loc:Loc.Text="备注" Style="{StaticResource VdLabel}" />
+                            <TextBox x:Name="NoteBox" loc:Loc.Name="备注"
+                                     TextChanged="NoteBox_TextChanged"
+                                     loc:Loc.Placeholder="给这个版本写点什么…" AcceptsReturn="True"
+                                     MinHeight="72" MaxLength="500" />
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Border>
 
             <!-- 操作卡片（并入概览分区） -->
-            <Border Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16">
+            <Border Style="{StaticResource ScCard}">
                 <StackPanel Spacing="12">
-                    <TextBlock loc:Loc.Text="操作" FontSize="16" FontWeight="Medium" />
+                    <StackPanel Style="{StaticResource VdRow}">
+                        <Border Style="{StaticResource ScSectionSpine}" />
+                        <TextBlock loc:Loc.Text="操作" Style="{StaticResource ScSectionTitle}" />
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <ctrl:GlowButton x:Name="VerifyBtn" Click="Verify_Click" loc:Loc.Name="验证文件">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA7C;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="验证文件" />
                             </StackPanel>
                         </ctrl:GlowButton>
                         <ctrl:GlowButton x:Name="RenameBtn" Click="Rename_Click" loc:Loc.Name="重命名">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA97;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="重命名" />
                             </StackPanel>
                         </ctrl:GlowButton>
                         <ctrl:GlowButton x:Name="CopyBtn" Click="Copy_Click" loc:Loc.Name="复制版本">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA9F;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="复制版本" />
                             </StackPanel>
                         </ctrl:GlowButton>
                         <ctrl:GlowButton Click="ViewJson_Click" loc:Loc.Name="查看 JSON">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6C;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="查看 JSON" />
                             </StackPanel>
                         </ctrl:GlowButton>
                         <ctrl:GlowButton Click="Delete_Click" loc:Loc.Name="删除版本"
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEAA5;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="删除" />
                             </StackPanel>
@@ -260,14 +297,14 @@
             </Border>
 
             <!-- 当前分类卡片（含启停 / 检查更新 / 冲突扫描 / 拖拽安装） -->
-            <Border Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16"
+            <Border Style="{StaticResource ScCard}"
                     AllowDrop="True" DragOver="Content_DragOver" Drop="Content_Drop">
                 <StackPanel Spacing="12">
                     <Grid>
-                        <TextBlock loc:Loc.Text="内容" FontSize="16" FontWeight="Medium"
-                                   VerticalAlignment="Center" />
+                        <StackPanel Style="{StaticResource VdRow}" VerticalAlignment="Center">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="内容" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
                         <StackPanel x:Name="ModTools" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                             <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新" FontSize="12"
                                     Padding="10,2,10,2" Click="CheckUpdate_Click" />
@@ -275,8 +312,7 @@
                                     Padding="10,2,10,2" Click="ScanConflict_Click" />
                         </StackPanel>
                     </Grid>
-                    <TextBlock FontSize="12" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    <TextBlock Style="{StaticResource VdHint}"
                                loc:Loc.Text="可直接把 mods / 资源包 / 光影 / 数据包文件拖到此处安装；停用仅改名为 .disabled，可随时还原。" />
                     <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" />
                     <StackPanel x:Name="ModSection" Spacing="4" />
@@ -290,23 +326,24 @@
             <StackPanel x:Name="SecSettings" Spacing="16" Visibility="Collapsed">
 
             <!-- 游戏设置卡片：隔离 / 内存 / Java / 窗口 / 语言（未覆盖 = 跟随全局生效值） -->
-            <Border Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16">
+            <Border Style="{StaticResource ScCard}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
-                        <TextBlock loc:Loc.Text="游戏设置" FontSize="16" FontWeight="Medium" />
-                        <TextBlock FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        <StackPanel Style="{StaticResource VdRow}">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="游戏设置" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource VdHint}"
                                    loc:Loc.Text="各项默认跟随全局设置；修改后立即保存。带「恢复跟随」的项可清除本版本的覆盖值。" />
                     </StackPanel>
                     <InfoBar x:Name="SettingsRunningBanner" IsOpen="False" Severity="Warning"
                              IsClosable="False" loc:Loc.Message="该版本正在运行，设置将在下次启动生效。" />
 
                     <!-- 隔离模式（三态） -->
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="8">
                         <Grid>
-                            <TextBlock loc:Loc.Text="版本隔离" FontWeight="Medium" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="版本隔离" Style="{StaticResource VdGroupTitle}"
+                                       VerticalAlignment="Center" />
                             <HyperlinkButton x:Name="IsolationReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="IsolationReset_Click"
                                              loc:Loc.Name="隔离模式恢复跟随"
@@ -318,15 +355,15 @@
                             <RadioButton loc:Loc.Text="共享目录（.minecraft）" />
                             <RadioButton loc:Loc.Text="独立目录（versions/&lt;版本名&gt;）" />
                         </RadioButtons>
-                        <TextBlock x:Name="GameRootPreview" FontSize="12" TextWrapping="Wrap"
-                                   IsTextSelectionEnabled="True" FontFamily="Consolas"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="GameRootPreview" Style="{StaticResource VdHint}"
+                                   IsTextSelectionEnabled="True" FontFamily="Consolas" />
                     </StackPanel>
 
                     <!-- 内存 -->
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="8">
                         <Grid>
-                            <TextBlock loc:Loc.Text="内存分配" FontWeight="Medium" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="内存分配" Style="{StaticResource VdGroupTitle}"
+                                       VerticalAlignment="Center" />
                             <HyperlinkButton x:Name="MemoryReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="MemoryReset_Click"
                                              loc:Loc.Name="内存恢复跟随"
@@ -338,12 +375,11 @@
                             <RadioButton loc:Loc.Text="自动配置" />
                             <RadioButton loc:Loc.Text="自定义" />
                         </RadioButtons>
-                        <TextBlock x:Name="AutoMemText" FontSize="12" TextWrapping="Wrap"
-                                   Visibility="Collapsed"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="AutoMemText" Style="{StaticResource VdHint}"
+                                   Visibility="Collapsed" />
                         <!-- 自定义：与「设置 → 内存分配」同款滑块（整数 GB） -->
-                        <StackPanel x:Name="MemManualPanel" Spacing="6" Visibility="Collapsed">
-                            <TextBlock loc:Loc.Text="最大内存（整数 GB）" FontSize="12" />
+                        <StackPanel x:Name="MemManualPanel" Spacing="8" Visibility="Collapsed">
+                            <TextBlock loc:Loc.Text="最大内存（整数 GB）" Style="{StaticResource VdLabel}" />
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -358,8 +394,7 @@
                                            VerticalAlignment="Center" TextAlignment="Right"
                                            FontWeight="Medium" />
                             </Grid>
-                            <TextBlock x:Name="MemAutoHint" FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="MemAutoHint" Style="{StaticResource VdHint}" />
                         </StackPanel>
                         <!-- 内存占用条：底槽 + 本版本分配（浅）+ 已使用（深） -->
                         <StackPanel Spacing="4">
@@ -373,15 +408,15 @@
                                         CornerRadius="4"
                                         Background="{ThemeResource AccentFillColorDefaultBrush}" />
                             </Grid>
-                            <TextBlock x:Name="MemoryUsageText" FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="MemoryUsageText" Style="{StaticResource VdHint}" />
                         </StackPanel>
                     </StackPanel>
 
                     <!-- Java 运行时 -->
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="8">
                         <Grid>
-                            <TextBlock loc:Loc.Text="Java" FontWeight="Medium" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="Java" Style="{StaticResource VdGroupTitle}"
+                                       VerticalAlignment="Center" />
                             <HyperlinkButton x:Name="JavaReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="JavaReset_Click"
                                              loc:Loc.Name="Java 恢复跟随"
@@ -401,14 +436,14 @@
                             <ctrl:GlowButton x:Name="JavaBrowseBtn" loc:Loc.Text="浏览…" Click="JavaBrowse_Click"
                                     loc:Loc.Name="浏览 Java 可执行文件" />
                         </StackPanel>
-                        <TextBlock x:Name="JavaHintText" FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="JavaHintText" Style="{StaticResource VdHint}" />
                     </StackPanel>
 
                     <!-- 窗口 -->
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="8">
                         <Grid>
-                            <TextBlock loc:Loc.Text="游戏窗口" FontWeight="Medium" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="游戏窗口" Style="{StaticResource VdGroupTitle}"
+                                       VerticalAlignment="Center" />
                             <HyperlinkButton x:Name="WindowReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="WindowReset_Click"
                                              loc:Loc.Name="窗口恢复跟随"
@@ -420,9 +455,8 @@
                             <RadioButton loc:Loc.Text="自动配置（854 × 480 窗口化）" />
                             <RadioButton loc:Loc.Text="自定义" />
                         </RadioButtons>
-                        <TextBlock x:Name="WindowHintText" FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <StackPanel x:Name="WindowManualPanel" Spacing="6" Visibility="Collapsed">
+                        <TextBlock x:Name="WindowHintText" Style="{StaticResource VdHint}" />
+                        <StackPanel x:Name="WindowManualPanel" Spacing="8" Visibility="Collapsed">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <NumberBox x:Name="WidthBox" loc:Loc.Name="窗口宽度"
                                            Width="180" Minimum="200" Maximum="32767"
@@ -443,9 +477,10 @@
                     </StackPanel>
 
                     <!-- 游戏语言 -->
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="8">
                         <Grid>
-                            <TextBlock loc:Loc.Text="游戏语言" FontWeight="Medium" VerticalAlignment="Center" />
+                            <TextBlock loc:Loc.Text="游戏语言" Style="{StaticResource VdGroupTitle}"
+                                       VerticalAlignment="Center" />
                             <HyperlinkButton x:Name="LangReset" loc:Loc.Text="恢复跟随"
                                              HorizontalAlignment="Right" Click="LangReset_Click"
                                              loc:Loc.Name="语言恢复跟随"
@@ -459,8 +494,7 @@
                             <ComboBoxItem loc:Loc.Text="English（en_US）" />
                             <ComboBoxItem loc:Loc.Text="日本語（ja_JP）" />
                         </ComboBox>
-                        <TextBlock x:Name="LangHintText" FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="LangHintText" Style="{StaticResource VdHint}" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -469,82 +503,77 @@
             <StackPanel x:Name="SecArgs" Spacing="16" Visibility="Collapsed">
 
             <!-- 启动参数卡片：连服 / 环境变量 / 前后命令 / 额外参数 -->
-            <Border Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="16">
+            <Border Style="{StaticResource ScCard}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
-                        <TextBlock loc:Loc.Text="启动参数" FontSize="16" FontWeight="Medium" />
-                        <TextBlock FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        <StackPanel Style="{StaticResource VdRow}">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="启动参数" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource VdHint}"
                                    loc:Loc.Text="连服地址、环境变量、启动前后命令与额外参数；修改后立即保存。" />
                     </StackPanel>
 
                     <!-- 自动连服 -->
-                    <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="自动连服地址" FontWeight="Medium" />
+                    <StackPanel Spacing="8">
+                        <TextBlock loc:Loc.Text="自动连服地址" Style="{StaticResource VdGroupTitle}" />
                         <TextBox x:Name="ServerBox" loc:Loc.Name="自动连服地址"
                                  MaxWidth="720" HorizontalAlignment="Left" HorizontalContentAlignment="Left"
                                  TextChanged="ServerBox_TextChanged"
                                  loc:Loc.Placeholder="例如 play.example.com 或 play.example.com:25565" />
-                        <TextBlock x:Name="ServerHintText" FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="ServerHintText" Style="{StaticResource VdHint}" />
                     </StackPanel>
 
                     <!-- 环境变量 -->
-                    <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="环境变量" FontWeight="Medium" />
+                    <StackPanel Spacing="8">
+                        <TextBlock loc:Loc.Text="环境变量" Style="{StaticResource VdGroupTitle}" />
                         <StackPanel x:Name="EnvPanel" Spacing="6" />
                         <ctrl:GlowButton x:Name="EnvAddBtn" loc:Loc.Text="添加变量" Click="EnvAdd_Click"
                                 loc:Loc.Name="添加环境变量" />
-                        <TextBlock x:Name="EnvWarnText" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock x:Name="EnvWarnText" Style="{StaticResource VdHint}"
                                    Visibility="Collapsed"
                                    Foreground="{ThemeResource SystemFillColorCautionBrush}" />
                     </StackPanel>
 
                     <!-- 启动前 / 后命令 -->
-                    <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="启动前命令" FontWeight="Medium" />
+                    <StackPanel Spacing="8">
+                        <TextBlock loc:Loc.Text="启动前命令" Style="{StaticResource VdGroupTitle}" />
                         <TextBox x:Name="PreCmdBox" loc:Loc.Name="启动前命令"
                                  MaxWidth="720" HorizontalAlignment="Left" HorizontalContentAlignment="Left"
                                  TextChanged="Cmd_TextChanged"
                                  loc:Loc.Placeholder="例如 echo 准备启动" />
-                        <TextBlock FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        <TextBlock Style="{StaticResource VdHint}"
                                    loc:Loc.Text="启动前执行；退出码非 0 会询问是否继续。支持 $GAME_DIR 占位符。" />
                     </StackPanel>
-                    <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="启动后命令" FontWeight="Medium" />
+                    <StackPanel Spacing="8">
+                        <TextBlock loc:Loc.Text="启动后命令" Style="{StaticResource VdGroupTitle}" />
                         <TextBox x:Name="PostCmdBox" loc:Loc.Name="启动后命令"
                                  MaxWidth="720" HorizontalAlignment="Left" HorizontalContentAlignment="Left"
                                  TextChanged="Cmd_TextChanged"
                                  loc:Loc.Placeholder="例如 echo 已退出" />
-                        <TextBlock FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        <TextBlock Style="{StaticResource VdHint}"
                                    loc:Loc.Text="游戏退出后执行；失败仅记录日志。支持 $GAME_DIR 占位符。" />
                     </StackPanel>
 
                     <!-- 额外 JVM 参数 -->
-                    <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="额外 JVM 参数" FontWeight="Medium" />
+                    <StackPanel Spacing="8">
+                        <TextBlock loc:Loc.Text="额外 JVM 参数" Style="{StaticResource VdGroupTitle}" />
                         <TextBox x:Name="ExtraJvmBox" loc:Loc.Name="额外 JVM 参数"
                                  MaxWidth="720" HorizontalAlignment="Left" HorizontalContentAlignment="Left"
                                  AcceptsReturn="True" MinHeight="64" TextWrapping="Wrap"
                                  TextChanged="ExtraArgs_TextChanged"
                                  loc:Loc.Placeholder="每行一个参数，例如&#x0a;-XX:+UseG1GC" />
-                        <TextBlock FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        <TextBlock Style="{StaticResource VdHint}"
                                    loc:Loc.Text="追加到 JVM 参数区；空行忽略。" />
                     </StackPanel>
-                    <StackPanel Spacing="6">
-                        <TextBlock loc:Loc.Text="额外游戏参数" FontWeight="Medium" />
+                    <StackPanel Spacing="8">
+                        <TextBlock loc:Loc.Text="额外游戏参数" Style="{StaticResource VdGroupTitle}" />
                         <TextBox x:Name="ExtraGameBox" loc:Loc.Name="额外游戏参数"
                                  MaxWidth="720" HorizontalAlignment="Left" HorizontalContentAlignment="Left"
                                  AcceptsReturn="True" MinHeight="64" TextWrapping="Wrap"
                                  TextChanged="ExtraArgs_TextChanged"
                                  loc:Loc.Placeholder="每行一个参数" />
-                        <TextBlock FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        <TextBlock Style="{StaticResource VdHint}"
                                    loc:Loc.Text="追加到游戏参数区；空行忽略。" />
                     </StackPanel>
                 </StackPanel>

@@ -88,9 +88,12 @@
                                 <TextBlock loc:Loc.Text="运行中" FontWeight="Bold"
                                            Style="{StaticResource ScChipAccentText}" />
                             </Border>
-                            <TextBlock x:Name="HeroPid" VerticalAlignment="Center"
-                                       Style="{StaticResource ScMetaValue}"
-                                       FontFamily="Cascadia Code" />
+                            <!-- 多开：这里选要看哪一局（同一个版本多开时靠 PID 区分）；选项由 RebuildInstanceCombo 填 -->
+                            <ComboBox x:Name="HeroInstanceCombo" MinWidth="260" VerticalAlignment="Center"
+                                      SelectionChanged="HeroInstanceCombo_SelectionChanged"
+                                      loc:Loc.Name="运行中的实例" loc:Loc.Tip="切换要查看的实例" />
+                            <TextBlock x:Name="HeroInstanceCount" VerticalAlignment="Center"
+                                       Style="{StaticResource ScMetaLabel}" Visibility="Collapsed" />
                             <TextBlock x:Name="HeroUptime" VerticalAlignment="Center"
                                        Style="{StaticResource ScMetaValue}"
                                        FontFamily="Cascadia Code" />
@@ -101,10 +104,6 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="24">
-                            <StackPanel Spacing="2">
-                                <TextBlock loc:Loc.Text="版本" Style="{StaticResource ScMetaLabel}" />
-                                <TextBlock x:Name="HeroVersion" Style="{StaticResource ScMetaValue}" />
-                            </StackPanel>
                             <StackPanel Spacing="2">
                                 <TextBlock loc:Loc.Text="实例模式" Style="{StaticResource ScMetaLabel}" />
                                 <TextBlock x:Name="HeroIsolation" Style="{StaticResource ScMetaValue}" />

@@ -8,9 +8,6 @@ namespace Starcloud.Core.Services;
 
 public sealed partial class NovaToolRegistry
 {
-    /// <summary>启动游戏时持有的会话锁（与主页启动共用同一把锁，防双开）；进程退出即释放</summary>
-    private static GameSessionHandle? SessionHandle;
-
     private IEnumerable<NovaTool> BuildWriteTools()
     {
         // ── 版本 / 加载器 ──

@@ -166,6 +166,9 @@
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                 上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
                             <Setter Property="MinHeight" Value="64" />
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="0,1" />
@@ -176,9 +179,23 @@
                             <Grid beh:HoverShadowBehavior.IsEnabled="True"
                                   beh:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
                                   ContextFlyout="{StaticResource RowMenu}">
-                            <!-- 跟手光斑层铺满整行（不带行内边距），圆角与行一致；内容再靠 Padding 让开。
-                                 光斑若跟内容一起内缩，就会比行小一圈，外面露出框架底色 → 两层框。 -->
-                            <ctrl:GlowLayer x:Name="VersionRowGlow" CornerRadius="8" />
+                            <!-- 跟手光斑层铺满整行宽度（不带行内边距），圆角与行一致；内容再靠 Padding 让开
+                                 （光斑若跟内容一起内缩，就会比行小一圈，外面露出框架底色 → 两层框）。
+                                 竖向刻意内缩 4：悬停时光斑不贴行上下边缘，相邻两行之间留出可见留白。 -->
+                            <Border x:Name="VersionRowGlow" CornerRadius="8"
+                                    Margin="0,4"
+                                    Opacity="0" IsHitTestVisible="False">
+                                <Border.Background>
+                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                        <GradientStop Color="#28000000" Offset="0" />
+                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                        <GradientStop Color="#00000000" Offset="1" />
+                                    </RadialGradientBrush>
+                                </Border.Background>
+                            </Border>
                             <Grid Padding="12,8" ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />   <!-- 图标块 -->

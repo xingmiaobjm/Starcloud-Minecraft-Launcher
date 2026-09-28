@@ -160,7 +160,20 @@ public sealed partial class AccountDetailPage : Page
         HeaderDefaultBadge.Visibility = account.IsDefault ? Visibility.Visible : Visibility.Collapsed;
         SetDefaultBtn.Visibility = account.IsDefault ? Visibility.Collapsed : Visibility.Visible;
         InfoSetDefaultBtn.Visibility = account.IsDefault ? Visibility.Collapsed : Visibility.Visible;
+        // 措辞随账户类型走（XAML 里没有静态文案，避免出现与类型不符的「设为默认」）
+        var action = DefaultActionTextOf(account);
+        SetDefaultBtn.Content = action;
+        InfoSetDefaultBtn.Content = action;
     }
+
+    /// <summary>「设为…」按钮的措辞随账户类型走：首选是按类型各记一个的</summary>
+    private static string DefaultActionTextOf(StoredAccount account) => account.Type switch
+    {
+        "microsoft" => Loc.T("设为首选微软账户"),
+        "external" => Loc.T("设为首选第三方账户"),
+        "offline" => Loc.T("设为首选离线账户"),
+        _ => Loc.T("设为首选账户"),
+    };
 
     private static string TypeLabel(StoredAccount account) => account.Type switch
     {
@@ -958,7 +971,7 @@ public sealed partial class AccountDetailPage : Page
         _s.Accounts.SetDefault(account.Uuid);
         FillHeader(account);
         BuildInfo(account);
-        StatusBar.Message = Loc.T("已将 {0} 设为默认账户", account.Username);
+        StatusBar.Message = Loc.T("已将 {0} 设为首选账户", account.Username);
         StatusBar.IsOpen = true;
         ErrorBar.IsOpen = false;
     }

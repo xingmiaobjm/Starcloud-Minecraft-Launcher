@@ -77,9 +77,22 @@
             <Grid>
                 <ListView x:Name="SaveList" SelectionMode="Single" Padding="4"
                           SelectionChanged="SaveList_SelectionChanged">
+                    <ListView.Resources>
+                        <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉
+                             （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                        <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                    </ListView.Resources>
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <!-- 竖向也必须撑满：默认 Center 会让承载光斑的卡片 Border 比行矮一圈，
+                                 上下留下不亮光斑的死区，鼠标从两卡交界处掠过时完全没反应。 -->
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
                             <Setter Property="MinHeight" Value="72" />
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="0,2" />
@@ -92,7 +105,19 @@
                                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=SaveCardGlow}">
                                 <Grid>
                                     <!-- 跟随光标的卡片内阴影 -->
-                                    <ctrl:GlowLayer x:Name="SaveCardGlow" CornerRadius="8" />
+                                    <Border x:Name="SaveCardGlow" CornerRadius="8"
+                                            Opacity="0" IsHitTestVisible="False">
+                                        <Border.Background>
+                                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                <GradientStop Color="#28000000" Offset="0" />
+                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                <GradientStop Color="#05000000" Offset="0.82" />
+                                                <GradientStop Color="#00000000" Offset="1" />
+                                            </RadialGradientBrush>
+                                        </Border.Background>
+                                    </Border>
                                 <Grid ColumnSpacing="14" Padding="12,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />

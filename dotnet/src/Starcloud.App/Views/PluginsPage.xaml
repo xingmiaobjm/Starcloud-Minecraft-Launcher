@@ -69,6 +69,16 @@
                     <StackPanel Spacing="8">
                         <TextBlock loc:Loc.Text="已安装" FontWeight="Medium" FontSize="13" />
                         <ListView x:Name="PluginList" SelectionMode="None">
+                            <ListView.Resources>
+                                <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉
+                                     （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                                <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                                <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                                <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                            </ListView.Resources>
                             <!-- 框架原生增删/重排转场：安装/卸载后行淡入淡出并平滑让位 -->
                             <ListView.ItemContainerTransitions>
                                 <TransitionCollection>
@@ -79,6 +89,9 @@
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <!-- 竖向也必须撑满：默认 Center 会让承载光斑的卡片 Border 比行矮一圈，
+                                         上下留下不亮光斑的死区，鼠标从两卡交界处掠过时完全没反应。 -->
+                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                     <Setter Property="MinHeight" Value="0" />
                                     <Setter Property="Padding" Value="0" />
                                     <Setter Property="Margin" Value="0,2" />
@@ -86,54 +99,69 @@
                             </ListView.ItemContainerStyle>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="local:PluginRow">
-                                    <Grid ColumnSpacing="12" Padding="12,10" CornerRadius="8"
+                                    <Grid CornerRadius="8"
                                           Background="{ThemeResource LayerFillColorDefaultBrush}"
                                           beh:HoverShadowBehavior.IsEnabled="True"
                                           beh:HoverShadowBehavior.Carrier="{Binding ElementName=PluginCardGlow}">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <!-- 跟随光标的卡片内阴影 -->
-                                        <ctrl:GlowLayer x:Name="PluginCardGlow" Grid.ColumnSpan="4" CornerRadius="8" />
-                                        <StackPanel Grid.Column="0" Spacing="2">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock Text="{x:Bind Name}" FontWeight="Medium" />
-                                                <TextBlock Text="{x:Bind Version}" FontSize="11" Opacity="0.65"
-                                                           VerticalAlignment="Center" />
-                                                <Border Style="{StaticResource ScChipAccent}"
-                                                        Visibility="{x:Bind OfficialVisibility}">
-                                                    <TextBlock loc:Loc.Text="官方"
-                                                               Style="{StaticResource ScChipAccentText}" />
-                                                </Border>
-                                                <!-- 提示芯片：与版本页的类型/隔离芯片同一套形态（App.xaml 视觉基元），
-                                                     语义色只说"需要留意"，不做成错误 -->
-                                                <Border Style="{StaticResource ScChipCaution}"
-                                                        Visibility="{x:Bind UnverifiedVisibility}">
-                                                    <TextBlock loc:Loc.Text="第三方未验证"
-                                                               Style="{StaticResource ScChipCautionText}" />
-                                                </Border>
+                                        <!-- 跟随光标的卡片光斑：铺满整卡（不带内边距），圆角与卡片一致；
+                                             内容再靠内层的 Padding 让开，否则光斑会被排布到内边距里、比卡片小一圈 -->
+                                        <Border x:Name="PluginCardGlow" CornerRadius="8"
+                                                Opacity="0" IsHitTestVisible="False">
+                                            <Border.Background>
+                                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                    <GradientStop Color="#28000000" Offset="0" />
+                                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                                    <GradientStop Color="#00000000" Offset="1" />
+                                                </RadialGradientBrush>
+                                            </Border.Background>
+                                        </Border>
+                                        <Grid ColumnSpacing="12" Padding="12,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Spacing="2">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="{x:Bind Name}" FontWeight="Medium" />
+                                                    <TextBlock Text="{x:Bind Version}" FontSize="11" Opacity="0.65"
+                                                               VerticalAlignment="Center" />
+                                                    <Border Style="{StaticResource ScChipAccent}"
+                                                            Visibility="{x:Bind OfficialVisibility}">
+                                                        <TextBlock loc:Loc.Text="官方"
+                                                                   Style="{StaticResource ScChipAccentText}" />
+                                                    </Border>
+                                                    <!-- 提示芯片：与版本页的类型/隔离芯片同一套形态（App.xaml 视觉基元），
+                                                         语义色只说"需要留意"，不做成错误 -->
+                                                    <Border Style="{StaticResource ScChipCaution}"
+                                                            Visibility="{x:Bind UnverifiedVisibility}">
+                                                        <TextBlock loc:Loc.Text="第三方未验证"
+                                                                   Style="{StaticResource ScChipCautionText}" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{x:Bind Description}" FontSize="12"
+                                                           TextWrapping="Wrap" Opacity="0.75"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <TextBlock Text="{x:Bind Detail}" FontSize="11" TextWrapping="Wrap"
+                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                             </StackPanel>
-                                            <TextBlock Text="{x:Bind Description}" FontSize="12"
-                                                       TextWrapping="Wrap" Opacity="0.75"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                            <TextBlock Text="{x:Bind Detail}" FontSize="11" TextWrapping="Wrap"
-                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                        </StackPanel>
-                                        <ctrl:GlowButton Grid.Column="1" loc:Loc.Text="打开面板" FontSize="12"
-                                                Padding="10,4" VerticalAlignment="Center"
-                                                Visibility="{x:Bind PanelsVisibility}"
-                                                Tag="{x:Bind Id}" Click="OpenPanel_Click" />
-                                        <ctrl:GlowButton Grid.Column="2" loc:Loc.Text="卸载" FontSize="12"
-                                                Padding="10,4" VerticalAlignment="Center"
-                                                Tag="{x:Bind Id}" Click="Uninstall_Click" />
-                                        <!-- 行对象每次刷新都重建，OneTime 即可（回写由 Toggled 事件走服务层） -->
-                                        <ToggleSwitch Grid.Column="3" MinWidth="0" Margin="4,0,0,0"
-                                                      OnContent="" OffContent=""
-                                                      IsOn="{x:Bind Enabled}"
-                                                      Toggled="PluginToggle_Toggled" Tag="{x:Bind Id}" />
+                                            <ctrl:GlowButton Grid.Column="1" loc:Loc.Text="打开面板" FontSize="12"
+                                                    Padding="10,4" VerticalAlignment="Center"
+                                                    Visibility="{x:Bind PanelsVisibility}"
+                                                    Tag="{x:Bind Id}" Click="OpenPanel_Click" />
+                                            <ctrl:GlowButton Grid.Column="2" loc:Loc.Text="卸载" FontSize="12"
+                                                    Padding="10,4" VerticalAlignment="Center"
+                                                    Tag="{x:Bind Id}" Click="Uninstall_Click" />
+                                            <!-- 行对象每次刷新都重建，OneTime 即可（回写由 Toggled 事件走服务层） -->
+                                            <ToggleSwitch Grid.Column="3" MinWidth="0" Margin="4,0,0,0"
+                                                          OnContent="" OffContent=""
+                                                          IsOn="{x:Bind Enabled}"
+                                                          Toggled="PluginToggle_Toggled" Tag="{x:Bind Id}" />
+                                        </Grid>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>

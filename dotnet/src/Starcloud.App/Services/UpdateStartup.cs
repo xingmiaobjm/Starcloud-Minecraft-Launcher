@@ -21,8 +21,7 @@ internal static class UpdateStartup
 
             var s = AppServices.Instance;
             if (!s.Settings.AutoUpdateEnabled) return;
-            if (App.RunningVersionId is not null) return;        // 会话内已有游戏在跑
-            if (GameSessionGuard.IsAnyGameAlive(s.Settings.DotMinecraft)) return; // 跨进程游戏避让
+            if (GameSessionGuard.IsAnyGameAlive(s.Settings.DotMinecraft)) return; // 有游戏在跑（含跨进程）就避让
 
             SelfUpdateService.CleanupLeftovers();                // 清上次更新的下载缓存/staging/脚本
 

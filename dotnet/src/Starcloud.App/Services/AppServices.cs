@@ -123,7 +123,7 @@ public sealed class AppServices
         Multiplayer = new MultiplayerService(
             Download,
             () => Settings,
-            () => Accounts.Accounts.FirstOrDefault(a => a.IsDefault)?.Username
+            () => Accounts.DefaultOf(LaunchAccount.Mode)?.Username
                 ?? Accounts.Accounts.FirstOrDefault()?.Username,
             SaveSettings);
         StarcloudId = new StarcloudIdService();

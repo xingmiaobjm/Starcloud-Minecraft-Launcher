@@ -304,9 +304,12 @@
                                 <ListView.ItemContainerStyle>
                                     <Style TargetType="ListViewItem">
                                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        <Setter Property="MinHeight" Value="0" />
+                                        <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                             上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                                        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                        <Setter Property="MinHeight" Value="60" />
                                         <Setter Property="Padding" Value="0" />
-                                        <Setter Property="Margin" Value="0" />
+                                        <Setter Property="Margin" Value="0,1" />
                                     </Style>
                                 </ListView.ItemContainerStyle>
                                 <ListView.Resources>
@@ -317,34 +320,44 @@
                                     <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
                                     <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
                                     <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
-                                    <!-- 平铺行（快照/远古版/搜索结果）：圆角行卡 + 悬停抬升阴影 -->
+                                    <!-- 版本行（全部版本统一平铺）：外观与主页版本行一致——无底色，悬停只由跟手光斑表达 -->
                                     <DataTemplate x:Key="VersionFlatTemplate" x:DataType="rows:DownloadRow">
-                                        <Grid Margin="2,2" CornerRadius="10"
-                                              Background="{ThemeResource ScRowShadeBrush}"
+                                        <Grid CornerRadius="8"
                                               beh:HoverShadowBehavior.IsEnabled="True"
-                                              beh:HoverShadowBehavior.Carrier="{Binding ElementName=RowShadow}"
-                                              beh:RowHoverBehavior.IsEnabled="True"
-                                              beh:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
-                                            <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
-                                            <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
-                                                    IsHitTestVisible="False"
-                                                    Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                            <!-- 内阴影层：行内自上而下渐深，悬停时叠在高亮层之上 -->
-                                            <ctrl:GlowLayer x:Name="RowShadow" CornerRadius="10" />
-                                            <Grid Padding="12,9" ColumnSpacing="14">
+                                              beh:HoverShadowBehavior.Carrier="{Binding ElementName=RowShadow}">
+                                            <!-- 跟随光标的内阴影：只画落在本行内的那一段（文字在它之上）。
+                                                 竖向刻意内缩 4：悬停时光斑不贴行上下边缘，相邻两行之间留出可见留白。 -->
+                                            <Border x:Name="RowShadow" CornerRadius="8"
+                                                    Margin="0,4"
+                                                    Opacity="0" IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
+                                            <Grid Padding="10,8" ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <!-- 等距方块图标（按版本类型），文件缺失时退回 FontIcon -->
-                                                <Grid x:Name="RowIconHost" Width="28" Height="28"
-                                                      VerticalAlignment="Center">
-                                                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xECAF;" FontSize="14"
-                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                    <Image Source="{x:Bind Icon}" Width="28" Height="28"
-                                                           Stretch="Uniform" />
-                                                </Grid>
+                                                <!-- 版本方块图标块：与主页同款（取不到图标时留空底块） -->
+                                                <Border x:Name="RowIconHost" Width="32" Height="32" CornerRadius="8"
+                                                        VerticalAlignment="Center"
+                                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                                    <Grid>
+                                                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xECAF;" FontSize="14"
+                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        <Image Source="{x:Bind Icon}" Width="32" Height="32"
+                                                               Stretch="Uniform" />
+                                                    </Grid>
+                                                </Border>
                                                 <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                                     <TextBlock Text="{x:Bind Id}" FontSize="14" FontWeight="Medium"
                                                                TextTrimming="CharacterEllipsis" />
@@ -357,105 +370,6 @@
                                                            Foreground="{x:Bind BadgeBrush}" />
                                             </Grid>
                                         </Grid>
-                                    </DataTemplate>
-                                    <!-- 大版本抽屉（正式版默认视图）：组头点击展开该大版本下的版本。
-                                          展开/收起由 ExpandBehavior 做高度平滑过渡 + 内容淡入位移；箭头按展开态旋转。 -->
-                                    <DataTemplate x:Key="VersionGroupTemplate" x:DataType="rows:VersionGroupRow">
-                                        <StackPanel HorizontalAlignment="Stretch">
-                                            <ctrl:GlowButton Click="VersionGroupHeader_Click"
-                                                    Style="{StaticResource ScGlowCardButtonStyle}"
-                                                    beh:RowHoverBehavior.IsEnabled="True"
-                                                    beh:RowHoverBehavior.Overlay="{Binding ElementName=HeaderHover}">
-                                                <Grid>
-                                                    <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显
-                                                         （卡片底色由 ScGlowCardButtonStyle 给到按钮本身，光斑由模板负责） -->
-                                                    <Border x:Name="HeaderHover" CornerRadius="10" Opacity="0"
-                                                            IsHitTestVisible="False"
-                                                            Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                    <Grid Padding="13,11" ColumnSpacing="10">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <!-- 大版本号用主文字色：一屏十几行都染成品牌色会让强调失效
-                                                             （品牌色只留给小节脊柱、主按钮与选中态） -->
-                                                        <TextBlock Text="{x:Bind Major}" FontSize="16" FontWeight="Medium"
-                                                                   VerticalAlignment="Center" />
-                                                        <Border Grid.Column="1" Style="{StaticResource ScChip}"
-                                                                Margin="2,0,0,0">
-                                                            <TextBlock Text="{x:Bind CountText}"
-                                                                       Style="{StaticResource ScChipText}" />
-                                                        </Border>
-                                                        <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="ChevronIcon" Grid.Column="3"
-                                                                  Glyph="&#xE904;" FontSize="12"
-                                                                  VerticalAlignment="Center"
-                                                                  Loaded="VersionChevron_Loaded"
-                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                    </Grid>
-                                                </Grid>
-                                            </ctrl:GlowButton>
-                                            <Grid Visibility="Collapsed" Margin="0,0,0,2"
-                                                  beh:ExpandBehavior.IsExpanded="{x:Bind IsExpanded, Mode=OneWay}">
-                                                <ListView ItemsSource="{x:Bind Items}" SelectionMode="None"
-                                                          IsItemClickEnabled="True"
-                                                          ItemClick="VersionGroupItem_Click"
-                                                          ScrollViewer.VerticalScrollMode="Disabled"
-                                                          ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                                          Padding="0">
-                                                    <ListView.ItemContainerStyle>
-                                                        <Style TargetType="ListViewItem">
-                                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                                            <Setter Property="MinHeight" Value="0" />
-                                                            <Setter Property="Padding" Value="0" />
-                                                            <Setter Property="Margin" Value="0" />
-                                                        </Style>
-                                                    </ListView.ItemContainerStyle>
-                                                    <ListView.ItemTemplate>
-                                                        <DataTemplate x:DataType="rows:DownloadRow">
-                                                            <Grid Margin="2,2" CornerRadius="10"
-                                                                  Background="{ThemeResource ScRowShadeBrush}"
-                                                                  beh:HoverShadowBehavior.IsEnabled="True"
-                                                                  beh:HoverShadowBehavior.Carrier="{Binding ElementName=ChildShadow}"
-                                                                  beh:RowHoverBehavior.IsEnabled="True"
-                                                                  beh:RowHoverBehavior.Overlay="{Binding ElementName=HoverOverlay}">
-                                                                <!-- 悬停高亮层：常态 Opacity=0，由 RowHoverBehavior 在合成线程渐显 -->
-                                                                <Border x:Name="HoverOverlay" CornerRadius="10" Opacity="0"
-                                                                        IsHitTestVisible="False"
-                                                                        Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                                <!-- 内阴影层：行内自上而下渐深 -->
-                                                                <ctrl:GlowLayer x:Name="ChildShadow" CornerRadius="10" />
-                                                                <Grid Padding="12,9" ColumnSpacing="14">
-                                                                    <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="*" />
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                    </Grid.ColumnDefinitions>
-                                                                    <Grid x:Name="ChildIconHost" Width="28" Height="28"
-                                                                          VerticalAlignment="Center">
-                                                                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xECAF;" FontSize="14"
-                                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                        <Image Source="{x:Bind Icon}" Width="28" Height="28"
-                                                                               Stretch="Uniform" />
-                                                                    </Grid>
-                                                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                                                        <TextBlock Text="{x:Bind Id}" FontSize="14" FontWeight="Medium"
-                                                                                   TextTrimming="CharacterEllipsis" />
-                                                                        <TextBlock Text="{x:Bind TimeText}" FontSize="11"
-                                                                                   TextTrimming="CharacterEllipsis"
-                                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                    </StackPanel>
-                                                                    <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="11"
-                                                                               VerticalAlignment="Center" Margin="8,0,2,0"
-                                                                               Foreground="{x:Bind BadgeBrush}" />
-                                                                </Grid>
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </ListView.ItemTemplate>
-                                                </ListView>
-                                            </Grid>
-                                        </StackPanel>
                                     </DataTemplate>
                                 </ListView.Resources>
                             </ListView>
@@ -564,6 +478,9 @@
                                             <ListView.ItemContainerStyle>
                                                 <Style TargetType="ListViewItem">
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                                         上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                                     <Setter Property="MinHeight" Value="48" />
                                                     <Setter Property="Padding" Value="0" />
                                                     <Setter Property="Margin" Value="0,1" />
@@ -571,18 +488,23 @@
                                             </ListView.ItemContainerStyle>
                                             <ListView.ItemTemplate>
                                                 <DataTemplate x:DataType="rows:LoaderBuildRow">
-                                                    <!-- 构建行与版本行同一套悬停语言：高亮层 + 跟手光斑（圆角载体，与行同形）；
-                                                         行本身不再靠自动光斑（自动层拿不到 Grid 的圆角）。 -->
-                                                    <Grid Margin="2,1" CornerRadius="8"
-                                                          Background="{ThemeResource ScRowShadeBrush}"
+                                                    <!-- 构建行与版本行同一套悬停语言：只由跟手光斑表达（圆角载体，与行同形） -->
+                                                    <Grid CornerRadius="8"
                                                           beh:HoverShadowBehavior.IsEnabled="True"
-                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}"
-                                                          beh:RowHoverBehavior.IsEnabled="True"
-                                                          beh:RowHoverBehavior.Overlay="{Binding ElementName=BuildHover}">
-                                                        <Border x:Name="BuildHover" CornerRadius="8" Opacity="0"
-                                                                IsHitTestVisible="False"
-                                                                Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                        <ctrl:GlowLayer x:Name="BuildGlow" CornerRadius="8" />
+                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}">
+                                                        <Border x:Name="BuildGlow" CornerRadius="8"
+                                                                Opacity="0" IsHitTestVisible="False">
+                                                            <Border.Background>
+                                                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                                    <GradientStop Color="#28000000" Offset="0" />
+                                                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                                                    <GradientStop Color="#00000000" Offset="1" />
+                                                                </RadialGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
                                                         <Grid Padding="10,7" ColumnSpacing="12">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
@@ -668,6 +590,9 @@
                                             <ListView.ItemContainerStyle>
                                                 <Style TargetType="ListViewItem">
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                                         上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                                     <Setter Property="MinHeight" Value="48" />
                                                     <Setter Property="Padding" Value="0" />
                                                     <Setter Property="Margin" Value="0,1" />
@@ -675,18 +600,23 @@
                                             </ListView.ItemContainerStyle>
                                             <ListView.ItemTemplate>
                                                 <DataTemplate x:DataType="rows:LoaderBuildRow">
-                                                    <!-- 构建行与版本行同一套悬停语言：高亮层 + 跟手光斑（圆角载体，与行同形）；
-                                                         行本身不再靠自动光斑（自动层拿不到 Grid 的圆角）。 -->
-                                                    <Grid Margin="2,1" CornerRadius="8"
-                                                          Background="{ThemeResource ScRowShadeBrush}"
+                                                    <!-- 构建行与版本行同一套悬停语言：只由跟手光斑表达（圆角载体，与行同形） -->
+                                                    <Grid CornerRadius="8"
                                                           beh:HoverShadowBehavior.IsEnabled="True"
-                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}"
-                                                          beh:RowHoverBehavior.IsEnabled="True"
-                                                          beh:RowHoverBehavior.Overlay="{Binding ElementName=BuildHover}">
-                                                        <Border x:Name="BuildHover" CornerRadius="8" Opacity="0"
-                                                                IsHitTestVisible="False"
-                                                                Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                        <ctrl:GlowLayer x:Name="BuildGlow" CornerRadius="8" />
+                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}">
+                                                        <Border x:Name="BuildGlow" CornerRadius="8"
+                                                                Opacity="0" IsHitTestVisible="False">
+                                                            <Border.Background>
+                                                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                                    <GradientStop Color="#28000000" Offset="0" />
+                                                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                                                    <GradientStop Color="#00000000" Offset="1" />
+                                                                </RadialGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
                                                         <Grid Padding="10,7" ColumnSpacing="12">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
@@ -772,6 +702,9 @@
                                             <ListView.ItemContainerStyle>
                                                 <Style TargetType="ListViewItem">
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                                         上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                                     <Setter Property="MinHeight" Value="48" />
                                                     <Setter Property="Padding" Value="0" />
                                                     <Setter Property="Margin" Value="0,1" />
@@ -779,18 +712,23 @@
                                             </ListView.ItemContainerStyle>
                                             <ListView.ItemTemplate>
                                                 <DataTemplate x:DataType="rows:LoaderBuildRow">
-                                                    <!-- 构建行与版本行同一套悬停语言：高亮层 + 跟手光斑（圆角载体，与行同形）；
-                                                         行本身不再靠自动光斑（自动层拿不到 Grid 的圆角）。 -->
-                                                    <Grid Margin="2,1" CornerRadius="8"
-                                                          Background="{ThemeResource ScRowShadeBrush}"
+                                                    <!-- 构建行与版本行同一套悬停语言：只由跟手光斑表达（圆角载体，与行同形） -->
+                                                    <Grid CornerRadius="8"
                                                           beh:HoverShadowBehavior.IsEnabled="True"
-                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}"
-                                                          beh:RowHoverBehavior.IsEnabled="True"
-                                                          beh:RowHoverBehavior.Overlay="{Binding ElementName=BuildHover}">
-                                                        <Border x:Name="BuildHover" CornerRadius="8" Opacity="0"
-                                                                IsHitTestVisible="False"
-                                                                Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                        <ctrl:GlowLayer x:Name="BuildGlow" CornerRadius="8" />
+                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}">
+                                                        <Border x:Name="BuildGlow" CornerRadius="8"
+                                                                Opacity="0" IsHitTestVisible="False">
+                                                            <Border.Background>
+                                                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                                    <GradientStop Color="#28000000" Offset="0" />
+                                                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                                                    <GradientStop Color="#00000000" Offset="1" />
+                                                                </RadialGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
                                                         <Grid Padding="10,7" ColumnSpacing="12">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
@@ -876,6 +814,9 @@
                                             <ListView.ItemContainerStyle>
                                                 <Style TargetType="ListViewItem">
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                                         上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                                     <Setter Property="MinHeight" Value="48" />
                                                     <Setter Property="Padding" Value="0" />
                                                     <Setter Property="Margin" Value="0,1" />
@@ -883,18 +824,23 @@
                                             </ListView.ItemContainerStyle>
                                             <ListView.ItemTemplate>
                                                 <DataTemplate x:DataType="rows:LoaderBuildRow">
-                                                    <!-- 构建行与版本行同一套悬停语言：高亮层 + 跟手光斑（圆角载体，与行同形）；
-                                                         行本身不再靠自动光斑（自动层拿不到 Grid 的圆角）。 -->
-                                                    <Grid Margin="2,1" CornerRadius="8"
-                                                          Background="{ThemeResource ScRowShadeBrush}"
+                                                    <!-- 构建行与版本行同一套悬停语言：只由跟手光斑表达（圆角载体，与行同形） -->
+                                                    <Grid CornerRadius="8"
                                                           beh:HoverShadowBehavior.IsEnabled="True"
-                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}"
-                                                          beh:RowHoverBehavior.IsEnabled="True"
-                                                          beh:RowHoverBehavior.Overlay="{Binding ElementName=BuildHover}">
-                                                        <Border x:Name="BuildHover" CornerRadius="8" Opacity="0"
-                                                                IsHitTestVisible="False"
-                                                                Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                        <ctrl:GlowLayer x:Name="BuildGlow" CornerRadius="8" />
+                                                          beh:HoverShadowBehavior.Carrier="{Binding ElementName=BuildGlow}">
+                                                        <Border x:Name="BuildGlow" CornerRadius="8"
+                                                                Opacity="0" IsHitTestVisible="False">
+                                                            <Border.Background>
+                                                                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                                    <GradientStop Color="#28000000" Offset="0" />
+                                                                    <GradientStop Color="#1F000000" Offset="0.18" />
+                                                                    <GradientStop Color="#16000000" Offset="0.40" />
+                                                                    <GradientStop Color="#0D000000" Offset="0.62" />
+                                                                    <GradientStop Color="#05000000" Offset="0.82" />
+                                                                    <GradientStop Color="#00000000" Offset="1" />
+                                                                </RadialGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
                                                         <Grid Padding="10,7" ColumnSpacing="12">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
@@ -1081,6 +1027,9 @@
                                 <ListView.ItemContainerStyle>
                                     <Style TargetType="ListViewItem">
                                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <!-- 竖向也必须撑满：默认 Center 会让承载光斑的行 Border 比行矮一圈，
+                                             上下留下不亮光斑的死区，鼠标从两行交界处掠过时完全没反应。 -->
+                                        <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                         <Setter Property="MinHeight" Value="68" />
                                         <Setter Property="Padding" Value="0" />
                                         <Setter Property="Margin" Value="0,1" />
@@ -1094,7 +1043,19 @@
                                               Tapped="ModRow_Tapped">
                                             <!-- 跟手光斑层铺满整行（不带行内边距），圆角与卡片一致；内容再靠 Padding 让开。
                                                  光斑若跟内容一起内缩，就会比行小一圈，外面露出框架底色 → 两层框。 -->
-                                            <ctrl:GlowLayer x:Name="ModRowGlow" CornerRadius="8" />
+                                            <Border x:Name="ModRowGlow" CornerRadius="8"
+                                                    Opacity="0" IsHitTestVisible="False">
+                                                <Border.Background>
+                                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                        <GradientStop Color="#28000000" Offset="0" />
+                                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                                        <GradientStop Color="#00000000" Offset="1" />
+                                                    </RadialGradientBrush>
+                                                </Border.Background>
+                                            </Border>
                                         <Grid Padding="12,10" ColumnSpacing="12" Background="Transparent">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />

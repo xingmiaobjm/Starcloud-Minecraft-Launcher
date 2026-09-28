@@ -155,7 +155,7 @@
                 </Border>
                 <TextBlock Grid.Column="4" VerticalAlignment="Center"
                            Style="{StaticResource ScCardHint}"
-                           loc:Loc.Text="默认账户用于一键启动；点一行进入详情换皮肤" />
+                           loc:Loc.Text="首选账户用于一键启动；点一行进入详情换皮肤" />
             </Grid>
 
             <ctrl:EmptyStateView x:Name="AccountEmptyText" Grid.Row="1"
@@ -167,6 +167,16 @@
             <ListView x:Name="AccountList" Grid.Row="1" Margin="0,6,0,0"
                       SelectionMode="None" IsItemClickEnabled="True" ItemClick="AccountList_ItemClick"
                       Visibility="Collapsed">
+                <ListView.Resources>
+                    <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉
+                         （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                    <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                </ListView.Resources>
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem" BasedOn="{StaticResource ScPlainListItem}" />
                 </ListView.ItemContainerStyle>
@@ -181,7 +191,19 @@
                             <Border x:Name="AccountRowHover" CornerRadius="10" Opacity="0"
                                     IsHitTestVisible="False"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}" />
-                            <ctrl:GlowLayer x:Name="AccountRowShadow" CornerRadius="10" />
+                            <Border x:Name="AccountRowShadow" CornerRadius="10"
+                                    Opacity="0" IsHitTestVisible="False">
+                                <Border.Background>
+                                    <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                        <GradientStop Color="#28000000" Offset="0" />
+                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                        <GradientStop Color="#00000000" Offset="1" />
+                                    </RadialGradientBrush>
+                                </Border.Background>
+                            </Border>
                             <Grid Padding="12,10" ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
@@ -211,7 +233,7 @@
                                         </Border>
                                         <Border Style="{StaticResource ScChipAccent}"
                                                 Visibility="{x:Bind DefaultBadgeVisibility}">
-                                            <TextBlock loc:Loc.Text="默认"
+                                            <TextBlock loc:Loc.Text="首选"
                                                        Style="{StaticResource ScChipAccentText}" />
                                         </Border>
                                     </StackPanel>
@@ -224,8 +246,10 @@
                                                Style="{StaticResource ScMetaValue}"
                                                TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <!-- 只有「一键启动用哪个账户」留在一级页，其余操作进详情 -->
-                                <ctrl:GlowButton Grid.Column="3" loc:Loc.Text="设为默认" Height="30" Padding="12,0"
+                                <!-- 只有「一键启动用哪个账户」留在一级页，其余操作进详情。
+                                     措辞随账户类型走（设为首选微软/离线/第三方账户） -->
+                                <ctrl:GlowButton Grid.Column="3" Content="{x:Bind DefaultActionText}"
+                                        Height="30" Padding="12,0"
                                         VerticalAlignment="Center"
                                         Tag="{x:Bind Uuid}" Click="SetDefault_Click"
                                         Visibility="{x:Bind DefaultBtnVisibility}" />

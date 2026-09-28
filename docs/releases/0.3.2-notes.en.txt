@@ -1,0 +1,8 @@
+0.3.2
+- New "Running status" page: everything about the current game session in one place - CPU/memory curves, the effective Java and JVM arguments, a live log tail and recent runs, plus an in-page "End process".
+- Accounts rebuilt as list plus sub-pages: adding an account and account details each get their own page (skin library, session state and preferred-account setting all live inside), no more popup chains.
+- Skin library: offline accounts can import skins from a file or a URL and switch at any time; third-party accounts list their skin-station wardrobe; avatars use the same raster path as the cards.
+- Plugin SDK opened up: versions / instances / downloads / network / settings / tasks / saves / multiplayer and more are exposed to plugins, with JS and Python capability parity; specs and the SDK guide updated, and offline sign-in restored.
+- Account wording: the card's "default account" is now the "preferred account" (used for one-click launch), with matching labels and toasts.
+- Home version card redesign: when collapsed it becomes a bottom strip aligned with the right launch dock, and the two columns now line up at the top.
+- View layer reorganised by responsibility (controls / behaviors / dialogs / overlays / rows / shared) and buttons unified on GlowButton, with hover shadows and motion following one convention.

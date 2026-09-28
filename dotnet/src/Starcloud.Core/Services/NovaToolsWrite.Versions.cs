@@ -87,7 +87,7 @@ public sealed partial class NovaToolRegistry
         return Task.FromResult($"实例 {id} 已改名为 {newId}。");
     }
 
-    /// <summary>启动游戏：解析身份 → 补全文件 → 拉起进程；与主页共用会话锁防双开</summary>
+    /// <summary>启动游戏：解析身份 → 补全文件 → 拉起进程（多开：同版本也允许再开一局）</summary>
     private async Task<string> LaunchGameAsync(JsonElement args, CancellationToken ct)
     {
         if (_c.Launcher is null || _c.Preflight is null || _c.Accounts is null)
@@ -95,8 +95,6 @@ public sealed partial class NovaToolRegistry
         var id = TargetVersion(args) ?? throw new InvalidOperationException("没有目标实例，也没选中实例");
         if (!_c.Installer.IsInstalled(DotMc, id))
             throw new InvalidOperationException($"实例 {id} 没装好，先用 install_minecraft / install_loader");
-        if (GameSessionGuard.IsAnyGameAlive(DotMc))
-            throw new InvalidOperationException("已经有一局游戏在跑，先关掉它");
 
         // 身份：凭证只在内存会话里，缺凭证要用户回到账户页重新登录（不静默失败）
         ResolvedPlayer player;
@@ -119,47 +117,31 @@ public sealed partial class NovaToolRegistry
             EnvVars: eff.EnvVars, PreLaunchCommand: eff.PreCmd, PostLaunchCommand: eff.PostCmd,
             PlayerSkinUrl: player.SkinUrl);
 
-        // 会话锁：占住 → 补全 → 拉起；进程退出时释放
-        SessionHandle?.Dispose();
-        SessionHandle = GameSessionGuard.TryAcquire(DotMc, id, out var blockedBy);
-        if (SessionHandle is null)
-            throw new InvalidOperationException($"实例 {blockedBy} 正在运行中，先关掉游戏再启动");
-        try
+        // 预检补全 → 拉起；实例注册与运行监控由 GameRuntimeMonitor 接管
+        var preflight = await _c.Preflight.CheckAsync(DotMc, id, ct);
+        if (preflight.NeedsRepair)
         {
-            var preflight = await _c.Preflight.CheckAsync(DotMc, id, ct);
-            if (preflight.NeedsRepair)
-            {
-                if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
-                    throw new InvalidOperationException("版本 JSON 缺失或损坏且无法自动恢复，需要重新安装这个版本");
-                await _c.Preflight.EnsureReadyAsync(DotMc, id, preflight, S, null, ct);
-            }
-
-            var session = await _c.Launcher.LaunchVersionAsync(DotMc, id, options, ct);
-            SessionHandle.Bind(session.Pid);
-            var handle = SessionHandle;
-            session.Exited += _ => handle.Dispose();
-
-            // 运行状态监控：上下文取自本次已解析的 eff（不再重复 Resolve）
-            var gameRoot = eff.GameRoot;
-            var ctx = GameLaunchContextStore.Capture(id, eff,
-                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "mods")),
-                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "shaderpacks")),
-                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "resourcepacks")));
-            GameRuntimeMonitor.Instance.Attach(session, ctx, session.CommandLine);
-
-            _c.Host?.OnGameLaunched(id, session.Pid);
-
-            S.LastVersion = id;
-            new InstanceSettingsStore(DotMc).TouchPlayed(id);
-            _c.SaveSettings?.Invoke();
-            return $"已启动 {id}（pid {session.Pid}，玩家 {player.Name}）。窗口出现前有几秒加载时间。";
+            if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
+                throw new InvalidOperationException("版本 JSON 缺失或损坏且无法自动恢复，需要重新安装这个版本");
+            await _c.Preflight.EnsureReadyAsync(DotMc, id, preflight, S, null, ct);
         }
-        catch
-        {
-            SessionHandle.Dispose();
-            SessionHandle = null;
-            throw;
-        }
+
+        var session = await _c.Launcher.LaunchVersionAsync(DotMc, id, options, ct);
+
+        // 运行状态监控：上下文取自本次已解析的 eff（不再重复 Resolve）
+        var gameRoot = eff.GameRoot;
+        var ctx = GameLaunchContextStore.Capture(id, eff,
+            GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "mods")),
+            GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "shaderpacks")),
+            GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "resourcepacks")));
+        GameRuntimeMonitor.Instance.Attach(session, ctx, session.CommandLine);
+
+        _c.Host?.OnGameLaunched(id, session.Pid);
+
+        S.LastVersion = id;
+        new InstanceSettingsStore(DotMc).TouchPlayed(id);
+        _c.SaveSettings?.Invoke();
+        return $"已启动 {id}（pid {session.Pid}，玩家 {player.Name}）。窗口出现前有几秒加载时间。";
     }
 
     private async Task<string> RepairInstanceAsync(JsonElement args, CancellationToken ct)

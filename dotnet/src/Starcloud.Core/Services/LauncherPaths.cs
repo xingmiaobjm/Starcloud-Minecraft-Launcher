@@ -104,9 +104,12 @@ public static class LauncherPaths
     /// <summary>启动器侧保存的游戏日志（每局一个文件）</summary>
     public static string GameLogsDir => Path.Combine(LogsDir, "game");
 
-    /// <summary>跨进程游戏会话锁文件（随 .minecraft，共享同一实例目录的多窗口互斥）</summary>
-    public static string GameSessionFile(string dotMc) =>
-        Path.Combine(dotMc, "starcloud", "game-session.json");
+    /// <summary>.minecraft 下启动器侧状态目录（游戏实例注册 + 本局启动上下文）</summary>
+    public static string GameStateDir(string dotMc) => Path.Combine(dotMc, "starcloud");
+
+    /// <summary>单个游戏实例的注册文件（一实例一文件，pid 即实例键；跨进程共享同一实例目录也能互相看见）</summary>
+    public static string GameSessionFile(string dotMc, int pid) =>
+        Path.Combine(GameStateDir(dotMc), $"game-session-{pid}.json");
 
     public static void EnsureDataDir()
     {

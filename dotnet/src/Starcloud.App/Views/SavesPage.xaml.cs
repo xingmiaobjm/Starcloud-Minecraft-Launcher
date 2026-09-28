@@ -26,7 +26,6 @@ public sealed partial class SavesPage : Page
     private bool _busy;
     private bool _suppressFilter;
     private GameSession? _gameProcess;
-    private GameSessionHandle? _sessionHandle;  // 防双开会话锁（spec §8.3）
 
     public SavesPage()
     {
@@ -394,15 +393,6 @@ public sealed partial class SavesPage : Page
         string? copyFolder, bool sameRoot)
     {
         var dotMc = _s.Settings.DotMinecraft;
-        ReleaseSession();
-        _sessionHandle = GameSessionGuard.TryAcquire(dotMc, targetId, out var blockedBy);
-        if (_sessionHandle is null)
-        {
-            ErrorBar.Message = Loc.T("版本 {0} 正在运行中，请先退出游戏", blockedBy);
-            ErrorBar.IsOpen = true;
-            return;
-        }
-
         _busy = true;
         UpdateRowActions();
         try
@@ -448,7 +438,6 @@ public sealed partial class SavesPage : Page
             catch (Exception ex)
             {
                 // 启动抛异常不回滚副本（spec §5）：留记录，用户可稍后重试或另选归属
-                ReleaseSession();
                 if (!sameRoot) new PendingWorldStore(dotMc).Save(rec);
                 ErrorBar.Message = sameRoot
                     ? Loc.T("启动失败：{0}", ex.Message)
@@ -457,7 +446,6 @@ public sealed partial class SavesPage : Page
                 return;
             }
 
-            _sessionHandle?.Bind(_gameProcess.Pid);
             // 运行状态监控：上下文取自本次已解析的 eff（不再重复 Resolve）
             var gameRoot = eff.GameRoot;
             _s.Runtime.Attach(_gameProcess, GameLaunchContextStore.Capture(targetId, eff,
@@ -469,7 +457,6 @@ public sealed partial class SavesPage : Page
             rec.ProcessId = _gameProcess.Pid;
             new PendingWorldStore(dotMc).Save(rec);
 
-            App.RunningVersionId = targetId;
             store.TouchPlayed(targetId);
             RunBar.Message = Loc.T("正在以 {0} 运行「{1}」", targetId, row.Name);
             RunBar.IsOpen = true;
@@ -477,7 +464,6 @@ public sealed partial class SavesPage : Page
         }
         catch (Exception ex)
         {
-            ReleaseSession();
             ErrorBar.Message = Loc.T("启动失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
         }
@@ -486,13 +472,6 @@ public sealed partial class SavesPage : Page
             _busy = false;
             UpdateRowActions();
         }
-    }
-
-    /// <summary>释放防双开会话锁（退出 / 失败 / 取消都要调用，spec §8.3）。</summary>
-    private void ReleaseSession()
-    {
-        try { _sessionHandle?.Dispose(); } catch { /* 锁文件被占用时忽略 */ }
-        _sessionHandle = null;
     }
 
     private void StopGame_Click(object s, RoutedEventArgs e)
@@ -505,8 +484,6 @@ public sealed partial class SavesPage : Page
 
     private async Task OnGameExitedAsync()
     {
-        App.RunningVersionId = null;
-        ReleaseSession();
         RunBar.IsOpen = false;
 
         var dotMc = _s.Settings.DotMinecraft;
@@ -527,13 +504,14 @@ public sealed partial class SavesPage : Page
     /// <summary>启动器在游戏运行期间被关闭：下次进入存档页补问（spec §3.5）</summary>
     private async Task ResumePendingAsync()
     {
-        if (App.RunningVersionId is not null) return;   // 游戏仍在运行，交给 Exited 回调
         try
         {
             var dotMc = _s.Settings.DotMinecraft;
             var store = new PendingWorldStore(dotMc);
             var rec = store.Load();
             if (rec is null) return;
+            // 那一次启动的实例仍在跑 → 交给它的 Exited 回调补问（多开：不能只看「有没有游戏在跑」）
+            if (rec.ProcessId > 0 && _s.Runtime.Instances.Any(i => i.Pid == rec.ProcessId)) return;
             if (string.Equals(rec.SourceGameRoot, rec.TargetGameRoot, StringComparison.OrdinalIgnoreCase))
             {
                 store.Clear();

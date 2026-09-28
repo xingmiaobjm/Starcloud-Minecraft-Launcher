@@ -14,9 +14,6 @@ public partial class App : Application
     // 跨页启动请求：版本列表页详情页"启动"后导航回主页消费
     public static string? PendingLaunchVersionId;
 
-    // 当前运行中的版本 id（游戏进程存活期间非空）
-    public static string? RunningVersionId;
-
     // 跨页日志跳转：运行状态页点「打开日志」时置 "game"，日志页进入后消费一次
     public static string? PendingLogSource;
 

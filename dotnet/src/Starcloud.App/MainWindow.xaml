@@ -106,8 +106,21 @@
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
                     <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显（读作"按下/凹陷"）。
-                         档位色在 GlowLayer 里按主题各一套；Peak=1.55 是这类小圆块的加强档。 -->
-                    <ctrl:GlowLayer x:Name="NovaShadow" CornerRadius="8" Peak="1.55" />
+                         底色按主题由 HoverShadowBehavior 重写；这几档是"加强档"（约卡片档的 1.55×），
+                         小圆块上才看得见。 -->
+                    <Border x:Name="NovaShadow" CornerRadius="8"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#3E000000" Offset="0" />
+                                <GradientStop Color="#30000000" Offset="0.18" />
+                                <GradientStop Color="#22000000" Offset="0.40" />
+                                <GradientStop Color="#14000000" Offset="0.62" />
+                                <GradientStop Color="#08000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <!-- Nova 图标 = 品牌标记（小尺寸版）。多色标记没法用字形，所以五态着色
                          改画在外圈描边上（见 MainWindow.xaml.cs 的 ApplyNovaState）。 -->
                     <ctrl:BrandMark Small="True" Width="15" Height="15"
@@ -133,8 +146,20 @@
                             Background="{ThemeResource GlassCardBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" />
-                    <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显 -->
-                    <ctrl:GlowLayer x:Name="TaskCenterShadow" CornerRadius="8" Peak="1.55" />
+                    <!-- 内阴影层：卡片内部自上而下渐深的半透明覆盖，悬停时渐显（加强档） -->
+                    <Border x:Name="TaskCenterShadow" CornerRadius="8"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#3E000000" Offset="0" />
+                                <GradientStop Color="#30000000" Offset="0.18" />
+                                <GradientStop Color="#22000000" Offset="0.40" />
+                                <GradientStop Color="#14000000" Offset="0.62" />
+                                <GradientStop Color="#08000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <!-- ic_message_allread（消息已读）：一个「已处理」的意象，比计时器更贴任务列表 -->
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC89;" FontSize="14"
                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
@@ -161,9 +186,21 @@
                     Click="AccountButton_Click">
                 <Grid Width="32" Height="32">
                     <Ellipse Fill="{ThemeResource CardBackgroundFillColorSecondaryBrush}" />
-                    <!-- 内阴影层：头像内部的渐深覆盖，悬停时渐显。
+                    <!-- 内阴影层：头像内部的渐深覆盖，悬停时渐显（加强档）。
                          圆角取 16 = 32×32 的半边长，等价于原先那个 Ellipse 的圆形轮廓。 -->
-                    <ctrl:GlowLayer x:Name="AccountShadow" CornerRadius="16" Peak="1.55" />
+                    <Border x:Name="AccountShadow" CornerRadius="16"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#3E000000" Offset="0" />
+                                <GradientStop Color="#30000000" Offset="0.18" />
+                                <GradientStop Color="#22000000" Offset="0.40" />
+                                <GradientStop Color="#14000000" Offset="0.62" />
+                                <GradientStop Color="#08000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <TextBlock x:Name="AccountAvatarText" FontSize="13" FontWeight="Medium"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                     <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="AccountAvatarGlyph" Glyph="&#xEB8F;" FontSize="15"
@@ -187,8 +224,20 @@
                         半径必须大于方形半对角线（28.3），否则渐变在四个角之前就淡到 0，
                         视觉上只剩一个内切圆——GlowRadius=40 就是为了让四个角也被染到。 -->
                 <Grid>
-                    <ctrl:GlowLayer x:Name="MinimizeShadow" Width="40" Height="40" CornerRadius="8"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center" Peak="1.55" />
+                    <Border x:Name="MinimizeShadow" Width="40" Height="40" CornerRadius="8"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#3E000000" Offset="0" />
+                                <GradientStop Color="#30000000" Offset="0.18" />
+                                <GradientStop Color="#22000000" Offset="0.40" />
+                                <GradientStop Color="#14000000" Offset="0.62" />
+                                <GradientStop Color="#08000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <PathIcon Width="10" Height="10">
                         <PathIcon.Data>
                             <PathGeometry>
@@ -210,8 +259,20 @@
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=MaximizeShadow}">
                 <!-- 同最小化键：热区 46×48 / 点亮区 34×36 / 光斑载体 40×40 圆角方块（圆角 8） -->
                 <Grid>
-                    <ctrl:GlowLayer x:Name="MaximizeShadow" Width="40" Height="40" CornerRadius="8"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center" Peak="1.55" />
+                    <Border x:Name="MaximizeShadow" Width="40" Height="40" CornerRadius="8"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#3E000000" Offset="0" />
+                                <GradientStop Color="#30000000" Offset="0.18" />
+                                <GradientStop Color="#22000000" Offset="0.40" />
+                                <GradientStop Color="#14000000" Offset="0.62" />
+                                <GradientStop Color="#08000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <!-- 最大化 / 还原两个图标叠放，按窗口状态切显隐（见 UpdateMaximizeGlyph） -->
                     <Grid Width="10" Height="10">
                     <PathIcon x:Name="MaximizeIcon" Width="10" Height="10">
@@ -266,8 +327,20 @@
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=CloseShadow}">
                 <Grid>
                     <!-- 同最小化键：热区 46×48 / 点亮区 34×36 / 光斑载体 40×40 圆角方块（圆角 8） -->
-                    <ctrl:GlowLayer x:Name="CloseShadow" Width="40" Height="40" CornerRadius="8"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center" Peak="1.55" />
+                    <Border x:Name="CloseShadow" Width="40" Height="40" CornerRadius="8"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Border.Background>
+                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                <GradientStop Color="#3E000000" Offset="0" />
+                                <GradientStop Color="#30000000" Offset="0.18" />
+                                <GradientStop Color="#22000000" Offset="0.40" />
+                                <GradientStop Color="#14000000" Offset="0.62" />
+                                <GradientStop Color="#08000000" Offset="0.82" />
+                                <GradientStop Color="#00000000" Offset="1" />
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <PathIcon Width="10" Height="10">
                         <PathIcon.Data>
                             <PathGeometry>
@@ -409,7 +482,8 @@
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
 
-            <Grid Padding="32,12,24,24">
+            <!-- 内容区留白：四边等边（左右上下统一 24），标题栏底到内容上沿不再比其它三边窄 -->
+            <Grid Padding="24">
                 <Frame x:Name="ContentFrame" Background="Transparent" />
             </Grid>
         </NavigationView>

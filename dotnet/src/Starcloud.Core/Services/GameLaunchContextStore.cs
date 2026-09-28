@@ -10,7 +10,7 @@ using System.Text.Json.Serialization;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>启动上下文（写 <c>&lt;dotMc&gt;/starcloud/game-launch.json</c>，本局退出即删）</summary>
+/// <summary>启动上下文（写 <c>&lt;dotMc&gt;/starcloud/game-launch-&lt;pid&gt;.json</c>，本局退出即删）</summary>
 public sealed record GameLaunchContext(
     [property: JsonPropertyName("version_id")] string VersionId,
     [property: JsonPropertyName("java_path")] string JavaPath,
@@ -38,16 +38,17 @@ public static class GameLaunchContextStore
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    /// <summary>上下文文件路径（与 game-session.json 同目录）</summary>
-    public static string FileFor(string dotMc) =>
-        Path.Combine(dotMc, "starcloud", "game-launch.json");
+    /// <summary>上下文文件路径（与实例注册文件同目录，一实例一份）</summary>
+    public static string FileFor(string dotMc, int pid) =>
+        Path.Combine(LauncherPaths.GameStateDir(dotMc), $"game-launch-{pid}.json");
 
     /// <summary>写入上下文（原子写：tmp + File.Move overwrite；失败静默）</summary>
-    public static void Write(string dotMc, GameLaunchContext ctx)
+    public static void Write(string dotMc, int pid, GameLaunchContext ctx)
     {
+        if (pid <= 0) return;
         try
         {
-            var file = FileFor(dotMc);
+            var file = FileFor(dotMc, pid);
             var dir = Path.GetDirectoryName(file);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var tmp = file + ".tmp";
@@ -58,20 +59,40 @@ public static class GameLaunchContextStore
     }
 
     /// <summary>删除上下文（本局退出时调用；失败静默）</summary>
-    public static void Delete(string dotMc)
+    public static void Delete(string dotMc, int pid)
     {
-        try { File.Delete(FileFor(dotMc)); } catch { /* 已删除/被占用忽略 */ }
+        if (pid <= 0) return;
+        try { File.Delete(FileFor(dotMc, pid)); } catch { /* 已删除/被占用忽略 */ }
+    }
+
+    /// <summary>清理不再存活的实例留下的上下文文件（启动器被强杀时才会有残留；失败静默）</summary>
+    public static void PruneDead(string dotMc, IReadOnlyCollection<int> alivePids)
+    {
+        try
+        {
+            var dir = LauncherPaths.GameStateDir(dotMc);
+            if (!Directory.Exists(dir)) return;
+            foreach (var file in Directory.EnumerateFiles(dir, "game-launch-*.json"))
+            {
+                var name = Path.GetFileNameWithoutExtension(file);
+                var tail = name["game-launch-".Length..];
+                if (int.TryParse(tail, out var pid) && alivePids.Contains(pid)) continue;
+                try { File.Delete(file); } catch { /* 被占用忽略 */ }
+            }
+        }
+        catch { /* 清理失败不影响启动 */ }
     }
 
     /// <summary>
     /// 读取上下文；不存在 / 损坏 / 与 <paramref name="expectVersionId"/> 不符 → null。
     /// 版本不符返回 null 用于丢弃上一局的残留文件。
     /// </summary>
-    public static GameLaunchContext? Read(string dotMc, string? expectVersionId = null)
+    public static GameLaunchContext? Read(string dotMc, int pid, string? expectVersionId = null)
     {
+        if (pid <= 0) return null;
         try
         {
-            var file = FileFor(dotMc);
+            var file = FileFor(dotMc, pid);
             if (!File.Exists(file)) return null;
             var ctx = JsonSerializer.Deserialize<GameLaunchContext>(File.ReadAllText(file), Options);
             if (ctx is null) return null;

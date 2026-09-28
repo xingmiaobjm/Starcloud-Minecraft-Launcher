@@ -564,7 +564,7 @@ public static class ModPackDialogs
     public static async Task BackupAsync(XamlRoot root, AppServices s, LocalVersionRow row)
     {
         var dotMc = s.Settings.DotMinecraft;
-        if (App.RunningVersionId == row.Id)
+        if (s.Runtime.Instances.Any(i => i.VersionId == row.Id))
         {
             await InfoAsync(root, Loc.T("备份与回档"), Loc.T("该版本正在运行，请先退出游戏再备份或回档。"));
             return;

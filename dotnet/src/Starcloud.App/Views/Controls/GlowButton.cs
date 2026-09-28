@@ -1,7 +1,7 @@
 // 可复用元素：带「跟随光标内阴影」的按钮。
 //
 // 此前每个用到跟手阴影的按钮，调用点都要自己写三样东西：
-//   1) 一层 <ctrl:GlowLayer x:Name="…" CornerRadius="8"/>；
+//   1) 一层光斑载体（内联径向渐变的 Border，x:Name="Glow"）；
 //   2) 把它挂成载体 —— beh:HoverShadowBehavior.Carrier="{Binding ElementName=…}"；
 //   3) 自己开开关 —— beh:HoverShadowBehavior.IsEnabled="True"。
 // 其中第 1 步的圆角是个手写魔数：它必须与「按钮表面真正的圆角」一致，

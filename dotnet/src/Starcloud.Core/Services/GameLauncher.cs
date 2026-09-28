@@ -334,7 +334,8 @@ public sealed class GameLauncher
         }
         var p = Process.Start(psi) ?? throw new InvalidOperationException("游戏进程启动失败");
         // 退出统一由 GameSession 的 WaitForExitAsync 收口，此处不再 EnableRaisingEvents
-        var logFile = Path.Combine(LauncherPaths.GameLogsDir, $"game-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+        // 文件名带 pid：同一秒多开时不会互相覆盖（多实例同时运行）
+        var logFile = Path.Combine(LauncherPaths.GameLogsDir, $"game-{DateTime.Now:yyyyMMdd-HHmmss}-{p.Id}.log");
         var session = new GameSession(p, versionId, logFile, commandLine);
         LauncherLog.Write("game", $"启动 {versionId}（pid {session.Pid}），日志 {logFile}");
         return session;

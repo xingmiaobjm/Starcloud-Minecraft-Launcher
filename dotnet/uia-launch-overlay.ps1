@@ -1,7 +1,7 @@
-﻿# LaunchOverlay 冒烟（T6）：
+# LaunchOverlay 冒烟（T6）：
 #   默认全流程：启动应用 → 选版本 → 点「启动游戏」→ 覆盖层出现（正在启动+进度条）
 #   → 标题流转「已启动游戏」→ 步骤「游戏运行中」→ 点「返回主页」→ 覆盖层收起 + StatusText「游戏运行中」
-#   -Cancel：覆盖层出现后点「取消」→ 按钮变「正在取消…」→ 收层 + StatusText「已取消启动」
+#   -Cancel：覆盖层出现后点「取消」→ 按钮变「正在取消…」→ 静默收层回主页（不写状态文字）
 param([switch]$Cancel, [int]$TimeoutSec = 150)
 
 $ErrorActionPreference = "Stop"
@@ -120,12 +120,11 @@ if ($Cancel) {
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     while ([DateTime]::UtcNow -lt $deadline) {
         $gone = (Gone-ByName $win "正在启动") -and (Gone-ByName $win "已启动游戏") -and (Gone-ByName $win "启动失败")
-        $st = Find-ByName $win "已取消启动" ([System.Windows.Automation.ControlType]::Text)
-        if ($gone -and $st) { $ok = $true; break }
+        if ($gone) { $ok = $true; break }
         Start-Sleep -Milliseconds 800
     }
-    if (-not $ok) { Write-Output "FAIL: cancel did not collapse overlay / status text missing"; exit 1 }
-    Write-Output "CANCEL OK: overlay collapsed, StatusText=已取消启动"
+    if (-not $ok) { Write-Output "FAIL: cancel did not collapse overlay"; exit 1 }
+    Write-Output "CANCEL OK: overlay collapsed (no status text)"
 } else {
     # 标题流转：等待窗口期间即变「已启动游戏」
     $t2 = $null

@@ -99,7 +99,8 @@ public sealed class RecordingService
             var deadline = DateTime.UtcNow + WindowWait;
             while (DateTime.UtcNow < deadline)
             {
-                if (IsRecording || App.RunningVersionId != versionId) return; // 已在录 / 这局已结束
+                // 已在录 / 这一局（按 pid 认，多开时不看别的实例）已经结束
+                if (IsRecording || !GameRuntimeMonitor.Instance.Instances.Any(i => i.Pid == gamePid)) return;
                 var hwnd = MainWindowOf(gamePid);
                 if (hwnd != IntPtr.Zero)
                 {

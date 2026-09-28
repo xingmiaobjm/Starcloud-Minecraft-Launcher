@@ -132,12 +132,13 @@ public sealed partial class MainWindow : Window
 
     // ── 插件事件（launcher:events）：游戏起停广播 ──
 
-    /// <summary>上一次广播的游戏实例（null = 当前没有游戏在跑）</summary>
-    private string? _pluginEventGameId;
+    /// <summary>上一次广播的「正在运行的版本」；多开时同版本只算一条（起停按版本粒度广播）</summary>
+    private readonly HashSet<string> _pluginEventGameIds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 游戏起停广播：所有启动路径（主页按钮 / 版本页 / Nova 工具 / 插件自己）都落在同一把
-    /// 会话锁上，所以只看锁文件的「有 ↔ 无」就能覆盖全部入口，不必在各处埋点。
+    /// 游戏起停广播：所有启动路径（主页按钮 / 版本页 / Nova 工具 / 插件自己）都落在同一套
+    /// 实例注册表上，所以只看「存活实例的版本集合」变化就能覆盖全部入口，不必在各处埋点。
+    /// 多开：新出现的版本广播 game.launched（带自己那一局的 pid），不再存活的版本广播 game.exited。
     /// 钩子在工作线程上跑：插件的 onLauncherEvent 可能做网络等慢操作，不能占着 UI 线程。
     /// </summary>
     private void WatchGameEvents()
@@ -146,22 +147,25 @@ public sealed partial class MainWindow : Window
         {
             var host = AppServices.Instance.PluginHost;
             var dotMc = AppServices.Instance.Settings.DotMinecraft;
-            var current = Starcloud.Core.Services.GameSessionGuard.Current(dotMc);
-            var running = current?.VersionId;
-            UpdateRunningDot(running);
-            if (running is null)
+            var alive = Starcloud.Core.Services.GameSessionGuard.All(dotMc).ToList();
+            var running = alive.Select(l => l.VersionId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            UpdateRunningDot(alive.Count > 0);
+
+            foreach (var l in alive)
             {
-                var exited = _pluginEventGameId;
-                if (exited is null) return;
-                _pluginEventGameId = null;
-                _ = Task.Run(() => host.RaiseEvent("game.exited", new { versionId = exited }));
-                return;
+                var id = l.VersionId;
+                var pid = l.Pid;
+                if (!_pluginEventGameIds.Add(id)) continue;
+                _ = Task.Run(() => host.RaiseEvent("game.launched", new { versionId = id, pid }));
             }
-            if (string.Equals(running, _pluginEventGameId, StringComparison.OrdinalIgnoreCase)) return;
-            _pluginEventGameId = running;
-            var pid = current!.Pid;
-            _ = Task.Run(() => host.RaiseEvent("game.launched",
-                new { versionId = running, pid }));
+
+            // 同版本还有别的实例在跑就不算结束（多开）
+            foreach (var id in _pluginEventGameIds.Where(id => !running.Contains(id)).ToList())
+            {
+                _pluginEventGameIds.Remove(id);
+                var versionId = id;
+                _ = Task.Run(() => host.RaiseEvent("game.exited", new { versionId }));
+            }
         }
         catch
         {
@@ -170,13 +174,12 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>导航项「运行状态」右侧圆点：有游戏在跑就点亮（静态，不做呼吸动画）</summary>
-    private void UpdateRunningDot(string? running)
+    private void UpdateRunningDot(bool running)
     {
         var dot = RunningDot;
         if (dot is null) return;
-        var on = running is not null;
-        if (on == (dot.Visibility == Visibility.Visible)) return;   // 状态没变不碰 XAML
-        dot.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (running == (dot.Visibility == Visibility.Visible)) return;   // 状态没变不碰 XAML
+        dot.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>外观变更即时生效入口（设置页在主题 / 背景改动后调用）。</summary>

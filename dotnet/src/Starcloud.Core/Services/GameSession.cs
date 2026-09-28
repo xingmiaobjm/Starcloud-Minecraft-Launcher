@@ -110,9 +110,13 @@ public sealed class GameSession : IDisposable
         try { _process.Refresh(); } catch { /* 已退出忽略 */ }
     }
 
+    /// <summary>本局是否由用户/启动器主动结束（<see cref="Kill"/> 置位）；用于区分「用户结束」与「游戏崩溃」</summary>
+    public bool KilledByUser { get; private set; }
+
     /// <summary>结束游戏进程（连子进程一起结束）；失败静默</summary>
     public void Kill(bool entireTree = true)
     {
+        KilledByUser = true;
         try { if (!_process.HasExited) _process.Kill(entireTree); } catch { /* 已退出忽略 */ }
     }
 

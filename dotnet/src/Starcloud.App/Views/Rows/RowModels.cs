@@ -2,7 +2,6 @@
 
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
@@ -45,32 +44,6 @@ public sealed class LoaderBuildRow : INotifyPropertyChanged
     }
 
     public Visibility SelectedVisibility => _selected ? Visibility.Visible : Visibility.Collapsed;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-}
-
-/// <summary>下载页原版列表的大版本分组（抽屉折叠行）</summary>
-public sealed class VersionGroupRow : INotifyPropertyChanged
-{
-    private bool _isExpanded;
-
-    public string Major { get; init; } = "";
-    public int Count { get; init; }
-    /// <summary>芯片文案：写清楚"有多少个版本"，比裸括号数字更容易一眼看懂</summary>
-    public string CountText => $"{Count} 个版本";
-    public List<DownloadRow> Items { get; init; } = [];
-
-    /// <summary>抽屉是否展开（组头点击切换，驱动内容显隐与箭头方向）</summary>
-    public bool IsExpanded
-    {
-        get => _isExpanded;
-        set
-        {
-            if (_isExpanded == value) return;
-            _isExpanded = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
-        }
-    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -122,7 +95,7 @@ public sealed class ModRow
 /// <summary>账户页列表行（Avatar 为皮肤头像，加载失败 / 无网络时为 null，由首字母色块兜底）</summary>
 public sealed record AccountRow(
     string Uuid, string Username, string TypeText, bool IsDefault, ImageSource? Avatar,
-    string SkinText = "")
+    string SkinText = "", string DefaultActionText = "")
 {
     public string Initial => string.IsNullOrWhiteSpace(Username) ? "?" : Username[..1].ToUpperInvariant();
     public Visibility DefaultBadgeVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
@@ -225,16 +198,3 @@ public sealed record BackupRow(
 public sealed record GameRunRow(
     string VersionId, string StartedText, string DurationText, string PeakText,
     string StatusText, Brush? StatusBrush);
-
-/// <summary>下载页版本列表模板选择：大版本分组行用抽屉模板，其余平铺</summary>
-public sealed class VersionRowTemplateSelector : DataTemplateSelector
-{
-    public DataTemplate Flat { get; set; } = null!;
-    public DataTemplate Grouped { get; set; } = null!;
-
-    protected override DataTemplate SelectTemplateCore(object item) =>
-        item is VersionGroupRow ? Grouped : Flat;
-
-    protected override DataTemplate SelectTemplateCore(object item, DependencyObject container) =>
-        SelectTemplateCore(item);
-}
