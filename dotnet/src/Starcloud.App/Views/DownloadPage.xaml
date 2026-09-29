@@ -10,27 +10,13 @@
     xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
-    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-                <TextBlock loc:Loc.Text="下载" FontSize="28" FontWeight="Medium" />
-                <TextBlock loc:Loc.Text="下载原版与加载器，或在社区资源中查找 Mod 与整合包"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-        </Grid>
-
         <!-- 主体：左分类 + 右内容 -->
-        <Grid Grid.Row="1" ColumnSpacing="16">
+        <Grid ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="180" />
                 <ColumnDefinition Width="*" />
@@ -98,8 +84,8 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- 插件挂载区（download.top）：启用插件注册时显示 -->
-                <StackPanel x:Name="PluginSlotHost" Grid.Row="1" Spacing="8" Visibility="Collapsed" />
+                <!-- 插件挂载区（download.top）：有插件贡献时才占位（2.0 声明式 / 1.x HTML 都由它渲染） -->
+                <ctrl:PluginContributionPanel Grid.Row="1" Point="download.top" />
 
                 <!-- 提示与进度 -->
                 <StackPanel Grid.Row="0" Spacing="8">
@@ -156,6 +142,11 @@
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                                <!-- 未选中段的悬停 / 按下：不写就吃 WinUI 默认的半透明白填充，
+                                                     它按按钮自身的圆角矩形刷色、边缘是硬的，看着像一块脏斑；
+                                                     选中反馈已经由滑动指示器表达，这里把两态底刷一并置空。 -->
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="Transparent" />
                                             </ToggleButton.Resources>
                                         </ToggleButton>
                                         <ToggleButton x:Name="TypeSnapshotBtn" Tag="snapshot"
@@ -173,6 +164,9 @@
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                                <!-- 未选中的悬停 / 按下底刷置空，见上方正式版段的说明 -->
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="Transparent" />
                                             </ToggleButton.Resources>
                                         </ToggleButton>
                                         <ToggleButton x:Name="TypeOldBtn" Tag="old"
@@ -190,6 +184,9 @@
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
                                                 <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                                <!-- 未选中的悬停 / 按下底刷置空，见上方正式版段的说明 -->
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="Transparent" />
                                             </ToggleButton.Resources>
                                         </ToggleButton>
                                     </StackPanel>
@@ -227,6 +224,7 @@
                             </Grid.ColumnDefinitions>
 
                             <ctrl:GlowButton x:Name="LatestReleaseTile" Grid.Column="0" Tag=""
+                                    Style="{StaticResource ScStaticCardButtonStyle}" Margin="0"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                                     Padding="14,12" CornerRadius="14"
                                     Background="{ThemeResource GlassCardBrush}"
@@ -261,6 +259,7 @@
                             </ctrl:GlowButton>
 
                             <ctrl:GlowButton x:Name="LatestSnapshotTile" Grid.Column="1" Tag=""
+                                    Style="{StaticResource ScStaticCardButtonStyle}" Margin="0"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                                     Padding="14,12" CornerRadius="14"
                                     Background="{ThemeResource GlassCardBrush}"
@@ -1093,7 +1092,7 @@
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
                                                 </StackPanel>
-                                                <TextBlock Text="{x:Bind Description}" FontSize="12"
+                                                <TextBlock Text="{x:Bind Description, Mode=OneWay}" FontSize="12"
                                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                            MaxLines="1" TextTrimming="CharacterEllipsis" />
                                                 <StackPanel Orientation="Horizontal" Spacing="12">

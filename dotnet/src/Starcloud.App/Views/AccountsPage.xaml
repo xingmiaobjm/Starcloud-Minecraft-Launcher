@@ -21,19 +21,12 @@
             <RowDefinition Height="*" MinHeight="220" />
         </Grid.RowDefinitions>
 
-        <!-- 大标题 + 右上主操作 -->
+        <!-- 右上主操作 -->
         <Grid Grid.Row="0" ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center"
-                        beh:TextOutlineBehavior.IsEnabled="True">
-                <TextBlock x:Name="ScTitleText" loc:Loc.Text="账户" FontSize="28" FontWeight="Medium"
-                           TextWrapping="Wrap" />
-                <TextBlock x:Name="ScSubtitleText" loc:Loc.Text="管理用于启动的游戏账户与 Starcloud ID；点一行进入详情"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-            </StackPanel>
             <Button Grid.Column="1" loc:Loc.Text="添加账户" VerticalAlignment="Center"
                     Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
                     Click="AddAccount_Click" />

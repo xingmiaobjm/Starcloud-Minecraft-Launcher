@@ -49,16 +49,12 @@ public sealed partial class AccountsPage : Page
     {
         if (_s.StarcloudId.Current is not { } session)
         {
-            ScTitleText.Text = Loc.T("账户");
-            ScSubtitleText.Text = Loc.T("管理用于启动的游戏账户与 Starcloud ID；点一行进入详情");
             ScLoginPanel.Visibility = ScRegisterPanel.Visibility == Visibility.Visible
                 ? Visibility.Collapsed : Visibility.Visible;
             ScUserPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        ScTitleText.Text = Loc.T("欢迎回来，{0}", session.DisplayName);
-        ScSubtitleText.Text = Loc.T("Starcloud ID 已登录，在线功能已就绪");
         ScLoginPanel.Visibility = Visibility.Collapsed;
         ScRegisterPanel.Visibility = Visibility.Collapsed;
         ScUserPanel.Visibility = Visibility.Visible;

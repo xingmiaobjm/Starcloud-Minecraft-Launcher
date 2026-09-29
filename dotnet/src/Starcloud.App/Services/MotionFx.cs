@@ -101,6 +101,66 @@ public static class MotionFx
     };
 
     /// <summary>
+    /// 三次贝塞尔缓动的纵向解：给定横轴进度求曲线上的值（二分求解，够精确也不会跑飞）。
+    /// 高度 / 宽度这类上不了合成层的属性只能逐帧补间，用它取到与样条同形的进度，
+    /// 补间那条腿才和合成层动画（淡入淡出、刻度旋转）是同一条曲线。
+    /// </summary>
+    public static double EaseProgress(KeySpline spline, double x)
+    {
+        if (x <= 0d) return 0d;
+        if (x >= 1d) return 1d;
+
+        double x1 = spline.ControlPoint1.X, y1 = spline.ControlPoint1.Y;
+        double x2 = spline.ControlPoint2.X, y2 = spline.ControlPoint2.Y;
+
+        double lo = 0d, hi = 1d, t = x;
+        for (int i = 0; i < 20; i++)
+        {
+            double u = 1d - t;
+            double xt = 3d * u * u * t * x1 + 3d * u * t * t * x2 + t * t * t;
+            if (Math.Abs(xt - x) < 1e-4) break;
+            if (xt < x) lo = t; else hi = t;
+            t = (lo + hi) / 2d;
+        }
+
+        double v = 1d - t;
+        return 3d * v * v * t * y1 + 3d * v * t * t * y2 + t * t * t;
+    }
+
+    /// <summary>
+    /// 把一颗刻度旋到指定角度。走合成层旋转，中心钉在字形正中，描边不会绕着角甩出去。
+    /// <para>方向约定：左栏版本卡那颗展开态朝上、收起态朝下（它的内容是往上收）；右栏账户卡那颗反向。</para>
+    /// </summary>
+    public static void RotateChevron(FrameworkElement chevron, float target, bool motion)
+    {
+        try
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(chevron);
+            visual.CenterPoint = new Vector3(
+                (float)(chevron.ActualWidth > 0 ? chevron.ActualWidth / 2 : 6),
+                (float)(chevron.ActualHeight > 0 ? chevron.ActualHeight / 2 : 3),
+                0f);
+
+            if (!motion)
+            {
+                visual.StopAnimation("RotationAngleInDegrees");
+                visual.RotationAngleInDegrees = target;
+                return;
+            }
+
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateScalarKeyFrameAnimation();
+            anim.Duration = TimeSpan.FromMilliseconds(ChevronMs);
+            anim.InsertKeyFrame(1f, target, ControlEase(compositor));
+            visual.StartAnimation("RotationAngleInDegrees", anim);
+        }
+        catch
+        {
+            // 静默：动效失败不影响收起 / 展开
+        }
+    }
+
+    /// <summary>
     /// 缓动函数缓存：<c>CreateCubicBezierEasingFunction</c> 每次调用都会新建一个合成对象，
     /// 而缓动本身是不可变的、可以跨动画复用。悬停、列表入场这些路径每帧都可能取一次，
     /// 原先每次都新建，纯属给合成线程添垃圾；这里按 Compositor 各存一份。

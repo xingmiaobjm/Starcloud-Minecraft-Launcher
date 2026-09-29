@@ -29,6 +29,9 @@ public sealed class AppServices
     /// </summary>
     public SearchTranslationService SearchTranslation { get; }
 
+    /// <summary>模组简介中文翻译（MCIM 的 /translate；只在中文界面启用，失败保留原文）</summary>
+    public ModSummaryTranslationService ModSummaries { get; }
+
     public ContentLibraryService ContentLibrary { get; }
     public GameLauncher Launcher { get; }
     public AccountStore Accounts { get; }
@@ -107,6 +110,7 @@ public sealed class AppServices
         CurseForge = new CurseForgeService(Download, () => Settings);
         CurseForgePacks = new CurseForgePackInstaller(Download, CurseForge);
         SearchTranslation = new SearchTranslationService(Download);
+        ModSummaries = new ModSummaryTranslationService(Download, () => Settings);
         ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();

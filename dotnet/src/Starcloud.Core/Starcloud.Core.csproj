@@ -25,4 +25,20 @@
     <InternalsVisibleTo Include="Starcloud.Core.Tests" />
   </ItemGroup>
 
+  <!-- ── CurseForge 内置 API Key（官方分发版本共用；密钥本身不进仓库）──────────
+       求值期按优先级取：MSBuild 属性 CurseForgeApiKey → 环境变量 STARCLOUD_CF_KEY
+       → 仓库内 secrets/curseforge.key（被 .gitignore 忽略，目录里只有 README 入库）。
+       三者都没有 → 不生成 AssemblyMetadata → 运行期自动走「用户自备密钥 → MCIM 镜像」。
+       背景（官方 API 403、CDN 自 2026-07-16 起强制 key）见 Services/CurseForgeKey.cs。 -->
+  <PropertyGroup>
+    <CurseForgeApiKey Condition="'$(CurseForgeApiKey)' == ''">$(STARCLOUD_CF_KEY)</CurseForgeApiKey>
+    <CurseForgeKeyFile Condition="'$(CurseForgeKeyFile)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', '..', 'secrets', 'curseforge.key'))</CurseForgeKeyFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(CurseForgeApiKey)' == '' And Exists('$(CurseForgeKeyFile)')">
+    <CurseForgeApiKey>$([System.IO.File]::ReadAllText('$(CurseForgeKeyFile)').Trim())</CurseForgeApiKey>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(CurseForgeApiKey)' != ''">
+    <AssemblyMetadata Include="CurseForgeApiKey" Value="$(CurseForgeApiKey)" />
+  </ItemGroup>
+
 </Project>

@@ -20,12 +20,6 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-                        <TextBlock loc:Loc.Text="插件" FontSize="28" FontWeight="Medium" />
-                        <TextBlock loc:Loc.Text="安装 .mclplug 插件包扩展启动器（仅开放启动参数扩展与 UI 扩展，账号校验永不对插件开放）"
-                                   TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </StackPanel>
                     <Button x:Name="InstallBtn" Grid.Column="1" loc:Loc.Text="安装插件…"
                             Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
                             MinWidth="120" VerticalAlignment="Center" Click="Install_Click" />
@@ -141,6 +135,13 @@
                                                             Visibility="{x:Bind UnverifiedVisibility}">
                                                         <TextBlock loc:Loc.Text="第三方未验证"
                                                                    Style="{StaticResource ScChipCautionText}" />
+                                                    </Border>
+                                                    <!-- API 版本芯片（规范 2.0）：文案在代码里由 Loc.T 拼好（含「暂不可启用」），
+                                                         这里用 Text 绑定而非 loc:Loc，因为值是运行时决定的 -->
+                                                    <Border Style="{StaticResource ScChip}"
+                                                            Visibility="{x:Bind ApiChipVisibility}">
+                                                        <TextBlock Text="{x:Bind ApiChip}"
+                                                                   Style="{StaticResource ScChipText}" />
                                                     </Border>
                                                 </StackPanel>
                                                 <TextBlock Text="{x:Bind Description}" FontSize="12"

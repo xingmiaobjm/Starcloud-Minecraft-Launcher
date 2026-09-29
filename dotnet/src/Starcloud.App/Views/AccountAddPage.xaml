@@ -18,7 +18,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头：返回 + 标题 -->
+        <!-- 页头：返回 -->
         <StackPanel Grid.Row="0" Spacing="12">
             <ctrl:GlowButton Click="Back_Click" loc:Loc.Name="返回账户列表"
                     Background="Transparent" BorderThickness="0" Padding="8,4"
@@ -28,11 +28,6 @@
                     <TextBlock loc:Loc.Text="返回账户列表" />
                 </StackPanel>
             </ctrl:GlowButton>
-            <StackPanel Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-                <TextBlock loc:Loc.Text="添加游戏账户" FontSize="28" FontWeight="Medium" />
-                <TextBlock loc:Loc.Text="选择一种身份，在右侧填好信息即可；登录成功后会自动回到账户列表"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-            </StackPanel>
         </StackPanel>
 
         <!-- 状态条 -->

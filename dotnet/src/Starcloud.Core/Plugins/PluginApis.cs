@@ -67,7 +67,7 @@ public sealed class PluginApiCore
 
     internal PluginApiCore(PluginHostServices services, string pluginId, string dataDir,
         PluginLogger log, IReadOnlyCollection<string> permissions, PluginHost host,
-        PluginEventContext? evt)
+        PluginEventContext? evt, string[]? allowedHosts = null, int? storageQuotaKb = null)
     {
         Services = services;
         PluginId = pluginId;
@@ -76,6 +76,47 @@ public sealed class PluginApiCore
         Permissions = permissions;
         Host = host;
         Event = evt;
+        AllowedHosts = allowedHosts;
+        StorageQuotaKb = storageQuotaKb;
+    }
+
+    /// <summary>
+    /// 2.0 <c>network:host=</c> 允许的主机（支持 *.example.com 通配）；null = 不受限（1.x 语义）。
+    /// 未声明 network 的插件不会走到这里（Require 先生效）。
+    /// </summary>
+    internal string[]? AllowedHosts { get; }
+
+    /// <summary>2.0 <c>storage:kv(quota=)</c> 声明的私有存储配额（KB）；null = 不限（1.x 语义）</summary>
+    internal int? StorageQuotaKb { get; }
+
+    /// <summary>主机白名单校验（规范 2.0 §5.1：network 必须显式声明主机）</summary>
+    private void EnsureHostAllowed(string host, string url)
+    {
+        if (AllowedHosts is null) return;
+        if (IsHostAllowed(AllowedHosts, host)) return;
+        throw new UnauthorizedAccessException(
+            $"插件只声明了 {string.Join("、", AllowedHosts)} 的网络访问权限，已拒绝访问 {host}（{url}）");
+    }
+
+    /// <summary>
+    /// 主机是否落在白名单内：<c>*</c> 全放行；<c>*.example.com</c> 匹配子域但**不**匹配裸域本身
+    /// （避免 evil-example.com 这类后缀相近的域名被误放）。
+    /// </summary>
+    internal static bool IsHostAllowed(IReadOnlyList<string> patterns, string host)
+    {
+        foreach (var pattern in patterns)
+        {
+            if (pattern == "*") return true;
+            if (pattern.StartsWith("*.", StringComparison.Ordinal))
+            {
+                if (host.EndsWith(pattern[1..], StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            else if (string.Equals(host, pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     internal bool Has(string permission) => Permissions.Contains(permission);
@@ -184,6 +225,7 @@ public sealed class PluginApiCore
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
             uri.Scheme is not ("http" or "https"))
             throw new ArgumentException($"只允许 http / https 绝对地址：{url}");
+        EnsureHostAllowed(uri.Host, url);
 
         return PluginSync.Run(async () =>
         {

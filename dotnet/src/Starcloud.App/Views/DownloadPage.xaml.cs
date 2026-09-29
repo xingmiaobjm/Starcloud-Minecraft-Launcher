@@ -115,50 +115,7 @@ public sealed partial class DownloadPage : Page
         _okTimer.IsRepeating = false;   // 只在"下载完成"后亮 6 秒就收起，循环下去会一直重复收起
         _okTimer.Interval = TimeSpan.FromSeconds(6);
         _okTimer.Tick += (_, _) => OkBar.IsOpen = false;
-        Loaded += async (_, _) => { await LoadVersionsAsync(); await EnsurePluginSlotsAsync(); };
-    }
-
-    // ════════════ 插件挂载区（download.top） ════════════
-
-    private bool _slotsLoaded;
-
-    /// <summary>
-    /// 已启用插件通过 ctx.ui.registerSlot("download.top", html, height) 注册的横幅，
-    /// 以 WebView2 file:// 渲染（与插件面板同安全基线：不暴露宿主对象）。插件启停后重进页面生效。
-    /// </summary>
-    private async Task EnsurePluginSlotsAsync()
-    {
-        if (_slotsLoaded) return;
-        _slotsLoaded = true;
-        try
-        {
-            var regs = _s.Plugins.Host.GetSlots("download.top");
-            if (regs.Count == 0) return;
-            foreach (var reg in regs)
-            {
-                var frame = new Border
-                {
-                    Height = Math.Clamp(reg.Height, 48, 320),
-                    CornerRadius = new CornerRadius(12),
-                    Background = Application.Current.Resources["LayerFillColorDefaultBrush"] as Brush,
-                    BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
-                    BorderThickness = new Thickness(1),
-                    Child = new WebView2 { HorizontalAlignment = HorizontalAlignment.Stretch },
-                };
-                PluginSlotHost.Children.Add(frame);
-                if (frame.Child is WebView2 web)
-                {
-                    await web.EnsureCoreWebView2Async();
-                    web.CoreWebView2.Navigate(reg.EntryPath.Replace('\\', '/').Insert(0, "file:///"));
-                }
-            }
-            PluginSlotHost.Visibility = Visibility.Visible;
-        }
-        catch (Exception ex)
-        {
-            // 挂载区是锦上添花，失败静默不影响下载页
-            System.Diagnostics.Debug.WriteLine($"插件挂载区加载失败：{ex.Message}");
-        }
+        Loaded += async (_, _) => await LoadVersionsAsync();
     }
 
     // ════════════ 分类切换 ════════════
@@ -1038,6 +995,9 @@ public sealed partial class DownloadPage : Page
                 Icon = RemoteIconHelper.Resolve(h.IconUrl),
             }).ToList();
             ModList.ItemsSource = rows;
+            // 英文简介先上屏，MCIM 的中文译文异步补上（仅中文界面；失败保留英文）
+            _ = FillSummariesAsync(
+                rows, fromCurseForge ? ContentSourceIds.CurseForge : ContentSourceIds.Modrinth, ct);
             EmptyHint.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             ResultCountText.Text = _total > 0 ? Loc.T("共 {0} 个结果", FormatCount(_total)) : "";
             PrevBtn.IsEnabled = _offset > 0 && rows.Count > 0;
@@ -1095,6 +1055,28 @@ public sealed partial class DownloadPage : Page
     {
         _offset += PageSize;
         _ = SearchAsync(reset: false);
+    }
+
+    /// <summary>
+    /// 把搜索结果的英文简介换成 MCIM 的中文译文（仅中文界面启用，见 ModSummaryTranslationService）。
+    /// 逐行并行，译文到达即就地替换（ModRow 是 OneWay 绑定）；任何失败都静默保留英文——
+    /// 翻译是旁路能力，不该影响搜索结果本身。
+    /// </summary>
+    private async Task FillSummariesAsync(List<ModRow> rows, string source, CancellationToken ct)
+    {
+        try
+        {
+            await Task.WhenAll(rows.Select(async row =>
+            {
+                var zh = await _s.ModSummaries.TranslateAsync(source, row.ProjectId, row.Description, ct);
+                if (!string.IsNullOrEmpty(zh)) row.Description = zh!;
+            }));
+        }
+        catch (OperationCanceledException) { }
+        catch
+        {
+            // 翻译失败保留原文
+        }
     }
 
     // ── 社区行点击 → PCL2 式下载详情窗（点击资源卡片直接打开下载界面，无行内安装按钮） ──

@@ -20,7 +20,7 @@
             <Setter Property="FontSize" Value="14" />
         </Style>
 
-        <!-- ══ 本页字阶角色：整页只保留 12(辅助) / 14(正文) / 28(页标题) 三档，清掉 13 / 16 等离档值 ══ -->
+        <!-- ══ 本页字阶角色：整页只保留 12(辅助) / 14(正文) 两档，清掉 13 / 16 等离档值 ══ -->
         <!-- 字段标签：12 + 次级色 -->
         <Style x:Key="VdLabel" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
             <Setter Property="FontSize" Value="12" />
@@ -47,6 +47,14 @@
         <Style x:Key="VdRow" TargetType="StackPanel">
             <Setter Property="Orientation" Value="Horizontal" />
             <Setter Property="Spacing" Value="8" />
+        </Style>
+        <!-- 快捷方式 / 高级管理卡片里的按钮：统一定宽定高、内容居中，一排看齐
+             （参考版本设置面板的按钮矩阵；最小宽而不是固定宽，英文文案变长时不会被裁）。 -->
+        <Style x:Key="VdActionBtn" TargetType="ctrl:GlowButton" BasedOn="{StaticResource ScGlowButtonStyle}">
+            <Setter Property="MinWidth" Value="148" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="16,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
         </Style>
     </Page.Resources>
 
@@ -80,13 +88,12 @@
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </Grid>
                     </Border>
-                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center"
-                                beh:TextOutlineBehavior.IsEnabled="True">
-                        <TextBlock x:Name="TitleText" FontSize="28" FontWeight="Medium"
+                    <!-- 版本号是**数据标题**（页面名由左侧导航指示，这里不再写），全站唯一一处 32 Bold；
+                         下面一行是分类 / 版本隔离芯片 -->
+                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                        <TextBlock x:Name="TitleText" FontSize="32" FontWeight="Bold"
                                    TextTrimming="CharacterEllipsis" />
                         <StackPanel Style="{StaticResource VdRow}">
-                            <TextBlock x:Name="KindText" Style="{StaticResource VdLabel}"
-                                       VerticalAlignment="Center" />
                             <Border x:Name="CategoryBadge" Padding="8,2" CornerRadius="4"
                                     Background="{ThemeResource SubtleFillColorTertiaryBrush}"
                                     Visibility="Collapsed">
@@ -95,7 +102,7 @@
                             <Border x:Name="IsolatedBadge" Padding="8,2" CornerRadius="4"
                                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                     Visibility="Collapsed">
-                                <TextBlock loc:Loc.Text="独立目录" Style="{StaticResource VdLabel}" />
+                                <TextBlock loc:Loc.Text="版本隔离" Style="{StaticResource VdLabel}" />
                             </Border>
                         </StackPanel>
                     </StackPanel>
@@ -120,30 +127,15 @@
                          loc:Loc.Message="游戏进程存活期间无法修改其隔离方式或重命名。" />
             </StackPanel>
 
+            <!-- 插件挂载区（version.detail.top）：有插件贡献时才占位 -->
+            <ctrl:PluginContributionPanel Point="version.detail.top" />
+
             <!-- 下方两栏：左侧分区导航 + 右侧内容（参考 HMCL 版本设置布局） -->
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="180" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-
-                <Grid.Resources>
-                    <!-- 分区导航：以 App.xaml 的 ScGlowButtonStyle 为基（拿到模板与字体），只覆写形态。
-                         TargetType 必须是 ctrl:GlowButton —— 写成 Button 会顶掉控件的隐式样式，
-                         模板退回 Fluent 默认版，模板里就没有光斑部件了。 -->
-                    <Style x:Key="NavButtonStyle" TargetType="ctrl:GlowButton"
-                           BasedOn="{StaticResource ScGlowButtonStyle}">
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="BorderThickness" Value="0" />
-                        <Setter Property="Padding" Value="12,9" />
-                        <Setter Property="CornerRadius" Value="10" />
-                        <Setter Property="HorizontalAlignment" Value="Stretch" />
-                        <!-- 内容铺满整行：行内那层跟手光斑要盖满整条导航项（与选中底色同宽），
-                             横向 StackPanel 的子项本来就靠左排，视觉与原先的 Left 一致。 -->
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="FontSize" Value="14" />
-                </Style>
-            </Grid.Resources>
 
                 <!-- 分区导航：包成卡片，与设置页 / 下载页左侧分类栏同形态
                      （圆角 + 1px 描边 + GlassCardBrush），不再让窗口背景从这条栏直接透出。
@@ -152,36 +144,44 @@
                         Background="{ThemeResource GlassCardBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="8">
-                    <StackPanel Spacing="4">
-                        <ctrl:GlowButton x:Name="NavOverview" Click="Nav_Click" Tag="0" Style="{StaticResource NavButtonStyle}"
-                                loc:Loc.Name="概览分区">
-                            <StackPanel Style="{StaticResource VdRow}">
-                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC77;" FontSize="15" />
-                                <TextBlock loc:Loc.Text="概览" />
-                            </StackPanel>
-                        </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="NavContent" Click="Nav_Click" Tag="1" Style="{StaticResource NavButtonStyle}"
-                                loc:Loc.Name="Mod 管理分区">
-                            <StackPanel Style="{StaticResource VdRow}">
-                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" FontSize="15" />
-                                <TextBlock loc:Loc.Text="Mod 管理" />
-                            </StackPanel>
-                        </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="NavSettings" Click="Nav_Click" Tag="2" Style="{StaticResource NavButtonStyle}"
-                                loc:Loc.Name="游戏设置分区">
-                            <StackPanel Style="{StaticResource VdRow}">
-                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC04;" FontSize="15" />
-                                <TextBlock loc:Loc.Text="游戏设置" />
-                            </StackPanel>
-                        </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="NavArgs" Click="Nav_Click" Tag="3" Style="{StaticResource NavButtonStyle}"
-                                loc:Loc.Name="启动参数分区">
-                            <StackPanel Style="{StaticResource VdRow}">
-                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6D;" FontSize="15" />
-                                <TextBlock loc:Loc.Text="启动参数" />
-                            </StackPanel>
-                        </ctrl:GlowButton>
-                    </StackPanel>
+                    <!-- 与设置页 / 下载页左栏同一个控件、同一套反馈：ListView 只负责选中，
+                         框架的行底色一律关掉，选中底 / 悬停底 / 跟手光斑三层都画在
+                         ctrl:CategoryNavItem 的模板里，圆角读同一个 CornerRadius，
+                         选中色取同一支 ScRowShadeBrush —— 不再用 accent 实底，两处观感一致。 -->
+                    <ListView x:Name="NavList" SelectionMode="Single" SelectionChanged="Nav_SelectionChanged">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                <Setter Property="MinHeight" Value="40" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.Resources>
+                            <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉
+                                 （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                            <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                        </ListView.Resources>
+                        <ListViewItem Tag="0" IsSelected="True">
+                            <ctrl:CategoryNavItem x:Name="NavOverview" IsActive="True"
+                                                  Glyph="&#xEC77;" loc:Loc.Text="概览" />
+                        </ListViewItem>
+                        <ListViewItem Tag="1">
+                            <ctrl:CategoryNavItem x:Name="NavContent" Glyph="&#xEA93;" loc:Loc.Text="Mod 管理" />
+                        </ListViewItem>
+                        <ListViewItem Tag="2">
+                            <ctrl:CategoryNavItem x:Name="NavSettings" Glyph="&#xEC04;" loc:Loc.Text="游戏设置" />
+                        </ListViewItem>
+                        <ListViewItem Tag="3">
+                            <ctrl:CategoryNavItem x:Name="NavArgs" Glyph="&#xEA6D;" loc:Loc.Text="启动参数" />
+                        </ListViewItem>
+                    </ListView>
                 </Border>
 
                 <!-- 内容区 -->
@@ -209,6 +209,18 @@
                             <TextBlock loc:Loc.Text="上次启动" Style="{StaticResource VdLabel}" />
                             <TextBlock x:Name="LastPlayedText" Style="{StaticResource VdValue}" />
                         </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 个性化卡片：类别 / 备注两个可编辑的展示项 -->
+            <Border Style="{StaticResource ScCard}">
+                <StackPanel Spacing="12">
+                    <StackPanel Style="{StaticResource VdRow}">
+                        <Border Style="{StaticResource ScSectionSpine}" />
+                        <TextBlock loc:Loc.Text="个性化" Style="{StaticResource ScSectionTitle}" />
+                    </StackPanel>
+                    <StackPanel Spacing="12">
                         <StackPanel Spacing="4">
                             <TextBlock loc:Loc.Text="类别" Style="{StaticResource VdLabel}" />
                             <TextBox x:Name="CategoryBox" loc:Loc.Name="类别"
@@ -226,49 +238,95 @@
                 </StackPanel>
             </Border>
 
-            <!-- 操作卡片（并入概览分区） -->
+            <!-- 快捷方式卡片：四个常用文件夹（Tag 由 RefreshAll 补上实际路径）——版本目录固定 versions/<id>，
+                 存档 / 模组 / 截图跟随实例根，隔离实例各自持有一份 -->
             <Border Style="{StaticResource ScCard}">
                 <StackPanel Spacing="12">
                     <StackPanel Style="{StaticResource VdRow}">
                         <Border Style="{StaticResource ScSectionSpine}" />
-                        <TextBlock loc:Loc.Text="操作" Style="{StaticResource ScSectionTitle}" />
+                        <TextBlock loc:Loc.Text="快捷方式" Style="{StaticResource ScSectionTitle}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <ctrl:GlowButton x:Name="VerifyBtn" Click="Verify_Click" loc:Loc.Name="验证文件">
+                        <ctrl:GlowButton x:Name="OpenVersionFolderBtn" Click="OpenDir_Click"
+                                         Style="{StaticResource VdActionBtn}"
+                                         loc:Loc.Name="版本文件夹">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA94;" FontSize="14" />
+                                <TextBlock loc:Loc.Text="版本文件夹" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="OpenSavesFolderBtn" Click="OpenDir_Click"
+                                         Style="{StaticResource VdActionBtn}"
+                                         loc:Loc.Name="存档文件夹">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" FontSize="14" />
+                                <TextBlock loc:Loc.Text="存档文件夹" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="OpenModsFolderBtn" Click="OpenDir_Click"
+                                         Style="{StaticResource VdActionBtn}"
+                                         loc:Loc.Name="模组文件夹">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" FontSize="14" />
+                                <TextBlock loc:Loc.Text="模组文件夹" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="OpenScreenshotsFolderBtn" Click="OpenDir_Click"
+                                         Style="{StaticResource VdActionBtn}"
+                                         loc:Loc.Name="截图文件夹">
+                            <StackPanel Style="{StaticResource VdRow}">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" FontSize="14" />
+                                <TextBlock loc:Loc.Text="截图文件夹" />
+                            </StackPanel>
+                        </ctrl:GlowButton>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 高级管理卡片：改动版本本体的几个重操作，删除排最后并按危险色标出 -->
+            <Border Style="{StaticResource ScCard}">
+                <StackPanel Spacing="12">
+                    <StackPanel Style="{StaticResource VdRow}">
+                        <Border Style="{StaticResource ScSectionSpine}" />
+                        <TextBlock loc:Loc.Text="高级管理" Style="{StaticResource ScSectionTitle}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ctrl:GlowButton x:Name="VerifyBtn" Click="Verify_Click" loc:Loc.Name="验证文件"
+                                         Style="{StaticResource VdActionBtn}">
                             <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA7C;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="验证文件" />
                             </StackPanel>
                         </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="RenameBtn" Click="Rename_Click" loc:Loc.Name="重命名">
+                        <ctrl:GlowButton x:Name="RenameBtn" Click="Rename_Click" loc:Loc.Name="重命名"
+                                         Style="{StaticResource VdActionBtn}">
                             <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA97;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="重命名" />
                             </StackPanel>
                         </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="CopyBtn" Click="Copy_Click" loc:Loc.Name="复制版本">
+                        <ctrl:GlowButton x:Name="CopyBtn" Click="Copy_Click" loc:Loc.Name="复制版本"
+                                         Style="{StaticResource VdActionBtn}">
                             <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA9F;" FontSize="14" />
                                 <TextBlock loc:Loc.Text="复制版本" />
                             </StackPanel>
                         </ctrl:GlowButton>
-                        <ctrl:GlowButton Click="ViewJson_Click" loc:Loc.Name="查看 JSON">
-                            <StackPanel Style="{StaticResource VdRow}">
-                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6C;" FontSize="14" />
-                                <TextBlock loc:Loc.Text="查看 JSON" />
-                            </StackPanel>
-                        </ctrl:GlowButton>
                         <ctrl:GlowButton Click="Delete_Click" loc:Loc.Name="删除版本"
+                                         Style="{StaticResource VdActionBtn}"
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}">
                             <StackPanel Style="{StaticResource VdRow}">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEAA5;" FontSize="14" />
-                                <TextBlock loc:Loc.Text="删除" />
+                                <TextBlock loc:Loc.Text="删除版本" />
                             </StackPanel>
                         </ctrl:GlowButton>
                     </StackPanel>
                 </StackPanel>
             </Border>
             </StackPanel>
+
+            <!-- 插件贡献的分区（contributes.versionSections）：并入「概览」分区组，没贡献时不占位 -->
+            <ctrl:PluginContributionPanel Point="version.detail.sections" Chrome="Section" />
 
             <StackPanel x:Name="SecContent" Spacing="16" Visibility="Collapsed">
 
@@ -296,9 +354,12 @@
                 </StackPanel>
             </Border>
 
-            <!-- 当前分类卡片（含启停 / 检查更新 / 冲突扫描 / 拖拽安装） -->
-            <Border Style="{StaticResource ScCard}"
-                    AllowDrop="True" DragOver="Content_DragOver" Drop="Content_Drop">
+            <!-- 当前分类卡片（含启停 / 检查更新 / 冲突扫描 / 拖拽安装）。
+                 ContentCard 是给拖拽反馈用的：DragOver 时换成 accent 描边 + 一层淡 accent 底，
+                 离开 / 放下即还原（ClearValue 交回 ScCard 的主题值） -->
+            <Border x:Name="ContentCard" Style="{StaticResource ScCard}"
+                    AllowDrop="True" DragOver="Content_DragOver" DragLeave="Content_DragLeave"
+                    Drop="Content_Drop">
                 <StackPanel Spacing="12">
                     <Grid>
                         <StackPanel Style="{StaticResource VdRow}" VerticalAlignment="Center">
@@ -306,13 +367,15 @@
                             <TextBlock loc:Loc.Text="内容" Style="{StaticResource ScSectionTitle}" />
                         </StackPanel>
                         <StackPanel x:Name="ModTools" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                            <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新" FontSize="12"
-                                    Padding="10,2,10,2" Click="CheckUpdate_Click" />
-                            <ctrl:GlowButton x:Name="ScanConflictBtn" loc:Loc.Text="冲突扫描" FontSize="12"
-                                    Padding="10,2,10,2" Click="ScanConflict_Click" />
+                            <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
+                                    Padding="12,4" Click="CheckUpdate_Click" />
+                            <ctrl:GlowButton x:Name="ScanConflictBtn" loc:Loc.Text="冲突扫描"
+                                    Padding="12,4" Click="ScanConflict_Click" />
                         </StackPanel>
                     </Grid>
-                    <TextBlock Style="{StaticResource VdHint}"
+                    <!-- 拖拽 / 停用语义的说明：当前分类为空时收掉 —— 那时这块由下面的空状态接管，
+                         否则同一件事要说两遍 -->
+                    <TextBlock x:Name="ContentHint" Style="{StaticResource VdHint}"
                                loc:Loc.Text="可直接把 mods / 资源包 / 光影 / 数据包文件拖到此处安装；停用仅改名为 .disabled，可随时还原。" />
                     <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" />
                     <StackPanel x:Name="ModSection" Spacing="4" />
@@ -353,7 +416,7 @@
                                       SelectionChanged="IsolationRadio_SelectionChanged">
                             <RadioButton loc:Loc.Text="跟随全局默认" />
                             <RadioButton loc:Loc.Text="共享目录（.minecraft）" />
-                            <RadioButton loc:Loc.Text="独立目录（versions/&lt;版本名&gt;）" />
+                            <RadioButton loc:Loc.Text="版本隔离（versions/&lt;版本名&gt;）" />
                         </RadioButtons>
                         <TextBlock x:Name="GameRootPreview" Style="{StaticResource VdHint}"
                                    IsTextSelectionEnabled="True" FontFamily="Consolas" />

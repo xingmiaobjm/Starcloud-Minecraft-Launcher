@@ -240,6 +240,44 @@ public class ChunkedFileDownloaderTests
         }
     });
 
+    [Fact]
+    public Task 支持Range的主机_第二次下载仍走并行分片() => WithDirectHttpAsync(async () =>
+    {
+        const int size = 8 * 1024 * 1024;      // 8 MiB
+        const int perConn = 1024 * 1024;       // 每条连接 1 MB/s
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        var sha1 = Convert.ToHexString(SHA1.HashData(payload)).ToLowerInvariant();
+
+        ParallelGovernor.ResetForTests();
+        using var server = new ThrottledServer(payload, perConn);
+        var settings = new LauncherSettings { DownloadSource = "auto", DownloadCustomMirrorUrl = "" };
+        var service = new DownloadService(() => settings);
+        var dest = Path.Combine(Path.GetTempPath(), $"sc-dl-{Guid.NewGuid():N}.bin");
+        var url = $"http://127.0.0.1:{server.Port}/big.bin";
+
+        try
+        {
+            // 第一次：该主机 Range 能力未知 → 探测顺带拿到体积 → 走分片
+            await service.DownloadFileAsync(url, dest, sha1);
+            var afterFirst = server.Requests;
+            Assert.True(afterFirst > 1, $"第一次下载只发了 {afterFirst} 条请求：没有走并行分片");
+
+            TryDelete(dest);
+            // 第二次：能力已被记忆为「支持 Range」，但调用方依旧没传体积（所有 DownloadFileAsync 调用点都这样）。
+            // 若因为「能力已知」就跳过补探体积，size 恒为 0 → 退化成单连接整文件（只多 1 条请求）。
+            await service.DownloadFileAsync(url, dest, sha1);
+            Assert.True(server.Requests - afterFirst > 1,
+                $"第二次下载只多了 {server.Requests - afterFirst} 条请求：Range 能力已记忆后不再分片");
+            Assert.Equal(size, new FileInfo(dest).Length);
+        }
+        finally
+        {
+            TryDelete(dest);
+            ParallelGovernor.ResetForTests();
+        }
+    });
+
     private static void TryDelete(string path)
     {
         try

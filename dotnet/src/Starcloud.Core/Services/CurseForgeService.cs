@@ -1,23 +1,34 @@
 // CurseForge 资源接入：搜索 / 项目文件 / 下载直链。
 //
-// ── 为什么不是「无 key 爬官网」 ────────────────────────────────────────────────
+// ── 接口的三层回退 ──────────────────────────────────────────────────────────
 // 旧 Tauri 版走的是 `www.curseforge.com/api/v1/...`（PCL2 那套无 key 接口）。
 // 实测（2026-09-21）该地址已被 Cloudflare 托管挑战拦下，第三方客户端拿不到 200；
 // 而官方 API `api.curseforge.com/v1` 未带 key 时明确返回
-// `403 Forbidden: API Key missing or invalid`。所以本实现做成**两层可切换**：
+// `403 Forbidden: API Key missing or invalid`。所以本实现做成**三层**：
 //
-//   · 默认：`https://api.curse.tools/v1`（社区维护的官方 API 只读代理，无需 key；
-//     返回的就是官方响应结构，实测可用）；
-//   · 用户填了自己的 CurseForge API Key（设置里可选）→ 直连官方
-//     `https://api.curseforge.com/v1` 并带 `x-api-key`，走官方授权路径。
+//   · 官方 `https://api.curseforge.com/v1`：有密钥时最先尝试，数据结构最全，
+//     且文件下载的归属统计能算到本启动器；
+//   · MCIM 镜像 `https://mod.mcimirror.top/curseforge/v1`：免 key、国内 CDN 加速，
+//     官方**过慢 / 连不上 / 环境不允许**时自动接管。注意它只缓存 Mod 类内容，
+//     非 Mod（整合包/资源包/地图）与 >20MB 的文件可能拿不到；
+//   · curse.tools `https://api.curse.tools/v1`：免 key 的社区只读代理，兜最后一道。
 //
-// 响应字段与官方 API 一致（data / pagination），因此两条路径共用同一套映射。
+// 单层超过 6 秒无响应即判定「过慢」→ 记 10 分钟冷却并换下一层；成功的层会被记住，
+// 本会话内优先（见 <see cref="Ladder"/> / <see cref="SendAsync"/>）。
+// 密钥只在官方层发（镜像与代理用不到，也不该外泄）。
+//
+// ── 密钥从哪来 ─────────────────────────────────────────────────────────────
+// 用户自备（设置里填）优先，留空则用构建时注入的内置密钥（官方分发版本共用一把，
+// 不进 GitHub）——见 <see cref="CurseForgeKey"/> 与 secrets/README.md。
+// 另外官方 CDN 自 2026-07-16 起下载也必须带 key，由
+// <see cref="CurseForgeCdnAuthHandler"/> 统一补，见 <see cref="CurseForgeCdn"/>。
 //
 // ── 与 Modrinth 的关系 ─────────────────────────────────────────────────────
 // 搜索结果与文件列表**直接复用 Modrinth 的 DTO**（ModrinthHit / ModrinthVersion），
 // 只在 DTO 上多带一个 Source 标记。这样下载页、资源库、依赖检查、整合包安装这些
 // 既有链路一行不用改，CurseForge 只是"另一个数据来源"。
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -95,19 +106,132 @@ public sealed class CurseForgeService
         _settings = settings;
     }
 
-    /// <summary>当前生效的接口根：用户填了 API Key 就走官方，否则走代理</summary>
-    public string ApiBase => string.IsNullOrWhiteSpace(_settings().CurseForgeApiKey)
-        ? ProxyApiBase
-        : OfficialApiBase;
+    /// <summary>MCIM 镜像（免 key；国内 CDN 加速，官方不可达/过慢时自动接管）</summary>
+    public const string McimApiBase = "https://mod.mcimirror.top/curseforge/v1";
 
-    public bool UsingOfficialApi => !string.IsNullOrWhiteSpace(_settings().CurseForgeApiKey);
+    /// <summary>单层「过慢」判定：超过它没拿到响应就换下一层（镜像在国内通常几十毫秒）</summary>
+    private const int SlowSeconds = 6;
 
-    private IReadOnlyDictionary<string, string>? Headers => UsingOfficialApi
-        ? new Dictionary<string, string> { ["x-api-key"] = _settings().CurseForgeApiKey!.Trim() }
-        : null;
+    /// <summary>某层失败后的冷却时长，到期自动重新纳入候选</summary>
+    private static readonly TimeSpan Cooldown = TimeSpan.FromMinutes(10);
 
-    private Task<string> GetAsync(string path, CancellationToken ct) =>
-        _downloader.GetStringAsync(ApiBase + path, Headers, ct);
+    /// <summary>各层的冷却截止时刻（键为接口根）</summary>
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _cooling = new(StringComparer.Ordinal);
+
+    /// <summary>上次成功的接口根（本会话内优先，volatile：读写都是引用，无需加锁）</summary>
+    private volatile string? _preferred;
+
+    /// <summary>当前最先尝试的接口根（设置页 / 日志展示用）</summary>
+    public string ApiBase => Ladder()[0];
+
+    /// <summary>当前是否直连官方（否则走镜像 / 社区代理）</summary>
+    public bool UsingOfficialApi => string.Equals(ApiBase, OfficialApiBase, StringComparison.Ordinal);
+
+    /// <summary>
+    /// 候选层：官方（有密钥才可用）→ MCIM 镜像 → curse.tools 代理；
+    /// <paramref name="preferred"/> 提到最前。公开为 internal 便于单测。
+    /// </summary>
+    internal static List<string> Ladder(bool hasKey, string? preferred)
+    {
+        var list = new List<string>();
+        if (hasKey) list.Add(OfficialApiBase);
+        list.Add(McimApiBase);
+        list.Add(ProxyApiBase);
+        if (!string.IsNullOrEmpty(preferred))
+        {
+            list.Remove(preferred!);
+            list.Insert(0, preferred!);
+        }
+        return list;
+    }
+
+    private List<string> Ladder() =>
+        Ladder(CurseForgeKey.Effective(_settings()) is not null, _preferred);
+
+    /// <summary>密钥只发给官方层（镜像与社区代理用不到，也不该外泄）</summary>
+    private IReadOnlyDictionary<string, string>? HeadersFor(string apiBase)
+    {
+        if (!string.Equals(apiBase, OfficialApiBase, StringComparison.Ordinal)) return null;
+        return CurseForgeKey.Effective(_settings()) is { } key
+            ? new Dictionary<string, string> { ["x-api-key"] = key }
+            : null;
+    }
+
+    private Task<string> GetAsync(string path, CancellationToken ct) => SendAsync(path, null, ct);
+
+    /// <summary>POST（指纹反查）：与 GET 同一套逐层回退</summary>
+    private Task<string> PostAsync(string path, string jsonBody, CancellationToken ct) =>
+        SendAsync(path, jsonBody, ct);
+
+    /// <summary>
+    /// 逐层请求：官方 → MCIM → curse.tools。
+    /// <para>单层超过 <see cref="SlowSeconds"/> 秒无响应（或连接失败 / 非 2xx）即判该层不可用，
+    /// 记 <see cref="Cooldown"/> 冷却并换下一层；成功的层被记住并在本会话内优先。
+    /// 全部冷却时仍会按顺序试一次——不能让冷却状态把功能锁死。</para>
+    /// </summary>
+    private async Task<string> SendAsync(string path, string? jsonBody, CancellationToken ct)
+    {
+        var ladder = Ladder();
+        var now = DateTimeOffset.UtcNow;
+        Exception? last = null;
+        foreach (var apiBase in ladder)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (Cooling(apiBase, now) && ladder.Any(b => !Cooling(b, now))) continue;
+
+            try
+            {
+                using var slow = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                slow.CancelAfter(TimeSpan.FromSeconds(SlowSeconds));
+                // trackSourceHealth: false —— 这是 CurseForge 的接口，与 Mojang 镜像健康度无关，
+                // 别让一次 CF 超时把原版下载的源排序也带偏
+                var text = jsonBody is null
+                    ? await _downloader.GetStringAsync(apiBase + path, HeadersFor(apiBase), slow.Token,
+                        trackSourceHealth: false)
+                    : await _downloader.PostJsonAsync(apiBase + path, jsonBody, HeadersFor(apiBase), slow.Token);
+                MarkGood(apiBase);
+                return text;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex is OperationCanceledException
+                    ? new TimeoutException($"{SlowSeconds} 秒无响应")
+                    : ex;
+                MarkBad(apiBase, last);
+            }
+        }
+        throw new IOException($"CurseForge 接口不可用（{ladder.Count} 层都没成功）：{path}", last);
+    }
+
+    private bool Cooling(string apiBase, DateTimeOffset now) =>
+        _cooling.TryGetValue(apiBase, out var until) && until > now;
+
+    private void MarkGood(string apiBase)
+    {
+        if (!string.Equals(_preferred, apiBase, StringComparison.Ordinal))
+            LauncherLog.Write("curseforge", $"接口使用 {EndpointName(apiBase)}");
+        _preferred = apiBase;
+        _cooling.TryRemove(apiBase, out _);
+    }
+
+    private void MarkBad(string apiBase, Exception ex)
+    {
+        _cooling[apiBase] = DateTimeOffset.UtcNow + Cooldown;
+        LauncherLog.Write("curseforge",
+            $"{EndpointName(apiBase)} 不可用（{ex.Message}）→ {Cooldown.TotalMinutes:F0} 分钟内改用下一层");
+    }
+
+    /// <summary>接口层展示名（日志 / 设置页）</summary>
+    public static string EndpointName(string apiBase) => apiBase switch
+    {
+        OfficialApiBase => "CurseForge 官方 API",
+        McimApiBase => "MCIM 镜像",
+        _ => "curse.tools 代理",
+    };
 
     // ── 搜索 ─────────────────────────────────────────────────────────────
 
@@ -368,7 +492,7 @@ public sealed class CurseForgeService
             var body = JsonSerializer.Serialize(new { fingerprints = chunk });
             try
             {
-                var text = await _downloader.PostJsonAsync(ApiBase + "/mods/fingerprints", body, Headers, ct);
+                var text = await PostAsync("/mods/fingerprints", body, ct);
                 ParseFingerprintMatches(text, result);
             }
             catch (Exception ex)

@@ -621,7 +621,7 @@ public sealed class NovaService
             new("启用内置 JVM 参数（G1GC 低停顿）",
                 "G1 垃圾回收 + 软引用上限，现代版本卡顿明显减少"),
             new("开启版本隔离",
-                "每个版本的存档/模组/配置独立存放，互不污染"),
+                "每个版本的存档/模组/配置单独存放，互不污染"),
         };
         var plan = new NovaPlan(Guid.NewGuid().ToString("N")[..12],
         "配置推荐：按本机硬件生成",

@@ -178,12 +178,13 @@ public sealed class ChunkedFileDownloader(HttpClient http, DownloadSourceRegistr
 - 小文件（`size < Threshold` 或 `size <= 0`）→ 1 个「整文件任务」，沿用现有单源路径。
 - 大文件（`size >= Threshold`）→ 1 个「分片组任务」，占 **1 个闸门位**，内部自己跑至多 4 个分片 worker。
 
-**分片竞速的准入门槛（实现期细化）**：只有 `DownloadSourceRegistry.IsMojangUrl(url)` 为真
-（即命中 §3.1 的 7 个 `MojangPrefixes`）的文件才进入分片竞速；其余域名（Modrinth / Fabric /
-Adoptium 等）无论体积一律走整文件路径，被镜像改写的也仍然原样放行。理由是分片竞速的价值
-来自「多源叠加」，而非 Mojang 域名没有任何镜像会去改写，分片只会凭空增加并发与开销。
-`size <= 0` 且是 Mojang 域名时先用 `ProbeSizeAsync`（HEAD，经首选源改写）探测一次再分流；
-探测失败按未知大小走整文件路径。
+**分片准入门槛**：`size >= Threshold`（4 MiB）且该主机支持 Range。Mojang 域名恒视为支持；
+其余域名（Modrinth / CurseForge CDN / Fabric / Adoptium 等）先探测一次（`Range: bytes=0-0`，
+206 = 支持）并把结果记在该主机上。**体积未知时无论能力是否已知都要补探一次体积**
+——2026-09-30 修正：原先把「探体积」与「能力未知」绑在同一个分支里，于是同一台主机第二次
+下载时 `size` 恒为 0、永远够不到 4 MiB 门槛，静默退化成单连接整文件（日志里 10 条分片记录
+全是 Mojang 版本 jar，非 Mojang 源一次都没分过片，就是这个原因）。
+`size <= 0` 且是 Mojang 域名时用 `ProbeSizeAsync`（HEAD，经首选源改写）探测；探测失败按未知大小走整文件路径。
 
 闸门仍是 `settings.DownloadConcurrency`（默认 16）→ 峰值连接 16 × 4 = 64 < 128 上限。
 进度模型统一为「每个任务单元上报字节」，无需第二套并发池。

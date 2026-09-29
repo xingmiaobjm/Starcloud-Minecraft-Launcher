@@ -9,21 +9,15 @@
     NavigationCacheMode="Disabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+        <!-- 内容行必须是 * ：日志卡片落在 Auto 行上时 ScrollViewer 的视口等于内容高度，
+             整页会被父容器裁掉且滚不动（删掉页面抬头后漏改过这里） -->
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <StackPanel Grid.Row="0" Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-            <TextBlock loc:Loc.Text="日志" FontSize="28" FontWeight="Medium" />
-            <TextBlock loc:Loc.Text="启动器运行日志与每一局游戏的原样输出"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
-
         <!-- 来源切换（选项文案在 code-behind 按语言重建，见 LogsPage.xaml.cs） -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
             <RadioButtons x:Name="LogSource" MaxColumns="2"
                           SelectionChanged="LogSource_SelectionChanged">
             </RadioButtons>
@@ -32,7 +26,7 @@
             <ctrl:GlowButton x:Name="OpenLogDirBtn" loc:Loc.Text="打开日志目录" Click="OpenLogDir_Click" />
         </StackPanel>
 
-        <Border Grid.Row="2" Background="{ThemeResource GlassCardBrush}"
+        <Border Grid.Row="1" Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">
             <!-- 日志正文不换行：一行日志就是一行（时间戳 / 类别 / 正文三列才对得齐），

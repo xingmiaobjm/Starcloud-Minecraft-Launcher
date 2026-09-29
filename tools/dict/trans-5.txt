@@ -85,7 +85,7 @@ Show log
 Relevance
 Minigames
 Realistic
-The default isolation mode for new versions. Isolated directories separate only 5 types of content—mods/saves/configs/resource packs/shaders—while libraries and assets stay shared; individual versions can override this on their details page.
+The default isolation mode for new versions. When on, only 5 kinds of content are isolated—mods/saves/configs/resource packs/shaders—while libraries and assets stay shared; a single version can override this on its details page.
 New version name
 New version name
 Add model

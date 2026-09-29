@@ -155,7 +155,6 @@ public sealed partial class AccountDetailPage : Page
             ? "?" : account.Username[..1].ToUpperInvariant();
         HeaderAvatar.Source = AvatarHelper.Resolve(account.Type, account.Uuid, account.Username,
             account.ServerBase, AvatarHelper.LocalSkinPath(account));
-        HeaderName.Text = account.Username;
         HeaderType.Text = TypeLabel(account);
         HeaderDefaultBadge.Visibility = account.IsDefault ? Visibility.Visible : Visibility.Collapsed;
         SetDefaultBtn.Visibility = account.IsDefault ? Visibility.Collapsed : Visibility.Visible;

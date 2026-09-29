@@ -95,7 +95,6 @@ public sealed partial class VersionDetailPage : Page
 
         // 头部
         TitleText.Text = _versionId;
-        KindText.Text = VersionRowHelpers.DetectKind(dotMc, _versionId);
         var category = profile.Category ?? "";
         CategoryBadgeText.Text = category;
         CategoryBadge.Visibility = category.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -109,6 +108,11 @@ public sealed partial class VersionDetailPage : Page
 
         // 概览
         GameRootText.Text = gameRoot;
+        // 快捷方式卡片里的文件夹入口：Tag 即实际路径（点开即用，与「打开目录」同一处理）
+        OpenVersionFolderBtn.Tag = Path.Combine(dotMc, "versions", _versionId);
+        OpenSavesFolderBtn.Tag = Path.Combine(gameRoot, "saves");
+        OpenModsFolderBtn.Tag = Path.Combine(gameRoot, "mods");
+        OpenScreenshotsFolderBtn.Tag = Path.Combine(gameRoot, "screenshots");
         LastPlayedText.Text = VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt);
         CategoryBox.Text = category;
         NoteBox.Text = profile.Note ?? "";
@@ -118,7 +122,10 @@ public sealed partial class VersionDetailPage : Page
         HeightBox.Header = Loc.T("高");
 
         // 内容：Mod / 资源包 / 光影包 / 存档 四分类（芯片切换独立界面）
-        SetSection(0); // 每次进入默认落在「概览」
+        // 每次进入默认落在「概览」：先把左栏选中项归位（本身就是 0 号时不会触发事件，
+        // 故随后再兜底调一次 SetSection，保证区块可见性与选中底一致；不播过渡）
+        NavList.SelectedIndex = 0;
+        SetSection(0, animate: false);
         SetCategory(0);
         ContentPanelFill(gameRoot);
 
@@ -273,7 +280,7 @@ public sealed partial class VersionDetailPage : Page
             _contentRows.Add(shown);
             ModSection.Children.Add(BuildFileRow(shown));
         }
-        ModSection.Children.Add(OpenDirRow(d.ModsDir));
+        ModSection.Children.Add(CategoryTail(0, d.ModRows.Count, d.ModsDir));
 
         // 资源包
         PackSection.Children.Add(SectionHeader(Loc.T("资源包"), d.PackRows.Count));
@@ -282,7 +289,7 @@ public sealed partial class VersionDetailPage : Page
             _contentRows.Add(row);
             PackSection.Children.Add(BuildFileRow(row));
         }
-        PackSection.Children.Add(OpenDirRow(d.PacksDir));
+        PackSection.Children.Add(CategoryTail(1, d.PackRows.Count, d.PacksDir));
 
         // 光影包
         ShaderSection.Children.Add(SectionHeader(Loc.T("光影包"), d.ShaderRows.Count));
@@ -291,7 +298,7 @@ public sealed partial class VersionDetailPage : Page
             _contentRows.Add(row);
             ShaderSection.Children.Add(BuildFileRow(row));
         }
-        ShaderSection.Children.Add(OpenDirRow(d.ShadersDir));
+        ShaderSection.Children.Add(CategoryTail(2, d.ShaderRows.Count, d.ShadersDir));
 
         // 存档（每个存档下的数据包）
         SaveSection.Children.Add(SectionHeader(Loc.T("存档"), d.Saves.Count));
@@ -300,7 +307,7 @@ public sealed partial class VersionDetailPage : Page
             SaveSection.Children.Add(new TextBlock
             {
                 Text = save,
-                FontSize = 13,
+                FontSize = 14,
                 FontWeight = Microsoft.UI.Text.FontWeights.Medium,
                 Margin = new Thickness(0, 6, 0, 0),
             });
@@ -310,8 +317,68 @@ public sealed partial class VersionDetailPage : Page
                 SaveSection.Children.Add(BuildFileRow(row));
             }
         }
-        SaveSection.Children.Add(OpenDirRow(d.SavesDir));
+        SaveSection.Children.Add(CategoryTail(3, d.Saves.Count, d.SavesDir));
+
+        // 计数落定后再决定说明行要不要露面（当前分类为空 → 交给空状态说话）
+        _categoryCounts[0] = d.ModRows.Count;
+        _categoryCounts[1] = d.PackRows.Count;
+        _categoryCounts[2] = d.ShaderRows.Count;
+        _categoryCounts[3] = d.Saves.Count;
+        SyncContentHint();
     }
+
+    /// <summary>四个分类当前的条目数（0~3 与分类下标同序），说明行与空状态按它决定谁露面。</summary>
+    private readonly int[] _categoryCounts = new int[4];
+
+    /// <summary>
+    /// 分类收尾块：有内容时给「路径 + 打开目录」；空的分类换成统一的空状态
+    /// （<see cref="EmptyStateView"/>，与主页「暂无已安装版本」同一个语汇）。
+    /// 空列表下只摆一行灰色绝对路径 + 一颗小按钮，既看不出这里能干什么，也没有拖拽落点的暗示。
+    /// </summary>
+    private FrameworkElement CategoryTail(int category, int count, string dir)
+    {
+        if (count > 0) return OpenDirRow(dir);
+
+        var empty = new EmptyStateView
+        {
+            Glyph = GlyphForKind(CategoryKind(category)),
+            Title = Loc.T(CategoryEmptyTitle(category)),
+            Subtitle = Loc.T(CategoryEmptySubtitle(category)),
+            ActionText = Loc.T("打开目录"),
+            Margin = new Thickness(0, 12, 0, 12),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        empty.ActionClick += (_, _) => OpenPath(dir);
+        return empty;
+    }
+
+    /// <summary>分类对应的内容类型（决定空状态的图标）。</summary>
+    private static string CategoryKind(int category) => category switch
+    {
+        0 => "mod",
+        1 => "resourcepack",
+        2 => "shader",
+        _ => "folder",
+    };
+
+    /// <summary>空分类的主文案：说清「这里该有什么」，而不是只报一个 0。</summary>
+    private static string CategoryEmptyTitle(int category) => category switch
+    {
+        0 => "还没有安装 Mod",
+        1 => "还没有资源包",
+        2 => "还没有光影包",
+        _ => "暂无存档",
+    };
+
+    /// <summary>空分类的引导文案：拖入的语义按分类不同（存档是文件夹，不走 .jar / .zip 那条路）。</summary>
+    private static string CategoryEmptySubtitle(int category) => category == 3
+        ? "把存档文件夹放进 saves 目录即可。"
+        : "把 .jar / .zip 拖进这张卡片即可安装；停用仅改名为 .disabled，可随时还原。";
+
+    /// <summary>说明行只在当前分类有内容时露面（空分类由空状态接管，同一件事不说两遍）。</summary>
+    private void SyncContentHint() =>
+        ContentHint.Visibility = _categoryCounts[_contentCategory] == 0
+            ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>mods 目录指纹（最后写入时间 + 文件数），用于判断扫描缓存是否仍有效。</summary>
     private string ModsStamp()
@@ -360,13 +427,13 @@ public sealed partial class VersionDetailPage : Page
         await ContentPanelFillAsync(gameRoot, broken.Count == 0 ? null : broken);
     }
 
-    /// <summary>分区标题（名称 + 条目数）。</summary>
+    /// <summary>分区标题（名称 + 条目数）。字号走本页 12/14/28 的字阶，不用离档的 13。</summary>
     private static TextBlock SectionHeader(string label, int count)
     {
         return new TextBlock
         {
             Text = Loc.T("{0}（{1}）", label, count),
-            FontSize = 13,
+            FontSize = 14,
             FontWeight = Microsoft.UI.Text.FontWeights.Medium,
             Margin = new Thickness(0, 4, 0, 0),
         };
@@ -389,13 +456,14 @@ public sealed partial class VersionDetailPage : Page
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Padding = new Thickness(0, 2, 0, 2),
+            // 上方留一点缝，与列表行分开：它是收尾的目录入口，不是又一条内容
+            Margin = new Thickness(0, 4, 0, 0),
             Children =
             {
                 new TextBlock
                 {
                     Text = path,
-                    FontSize = 11,
+                    FontSize = 12,
                     VerticalAlignment = VerticalAlignment.Center,
                     Foreground = SecondaryBrush(),
                     TextTrimming = TextTrimming.CharacterEllipsis,
@@ -408,6 +476,12 @@ public sealed partial class VersionDetailPage : Page
     private void OpenDir_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not string path) return;
+        OpenPath(path);
+    }
+
+    /// <summary>打开（必要时先建出）目录。列表底部的按钮与空状态的操作按钮都走这里。</summary>
+    private void OpenPath(string path)
+    {
         try
         {
             Directory.CreateDirectory(path);
@@ -418,6 +492,16 @@ public sealed partial class VersionDetailPage : Page
             ShowContentInfo(Loc.T("打开目录失败：{0}", ex.Message), InfoBarSeverity.Error);
         }
     }
+
+    /// <summary>文件行图标按内容类型取字形（原先一律画文件夹字形，看不出是 Mod 还是资源包）。</summary>
+    private static string GlyphForKind(string kind) => kind switch
+    {
+        "mod" => "\uEA93",           // Mod / 内容
+        "resourcepack" => "\uEC49",  // 资源包
+        "shader" => "\uEC0C",        // 光影包
+        "datapack" => "\uEC24",      // 数据包（在存档里）
+        _ => "\uEA90",               // 目录
+    };
 
     /// <summary>枚举目录内文件（含 .disabled）生成行模型。</summary>
     private static List<ContentFileRow> BuildFileRows(string dir, string kind)
@@ -446,8 +530,8 @@ public sealed partial class VersionDetailPage : Page
             VerticalAlignment = VerticalAlignment.Center,
             Children =
             {
-                new FontIcon { FontFamily = IconFont.Family,  Glyph = "\uEA90", FontSize = 14, Foreground = SecondaryBrush() },
-                new TextBlock { Text = row.FileName, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis },
+                new FontIcon { FontFamily = IconFont.Family,  Glyph = GlyphForKind(row.Kind), FontSize = 14, Foreground = SecondaryBrush() },
+                new TextBlock { Text = row.FileName, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis },
                 new TextBlock { Text = row.StatusText, FontSize = 12, Foreground = SecondaryBrush() },
                 new TextBlock { Text = row.SizeText, FontSize = 12, Foreground = SecondaryBrush() },
             },
@@ -552,13 +636,16 @@ public sealed partial class VersionDetailPage : Page
 
     // ── 分区导航（概览 / Mod 管理 / 游戏设置 / 启动参数） ──
 
-    private void Nav_Click(object sender, RoutedEventArgs e)
+    private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is FrameworkElement fe && fe.Tag is string t && int.TryParse(t, out var i))
+        // XAML 中首个条目 IsSelected="True" 会在 InitializeComponent 解析期间同步触发本事件，
+        // 此时右侧各区尚未创建，直接跳过（XAML 已自带正确的初始可见性）
+        if (SecOverview is null) return;
+        if (NavList.SelectedItem is FrameworkElement fe && fe.Tag is string t && int.TryParse(t, out var i))
             SetSection(i);
     }
 
-    private void SetSection(int index)
+    private void SetSection(int index, bool animate = true)
     {
         Visibility V(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
         SecOverview.Visibility = V(index == 0);
@@ -566,10 +653,23 @@ public sealed partial class VersionDetailPage : Page
         SecSettings.Visibility = V(index == 2);
         SecArgs.Visibility = V(index == 3);
 
-        StyleNav(NavOverview, index == 0);
-        StyleNav(NavContent, index == 1);
-        StyleNav(NavSettings, index == 2);
-        StyleNav(NavArgs, index == 3);
+        // 选中态落到各行控件自己的 IsActive 上：选中底、悬停底、跟手光斑与圆角都由
+        // CategoryNavItem 的模板提供，与设置页 / 下载页左栏同一套颜色与阴影
+        NavOverview.IsActive = index == 0;
+        NavContent.IsActive = index == 1;
+        NavSettings.IsActive = index == 2;
+        NavArgs.IsActive = index == 3;
+
+        // 切分区：刚露面的那一块淡入 + 轻微上移，与内容分类芯片（SetCategory）同一套过渡语言。
+        // 初始化那一次不播（调用点传 animate: false）—— 进页面本身已有导航转场，再叠一层只是多余的一拍。
+        if (animate)
+            PlayFadeIn(index switch
+            {
+                0 => SecOverview,
+                1 => SecContent,
+                2 => SecSettings,
+                _ => SecArgs,
+            });
     }
 
     /// <summary>按页面实际主题取主题字典画刷：先查 App 覆盖（Light/Dark），再查 WinUI 默认
@@ -589,29 +689,6 @@ public sealed partial class VersionDetailPage : Page
                     return br2;
         }
         return (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[key];
-    }
-
-    /// <summary>导航项选中态：accent 背景 + 黑字加粗（accent 面必须黑字）；未选中交回默认模板配色。</summary>
-    private void StyleNav(Button b, bool selected)
-    {
-        if (selected)
-        {
-            b.Background = ThemedBrush("AccentFillColorDefaultBrush");
-            b.Foreground = ThemedBrush("TextOnAccentFillColorPrimaryBrush");
-            b.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
-        }
-        else
-        {
-            b.ClearValue(Button.BackgroundProperty);
-            b.ClearValue(Button.ForegroundProperty);
-            b.ClearValue(Button.FontWeightProperty);
-        }
-        // FontIcon 不一定跟随按钮 Foreground，显式同步，确保黄底黑图标
-        if (b.Content is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is Microsoft.UI.Xaml.Controls.FontIcon fi)
-        {
-            if (selected) fi.Foreground = b.Foreground;
-            else fi.ClearValue(Microsoft.UI.Xaml.Controls.FontIcon.ForegroundProperty);
-        }
     }
 
     // ── 内容分类芯片（Mod / 资源包 / 光影包 / 存档 四个独立界面） ──
@@ -656,6 +733,9 @@ public sealed partial class VersionDetailPage : Page
         StyleChip(CatShaders, index == 2);
         StyleChip(CatSaves, index == 3);
 
+        // 换分类后，说明行与空状态的可见性跟着这个分类的条目数走（空分类由空状态说话）
+        SyncContentHint();
+
         // 切换分区：内容淡入 + 轻微上移，一次性播放（PlayStoryboard 不驻留 Composition 动画）
         var section = index switch
         {
@@ -670,6 +750,9 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>对刚显示的分区播放 220ms 淡入上移动画（Apple 式轻过渡，30fps 无压力）。</summary>
     private static void PlayFadeIn(FrameworkElement section)
     {
+        // 动效关闭时直接落定：不建 RenderTransform、也不跑 storyboard（否则关了动效这一层照样淡入上移）
+        if (!AppServices.Instance.Motion.Enabled) return;
+
         var t = new TranslateTransform { Y = 10 };
         section.RenderTransform = t;
         var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
@@ -788,13 +871,43 @@ public sealed partial class VersionDetailPage : Page
 
     private void Content_DragOver(object sender, DragEventArgs e)
     {
+        // 只认文件拖入：拖别的（文字、链接）不该把卡片点亮成落点
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            SetContentDropHighlight(false);
+            return;
+        }
         e.AcceptedOperation = DataPackageOperation.Copy;
         e.DragUIOverride.Caption = Loc.T("安装到该版本");
         e.DragUIOverride.IsCaptionVisible = true;
+        SetContentDropHighlight(true);
+    }
+
+    private void Content_DragLeave(object sender, DragEventArgs e) => SetContentDropHighlight(false);
+
+    /// <summary>
+    /// 拖拽悬停时的高亮：accent 描边 + 一层很淡的 accent 底，把「松手就装到这里」说清楚
+    /// （原先只有鼠标旁的系统提示，卡片本身毫无反应）。取消时用 ClearValue 交回 ScCard 的主题值。
+    /// </summary>
+    private void SetContentDropHighlight(bool on)
+    {
+        if (!on)
+        {
+            ContentCard.ClearValue(Border.BorderBrushProperty);
+            ContentCard.ClearValue(Border.BackgroundProperty);
+            return;
+        }
+
+        ContentCard.BorderBrush = ThemedBrush("AccentFillColorDefaultBrush");
+        // 共享资源刷上不能设 Opacity（会波及整个应用），淡底只能按 accent 本色另建一支
+        if (ThemedBrush("AccentFillColorDefaultBrush") is SolidColorBrush accent)
+            ContentCard.Background = new SolidColorBrush(
+                Windows.UI.Color.FromArgb(20, accent.Color.R, accent.Color.G, accent.Color.B));
     }
 
     private async void Content_Drop(object sender, DragEventArgs e)
     {
+        SetContentDropHighlight(false);
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
         IReadOnlyList<IStorageItem> items;
         try
@@ -1053,12 +1166,6 @@ public sealed partial class VersionDetailPage : Page
         }
     }
 
-    private async void ViewJson_Click(object sender, RoutedEventArgs e)
-    {
-        await InstanceActions.ShowJsonAsync(Content.XamlRoot,
-            _s.Settings.DotMinecraft, _versionId);
-    }
-
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
         var running = _s.Runtime.Instances.Any(i => i.VersionId == _versionId);
@@ -1067,7 +1174,7 @@ public sealed partial class VersionDetailPage : Page
         var message = running
             ? Loc.T("版本 {0} 正在运行，请先停止游戏再删除。", _versionId)
             : Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", _versionId)
-              + (isolated ? Loc.T("\n注意：独立目录下的 mods / 存档等也将一并删除。") : "");
+              + (isolated ? Loc.T("\n注意：版本隔离下的 mods / 存档等也将一并删除。") : "");
         var dlg = new ThemedDialog
         {
             Title = Loc.T("删除版本"),
@@ -1182,7 +1289,7 @@ public sealed partial class VersionDetailPage : Page
     private static string IsolationName(string? isolation) => isolation switch
     {
         "shared" => Loc.T("共享目录"),
-        "isolated" => Loc.T("独立目录"),
+        "isolated" => Loc.T("版本隔离"),
         _ => Loc.T("跟随全局默认"),
     };
 

@@ -30,9 +30,44 @@ public sealed class GlowButton : Button
     /// <summary>模板里那层光斑的部件名（ScGlowButtonTemplate / ScGlowCardButtonTemplate 里都叫 Glow）。</summary>
     private const string GlowPartName = "Glow";
 
+    /// <summary>
+    /// 是否保留悬停反馈（跟手光斑 + 微上浮），默认 true。
+    /// <para>关掉它的地方是「本身就是一张卡」的瓦片（下载页的两枚最新版本）：整块被光斑染暗、
+    /// 还被抬起来，比完全不动更糟。配套用 <c>ScGlowCardButtonTemplate</c>（没有四态换色）
+    /// 才能连 Fluent 的悬停底色一并去掉。</para>
+    /// </summary>
+    public static readonly DependencyProperty HoverEffectEnabledProperty =
+        DependencyProperty.Register(
+            nameof(HoverEffectEnabled), typeof(bool), typeof(GlowButton),
+            new PropertyMetadata(true, OnHoverEffectEnabledChanged));
+
+    public bool HoverEffectEnabled
+    {
+        get => (bool)GetValue(HoverEffectEnabledProperty);
+        set => SetValue(HoverEffectEnabledProperty, value);
+    }
+
+    private static void OnHoverEffectEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        // 样式可能晚于模板解析才设值，所以两个方向都要重接一次
+        if (d is GlowButton button) button.WireHoverEffect();
+    }
+
     protected override void OnApplyTemplate()
     {
         base.OnApplyTemplate();
+        WireHoverEffect();
+    }
+
+    /// <summary>把模板里的光斑层认成载体并打开悬停行为；不需要悬停反馈时不接（见 HoverEffectEnabled）。</summary>
+    private void WireHoverEffect()
+    {
+        if (!HoverEffectEnabled)
+        {
+            // 关掉时把行为一并停掉：值可能在模板之后才设进来，这里兜住
+            HoverShadowBehavior.SetIsEnabled(this, false);
+            return;
+        }
 
         // 与 HoverShadowBehavior 自建层的判定同源：纯透明底的图标按钮本来就不该有光斑，
         // 否则迁移过来会凭空多出一层深色渐变与 -1px 上浮。

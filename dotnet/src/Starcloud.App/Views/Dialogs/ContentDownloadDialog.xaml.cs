@@ -210,11 +210,14 @@ public sealed partial class ContentDownloadDialog : ContentDialog
 
         var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock { Text = hit.Title, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium, TextTrimming = TextTrimming.CharacterEllipsis });
-        text.Children.Add(new TextBlock
+        var summary = new TextBlock
         {
             Text = hit.Description, FontSize = 12, MaxLines = 1, TextTrimming = TextTrimming.CharacterEllipsis,
             Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
-        });
+        };
+        text.Children.Add(summary);
+        // 英文简介先上屏，MCIM 的中文译文异步补上（仅中文界面；失败保留英文）
+        _ = FillSummaryAsync(hit, summary);
         text.Children.Add(new TextBlock
         {
             Text = Loc.T("{0} 下载 · 更新 {1:yyyy-MM-dd}", Count(hit.Downloads), hit.DateModified),
@@ -238,12 +241,29 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         return card;
     }
 
+    /// <summary>列表行简介的中文译文（MCIM；仅中文界面启用，失败保留英文）</summary>
+    private async Task FillSummaryAsync(ModrinthHit hit, TextBlock target)
+    {
+        var zh = await _s.ModSummaries.TranslateAsync(hit.Source, hit.ProjectId, hit.Description);
+        if (!string.IsNullOrEmpty(zh)) target.Text = zh!;
+    }
+
+    /// <summary>详情面板简介的中文译文；期间用户切到别的项目就丢弃这次结果</summary>
+    private async Task FillDetailSummaryAsync(ModrinthHit hit)
+    {
+        var zh = await _s.ModSummaries.TranslateAsync(hit.Source, hit.ProjectId, hit.Description);
+        if (string.IsNullOrEmpty(zh) || !ReferenceEquals(_selected, hit)) return;
+        DlDesc.Text = zh!;
+    }
+
     /// <summary>打开项目详情：填项目卡 + 拉取版本列表构建芯片与分组。</summary>
     private async Task OpenDetailAsync(ModrinthHit hit)
     {
         _selected = hit;
         DlTitle.Text = ModTitleHelper.Display(hit.Title);   // 中文名（未命中显示原名，后台补翻译）
         DlDesc.Text = hit.Description;
+        // 详情简介的中文译文异步补上；期间用户可能已切到别的项目，故只在自己仍被选中时才写回
+        _ = FillDetailSummaryAsync(hit);
         var icon = RemoteIconHelper.Resolve(hit.IconUrl);
         if (icon is null)
         {

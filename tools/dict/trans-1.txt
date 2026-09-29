@@ -9,7 +9,7 @@
 \n\nHint: {0}
 \n\nSaved to: {0}
 \nand {0} more files
-\nNote: Mods and saves in the isolated directory will be deleted as well.
+\nNote: Mods and saves under this version's isolation will be deleted as well.
 {0}    {1} (Custom)
 {0} {1}
 {0} {1}% · {2}/{3} files · {4:F0} KB/s
@@ -92,7 +92,7 @@ Version JSON is missing or corrupted and cannot be recovered automatically. Rein
 Versions, resources, and library files will be installed to this directory
 Version isolation
 Version isolation (Default)
-Version isolation (Recommended; modpack content is stored separately)
+Version isolation (Recommended; modpack content stored separately)
 Version isolation mode
 Version list
 Version name cannot be empty

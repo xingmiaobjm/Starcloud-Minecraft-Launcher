@@ -56,6 +56,82 @@ function beforeGameLaunch(ctx) {
 
 打包：目录压成 zip → 改后缀 `.mclplug` → 启动器「插件」页安装 → 启用（第三方插件需确认免责声明）。
 
+API 2.0 插件（`apiVersion: "2.0"`）必须带 `integrity.json`（逐文件摘要 + 整包签名），请用打包工具生成：
+
+```powershell
+pwsh -File tools\pack-plugin.ps1 -Source .\my-plugin
+# 官方签名（只有持私钥的一方需要）：
+pwsh -File tools\pack-plugin.ps1 -Source .\my-plugin -KeyFile .\official-key.pem -KeyId starcloud-official-2026
+```
+
+工具会在暂存目录里组装文件并写入 `integrity.json`，再打成 `.mclplug`，最后把 zip 内容重算一遍自检；
+`data/`（运行时私有目录）与产物自身不入摘要。规范见 [plugin-spec-v2.md](plugin-spec-v2.md) §8。
+
+### 2.0 声明式面板
+
+2.0 插件可以在清单里直接声明面板，不用写一行 UI 代码（详见 [plugin-spec-v2.md](plugin-spec-v2.md) §6.2 / §7）：
+
+```json
+{
+  "apiVersion": "2.0",
+  "permissions": ["ui:panel", "storage:kv(quota=64kb)"],
+  "contributes": {
+    "panels": [ { "id": "main", "title": "我的面板", "view": "panels/main.json" } ],
+    "slots": [ { "point": "versions.top", "view": "slots/banner.json", "height": 72 } ],
+    "versionSections": [ { "id": "report", "title": "运行报告", "view": "sections/report.json" } ],
+    "homeCards": [
+      { "id": "server", "title": "收藏的服务器", "view": "cards/server.json" },
+      { "id": "pack",   "title": "今日推荐整合包", "view": "cards/pack.json" }
+    ],
+    "navItems": [
+      { "id": "servers", "title": "服务器浏览", "icon": "server", "view": "views/servers.json" }
+    ]
+  }
+}
+```
+
+```json
+{
+  "type": "stack", "direction": "column", "spacing": 12,
+  "children": [
+    { "type": "text", "value": "运行次数", "style": "caption" },
+    { "type": "text", "value": { "bind": "storage.launches" }, "style": "title" },
+    { "type": "progress", "label": "进度", "progress": 0.6 },
+    { "type": "toggle", "label": "启用", "bind": "storage.enabled" },
+    { "type": "list", "items": { "bind": "storage.report" }, "itemView": "views/item.json" },
+    { "type": "button", "label": "重置", "kind": "accent",
+      "action": { "api": "storage.set", "args": ["launches", 0] } }
+  ]
+}
+```
+
+逐项模板（`list` 的 `itemView`）里用 `item.*` 取当前项字段：
+
+```json
+{ "type": "stack", "direction": "column", "spacing": 2,
+  "children": [
+    { "type": "text", "value": { "bind": "item.实例" }, "style": "body" },
+    { "type": "text", "value": { "bind": "item.占用" }, "style": "caption" }
+  ] }
+```
+
+要点：组件走白名单（`html` / `iframe` / `script` 一律拒绝）；`bind` 的 `storage.*` 读写自动写回并重绘；
+`action.args` 是**位置参数数组**；动作与绑定都经宿主能力层，权限、网络主机白名单、存储配额与插件自己调用时完全一致。
+没声明 `ui:panel` 的话面板、挂载区与首页卡片都不会注册。挂载点目前支持
+`download.top` / `home.top` / `versions.top` / `version.detail.top`（+ `versionSections` → 版本详情页分区），
+写了别的点会被跳过并在插件日志里说明。
+
+首页卡片（`homeCards`）装在首页左列、`home.top` 与版本库之间，尺寸由宿主定死、插件不能要求更高：
+**固定 120 高、等宽排列、最多 3 张**（跨插件合计，按插件加载顺序），没有贡献时整块不占位。
+卡片内容超出 120 的部分会被裁掉且不能滚动，所以请控制内容量（建议一两行文字 + 一两个 `badge`），
+或者用 `progress` 这类自带高度的小组件；详细规则见 [plugin-spec-v2.md](plugin-spec-v2.md) §6.3。
+
+一级导航项（`navItems`）给「少数重插件」的主入口在左侧导航栏占一个位置，点开是一个独立一级页，
+内容同样是声明式视图。**每个插件最多 1 条、跨插件最多 3 项**（按插件加载顺序），没贡献时连分隔线都不出现。
+`icon` 只能填宿主内置的 8 个名字：`home` / `instance` / `download` / `saves` / `server` / `account` /
+`extension`（默认）/ `log`；填别的会回落默认图标并在插件日志里说明，不会拒绝加载。
+标题原样显示、不做本地化；详细规则见 [plugin-spec-v2.md](plugin-spec-v2.md) §6.4。
+
 ## 2. 五分钟上手（Python）
 
 ```

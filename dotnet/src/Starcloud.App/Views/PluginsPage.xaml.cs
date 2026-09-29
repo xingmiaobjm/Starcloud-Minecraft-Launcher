@@ -17,7 +17,7 @@ namespace Starcloud.App.Views;
 /// 属性显式声明为可变：XamlTypeInfo 会为 x:DataType 生成 setter，init-only 会 CS8852。</summary>
 public sealed record PluginRow(
     string Id, string Name, string Version, string Author, string Description,
-    string Detail, bool Official, bool Enabled)
+    string Detail, bool Official, bool Enabled, string ApiChip, bool ShowApiChip)
 {
     // 注意：positional record 体内声明属性必须用「= 参数名」初始化器显式绑定，
     // 否则构造器不赋值（CS8907），字段全空。
@@ -29,9 +29,12 @@ public sealed record PluginRow(
     public string Detail { get; set; } = Detail;
     public bool Official { get; set; } = Official;
     public bool Enabled { get; set; } = Enabled;
+    public string ApiChip { get; set; } = ApiChip;
+    public bool ShowApiChip { get; set; } = ShowApiChip;
 
     public Visibility OfficialVisibility => Official ? Visibility.Visible : Visibility.Collapsed;
     public Visibility UnverifiedVisibility => Official ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ApiChipVisibility => ShowApiChip ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PanelsVisibility =>
         AppServices.Instance.PluginHost.Panels.Any(p => p.PluginId == Id)
             ? Visibility.Visible
@@ -112,18 +115,53 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
         foreach (var p in _s.Plugins.Scan())
         {
             var enabled = _s.Plugins.IsEnabled(p.Manifest.Id);
-            var perms = p.Manifest.Permissions.Length > 0
-                ? string.Join(" · ", p.Manifest.Permissions)
-                : Loc.T("无特殊权限");
+            var isApi2 = p.Manifest.IsApi2;
+            var perms = DescribePermissions(p.Manifest);
+            // 2.0 插件运行时尚且未实现（§11）：徽标直说，避免用户以为是插件坏了
+            var apiChip = isApi2
+                ? PluginEnvironment.CanRunApi(p.Manifest.ApiVersion)
+                    ? Loc.T("API {0}", p.Manifest.ApiVersion)
+                    : Loc.T("API {0} · 暂不可启用", p.Manifest.ApiVersion)
+                : "";
             Rows.Add(new PluginRow(
                 p.Manifest.Id, p.Manifest.Name, p.Manifest.Version, p.Manifest.Author,
                 p.Manifest.Description,
-                Loc.T("作者 {0} · 权限：{1}", p.Manifest.Author, perms),
-                p.Official, enabled));
+                isApi2
+                    ? Loc.T("作者 {0} · 能力：{1}", p.Manifest.Author, perms)
+                    : Loc.T("作者 {0} · 权限：{1}", p.Manifest.Author, perms),
+                p.Official, enabled, apiChip, isApi2));
         }
         EmptyText.Visibility = Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         _syncing = false;
         MotionFx.StaggerListItems(PluginList);
+    }
+
+    /// <summary>
+    /// 权限摘要：1.x 原样列举；2.0 解析细粒度能力并标注风险等级
+    /// （高风险来自 `allow_delete`、`network:any`、`settings:write`、`ui:html` 等，规范 2.0 §5.2）。
+    /// </summary>
+    private static string DescribePermissions(PluginManifest manifest)
+    {
+        var all = manifest.Permissions.Concat(manifest.OptionalPermissions).ToArray();
+        if (all.Length == 0) return Loc.T("无特殊权限");
+        if (!manifest.IsApi2) return string.Join(" · ", all);
+
+        var parts = new List<string>(all.Length);
+        foreach (var raw in all)
+        {
+            if (!PluginPermissions.TryParse(raw, out var capability, out _))
+            {
+                parts.Add(raw);
+                continue;
+            }
+            parts.Add(PluginPermissions.RiskOf(capability) switch
+            {
+                PluginRiskLevel.High => Loc.T("{0}（高风险）", raw),
+                PluginRiskLevel.Medium => Loc.T("{0}（{1}）", raw, Loc.T("中风险")),
+                _ => Loc.T("{0}（{1}）", raw, Loc.T("低风险")),
+            });
+        }
+        return string.Join(" · ", parts);
     }
 
     // ── 安装 ──
@@ -196,7 +234,7 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
     private async Task<bool> ShowDisclaimerAsync(PluginService.InstalledPlugin plugin)
     {
         var m = plugin.Manifest;
-        var perms = m.Permissions.Length > 0 ? string.Join("、", m.Permissions) : Loc.T("无特殊权限");
+        var perms = DescribePermissions(m);
         var dlg = new ThemedDialog
         {
             XamlRoot = Content.XamlRoot,

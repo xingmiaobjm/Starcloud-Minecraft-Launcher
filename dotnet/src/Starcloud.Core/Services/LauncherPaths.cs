@@ -198,6 +198,17 @@ public sealed class LauncherSettings
     [JsonPropertyName("account_walk_animation")]
     public bool AccountWalkAnimation { get; set; } = true;
 
+    // ── 主页两栏卡片的收起 / 展开状态 ──
+    // 主页每次重新进入都是新实例（NavigationCacheMode=Disabled），状态必须落在设置里才不会还原；
+    // 顺带也就跨重启保留了。false 即默认的展开态。
+    /// <summary>主页左栏版本卡是否收起（收起后只剩一条窄条）</summary>
+    [JsonPropertyName("home_versions_collapsed")]
+    public bool HomeVersionsCollapsed { get; set; }
+
+    /// <summary>主页右栏账户 / 启动卡是否收起</summary>
+    [JsonPropertyName("home_account_collapsed")]
+    public bool HomeAccountCollapsed { get; set; }
+
     /// <summary>
     /// 微软（正版）登录是否用内置登录窗口（默认开）。
     /// 关闭后回到「显示一次性验证码 + 打开系统浏览器」的方式。

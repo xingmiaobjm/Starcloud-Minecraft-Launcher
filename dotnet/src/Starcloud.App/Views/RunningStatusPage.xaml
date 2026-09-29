@@ -5,18 +5,16 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:beh="using:Starcloud.App.Views.Behaviors"
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
-    xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
     NavigationCacheMode="Disabled">
 
-    <!-- 运行状态（一级页）：当前这一局游戏的即时快照 + 最近运行历史。
+    <!-- 运行状态（一级页）：当前这一局游戏的即时快照。
          数据全部来自 Core 的 GameRuntimeMonitor（跨启动器重启靠锁文件恢复），
          本页只负责把不可变快照渲染出来：
            1) Hero        —— 这一局是谁、跑了多久、几个动作（结束 / 重启 / 复制命令…）
            2) 性能三卡    —— CPU / 内存 / GPU 大数字 + 60 点 sparkline
            3) 双栏        —— 左：启动配置与 JVM（落盘上下文，缺失时按当前配置降级）
                             右：内容计数与实时日志尾（自动吸底，上滚即暂停吸底）
-           4) 最近运行    —— 最近 50 局的历史（默认 5 条，可展开）
          刷新分层是刻意的：只有"这一局的归属变了"（换 pid / 起止）才整页重建，
          每秒的采样回调只更新数字与曲线，避免列表与日志每秒钟闪一下。 -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled"
@@ -28,20 +26,14 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- ══ 页头 ══ -->
+            <!-- ══ 页头：只留右侧动作，页面由左侧导航指示 ══ -->
             <Grid Grid.Row="0" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-                    <TextBlock loc:Loc.Text="运行状态" FontSize="28" FontWeight="Medium" />
-                    <TextBlock loc:Loc.Text="当前这一局游戏发生了什么"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                             VerticalAlignment="Top">
                     <ctrl:GlowButton x:Name="RetryBtn" Height="32" Padding="12,0" Visibility="Collapsed"
@@ -140,7 +132,7 @@
                 <ctrl:EmptyStateView HorizontalAlignment="Center" VerticalAlignment="Center"
                                      Glyph="&#xEC70;"
                                      loc:Loc.Text="现在没有游戏在运行"
-                                     loc:Loc.Subtitle="去首页启动一个版本，或看看下面的最近运行记录"
+                                     loc:Loc.Subtitle="去首页启动一个版本"
                                      loc:Loc.ActionText="去首页"
                                      ActionClick="GoHome_Click" />
             </Border>
@@ -282,85 +274,6 @@
                 </Border>
             </Grid>
 
-            <!-- ══ 4. 最近运行 ══ -->
-            <Border Grid.Row="5" Style="{StaticResource ScCard}">
-                <StackPanel Spacing="12">
-                    <Grid>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Border Style="{StaticResource ScSectionSpine}" />
-                            <TextBlock loc:Loc.Text="最近运行"
-                                       Style="{StaticResource ScSectionTitle}" />
-                        </StackPanel>
-                        <ctrl:GlowButton x:Name="ExpandHistoryBtn" HorizontalAlignment="Right"
-                                Height="28" Padding="10,0" Visibility="Collapsed"
-                                Click="ExpandHistory_Click" loc:Loc.Text="展开全部" />
-                    </Grid>
-
-                    <Grid x:Name="HistoryHeader" ColumnSpacing="12" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="150" />
-                            <ColumnDefinition Width="90" />
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" loc:Loc.Text="版本"
-                                   Style="{StaticResource ScMetaLabel}" />
-                        <TextBlock Grid.Column="1" loc:Loc.Text="开始时间"
-                                   Style="{StaticResource ScMetaLabel}" />
-                        <TextBlock Grid.Column="2" loc:Loc.Text="时长"
-                                   Style="{StaticResource ScMetaLabel}" />
-                        <TextBlock Grid.Column="3" loc:Loc.Text="峰值内存"
-                                   Style="{StaticResource ScMetaLabel}" />
-                        <TextBlock Grid.Column="4" loc:Loc.Text="状态" MinWidth="96"
-                                   Style="{StaticResource ScMetaLabel}" />
-                    </Grid>
-
-                    <ListView x:Name="HistoryList" SelectionMode="None" Visibility="Collapsed"
-                              ScrollViewer.VerticalScrollMode="Disabled"
-                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem"
-                                   BasedOn="{StaticResource ScPlainListItem}" />
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="rows:GameRunRow">
-                                <Grid Padding="12,10" ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="150" />
-                                        <ColumnDefinition Width="90" />
-                                        <ColumnDefinition Width="110" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind VersionId}"
-                                               FontWeight="Medium"
-                                               TextTrimming="CharacterEllipsis"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind StartedText}"
-                                               Style="{StaticResource ScMetaValue}"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="2" Text="{x:Bind DurationText}"
-                                               FontFamily="Cascadia Code"
-                                               Style="{StaticResource ScMetaValue}"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="3" Text="{x:Bind PeakText}"
-                                               Style="{StaticResource ScMetaValue}"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="4" Text="{x:Bind StatusText}"
-                                               Foreground="{x:Bind StatusBrush}"
-                                               Style="{StaticResource ScMetaValue}"
-                                               MinWidth="96" VerticalAlignment="Center" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-
-                    <ctrl:EmptyStateView x:Name="HistoryEmpty" Glyph="&#xEC70;"
-                                         HorizontalAlignment="Center" VerticalAlignment="Center"
-                                         loc:Loc.Text="还没有运行记录" />
-                </StackPanel>
-            </Border>
         </Grid>
     </ScrollViewer>
 </Page>

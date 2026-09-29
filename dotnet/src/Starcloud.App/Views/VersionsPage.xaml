@@ -24,9 +24,21 @@
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBA0;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
-            <MenuFlyoutItem loc:Loc.Text="打开目录" Click="OpenVersionDir_Click">
+            <!-- 文件夹入口：版本目录固定 versions/<id>，存档 / 模组跟随实例根
+                 （隔离实例各自持有一份，共享实例落在 .minecraft 下） -->
+            <MenuFlyoutItem loc:Loc.Text="打开版本文件夹" Tag="version" Click="OpenFolder_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA94;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem loc:Loc.Text="打开存档文件夹" Tag="saves" Click="OpenFolder_Click">
                 <MenuFlyoutItem.Icon>
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem loc:Loc.Text="打开模组文件夹" Tag="mods" Click="OpenFolder_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
             <MenuFlyoutSeparator />
@@ -38,11 +50,6 @@
             <MenuFlyoutItem loc:Loc.Text="复制版本" Click="Copy_Click">
                 <MenuFlyoutItem.Icon>
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA9F;" />
-                </MenuFlyoutItem.Icon>
-            </MenuFlyoutItem>
-            <MenuFlyoutItem loc:Loc.Text="查看 JSON" Click="ViewJson_Click">
-                <MenuFlyoutItem.Icon>
-                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6C;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
             <MenuFlyoutItem loc:Loc.Text="导出整合包" Click="Export_Click">
@@ -82,19 +89,12 @@
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <StackPanel Grid.Row="0" Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-            <TextBlock loc:Loc.Text="版本" FontSize="28" FontWeight="Medium" />
-            <TextBlock loc:Loc.Text="管理本地已安装的游戏版本"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
-
-        <!-- 目录与工具行 -->
-        <Grid Grid.Row="1" ColumnSpacing="12">
+        <!-- 目录与工具行（+ 插件挂载区 versions.top，没贡献时整块不占位） -->
+        <StackPanel Spacing="12">
+        <Grid ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -144,8 +144,11 @@
             </StackPanel>
         </Grid>
 
+        <ctrl:PluginContributionPanel Point="versions.top" />
+        </StackPanel>
+
         <!-- 本地版本列表 -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="1"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="4">
@@ -231,7 +234,7 @@
                                     </Border>
                                     <Border Style="{StaticResource ScChip}"
                                             Visibility="{x:Bind IsolatedVisibility}">
-                                        <TextBlock loc:Loc.Text="独立" Style="{StaticResource ScChipText}" />
+                                        <TextBlock loc:Loc.Text="版本隔离" Style="{StaticResource ScChipText}" />
                                     </Border>
                                 </StackPanel>
                                 <!-- 数据列：11px 标签 + 12px 数值，标签右对齐、数值定宽 → 跨行成列 -->

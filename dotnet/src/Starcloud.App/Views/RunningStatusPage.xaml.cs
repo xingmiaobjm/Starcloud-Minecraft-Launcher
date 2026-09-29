@@ -1,10 +1,10 @@
 // 运行状态页（一级）：把 GameRuntimeMonitor 的不可变快照渲染成「这一局在干什么」。
 // 设计：docs/designs/2026-09-26-game-running-status-panel-design.md §5
-//
+//  
 // 刷新刻意分三层，不对齐频率：
 //   采样回调（1s，后台线程）→ 只更新数字、曲线、日志尾（选中实例与实例集合都没变就不重建列表）
-//   实例变化（起 / 止 / 下拉换选中）→ 整页重建（含下拉、启动配置与历史）
-//   1s UI 定时器            → 只刷「已运行 00:42:17」这一行（采样暂停时 Changed 不再来）
+//   实例变化（起 / 止 / 下拉换选中）→ 整页重建（含下拉、启动配置与日志尾）
+//   1s UI 定时器            →  只刷「已运行 00:42:17」这一行（采样暂停时 Changed 不再来）
 // 页面 NavigationCacheMode=Disabled，每次进入都是新实例：Loaded 订阅 / Unloaded 退订，避免泄漏。
 
 using System.Globalization;
@@ -16,7 +16,6 @@ using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views.Dialogs;
-using Starcloud.App.Views.Rows;
 using Starcloud.Core.Services;
 using Windows.Foundation;
 
@@ -26,9 +25,6 @@ public sealed partial class RunningStatusPage : Page
 {
     /// <summary>曲线取最近多少个采样点（1s 间隔 ≈ 1 分钟）</summary>
     private const int SparkPoints = 60;
-
-    /// <summary>历史默认展示条数（「展开全部」后到 MaxRecords）</summary>
-    private const int HistoryPreview = 5;
 
     /// <summary>日志尾展示行数</summary>
     private const int LogLines = 200;
@@ -42,7 +38,6 @@ public sealed partial class RunningStatusPage : Page
     private bool _syncingCombo;
     private bool _hooked;
     private bool _rendering;
-    private bool _histExpanded;
     private bool _autoScroll = true;
 
     public RunningStatusPage()
@@ -62,7 +57,6 @@ public sealed partial class RunningStatusPage : Page
             {
                 _hooked = true;
                 _s.Runtime.Changed += OnRuntimeChanged;
-                _s.Runtime.RunFinished += OnRunFinished;
             }
             _lastPid = _s.Runtime.Current?.Pid ?? 0;
             _lastCount = _s.Runtime.Instances.Count;
@@ -89,7 +83,6 @@ public sealed partial class RunningStatusPage : Page
         {
             _hooked = false;
             _s.Runtime.Changed -= OnRuntimeChanged;
-            _s.Runtime.RunFinished -= OnRunFinished;
         }
         _uiTimer?.Stop();
     }
@@ -130,8 +123,6 @@ public sealed partial class RunningStatusPage : Page
         });
     }
 
-    private void OnRunFinished(GameRunRecord rec) => _dq.TryEnqueue(RenderHistory);
-
     // ── 渲染分层 ──────────────────────────────────────────────
 
     /// <summary>整页重建：只在「这一局的归属变了」或用户主动刷新时调用。</summary>
@@ -153,8 +144,6 @@ public sealed partial class RunningStatusPage : Page
                 RenderConfig(ctx, fallback);
                 RenderLog();
             }
-
-            RenderHistory();
         }
         finally { _rendering = false; }
     }
@@ -510,62 +499,6 @@ public sealed partial class RunningStatusPage : Page
         LogScroll.ChangeView(null, LogScroll.ScrollableHeight, null, disableAnimation: true);
     }
 
-    // ── 最近运行 ──────────────────────────────────────────────
-
-    private void RenderHistory()
-    {
-        var all = _s.Runtime.History;
-        var limit = _histExpanded ? GameRunHistoryStore.MaxRecords : HistoryPreview;
-        var rows = all.Take(limit).Select(ToRow).ToList();
-
-        HistoryList.ItemsSource = rows;
-        HistoryList.Visibility = rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        HistoryHeader.Visibility = HistoryList.Visibility;
-        HistoryEmpty.Visibility = rows.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-
-        ExpandHistoryBtn.Visibility = all.Count > HistoryPreview
-            ? Visibility.Visible : Visibility.Collapsed;
-        ExpandHistoryBtn.Content = Loc.T(_histExpanded ? "收起" : "展开全部");
-    }
-
-    private static GameRunRow ToRow(GameRunRecord r)
-    {
-        string status;
-        Brush? brush;
-        if (r.Crashed)
-        {
-            status = Loc.T("异常退出");
-            brush = ThemeBrush("DangerBrush");
-        }
-        else if (r.ExitCode is 0)
-        {
-            status = Loc.T("正常退出");
-            brush = ThemeBrush("SuccessBrush");
-        }
-        else
-        {
-            // 到这里只可能是「用户主动结束」或「启动器重启后收口的记录（没有退出码）」：
-            // 前者进程被强杀必然是非零退出码，但这不是崩溃（Crashed 已排除），安静收尾即可。
-            // 必须给真实画刷：模板是 Foreground="{x:Bind StatusBrush}"，null 会让整段文字不可见。
-            status = Loc.T("已结束");
-            brush = ThemeBrush("TextFillColorSecondaryBrush");
-        }
-
-        return new GameRunRow(
-            r.VersionId,
-            r.StartedAt.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture),
-            FormatDuration(r.Duration),
-            FormatBytes(r.PeakWorkingSetBytes),
-            status,
-            brush);
-    }
-
-    private void ExpandHistory_Click(object sender, RoutedEventArgs e)
-    {
-        _histExpanded = !_histExpanded;
-        RenderHistory();
-    }
-
     // ── 动作 ─────────────────────────────────────────────────
 
     private void GoHome_Click(object sender, RoutedEventArgs e) =>
@@ -732,11 +665,6 @@ public sealed partial class RunningStatusPage : Page
             ? Loc.T("{0} × {1}", ctx.WindowWidth, ctx.WindowHeight)
             : Loc.T("默认窗口");
     }
-
-    private static string FormatDuration(TimeSpan d) =>
-        d.TotalHours >= 1 ? Loc.T("{0} 小时 {1} 分", (int)d.TotalHours, d.Minutes)
-        : d.TotalMinutes >= 1 ? Loc.T("{0} 分 {1} 秒", d.Minutes, d.Seconds)
-        : Loc.T("{0} 秒", Math.Max(0, d.Seconds));
 
     private static string FormatBytes(long bytes)
     {

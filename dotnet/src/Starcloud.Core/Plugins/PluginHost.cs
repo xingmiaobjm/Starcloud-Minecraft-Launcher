@@ -26,13 +26,36 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
     public static readonly string[] KnownEvents =
         ["game.launched", "game.exited", "launcher.ready"];
 
-    /// <summary>插件注册的 UI 面板（launcher:ui_panel）</summary>
+    /// <summary>
+    /// 插件注册的 UI 面板（launcher:ui_panel / 2.0 contributes.panels）。
+    /// EntryPath：1.x = 插件目录内 HTML；2.0（Declarative=true）= 声明式视图 JSON（规范 2.0 §7）。
+    /// </summary>
     public sealed record PanelRegistration(
-        string PluginId, string PanelId, string Title, string EntryPath);
+        string PluginId, string PanelId, string Title, string EntryPath, bool Declarative = false);
 
-    /// <summary>插件注册的页面挂载区（launcher:ui_panel）：宿主在固定 slot 位置嵌入插件 HTML</summary>
+    /// <summary>
+    /// 插件注册的页面挂载区（launcher:ui_panel / 2.0 contributes.slots、versionSections）。
+    /// EntryPath：1.x = 插件目录内 HTML；声明式（Declarative=true）= 视图 JSON 的绝对路径。
+    /// Title 仅声明式用（分区/卡片要抬头），Height ≤0 表示按内容自适应。
+    /// </summary>
     public sealed record SlotRegistration(
-        string PluginId, string SlotId, string EntryPath, int Height);
+        string PluginId, string SlotId, string EntryPath, int Height,
+        string Title = "", bool Declarative = false);
+
+    /// <summary>
+    /// 插件在首页放的一张卡片（2.0 contributes.homeCards，规范 2.0 §6.2）。
+    /// 与挂载区不同：同一插件可以声明多张，卡片带按插件加载顺序排列。
+    /// </summary>
+    public sealed record HomeCardRegistration(
+        string PluginId, string CardId, string Title, string EntryPath);
+
+    /// <summary>
+    /// 插件的一级导航项（2.0 contributes.navItems，规范 2.0 §6.4）。
+    /// 跨插件上限（最多 3 个）由宿主导航栏按加载顺序截断，注册表全量收下。
+    /// </summary>
+    public sealed record NavItemRegistration(
+        string PluginId, string NavId, string Title, string IconGlyph, string EntryPath,
+        bool IconFallback);
 
     /// <summary>插件启动失败信息</summary>
     public sealed record PluginStartError(string PluginId, string Message);
@@ -44,6 +67,8 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
     private readonly List<Loaded> _loaded = [];
     private readonly List<PanelRegistration> _panels = [];
     private readonly List<SlotRegistration> _slots = [];
+    private readonly List<HomeCardRegistration> _homeCards = [];
+    private readonly List<NavItemRegistration> _navItems = [];
     private readonly string _logDir;
     private readonly string _hostSdkPath;
     private readonly PluginHostServices? _services;
@@ -91,6 +116,15 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
     /// <summary>(pluginId, title, message)</summary>
     public event Action<string, string, string>? NotifyRequested;
 
+    /// <summary>
+    /// 面板 / 挂载区集合发生任何变化（插件加载完注册、停用摘除）。
+    /// 供宿主页面上的挂载区控件重建内容——插件是后台加载的，
+    /// 首页这类启动即渲染的页面在首次 Loaded 时可能还看不到贡献。
+    /// </summary>
+    public event Action? ContributionsChanged;
+
+    private void RaiseContributionsChanged() => ContributionsChanged?.Invoke();
+
     internal void RegisterPanel(string pluginId, string panelId, string title, string entry)
     {
         // entry 限制为插件解压目录内相对路径，拒绝绝对路径与穿越
@@ -107,6 +141,7 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
         }
         PanelRegistered?.Invoke(reg);
         GetLogger(pluginId)?.Info($"已注册面板：{panelId}（{title}）");
+        RaiseContributionsChanged();
     }
 
     internal void RegisterSlot(string pluginId, string slotId, string entry, int height)
@@ -125,12 +160,25 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
             _slots.Add(reg);
         }
         GetLogger(pluginId)?.Info($"已注册挂载区：{slotId}（{entry}）");
+        RaiseContributionsChanged();
     }
 
     /// <summary>查询某挂载点上所有插件注册的内容（页面加载时调用）</summary>
     public IReadOnlyList<SlotRegistration> GetSlots(string slotId)
     {
         lock (_gate) return [.. _slots.Where(s => s.SlotId == slotId)];
+    }
+
+    /// <summary>首页卡片（按插件加载顺序、插件内的声明顺序排列）</summary>
+    public IReadOnlyList<HomeCardRegistration> GetHomeCards()
+    {
+        lock (_gate) return [.. _homeCards];
+    }
+
+    /// <summary>一级导航项（按插件加载顺序、插件内的声明顺序）</summary>
+    public IReadOnlyList<NavItemRegistration> GetNavItems()
+    {
+        lock (_gate) return [.. _navItems];
     }
 
     internal void RaiseNotify(string pluginId, string title, string message)
@@ -145,11 +193,25 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
     public PluginStartError? Start(PluginManifest manifest, string dir)
     {
         Stop(manifest.Id);
+        // 未来版本（如 3.0）明确拒绝，避免「装上了却静默不工作」
+        if (!PluginEnvironment.CanRunApi(manifest.ApiVersion))
+            return new PluginStartError(manifest.Id,
+                $"本版本启动器暂不支持 API {manifest.ApiVersion} 插件，插件保持停用");
         var logger = new PluginLogger(manifest.Id, _logDir);
+        // 2.0：细粒度能力经桥接后下发；未强制/未实现的能力一律不给（fail-closed），逐条记日志
+        if (manifest.IsApi2)
+        {
+            var grant = PluginPermissions.BridgeApi2(manifest.Permissions);
+            logger.Info(grant.Granted.Count > 0
+                ? $"2.0 能力已生效：{string.Join(" · ", grant.Granted)}"
+                : "2.0 能力：无（未声明可用能力）");
+            if (grant.Deferred.Count > 0)
+                logger.Warn($"以下 2.0 能力本次未开放（fail-closed）：{string.Join("；", grant.Deferred)}");
+        }
         IPluginRuntime runtime;
         try
         {
-            runtime = CreateRuntime(manifest.Id, dir);
+            runtime = CreateRuntime(manifest, dir);
         }
         catch (Exception ex)
         {
@@ -176,6 +238,10 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
                 Stop(manifest.Id); // 回滚登记，并清理 onLoad 阶段可能已注册的面板
                 return new PluginStartError(manifest.Id, err);
             }
+            RegisterContributedPanels(manifest, dir, logger);
+            RegisterContributedSlots(manifest, dir, logger);
+            RegisterContributedHomeCards(manifest, dir, logger);
+            RegisterContributedNavItems(manifest, dir, logger);
             logger.Info($"已加载（v{manifest.Version}，权限 {string.Join(", ", manifest.Permissions)}）");
             return null;
         }
@@ -186,10 +252,175 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
         }
     }
 
+    /// <summary>
+    /// 2.0 声明式扩展点（规范 2.0 §6.2）：清单里写了就注册，不需要插件代码执行。
+    /// 面板入口是包内相对路径（manifest.Validate 已校验过安全），在目录内解析成绝对路径。
+    /// </summary>
+    private void RegisterContributedPanels(PluginManifest manifest, string dir, PluginLogger logger)
+    {
+        var panels = manifest.Contributes?.Panels;
+        if (panels is null || panels.Length == 0) return;
+        // 声明式面板同样是 UI 能力：没拿到 ui:panel 就不注册（与 ctx.ui 的装配口径一致）
+        if (manifest.IsApi2 &&
+            !PluginPermissions.BridgeApi2(manifest.Permissions)
+                .Capabilities.Contains(PluginPermissions.UiPanel))
+        {
+            logger.Warn($"声明了 contributes.panels，但 ui:panel 能力未生效，面板不会注册");
+            return;
+        }
+        foreach (var panel in panels)
+        {
+            if (string.IsNullOrWhiteSpace(panel.Id) || string.IsNullOrWhiteSpace(panel.View)) continue;
+            var title = string.IsNullOrWhiteSpace(panel.Title) ? panel.Id : panel.Title;
+            var reg = new PanelRegistration(manifest.Id, panel.Id, title,
+                Path.Combine(dir, panel.View.Replace('/', Path.DirectorySeparatorChar)),
+                Declarative: true);
+            lock (_gate)
+            {
+                _panels.RemoveAll(p => p.PluginId == manifest.Id && p.PanelId == panel.Id);
+                _panels.Add(reg);
+            }
+            PanelRegistered?.Invoke(reg);
+            logger.Info($"已注册声明式面板：{panel.Id}（{title}）");
+        }
+        RaiseContributionsChanged();
+    }
+
+    /// <summary>宿主实际支持的挂载点（写别的点会被拒绝并记日志，避免「声明了却静默不生效」）</summary>
+    public static readonly string[] SupportedSlotPoints =
+    [
+        "download.top", "home.top", "versions.top", "version.detail.top",
+        "version.detail.sections",
+    ];
+
+    /// <summary>contributes.versionSections 的落点（版本详情页的分区区）</summary>
+    public const string VersionSectionsPoint = "version.detail.sections";
+
+    /// <summary>
+    /// 2.0 声明式挂载区（规范 2.0 §6.2）：contributes.slots / versionSections 里写了就注册。
+    /// 需要 <c>ui:panel</c> 能力；点不在 <see cref="SupportedSlotPoints"/> 里的一律不注册并记日志。
+    /// </summary>
+    private void RegisterContributedSlots(PluginManifest manifest, string dir, PluginLogger logger)
+    {
+        var contributes = manifest.Contributes;
+        if (contributes is null) return;
+        var hasSlots = contributes.Slots.Length > 0 || contributes.VersionSections.Length > 0;
+        if (!hasSlots) return;
+        if (manifest.IsApi2 &&
+            !PluginPermissions.BridgeApi2(manifest.Permissions)
+                .Capabilities.Contains(PluginPermissions.UiPanel))
+        {
+            logger.Warn("声明了 contributes.slots / versionSections，但 ui:panel 能力未生效，挂载区不会注册");
+            return;
+        }
+
+        foreach (var slot in contributes.Slots)
+        {
+            if (string.IsNullOrWhiteSpace(slot.Point) || string.IsNullOrWhiteSpace(slot.View)) continue;
+            if (!SupportedSlotPoints.Contains(slot.Point, StringComparer.Ordinal))
+            {
+                logger.Warn($"挂载点 {slot.Point} 宿主暂不支持，已跳过（支持：{string.Join(" / ", SupportedSlotPoints)}）");
+                continue;
+            }
+            AddSlot(manifest, dir, logger, slot.Point, slot.View, slot.Height, title: "");
+        }
+
+        foreach (var section in contributes.VersionSections)
+        {
+            if (string.IsNullOrWhiteSpace(section.Id) || string.IsNullOrWhiteSpace(section.View)) continue;
+            AddSlot(manifest, dir, logger, VersionSectionsPoint, section.View, 0,
+                string.IsNullOrWhiteSpace(section.Title) ? section.Id : section.Title);
+        }
+        RaiseContributionsChanged();
+    }
+
+    private void AddSlot(PluginManifest manifest, string dir, PluginLogger logger,
+        string point, string view, int height, string title)
+    {
+        var reg = new SlotRegistration(manifest.Id, point,
+            Path.Combine(dir, view.Replace('/', Path.DirectorySeparatorChar)),
+            height > 0 ? Math.Clamp(height, 48, 320) : 0,
+            title, Declarative: true);
+        lock (_gate)
+        {
+            // 同一插件同一点只保留一条（清单本身不会重复，这里防手改清单）
+            _slots.RemoveAll(s => s.PluginId == manifest.Id && s.SlotId == point);
+            _slots.Add(reg);
+        }
+        logger.Info($"已注册声明式挂载区：{point}（{Path.GetFileName(view)}）");
+    }
+
+    /// <summary>
+    /// 2.0 首页卡片（规范 2.0 §6.2）：contributes.homeCards 里写了就注册。
+    /// 与挂载区同为 UI 能力，需要 <c>ui:panel</c>；同一插件可声明多张，
+    /// 「最多显示几张」由宿主首页卡片带决定（这里全量收下，不截断）。
+    /// </summary>
+    private void RegisterContributedHomeCards(PluginManifest manifest, string dir, PluginLogger logger)
+    {
+        var cards = manifest.Contributes?.HomeCards;
+        if (cards is null || cards.Length == 0) return;
+        if (manifest.IsApi2 &&
+            !PluginPermissions.BridgeApi2(manifest.Permissions)
+                .Capabilities.Contains(PluginPermissions.UiPanel))
+        {
+            logger.Warn("声明了 contributes.homeCards，但 ui:panel 能力未生效，首页卡片不会注册");
+            return;
+        }
+
+        foreach (var card in cards)
+        {
+            if (string.IsNullOrWhiteSpace(card.Id) || string.IsNullOrWhiteSpace(card.View)) continue;
+            var reg = new HomeCardRegistration(manifest.Id, card.Id,
+                string.IsNullOrWhiteSpace(card.Title) ? card.Id : card.Title,
+                Path.Combine(dir, card.View.Replace('/', Path.DirectorySeparatorChar)));
+            lock (_gate)
+            {
+                // 同一插件同一 id 只保留一条（清单本身不会重复，这里防手改清单）
+                _homeCards.RemoveAll(c => c.PluginId == manifest.Id && c.CardId == card.Id);
+                _homeCards.Add(reg);
+            }
+            logger.Info($"已注册首页卡片：{card.Id}（{reg.Title}）");
+        }
+        RaiseContributionsChanged();
+    }
+
+    /// <summary>2.0 一级导航项：contributes.navItems 里写了就注册；同样是 UI 能力，需要 ui:panel。</summary>
+    private void RegisterContributedNavItems(PluginManifest manifest, string dir, PluginLogger logger)
+    {
+        var items = manifest.Contributes?.NavItems;
+        if (items is null || items.Length == 0) return;
+        if (manifest.IsApi2 &&
+            !PluginPermissions.BridgeApi2(manifest.Permissions).Capabilities.Contains(PluginPermissions.UiPanel))
+        {
+            logger.Warn("声明了 contributes.navItems，但 ui:panel 能力未生效，导航项不会注册");
+            return;
+        }
+
+        // 清单校验已限制 ≤1；这里仍防御性只取第一条（防手改清单）
+        var item = items[0];
+        if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.View)) return;
+        var iconOk = PluginExtensionPoints.TryResolveNavIcon(item.Icon, out var glyph);
+        if (!iconOk) logger.Warn($"导航项 {item.Id} 的图标名 {item.Icon} 不在宿主白名单里，已回落默认图标");
+
+        var reg = new NavItemRegistration(manifest.Id, item.Id,
+            string.IsNullOrWhiteSpace(item.Title) ? item.Id : item.Title,
+            glyph,
+            Path.Combine(dir, item.View.Replace('/', Path.DirectorySeparatorChar)),
+            IconFallback: !iconOk);
+        lock (_gate)
+        {
+            _navItems.RemoveAll(n => n.PluginId == manifest.Id && n.NavId == item.Id);
+            _navItems.Add(reg);
+        }
+        logger.Info($"已注册导航项：{item.Id}（{reg.Title}）");
+        RaiseContributionsChanged();
+    }
+
     /// <summary>停止插件：回调 onUnload、清理面板、释放运行时</summary>
     public void Stop(string pluginId)
     {
         Loaded? plugin;
+        var removedAny = false;
         lock (_gate)
         {
             plugin = _loaded.FirstOrDefault(p => p.Manifest.Id == pluginId);
@@ -198,9 +429,13 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
             _subscriptions.Remove(pluginId);
             var removed = _panels.Where(p => p.PluginId == pluginId).ToList();
             _panels.RemoveAll(p => p.PluginId == pluginId);
-            _slots.RemoveAll(s => s.PluginId == pluginId);
+            var removedSlots = _slots.RemoveAll(s => s.PluginId == pluginId) > 0;
+            var removedCards = _homeCards.RemoveAll(c => c.PluginId == pluginId) > 0;
+            var removedNavs = _navItems.RemoveAll(n => n.PluginId == pluginId) > 0;
+            removedAny = removed.Count > 0 || removedSlots || removedCards || removedNavs;
             foreach (var r in removed) PanelUnregistered?.Invoke(pluginId, r.PanelId);
         }
+        if (removedAny) RaiseContributionsChanged();
         try
         {
             InvokeHookGuarded(plugin, BuildContext(plugin.Manifest, plugin.Dir,
@@ -254,21 +489,37 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
 
     // ── 内部 ──
 
-    private IPluginRuntime CreateRuntime(string pluginId, string dir)
+    private IPluginRuntime CreateRuntime(PluginManifest manifest, string dir)
     {
         if (File.Exists(Path.Combine(dir, "main.js")))
             return new JsPluginRuntime();
         if (File.Exists(Path.Combine(dir, "main.py")))
-            return new PyPluginRuntime(dir, _hostSdkPath, pluginId, HostCall);
+            return new PyPluginRuntime(dir, _hostSdkPath, manifest.Id, HostCall);
+        // 纯声明式 2.0 插件（只有 contributes、没有入口脚本）也允许加载：无可执行代码 → 空运行时
+        if (manifest.IsApi2 && manifest.Contributes is not null)
+            return new NoopPluginRuntime();
         throw new InvalidOperationException("插件缺少入口脚本（main.js / main.py）");
+    }
+
+    /// <summary>无入口脚本的声明式插件运行时：全部钩子为空操作</summary>
+    private sealed class NoopPluginRuntime : IPluginRuntime
+    {
+        public string EntryName => "";
+        public string? Load(string entryPath, PluginContext ctx) => null;
+        public void InvokeHook(string hookName, PluginContext ctx) { }
+        public void Dispose() { }
     }
 
     private PluginContext BuildContext(PluginManifest manifest, string dir,
         PluginLogger logger, GameArgsManager? args, PluginEventContext? evt = null)
     {
-        var perms = manifest.Permissions;
+        // 2.0：装配用的能力集合是"桥接后"的（只含不放大权限的能力），
+        // 主机白名单与存储配额随之一起下发（规范 2.0 §5）
+        var grant = manifest.IsApi2 ? PluginPermissions.BridgeApi2(manifest.Permissions) : null;
+        string[] perms = grant is null ? manifest.Permissions : [.. grant.Capabilities];
         var api = _services is null ? null : new PluginApiCore(
-            _services, manifest.Id, Path.Combine(dir, "data"), logger, perms, this, evt);
+            _services, manifest.Id, Path.Combine(dir, "data"), logger, perms, this, evt,
+            grant?.AllowedHosts, grant?.StorageQuotaKb);
         T? WhenAny<T>(Func<PluginApiCore, T> factory, params string[] anyOf) where T : class =>
             api is not null && anyOf.Any(perms.Contains) ? factory(api) : null;
         T? When<T>(string permission, Func<PluginApiCore, T> factory) where T : class =>
@@ -280,7 +531,9 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
             Launcher = new PluginLauncherInfo
             {
                 Version = LauncherVersion,
-                ApiVersion = PluginEnvironment.ApiVersion,
+                ApiVersion = manifest.ApiVersion.Length > 0
+                    ? manifest.ApiVersion
+                    : PluginEnvironment.ApiVersion,
                 OfficialBuild = PluginEnvironment.OfficialChinaBuild,
             },
             Args = perms.Contains(PluginPermissions.GameArguments) ? args : null,
@@ -430,6 +683,39 @@ public sealed class PluginHost : IPluginLaunchHook, IDisposable
         finally
         {
             lock (_gate) _activeContexts.Remove(plugin.Manifest.Id);
+        }
+    }
+
+    // ── 声明式视图动作（规范 2.0 §7.2） ──
+
+    /// <summary>动作执行结果：ResultJson = 能力返回值的 JSON；Error 非空即失败</summary>
+    public sealed record PluginActionResult(string? ResultJson, string? Error)
+    {
+        public bool Ok => Error is null;
+    }
+
+    /// <summary>
+    /// 执行声明式视图里的 <c>{api,args}</c> 动作（宿主代插件调用能力）。
+    /// 走的是与插件自己调用时同一套能力分发，因此权限校验、网络主机白名单、
+    /// 存储配额等限制完全一致——声明式 UI 不是绕过权限的旁路。
+    /// </summary>
+    public PluginActionResult InvokeAction(string pluginId, string api, string argsJson)
+    {
+        Loaded? plugin;
+        lock (_gate) plugin = _loaded.FirstOrDefault(p => p.Manifest.Id == pluginId);
+        if (plugin is null)
+            return new PluginActionResult(null, "插件未启用：面板动作需要插件处于启用状态");
+        if (string.IsNullOrWhiteSpace(api))
+            return new PluginActionResult(null, "动作缺少 api");
+        try
+        {
+            var ctx = BuildContext(plugin.Manifest, plugin.Dir, plugin.Logger, args: null);
+            var result = InvokeCapability(ctx, api, string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            return new PluginActionResult(PluginApiCore.Json(result), null);
+        }
+        catch (Exception ex)
+        {
+            return new PluginActionResult(null, ex.Message);
         }
     }
 

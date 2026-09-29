@@ -83,8 +83,8 @@ Action log
 Action permission layer
 Isolated
 Isolated folder
-Isolated folder (versions/<version name>)
-Isolated folder (recommended)
+Version isolation (versions/<version name>)
+Version isolation (recommended)
 Failed to read saves: {0}
 Failed to read log: {0}
 Failed to read dropped content: {0}

@@ -452,14 +452,21 @@ public sealed class PluginStorageApi(PluginApiCore c)
 
     private void WriteCore(JsonObject obj)
     {
-        var file = _c.SafePath("storage.json");
-        var dir = Path.GetDirectoryName(file);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        File.WriteAllText(file, obj.ToJsonString(new JsonSerializerOptions
+        var json = obj.ToJsonString(new JsonSerializerOptions
         {
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        }));
+        });
+        // 2.0 storage:kv(quota=) 的配额在这里强制（1.x 未声明配额 → 不限，保持原行为）
+        if (_c.StorageQuotaKb is { } quotaKb &&
+            System.Text.Encoding.UTF8.GetByteCount(json) > (long)quotaKb * 1024)
+            throw new InvalidOperationException(
+                $"插件私有存储已超过声明配额 {quotaKb} KB，写入被拒绝（请清理旧键或提高 quota）");
+
+        var file = _c.SafePath("storage.json");
+        var dir = Path.GetDirectoryName(file);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        File.WriteAllText(file, json);
     }
 }
 

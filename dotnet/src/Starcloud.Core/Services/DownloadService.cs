@@ -59,7 +59,9 @@ public sealed class DownloadService
         };
         // 总时长超时会误杀慢速大文件（速度 × 60s ≈ 24MB 处必然被掐死）→ 禁用，
         // 连接健康改由各读循环的 15 秒空闲超时负责（无数据即判死换源）
-        _http = new HttpClient(sockets) { Timeout = Timeout.InfiniteTimeSpan };
+        // CurseForge CDN 自 2026-07-16 起要求带 x-api-key（否则 401）：挂在 handler 上，
+        // 整文件 / 分片 / 探测所有路径一并覆盖，调用方一行不用改。
+        _http = new HttpClient(new CurseForgeCdnAuthHandler(settings, sockets)) { Timeout = Timeout.InfiniteTimeSpan };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Starcloud-Launcher");
         var directSockets = new SocketsHttpHandler
         {
@@ -70,7 +72,7 @@ public sealed class DownloadService
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
             UseProxy = false,
         };
-        _directHttp = new HttpClient(directSockets) { Timeout = Timeout.InfiniteTimeSpan };
+        _directHttp = new HttpClient(new CurseForgeCdnAuthHandler(settings, directSockets)) { Timeout = Timeout.InfiniteTimeSpan };
         _directHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Starcloud-Launcher");
         _sources = new DownloadSourceRegistry(settings);
         _chunked = new ChunkedFileDownloader(_http, _sources) { Log = msg => Log?.Invoke(msg) };
@@ -86,12 +88,44 @@ public sealed class DownloadService
         => DownloadOneAsync(url, destFile, sha1, maxRetries, ct, 0, null);
 
     /// <summary>
+    /// 单文件下载入口。CurseForge CDN 直链失败时，最后再试一次 MCIM 文件镜像
+    /// （镜像只换主机、路径不变）：CDN 在国内可能被限速或不可达，而官方自 2026-07-16 起
+    /// 又强制要求密钥，失败面比过去大。文件字节仍以官方为准——这里只是通道兜底，
+    /// 且不给镜像发密钥（见 <see cref="CurseForgeCdn"/>）。
+    /// </summary>
+    private async Task DownloadOneAsync(
+        string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
+        long size, Action<long>? onBytes)
+    {
+        if (CurseForgeCdn.IsCdnUrl(url))
+        {
+            try
+            {
+                await DownloadFromAsync(url, destFile, sha1, maxRetries, ct, size, onBytes);
+                return;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var mirror = CurseForgeCdn.Mirror(url);
+                Log?.Invoke($"CurseForge CDN 下载失败（{ex.Message}）→ 改用 MCIM 文件镜像：{ShortName(url)}");
+                await DownloadFromAsync(mirror, destFile, sha1, maxRetries, ct, size, onBytes);
+                return;
+            }
+        }
+        await DownloadFromAsync(url, destFile, sha1, maxRetries, ct, size, onBytes);
+    }
+
+    /// <summary>
     /// 单文件下载主路径：体积 ≥ 4 MiB 且该主机支持 Range → 多连接分片；
     /// 其余（小文件、不支持 Range 的源）→ 整文件下载（镜像源优先，官方兜底）。
     /// <para>2026-09-21 起分片不再只给 Mojang 域名：实测 CDN 单连接常被限到 1–3 MB/s，
     /// 而 4 条并行能拿到 3.1×，所以 Modrinth / CurseForge 这些同样支持 Range 的源也该并行。</para>
     /// </summary>
-    private async Task DownloadOneAsync(
+    private async Task DownloadFromAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
         long size, Action<long>? onBytes)
     {
@@ -101,8 +135,10 @@ public sealed class DownloadService
         var host = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
         var range = mojang ? true : _sources.RangeSupport(host);
 
-        // 体积未知：Mojang 走 HEAD；其它域名在 Range 能力未知时探测一次（顺带拿到真实大小）。
-        // 已确认不支持 Range 的主机不再探测：整文件路径本来就不需要大小。
+        // 体积未知：Mojang 走 HEAD；其它域名探测一次（顺带拿到真实大小与 Range 能力）。
+        // 注意「能力已知支持分片、但调用方没给体积」也必须补探一次：否则 size 恒为 0，
+        // 分片门槛（≥4MiB）判不出来，同一个主机的第二次下载就会静默退化成单连接整文件。
+        // 已确认不支持 Range 的主机不再探测：它无论如何都走整文件，用不到体积。
         if (mojang)
         {
             if (size <= 0) size = await ProbeSizeAsync(url, ct);
@@ -112,6 +148,10 @@ public sealed class DownloadService
             var (probeSize, ranged) = await ProbeRangeAsync(url, ct);
             if (size <= 0) size = probeSize;
             range = ranged;
+        }
+        else if (range == true && size <= 0)
+        {
+            size = (await ProbeRangeAsync(url, ct)).Size; // 只补体积，不覆盖已记忆的能力
         }
 
         if (size >= ChunkedFileDownloader.Threshold && range == true)
@@ -137,7 +177,7 @@ public sealed class DownloadService
             }
         }
 
-        await DownloadWholeFileAsync(url, destFile, sha1, maxRetries, ct, size);
+        await DownloadWholeFileAsync(url, destFile, sha1, maxRetries, ct, size, onBytes);
     }
 
     /// <summary>
@@ -178,7 +218,8 @@ public sealed class DownloadService
 
     /// <summary>整文件下载（不分片）：按竞速池顺序换源重试，官方恒为兜底</summary>
     private async Task DownloadWholeFileAsync(
-        string url, string destFile, string? sha1, int maxRetries, CancellationToken ct, long size)
+        string url, string destFile, string? sha1, int maxRetries, CancellationToken ct, long size,
+        Action<long>? onBytes)
     {
         // 非 Mojang 域名没有任何镜像能改写它 → 池里只留官方一项（多连接并行由分片 worker 负责）
         var pool = _sources.RacingPoolFor(url);
@@ -197,7 +238,7 @@ public sealed class DownloadService
             }
             try
             {
-                await FetchWholeAsync(_sources.Rewrite(url, kind), destFile, sha1, ct);
+                await FetchWholeAsync(_sources.Rewrite(url, kind), destFile, sha1, ct, onBytes);
                 _sources.RecordSuccess(kind);
                 if (size >= ChunkedFileDownloader.Threshold)
                     Log?.Invoke($"整文件下载 {Path.GetFileName(destFile)}（{DownloadSourceRegistry.Name(kind)}）");
@@ -217,13 +258,14 @@ public sealed class DownloadService
     /// 而国内不少用户默认开着代理；反过来纯直连在个别网络下又可能不通。
     /// 两个方向都试，才不会因为"用户开着代理"或"用户没开代理"各挂一半。</para>
     /// </summary>
-    private async Task FetchWholeAsync(string url, string destFile, string? sha1, CancellationToken ct)
+    private async Task FetchWholeAsync(string url, string destFile, string? sha1, CancellationToken ct,
+        Action<long>? onBytes)
     {
         if (IsForgeCdn(url))
         {
             try
             {
-                await FetchWholeOnceAsync(_directHttp, url, destFile, sha1, ct);
+                await FetchWholeOnceAsync(_directHttp, url, destFile, sha1, ct, onBytes);
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -235,18 +277,19 @@ public sealed class DownloadService
                 Log?.Invoke($"Forge CDN 直连失败，改走系统代理重试：{Path.GetFileName(destFile)}（{ex.Message}）");
             }
         }
-        await FetchWholeOnceAsync(_http, url, destFile, sha1, ct);
+        await FetchWholeOnceAsync(_http, url, destFile, sha1, ct, onBytes);
     }
 
     /// <summary>CurseForge 的文件分发域名（edge / mediafilez 等 *.forgecdn.net）</summary>
     private static bool IsForgeCdn(string url) =>
         url.Contains("forgecdn.net", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>单次整文件请求：流式写 .sc-tmp（字节增量送调度中心）→ SHA1 校验 → 落盘。
+    /// <summary>单次整文件请求：流式写 .sc-tmp（字节增量同时送调度中心与调用方回调）→ SHA1 校验 → 落盘。
     /// 空闲 15 秒无数据即判定连接卡死抛异常（外层换源重试）；重试时对 .sc-tmp 做 Range 断点续传，
     /// 避免「下载到一半卡 60 秒超时后进度归零重来」。</summary>
     private async Task FetchWholeOnceAsync(
-        HttpClient client, string url, string destFile, string? sha1, CancellationToken ct)
+        HttpClient client, string url, string destFile, string? sha1, CancellationToken ct,
+        Action<long>? onBytes)
     {
         var tmp = destFile + ".sc-tmp";
         var resume = File.Exists(tmp) ? new FileInfo(tmp).Length : 0;
@@ -316,11 +359,16 @@ public sealed class DownloadService
                     if (Environment.TickCount64 - lastFlush >= TelemetryWindowMs)
                     {
                         TaskCenterService.Instance.ReportDownloadBytes(pending);
+                        onBytes?.Invoke(pending); // 进度条的速度靠它，缺了这条单连接下载全程停在 0
                         pending = 0;
                         lastFlush = Environment.TickCount64;
                     }
                 }
-                if (pending > 0) TaskCenterService.Instance.ReportDownloadBytes(pending);
+                if (pending > 0)
+                {
+                    TaskCenterService.Instance.ReportDownloadBytes(pending);
+                    onBytes?.Invoke(pending);
+                }
             }
             finally
             {
@@ -383,9 +431,13 @@ public sealed class DownloadService
     /// 字符串内容下载（可带附加请求头，如 CurseForge 官方 API 的 `x-api-key`）。
     /// <para>逐源尝试：镜像优先、官方兜底，单个源 <see cref="MetadataTimeout"/> 内拿不到响应就换下一个。
     /// 非 Mojang 域名不会被镜像改写（竞速池只有一项），仍然是这一条有界请求。</para>
+    /// <param name="trackSourceHealth">是否把成败记进源健康度。非 Mojang 的第三方接口
+    /// （CurseForge 等）应传 false：它们的超时与 Mojang 镜像健康度无关，
+    /// 记进去会把原版下载的源排序带偏。</param>
     /// </summary>
     public async Task<string> GetStringAsync(string url,
-        IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default,
+        bool trackSourceHealth = true)
     {
         var pool = _sources.RacingPoolFor(url);
         Exception? last = null;
@@ -407,14 +459,14 @@ public sealed class DownloadService
                 // 200 却完全不是数据。直接换下一个源，别把 HTML 交给 JSON 解析器炸在调用方。
                 if (kind != SourceKind.Official && LooksLikeHtml(text))
                 {
-                    _sources.RecordFailure(kind);
+                    if (trackSourceHealth) _sources.RecordFailure(kind);
                     last = new IOException("返回的是站点页面（HTML），不是数据");
                     if (i < pool.Count - 1)
                         Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 返回站点页面而非数据" +
                                     $"→ 换下一个源：{ShortName(url)}");
                     continue;
                 }
-                _sources.RecordSuccess(kind);
+                if (trackSourceHealth) _sources.RecordSuccess(kind);
                 return text;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -426,7 +478,7 @@ public sealed class DownloadService
                 last = ex is OperationCanceledException
                     ? new TimeoutException($"{MetadataTimeout.TotalSeconds:F0} 秒无响应")
                     : ex;
-                _sources.RecordFailure(kind);
+                if (trackSourceHealth) _sources.RecordFailure(kind);
                 // 只在还有下一个源时记日志，避免最后一条重复报错
                 if (i < pool.Count - 1)
                     Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 元数据请求失败" +
@@ -546,7 +598,9 @@ public sealed class DownloadService
                 if (Interlocked.CompareExchange(ref lastReportMs, now, prev) != prev) return;
             }
             var elapsed = sw.Elapsed.TotalSeconds;
-            var doneNow = Interlocked.Read(ref doneBytes) + lastReported;
+            var raw = Interlocked.Read(ref doneBytes) + lastReported;
+            // 换源重试 / 断点续传可能把同一段字节再报一遍；总量已知就夹住，免得进度冲过 100%
+            var doneNow = totalBytes > 0 ? Math.Min(raw, totalBytes) : raw;
             var speed = elapsed > 0.5 ? doneNow / elapsed : 0;
             double? eta = speed > 1 && totalBytes > doneNow ? (totalBytes - doneNow) / speed : null;
             progress.Report(new BatchProgress(stage, done + doneFiles, files.Count, doneNow,

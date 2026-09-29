@@ -63,7 +63,7 @@ This invite link is invalid or has expired. Ask your friend to generate a new on
 FPS checkup
 Modpack
 If a modpack reports a mod conflict, let Nova help you track it down.
-Modpack contents will be stored separately under versions/<new name>/.
+Modpack contents will be stored in a separate folder under versions/<new name>/.
 For modpacks, use the Download button on the Download page to go through the new version flow.
 Premium
 Premium login
@@ -143,3 +143,10 @@ Latest stable
 Yesterday {0:HH:mm}
 Make a Nova Moment
 Back
+API {0}
+API {0} · not yet runnable
+By {0} · Capabilities: {1}
+{0} (high risk)
+{0} ({1})
+low risk
+medium risk

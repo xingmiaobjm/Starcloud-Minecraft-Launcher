@@ -58,10 +58,21 @@ public sealed class PluginService
             if (!File.Exists(manifestPath)) continue; // 规范：缺 manifest 直接拒绝
             var manifest = PluginManifest.ParseFile(manifestPath);
             if (manifest is null || manifest.Validate(Host.LauncherVersion).Count > 0) continue;
-            result.Add(new InstalledPlugin(manifest, dir,
-                manifest.VerifyOfficialSignature(manifestPath)));
+            result.Add(new InstalledPlugin(manifest, dir, IsOfficial(manifest, dir, manifestPath)));
         }
         return result.OrderBy(p => p.Manifest.Name, StringComparer.CurrentCulture).ToList();
+    }
+
+    /// <summary>
+    /// 官方签名标记：2.0 走整包签名（integrity.json，覆盖全部文件），1.x 走 manifest 签名。
+    /// 逐文件摘要不一致时一律不算「已验证」。
+    /// </summary>
+    private static bool IsOfficial(PluginManifest manifest, string dir, string manifestPath)
+    {
+        if (!manifest.IsApi2) return manifest.VerifyOfficialSignature(manifestPath);
+        var integrity = PluginIntegrity.ParseFile(Path.Combine(dir, PluginIntegrity.FileName));
+        if (integrity is null || integrity.VerifyFiles(dir).Count > 0) return false;
+        return integrity.Verify(out _) == PluginTrustState.Verified;
     }
 
     /// <summary>按 id 取已安装插件</summary>
@@ -122,6 +133,35 @@ public sealed class PluginService
             errors = manifest.Validate(Host.LauncherVersion);
             if (errors.Count > 0) return (null, errors);
 
+            // 2.0 包必须带 integrity.json：逐文件摘要 + 整包签名（规范 2.0 §8）
+            if (manifest.IsApi2)
+            {
+                var integrity = PluginIntegrity.ParseFile(
+                    Path.Combine(staging, PluginIntegrity.FileName));
+                if (integrity is null)
+                {
+                    errors.Add($"2.0 插件包缺少 {PluginIntegrity.FileName}（整包摘要与签名）");
+                    return (null, errors);
+                }
+                if (!string.Equals(integrity.Id, manifest.Id, StringComparison.Ordinal) ||
+                    !string.Equals(integrity.Version, manifest.Version, StringComparison.Ordinal))
+                {
+                    errors.Add("integrity.json 的 id/version 与 manifest 不一致");
+                    return (null, errors);
+                }
+                var mismatches = integrity.VerifyFiles(staging);
+                if (mismatches.Count > 0)
+                {
+                    errors.AddRange(mismatches);
+                    return (null, errors);
+                }
+                if (integrity.Verify(out var detail) == PluginTrustState.Invalid)
+                {
+                    errors.Add($"插件签名无效（拒绝安装）：{detail}");
+                    return (null, errors);
+                }
+            }
+
             // 同 id 原子替换（先停旧实例）
             var target = Path.Combine(LauncherPaths.PluginUnpackedDir, manifest.Id);
             Host.Stop(manifest.Id);
@@ -136,7 +176,7 @@ public sealed class PluginService
             staging = target; // 已移动，清理阶段跳过
 
             var installed = new InstalledPlugin(manifest, target,
-                manifest.VerifyOfficialSignature(manifestPath));
+                IsOfficial(manifest, target, Path.Combine(target, "manifest.json")));
             SetVersion(manifest.Id, manifest.Version);
             return (installed, errors);
         }
@@ -182,6 +222,10 @@ public sealed class PluginService
     /// <summary>启用（启动插件实例）；失败返回错误信息（null = 成功）</summary>
     public string? Enable(InstalledPlugin plugin)
     {
+        // 依赖闸门（规范 2.0 §8.3）：把本插件视为「待启用」，缺依赖 / 依赖未启用 / 版本不满足即拒绝
+        var blocker = ResolveDependencies(plugin.Manifest.Id);
+        if (blocker is not null) return blocker;
+
         var err = Host.Start(plugin.Manifest, plugin.Dir);
         if (err is null)
         {
@@ -197,23 +241,39 @@ public sealed class PluginService
         SetEnabled(id, false);
     }
 
-    /// <summary>应用启动时加载所有已启用插件（后台线程调）</summary>
+    /// <summary>应用启动时加载所有已启用插件（后台线程调）：按依赖序启动，被阻断的记日志</summary>
     public void LoadEnabledAtStartup()
     {
-        foreach (var plugin in Scan())
+        var installed = Scan();
+        var resolution = PluginDependencyResolver.Resolve(
+            installed.Select(p => p.Manifest), IsEnabled);
+
+        foreach (var id in resolution.LoadOrder)
         {
-            if (!IsEnabled(plugin.Manifest.Id)) continue;
+            var plugin = installed.FirstOrDefault(p => p.Manifest.Id == id);
+            if (plugin is null) continue;
             var err = Host.Start(plugin.Manifest, plugin.Dir);
             if (err is not null)
-                LauncherLog.Write("plugin",
-                    $"[{plugin.Manifest.Id}] 启动期自动加载失败：{err.Message}");
+                LauncherLog.Write("plugin", $"[{id}] 启动期自动加载失败：{err.Message}");
         }
+        foreach (var (id, reason) in resolution.Blocked)
+            LauncherLog.Write("plugin", $"[{id}] 启动期未加载：{reason}");
+
         // 全部插件就绪后再广播 launcher.ready：订阅方此时才能确定「其他插件也在了」
         Host.RaiseEvent("launcher.ready", new
         {
             version = Host.LauncherVersion,
             plugins = Host.LoadedCount,
         });
+    }
+
+    /// <summary>以「本插件将启用」为前提解析依赖，返回阻断原因（null = 可加载）</summary>
+    private string? ResolveDependencies(string pluginId)
+    {
+        var resolution = PluginDependencyResolver.Resolve(
+            Scan().Select(p => p.Manifest),
+            id => id == pluginId || IsEnabled(id));
+        return PluginDependencyResolver.BlockReason(resolution, pluginId);
     }
 
     // ── 免责确认（规范 §4：用户手动确认才能启用） ──

@@ -8,30 +8,22 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+       NavigationCacheMode="Disabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <StackPanel Grid.Row="0" Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-            <TextBlock loc:Loc.Text="存档" FontSize="28" FontWeight="Medium" />
-            <TextBlock loc:Loc.Text="备份、恢复与清理本地世界"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
-
         <!-- 状态提示 -->
-        <InfoBar x:Name="OkBar" Grid.Row="1" Severity="Success" IsOpen="False" IsClosable="True" />
-        <InfoBar x:Name="ErrorBar" Grid.Row="1" Severity="Error" IsOpen="False" IsClosable="True" />
+        <InfoBar x:Name="OkBar" Grid.Row="0" Severity="Success" IsOpen="False" IsClosable="True" />
+        <InfoBar x:Name="ErrorBar" Grid.Row="0" Severity="Error" IsOpen="False" IsClosable="True" />
 
         <!-- 跨版本运行态 -->
-        <InfoBar x:Name="RunBar" Grid.Row="2" Severity="Informational" IsOpen="False" IsClosable="False"
+        <InfoBar x:Name="RunBar" Grid.Row="1" Severity="Informational" IsOpen="False" IsClosable="False"
                  loc:Loc.Title="正在运行" Message="">
             <InfoBar.ActionButton>
                 <ctrl:GlowButton loc:Loc.Text="停止游戏" Click="StopGame_Click" />
@@ -39,7 +31,7 @@
         </InfoBar>
 
         <!-- 工具条 -->
-        <Grid Grid.Row="3" ColumnSpacing="8">
+        <Grid Grid.Row="2" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -70,7 +62,7 @@
         </Grid>
 
         <!-- 世界列表 -->
-        <Border Grid.Row="4"
+        <Border Grid.Row="3"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">

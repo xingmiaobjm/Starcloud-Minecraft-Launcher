@@ -267,6 +267,14 @@
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             </Style>
 
+            <!-- 静态瓦片：一点悬停反馈都不要 —— 不换色（走卡片模板，没有四态）、不光斑、不上浮。
+                 用在「本身就是一张卡」的瓦片上（下载页的两枚最新版本）：悬停时整块被光斑染暗、
+                 还被抬起来，比完全不动更糟。底色 / 圆角 / 内边距仍由调用点自己给（本地值优先）。 -->
+            <Style x:Key="ScStaticCardButtonStyle" TargetType="ctrl:GlowButton"
+                   BasedOn="{StaticResource ScGlowCardButtonStyle}">
+                <Setter Property="HoverEffectEnabled" Value="False" />
+            </Style>
+
             <!-- ══ 可复用元素：ctrl:CategoryNavItem（左侧分类导航项） ══
                  下载页与设置页左侧那 10 个分区条目，原先调用点里只写内容（FontIcon + TextBlock），
                  选中/悬停反馈全靠框架 ListViewItem 自带的硬边直角底色，跟行内圆角与跟手光斑

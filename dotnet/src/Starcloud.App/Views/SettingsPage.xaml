@@ -30,21 +30,13 @@
         </Style>
     </Page.Resources>
 
-    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <StackPanel Grid.Row="0" Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-            <TextBlock loc:Loc.Text="设置" FontSize="28" FontWeight="Medium" />
-            <TextBlock loc:Loc.Text="游戏目录、内存、Java、下载与通用选项"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
-
         <!-- 主体：左导航 + 右内容 -->
-        <Grid Grid.Row="1" ColumnSpacing="16">
+        <Grid ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="180" />
                 <ColumnDefinition Width="*" />
@@ -257,12 +249,12 @@
                                         <Border Style="{StaticResource PclSectionSpine}" />
                                         <TextBlock loc:Loc.Text="版本隔离（默认）" Style="{StaticResource PclSectionTitle}" />
                                     </StackPanel>
-                                    <TextBlock loc:Loc.Text="新版本的默认隔离方式。独立目录仅隔离 mods/存档/配置/资源包/光影 5 类内容，库与资源文件仍共享；单个版本可在其详情页覆盖此设置。"
+                                    <TextBlock loc:Loc.Text="新版本的默认隔离方式。开启后只隔离 mods/存档/配置/资源包/光影 5 类内容，库与资源文件仍共享；单个版本可在其详情页覆盖此设置。"
                                                FontSize="12" TextWrapping="Wrap"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <RadioButtons x:Name="IsolationDefaultRadio"
                                                   loc:Loc.Name="默认版本隔离方式">
-                                        <RadioButton loc:Loc.Text="独立目录（推荐）" />
+                                        <RadioButton loc:Loc.Text="版本隔离（推荐）" />
                                         <RadioButton loc:Loc.Text="共享目录" />
                                     </RadioButtons>
                                 </StackPanel>
@@ -342,7 +334,7 @@
                                                    Style="{StaticResource PclLabel}" />
                                         <TextBox x:Name="CurseForgeKeyBox" Width="320"
                                                  loc:Loc.Name="CurseForge API Key"
-                                                 loc:Loc.Placeholder="留空则使用社区只读代理" />
+                                                 loc:Loc.Placeholder="留空则使用启动器内置密钥" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>

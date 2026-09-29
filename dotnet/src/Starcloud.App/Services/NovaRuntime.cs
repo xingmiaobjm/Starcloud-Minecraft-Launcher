@@ -236,6 +236,11 @@ public sealed class NovaRuntime
             msg.ResultText = result;
             ok = true;
         }
+        catch (OperationCanceledException)
+        {
+            // 用户在调度中心把这次执行掐了：卡片标「已取消」而不是「失败」（文案由 PlanStateText 给）
+            msg.PlanState = "cancelled";
+        }
         catch (Exception ex)
         {
             msg.PlanState = "failed";
@@ -246,6 +251,9 @@ public sealed class NovaRuntime
             LogChanged?.Invoke();
         }
         RefreshState();
+
+        // 取消不是失败：卡片已标好，不必再让 Nova 解释一遍
+        if (msg.PlanState == "cancelled") return;
 
         // Agent 清单执行完 → 结果回喂历史，让 Nova 出一句总结/下一步建议
         if (ok)

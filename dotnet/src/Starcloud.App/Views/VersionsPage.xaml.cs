@@ -128,10 +128,19 @@ public sealed partial class VersionsPage : Page
         (App.MainWindow as MainWindow)?.NavigateToVersionDetail(row.Id);
     }
 
-    private void OpenVersionDir_Click(object sender, RoutedEventArgs e)
+    // 行菜单里的文件夹入口：版本目录固定为 versions/<id>；
+    // 存档 / 模组跟随实例根 —— 隔离实例各自持有一份，共享实例落在 .minecraft 下
+    private void OpenFolder_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is not { } row) return;
-        var dir = InstanceLayout.GameRoot(_s.Settings.DotMinecraft, row.Id, row.Isolated);
+        var dotMc = _s.Settings.DotMinecraft;
+        var root = InstanceLayout.GameRoot(dotMc, row.Id, row.Isolated);
+        var dir = ((sender as FrameworkElement)?.Tag as string) switch
+        {
+            "saves" => Path.Combine(root, "saves"),
+            "mods" => Path.Combine(root, "mods"),
+            _ => Path.Combine(dotMc, "versions", row.Id),
+        };
         Directory.CreateDirectory(dir);
         Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
     }
@@ -162,12 +171,6 @@ public sealed partial class VersionsPage : Page
             return;
         }
         RefreshList();
-    }
-
-    private async void ViewJson_Click(object sender, RoutedEventArgs e)
-    {
-        if (RowOf(sender) is not { } row) return;
-        await InstanceActions.ShowJsonAsync(Content.XamlRoot, _s.Settings.DotMinecraft, row.Id);
     }
 
     /// <summary>入口③「问 Nova」：选定实例上下文 → 展开 Nova 面板承接，不跳页。</summary>

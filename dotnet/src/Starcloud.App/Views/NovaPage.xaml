@@ -19,17 +19,10 @@
          卡片抬头 = ScSectionSpine + ScSectionTitle
          卡片说明 = ScCardHint
          状态芯片 = ScChip / ScChipAccent
-         块内顺序 = 抬头 → 说明 → 控件：从上往下读就是「这是什么 → 有什么用 → 怎么改」。 -->
+         块内顺序 = 卡片抬头 → 卡片说明 → 控件：从上往下读就是「这是什么 → 有什么用 → 怎么改」。 -->
     <Grid MaxWidth="1080" HorizontalAlignment="Stretch">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
             <StackPanel Spacing="16">
-
-                <!-- 页头 -->
-                <StackPanel Spacing="4" beh:TextOutlineBehavior.IsEnabled="True">
-                    <TextBlock loc:Loc.Text="Nova 设置" FontSize="28" FontWeight="Medium" />
-                    <TextBlock loc:Loc.Text="账户、模型与 Nova 能力选项"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
 
                 <!-- ═══ 账户：登录 Starcloud ID（云端模型与在线能力） ═══ -->
                 <Border Style="{StaticResource ScCard}">

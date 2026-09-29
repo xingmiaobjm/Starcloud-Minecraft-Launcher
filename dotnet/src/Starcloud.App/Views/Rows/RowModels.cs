@@ -71,12 +71,15 @@ public sealed record SaveRow(string FolderName, string Name, string? IconPath,
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// <summary>社区资源搜索结果行视图模型</summary>
-public sealed class ModRow
+/// <summary>
+/// 社区资源搜索结果行视图模型。
+/// <para>只有 <see cref="Description"/> 可变：英文简介先显示，MCIM 的中文译文异步到达后就地替换
+/// （模板用 OneWay 绑定，故整行实现 INotifyPropertyChanged）。</para>
+/// </summary>
+public sealed class ModRow : INotifyPropertyChanged
 {
     public string ProjectId { get; init; } = "";
     public string Title { get; init; } = "";
-    public string Description { get; init; } = "";
     public string IconUrl { get; init; } = "";
     public string Author { get; init; } = "";
     public IReadOnlyList<string> Tags { get; init; } = [];
@@ -84,6 +87,22 @@ public sealed class ModRow
     public string DownloadsText { get; init; } = "";
     public string UpdatedText { get; init; } = "";
     public ImageSource? Icon { get; init; }
+
+    private string _description = "";
+
+    /// <summary>简介（可能被中文译文替换）</summary>
+    public string Description
+    {
+        get => _description;
+        set
+        {
+            if (_description == value) return;
+            _description = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Description)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public Visibility LoadersVisibility =>
         string.IsNullOrEmpty(LoadersText) ? Visibility.Collapsed : Visibility.Visible;
@@ -189,12 +208,3 @@ public sealed record ContentFileRow(
 /// <summary>备份列表行</summary>
 public sealed record BackupRow(
     string Id, string Name, string TimeText, string SizeText, string IncludesText);
-
-/// <summary>
-/// 运行状态页「最近运行」行。
-/// <para><see cref="StatusBrush"/> 允许为 null：正常结束这类中性状态不该染色，
-/// 留空即继承主题默认前景色，也免去在无主题上下文的行模型里查主题资源。</para>
-/// </summary>
-public sealed record GameRunRow(
-    string VersionId, string StartedText, string DurationText, string PeakText,
-    string StatusText, Brush? StatusBrush);

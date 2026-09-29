@@ -62,7 +62,12 @@ legacy/Cargo.lock.orig
 /skills-lock.json
 /MC-Icons/
 
-# ─────────────────── 临时构建与调试输出（可随时重建） ───────────────────
+# ─────────────────── 本地密钥（构建期注入，绝不入库）───────────────────
+# 官方分发版本内置的 CurseForge API Key 放这里；只有说明文档入库
+/secrets/*
+!/secrets/README.md
+
+# ─────────────────── 临时构建与调试输出（可随时重建）───────────────────
 /build_log.txt
 /build_output.txt
 /launch_output.txt

@@ -13,6 +13,7 @@ using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views;
 using Starcloud.App.Views.Shared;
+using Starcloud.Core.Plugins;
 using Starcloud.Core.Services;
 using Windows.Graphics;
 using Windows.UI;
@@ -23,6 +24,12 @@ public sealed partial class MainWindow : Window
 {
     // 自定义背景宿主（D1）：背景图 / 模糊层 / 毛玻璃遮罩三层
     private readonly WindowBackgroundHost _background;
+
+    // 插件导航组（contributes.navItems）：Nova 之后一条分隔线 + 最多 3 项，运行时按贡献重建
+    private const int MaxPluginNavItems = 3;
+    private readonly List<NavigationViewItem> _pluginNavItems = [];
+    private NavigationViewItemSeparator? _pluginNavSeparator;
+    private bool _pluginNavHooked;
 
     public MainWindow()
     {
@@ -101,7 +108,11 @@ public sealed partial class MainWindow : Window
         ContentFrame.NavigationFailed += (_, e) =>
             LauncherLog.Error("nav", $"导航到 {e.SourcePageType.Name} 失败", e.Exception);
         Closed += (_, _) =>
+        {
+            // 退订插件导航组重建（不要放 StopBackgroundTimers：它在窗口关闭前也会被调用）
+            AppServices.Instance.PluginHost.ContributionsChanged -= OnPluginContributionsChanged;
             StopBackgroundTimers();
+        };
 
         // 插件通知（launcher:notification）：右下角 InfoBar，8 秒自动收起
         var pluginNotifyTimer = DispatcherQueue.CreateTimer();
@@ -128,6 +139,16 @@ public sealed partial class MainWindow : Window
         _background.Apply(AppServices.Instance.Settings, root.ActualTheme);
         ApplyGlassStrength(AppServices.Instance.Settings);
         root.SizeChanged += (_, _) => _background.Resize(root.ActualWidth, root.ActualHeight);
+
+        // 插件导航组：插件是后台加载的，加载 / 停用都要重建；首次 Loaded 时也重建一次
+        // （挂到根元素而不是 Window —— WinUI 3 的 Window 没有 Loaded 事件）
+        root.Loaded += (_, _) =>
+        {
+            if (_pluginNavHooked) return;
+            _pluginNavHooked = true;
+            AppServices.Instance.PluginHost.ContributionsChanged += OnPluginContributionsChanged;
+            RebuildPluginNavGroup();
+        };
     }
 
     // ── 插件事件（launcher:events）：游戏起停广播 ──
@@ -259,6 +280,19 @@ public sealed partial class MainWindow : Window
             return;
         }
         var tag = item.Tag?.ToString();
+        // 插件导航项：tag 是 plugin:<插件 id>:<导航 id>，走独立一级页（带参数导航）
+        if (PluginExtensionPoints.TryParseNavTag(tag, out var pluginId, out var navId))
+        {
+            var navArgs = (pluginId, navId);
+            if (ContentFrame.CurrentSourcePageType != typeof(PluginNavPage) ||
+                (ContentFrame.Content as PluginNavPage)?.PluginId != pluginId)
+            {
+                ContentFrame.Navigate(typeof(PluginNavPage), navArgs,
+                    MotionService.TransitionFor(AppServices.Instance.Motion.Enabled));
+            }
+            Nav.IsPaneOpen = false;
+            return;
+        }
         Type page = tag switch
         {
             "versions" => typeof(VersionsPage),
@@ -292,6 +326,67 @@ public sealed partial class MainWindow : Window
         if (target is not null && !ReferenceEquals(Nav.SelectedItem, target))
             Nav.SelectedItem = target;
     }
+
+    /// <summary>
+    /// 重建「插件导航组」：Nova 之后一条分隔线 + 最多 3 项。
+    /// 上限是宿主展示策略：按插件加载顺序取前 3，其余不显示并写一行日志（与首页卡片带同口径）。
+    /// 没有任何插件导航项时连分隔线都不加 —— 导航栏与从前逐项一致。
+    /// </summary>
+    private void RebuildPluginNavGroup()
+    {
+        try
+        {
+            foreach (var item in _pluginNavItems)
+            {
+                if (ReferenceEquals(Nav.SelectedItem, item)) Nav.SelectedItem = Nav.MenuItems[0];
+                Nav.MenuItems.Remove(item);
+            }
+            _pluginNavItems.Clear();
+            if (_pluginNavSeparator is not null)
+            {
+                Nav.MenuItems.Remove(_pluginNavSeparator);
+                _pluginNavSeparator = null;
+            }
+
+            var all = AppServices.Instance.PluginHost.GetNavItems();
+            if (all.Count == 0) return;   // 没插件导航项：连分隔线都不出现
+            var shown = all.Count > MaxPluginNavItems
+                ? all.Take(MaxPluginNavItems).ToList()
+                : all.ToList();
+            if (all.Count > MaxPluginNavItems)
+                LauncherLog.Write("plugin", $"插件导航项共 {all.Count} 个，超出上限，只展示前 {MaxPluginNavItems} 个（按插件加载顺序）");
+
+            _pluginNavSeparator = new NavigationViewItemSeparator();
+            Nav.MenuItems.Add(_pluginNavSeparator);
+            foreach (var reg in shown)
+            {
+                var item = new NavigationViewItem
+                {
+                    Tag = PluginExtensionPoints.PluginNavTag(reg.PluginId, reg.NavId),
+                    Content = new TextBlock { Text = reg.Title, VerticalAlignment = VerticalAlignment.Center },
+                    Icon = new FontIcon { FontFamily = IconFont.Family, Glyph = reg.IconGlyph },
+                };
+                Nav.MenuItems.Add(item);
+                _pluginNavItems.Add(item);
+            }
+            LauncherLog.Write("plugin", $"插件导航组：{shown.Count} 项（共 {all.Count} 个注册）");
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("plugin", "重建插件导航组失败", ex);
+        }
+    }
+
+    /// <summary>贡献变化可能来自插件后台线程：回 UI 线程重建，并处理当前页被摘掉的情况</summary>
+    private void OnPluginContributionsChanged() => DispatcherQueue.TryEnqueue(() =>
+    {
+        var current = (ContentFrame.Content as PluginNavPage)?.PluginId;
+        RebuildPluginNavGroup();
+        // 正在看的插件被停用：那一页已经没人维护了，回落「插件」页（不留死页面）
+        if (current is not null &&
+            !AppServices.Instance.PluginHost.GetNavItems().Any(n => n.PluginId == current))
+            NavigateTo("plugins");
+    });
 
     /// <summary>版本详情子页：直接 Frame 导航（不占用侧栏选中项，返回即回来源页）。</summary>
     public void NavigateToVersionDetail(string versionId) =>

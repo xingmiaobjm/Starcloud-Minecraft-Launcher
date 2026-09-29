@@ -81,6 +81,14 @@ public sealed partial class HomePage : Page
         LocalErrorBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, OnLeftNoticeChanged);
         WarnBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, OnLeftNoticeChanged);
         CheckCard.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, OnLeftNoticeChanged);
+        // 插件首页卡片里的动作结果没有地方就地显示（卡片带高度是固定的），
+        // 汇到左列通知区：成功走提示条、失败走本地错误条（与挂载区那套结果条同语义）。
+        HomeCards.Notify = (message, ok) =>
+        {
+            var bar = ok ? WarnBar : LocalErrorBar;
+            bar.Message = message;
+            bar.IsOpen = true;
+        };
     }
 
     private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp) => RefreshLeftNoticeArea();
@@ -110,14 +118,20 @@ public sealed partial class HomePage : Page
 
     private void Initialize()
     {
+        // 两栏卡片的收起 / 展开状态跨页面切换保留：页面是 NavigationCacheMode=Disabled，每次回来都是新实例，
+        // 状态只能存设置里。先把两个字段按存值填好（必须早于任何 setter —— LoadVersions 里那句
+        // 「没版本就强制摊开」的兜底会写设置，若此刻字段还是默认值，就会把存着的收起态反写成展开）。
+        _cardExpanded = !_s.Settings.HomeAccountCollapsed;
+        _versionsCollapsed = _s.Settings.HomeVersionsCollapsed;
+
         SetMode(LaunchAccountService.ModeOfLastUsername(_s.Settings.LastUsername));
         LoadVersions();
         RefreshAccounts();
         RefreshGuide();
         RefreshLeftNoticeArea(); // 兜底：初始无通知时把左列通知区收掉，版本卡才能与右栏卡上边缘齐平
         ConsumePendingLaunch();
-        SetCardExpanded(true, animate: false); // 进页面就落展开态（含 tooltip / 刻度朝向），不播动画
-        SetVersionsCollapsed(false, animate: false); // 版本卡同理：落展开态，顺带把两颗刻度的提示语对齐
+        SetCardExpanded(_cardExpanded, animate: false); // 落存下来的终态（含 tooltip / 刻度朝向），不播动画
+        SetVersionsCollapsed(_versionsCollapsed, animate: false); // 版本卡同理，顺带把两颗刻度的提示语对齐
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -330,6 +344,14 @@ public sealed partial class HomePage : Page
         _s.NovaRuntime.SetCurrentInstance(id);
         _s.NovaRuntime.RequestInput($"帮我给 {id} 做一次游戏体检，有隐患直接说");
         (App.MainWindow as MainWindow)?.OpenNovaPanel();
+    }
+
+    /// <summary>跳转到该版本的详情/管理页。</summary>
+    private void VersionDetail_Click(object sender, RoutedEventArgs e)
+    {
+        var id = (sender as FrameworkElement)?.Tag as string;
+        if (string.IsNullOrEmpty(id)) return;
+        (App.MainWindow as MainWindow)?.NavigateToVersionDetail(id);
     }
 
     private void OpenVersionFolder_Click(object sender, RoutedEventArgs e)
@@ -652,6 +674,7 @@ public sealed partial class HomePage : Page
         StopCardTween();
 
         _cardExpanded = expanded;
+        PersistHomeLayout(); // 收起 / 展开是用户的持久选择：写回设置，换页回来照旧
         double cardTo = expanded ? ResolveExpandedHeight() : CardCompactHeight;
         double widthTo = expanded ? ResolveExpandedWidth() : CardCompactWidth;
         double modeTo = expanded ? CardModeBarHeight : 0;
@@ -706,6 +729,22 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>
+    /// 把两栏卡片的收起 / 展开状态写回设置，下次进主页（新实例）按它还原。
+    /// <para>与存值相同就不落盘——初始化还原、以及「没版本强制摊开」这类兜底都会经过 setter，
+    /// 逐个判断能免掉每次进页面的一次无谓写文件。</para>
+    /// </summary>
+    private void PersistHomeLayout()
+    {
+        var s = _s.Settings;
+        bool versionsCollapsed = _versionsCollapsed;
+        bool accountCollapsed = !_cardExpanded;
+        if (s.HomeVersionsCollapsed == versionsCollapsed && s.HomeAccountCollapsed == accountCollapsed) return;
+        s.HomeVersionsCollapsed = versionsCollapsed;
+        s.HomeAccountCollapsed = accountCollapsed;
+        _s.SaveSettings();
+    }
+
+    /// <summary>
     /// 高度与宽度两段的补间。两者都是依赖型属性、上不了合成层，而 <c>Storyboard</c> 在本进程里对它们的支持
     /// 也不可用（<c>Storyboard.SetTarget</c> 直接抛 E_INVALIDARG），所以这里自己逐帧解算：
     /// 每帧按同一条进场曲线把两段一起落位，末帧交给 <see cref="FinishCardAnimation"/>。
@@ -727,7 +766,7 @@ public sealed partial class HomePage : Page
             if (!ReferenceEquals(_cardClock, clock)) return;
 
             double p = Math.Clamp(clock.Elapsed.TotalMilliseconds / ms, 0d, 1d);
-            double t = EaseProgress(spline, p);
+            double t = MotionFx.EaseProgress(spline, p);
             AccountCard.Height = cardFrom + (cardTo - cardFrom) * t;
             AccountCard.Width = widthFrom + (widthTo - widthFrom) * t;
             ModeBar.Height = modeFrom + (modeTo - modeFrom) * t;
@@ -748,29 +787,6 @@ public sealed partial class HomePage : Page
         CompositionTarget.Rendering -= _cardFrame;
         _cardFrame = null;
         _cardClock = null;
-    }
-
-    /// <summary>三次贝塞尔缓动的纵向解：给定横轴进度求曲线上的值（二分求解，够精确也不会跑飞）。</summary>
-    private static double EaseProgress(KeySpline spline, double x)
-    {
-        if (x <= 0d) return 0d;
-        if (x >= 1d) return 1d;
-
-        double x1 = spline.ControlPoint1.X, y1 = spline.ControlPoint1.Y;
-        double x2 = spline.ControlPoint2.X, y2 = spline.ControlPoint2.Y;
-
-        double lo = 0d, hi = 1d, t = x;
-        for (int i = 0; i < 20; i++)
-        {
-            double u = 1d - t;
-            double xt = 3d * u * u * t * x1 + 3d * u * t * t * x2 + t * t * t;
-            if (Math.Abs(xt - x) < 1e-4) break;
-            if (xt < x) lo = t; else hi = t;
-            t = (lo + hi) / 2d;
-        }
-
-        double v = 1d - t;
-        return 3d * v * v * t * y1 + 3d * v * t * t * y2 + t * t * t;
     }
 
     /// <summary>动画收尾：展开态交回 Stretch / Auto 并撤掉裁剪；收起态保持显式紧凑尺寸、把两块内容移出布局。</summary>
@@ -894,38 +910,7 @@ public sealed partial class HomePage : Page
 
     /// <summary>收起 / 展开刻度：展开态朝下（按一下把卡片折下去），收起态旋到朝上（按一下向上展开）。</summary>
     private void AnimateChevron(bool expanded, bool motion)
-        => AnimateChevron(CollapseChevron, expanded ? 0f : 180f, motion);
-
-    /// <summary>把一颗刻度旋到指定角度。走合成层旋转，中心钉在字形正中，描边不会绕着角甩出去。
-    /// 左栏版本卡那颗方向与右栏相反（它的内容是往上收，见 SetVersionsCollapsed）。</summary>
-    private static void AnimateChevron(Microsoft.UI.Xaml.Shapes.Path chevron, float target, bool motion)
-    {
-        try
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(chevron);
-            visual.CenterPoint = new System.Numerics.Vector3(
-                (float)(chevron.ActualWidth > 0 ? chevron.ActualWidth / 2 : 6),
-                (float)(chevron.ActualHeight > 0 ? chevron.ActualHeight / 2 : 3),
-                0f);
-
-            if (!motion)
-            {
-                visual.StopAnimation("RotationAngleInDegrees");
-                visual.RotationAngleInDegrees = target;
-                return;
-            }
-
-            var compositor = visual.Compositor;
-            var anim = compositor.CreateScalarKeyFrameAnimation();
-            anim.Duration = TimeSpan.FromMilliseconds(MotionFx.ChevronMs);
-            anim.InsertKeyFrame(1f, target, MotionFx.ControlEase(compositor));
-            visual.StartAnimation("RotationAngleInDegrees", anim);
-        }
-        catch
-        {
-            // 静默：动效失败不影响收起 / 展开
-        }
-    }
+        => MotionFx.RotateChevron(CollapseChevron, expanded ? 0f : 180f, motion);
 
     /// <summary>刻度按钮的提示与无障碍名跟着状态走；代码赋值同样会重新 Track，切语言也能重放。</summary>
     private void UpdateCollapseChrome(bool expanded)
@@ -1019,6 +1004,7 @@ public sealed partial class HomePage : Page
         StopVersionTween();
 
         _versionsCollapsed = collapsed;
+        PersistHomeLayout(); // 同上：版本卡的收起态也跨页面切换保留
 
         double cardTo, widthTo, headerTo, gapTo, compactTo, shiftTo;
         if (collapsed)
@@ -1081,8 +1067,8 @@ public sealed partial class HomePage : Page
 
         UpdateVersionCollapseChrome(collapsed);
         // 这一列的内容是往上收，刻度方向与右栏那颗正好反向：展开态朝上（按一下卷起列表），收起态朝下。
-        AnimateChevron(VersionHeaderChevron, collapsed ? 0f : 180f, motion);
-        AnimateChevron(VersionCompactChevron, 0f, motion);
+        MotionFx.RotateChevron(VersionHeaderChevron, collapsed ? 0f : 180f, motion);
+        MotionFx.RotateChevron(VersionCompactChevron, 0f, motion);
         FadeVersionCardContent(collapsed, motion);
         FadeVersionShadow(collapsed, motion);
 
@@ -1199,7 +1185,7 @@ public sealed partial class HomePage : Page
             if (!ReferenceEquals(_versionClock, clock)) return;
 
             double p = Math.Clamp(clock.Elapsed.TotalMilliseconds / ms, 0d, 1d);
-            double t = EaseProgress(spline, p);
+            double t = MotionFx.EaseProgress(spline, p);
             VersionCard.Height = cardFrom + (cardTo - cardFrom) * t;
             VersionCard.Width = widthFrom + (widthTo - widthFrom) * t;
             // 右移量也走同一条曲线：它不在尺寸里，跟不上末帧会跳一下（与右栏 StartCardTween 同理）。

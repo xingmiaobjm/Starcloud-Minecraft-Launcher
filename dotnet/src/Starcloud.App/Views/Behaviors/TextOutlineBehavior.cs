@@ -1,19 +1,24 @@
-// 浅色主题下，直接落在页面背景（自定义壁纸 / 毛玻璃，没有纯色底）上的文字加一圈 1px 白色描边，
-// 保证黑字在任何壁纸上都读得清。
+// 直接落在页面背景（自定义壁纸 / 毛玻璃，没有纯色底）上的文字，统一是**白字 + 一层灰色落影**，
+// 保证它在任何壁纸上都读得清，也和卡片里那些靠底色衬出来的正文区分得开。
 //
-// 为什么是「白字副本」而不是阴影 / 描边 API：WinUI 3 的 TextBlock 没有文字阴影或描边属性；
+// 为什么是「灰字副本」而不是阴影 / 描边 API：WinUI 3 的 TextBlock 没有文字阴影或描边属性；
 // ThemeShadow 只能是深色、且按元素矩形投影；把合成 DropShadow 挂到 XAML 元素视觉上在本项目里
 // 也不渲染（HoverShadowBehavior 顶部记着这三种都试过的结论）。所以用最朴素的画法：
-// 同一个 TextBlock 的白字副本，四正向各偏 1px、四对角各偏 (1,1)px，围出一圈 1px 描边。
+// 同一个 TextBlock 的灰字副本垫在下面，正下方各偏 1px / 2px，近的一层实、远的一层淡，
+// 合起来是一片柔和的落影。
 //
-// 与「多层偏移糊一圈柔光」的区别：这里是**单一 1px 环 + 低透明度**（正向 18%、对角 12%），
-// 偏移是整像素、层数固定，所以字形边缘不会被自己的副本糊成重影——看着就是一圈很淡的白边。
+// 与「四正向各偏 1px 围一圈描边」的区别：偏移是单向的（只往下），所以不会把字形糊成重影，
+// 看着就是文字底下压着的一片灰影；层数也只有两层，再多只是把同一片影子叠深，不会更柔。
 //
-// 生效范围：浅色主题（深色主题文字本身是浅色，不需要白边）。
-// 用法（两种）：
-//   · 挂在 TextBlock 上：只给这一处文字加描边；
-//   · 挂在容器 Panel 上：子树里所有 TextBlock 都加（页面抬头这种整块落在背景上的用这个）。
-// 前提：目标文字在 Panel 里（要把它挪进一层包装 Grid）。不在 Panel 里则静默跳过。
+// 生效范围：**正下方直接落在背景上的文字**——页面抬头的标题，以及紧跟它那行说明。
+// 芯片 / 徽章里的文字由它们自己的底负责对比度（accent 面上的黑字更是不能动），因此不参与，
+// 也就解释了为什么挂一个 Panel 却只有一部分 TextBlock 变了样：
+//   · 挂在 TextBlock 上：只给这一处文字加；
+//   · 挂在容器 Panel 上：子树里凡是「父级也是 Panel」的 TextBlock 都加（页面抬头这种整块落在背景上的用这个）。
+// 前提：目标文字在 Panel 里（要把它挪进一层包装 Grid 放副本）。不在 Panel 里则整块跳过。
+//
+// 类名沿用 TextOutlineBehavior：它现在的职责是「落在壁纸上的文字可读性」，不再是一圈描边。
+// 页面抬头已经不再写字（位置由左侧导航指示），所以现在只剩联机页底部那行居中的说明还在用它。
 
 using System.Runtime.CompilerServices;
 using Microsoft.UI;
@@ -23,20 +28,26 @@ using Microsoft.UI.Xaml.Media;
 
 namespace Starcloud.App.Views.Behaviors;
 
-/// <summary>浅色主题下给页面背景上的文字加 1px 白色描边（实现见文件头注释）。</summary>
+/// <summary>落在页面背景上的文字：白字 + 一层灰色落影（实现见文件头注释）。</summary>
 public static class TextOutlineBehavior
 {
     /// <summary>
-    /// 1px 描边环：四正向 18%、四对角 12%（对角距离 1.41px，压淡一点才和正向边缘接得平）。
+    /// 灰色落影：正下方 1px（近、较实）+ 2px（远、很淡）。单向偏移，不会形成描边那样的重影。
     /// </summary>
-    private static readonly (double Dx, double Dy, double Alpha)[] Ring =
+    private static readonly (double Dx, double Dy, double Alpha)[] Shadow =
     [
-        (1, 0, 0.18), (-1, 0, 0.18), (0, 1, 0.18), (0, -1, 0.18),
-        (1, 1, 0.12), (-1, 1, 0.12), (1, -1, 0.12), (-1, -1, 0.12),
+        (0, 1, 0.50),
+        (0, 2, 0.22),
     ];
 
     private static readonly ConditionalWeakTable<TextBlock, Outline> States = new();
-    private static readonly Brush OutlineBrush = new SolidColorBrush(Colors.White);
+
+    /// <summary>本体文字色：壁纸不可控，白字 + 落影是唯一在各色壁纸上都立得住的组合。</summary>
+    private static readonly Brush TextBrush = new SolidColorBrush(Colors.White);
+
+    /// <summary>落影色：中灰（不是纯黑）——纯黑在深色壁纸上会把白字的边缘咬出硬边。</summary>
+    private static readonly Brush ShadowBrush =
+        new SolidColorBrush(Windows.UI.Color.FromArgb(255, 90, 90, 90));
 
     public static readonly DependencyProperty IsEnabledProperty =
         DependencyProperty.RegisterAttached(
@@ -135,13 +146,15 @@ public static class TextOutlineBehavior
             parent.Children.Insert(index, host);
 
             outline.Source = source;
-            foreach (var (dx, dy, alpha) in Ring)
+            // 白字是本行为的主诉求：原先「保持主题色 + 白描边」在壁纸上偏暗，且和卡片正文分不开
+            source.Foreground = TextBrush;
+            foreach (var (dx, dy, alpha) in Shadow)
             {
                 var clone = new TextBlock
                 {
                     IsHitTestVisible = false,
                     IsTabStop = false,
-                    Foreground = OutlineBrush,
+                    Foreground = ShadowBrush,
                     Opacity = alpha,
                     RenderTransform = new TranslateTransform { X = dx, Y = dy },
                 };
@@ -159,11 +172,10 @@ public static class TextOutlineBehavior
             outline.AlignToken = source.RegisterPropertyChangedCallback(
                 FrameworkElement.HorizontalAlignmentProperty, (_, _) => SyncAll(outline));
             outline.VisibleToken = source.RegisterPropertyChangedCallback(
-                UIElement.VisibilityProperty, (_, _) => ApplyTheme(outline));
-            source.ActualThemeChanged += outline.OnThemeChanged;
+                UIElement.VisibilityProperty, (_, _) => SyncVisibility(outline));
 
             outline.Wired = true;
-            ApplyTheme(outline);
+            SyncVisibility(outline);
         }
         catch
         {
@@ -200,12 +212,10 @@ public static class TextOutlineBehavior
         clone.MaxWidth = s.MaxWidth;
     }
 
-    /// <summary>描边只在浅色主题显示：深色主题文字本身是浅色，白边只会糊</summary>
-    private static void ApplyTheme(Outline outline)
+    /// <summary>落影跟着本体一起显隐：本体收起来时，副本不能留在原地。</summary>
+    private static void SyncVisibility(Outline outline)
     {
-        var light = outline.Source.ActualTheme != ElementTheme.Dark;
-        var visibility = light ? outline.Source.Visibility : Visibility.Collapsed;
-        foreach (var clone in outline.Clones) clone.Visibility = visibility;
+        foreach (var clone in outline.Clones) clone.Visibility = outline.Source.Visibility;
     }
 
     private sealed class Outline
@@ -218,7 +228,5 @@ public static class TextOutlineBehavior
         public long WeightToken;
         public long AlignToken;
         public long VisibleToken;
-
-        public void OnThemeChanged(FrameworkElement sender, object args) => ApplyTheme(this);
     }
 }

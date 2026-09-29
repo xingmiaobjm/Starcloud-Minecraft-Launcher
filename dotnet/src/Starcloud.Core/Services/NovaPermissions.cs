@@ -107,21 +107,36 @@ public sealed class NovaActionLog
         catch { /* 审计落盘失败不阻断 */ }
     }
 
-    /// <summary>确认清单确认 → 执行 → 记日志；返回给用户看的结果摘要。</summary>
+    /// <summary>确认清单确认 → 执行 → 记日志；返回给用户看的结果摘要。
+    /// <para>执行期间在调度中心登记一条「Nova · &lt;计划名&gt;」的任务：以前 Nova 的动作只在聊天区可见，
+    /// 长计划（压缩存档 / 装整合包）跑到一半用户切走页面就完全看不到进度。
+    /// 粒度刻意是「一条计划一条任务」——逐步登记会让抽屉被 Nova 的琐碎步骤淹没。</para></summary>
     public async Task<string> ExecuteConfirmedAsync(
         NovaPlan plan, CancellationToken ct = default)
     {
+        var task = TaskCenterService.Instance.Begin($"Nova · {plan.Title}");
+        // 调度中心的「取消」得能真的掐掉这次执行 → 把任务自己的 Cts 与调用方的 ct 串起来
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, task.Cts.Token);
         try
         {
-            var result = await plan.ExecuteAsync(ct);
+            var result = await plan.ExecuteAsync(linked.Token);
             Append(new NovaActionEntry(plan.Id, DateTime.Now, "plan",
                 plan.Title, "已确认执行", result));
+            TaskCenterService.Instance.Complete(task);
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            Append(new NovaActionEntry(plan.Id, DateTime.Now, "plan",
+                plan.Title, "已取消", "用户在调度中心取消了这次执行"));
+            TaskCenterService.Instance.Cancel(task);
+            throw;
         }
         catch (Exception ex)
         {
             Append(new NovaActionEntry(plan.Id, DateTime.Now, "plan",
                 plan.Title, "失败", ex.Message));
+            TaskCenterService.Instance.Fail(task, ex.Message);
             throw;
         }
     }

@@ -28,6 +28,13 @@
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
+                        <MenuFlyoutItem loc:Loc.Text="版本详情"
+                                        Tag="{x:Bind Id}"
+                                        Click="VersionDetail_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBA0;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutItem loc:Loc.Text="打开游戏目录"
                                         Tag="{x:Bind Id}"
                                         Click="OpenVersionFolder_Click">
@@ -158,12 +165,16 @@
                 <ColumnDefinition Width="360" />
             </Grid.ColumnDefinitions>
 
-        <!-- ═══ 左列：通知/自检（按需占位） + 版本库（撑满余下高度） ═══
-             两行之间的间距走 LeftNoticeArea 自己的 Margin，不用 Grid.RowSpacing：
-             RowSpacing 按行边界收取，通知区整块收起、行高为 0 时它照收一份，
+        <!-- ═══ 左列：通知/自检（按需占位） + 插件首页卡片 + 版本库（撑满余下高度） ═══
+             各行之间的间距走元素自己的 Margin，不用 Grid.RowSpacing：
+             RowSpacing 按行边界收取，通知区 / 挂载区 / 卡片带整块收起、行高为 0 时它照收一份，
              版本卡就被推下去一截，与右栏账户卡的上边缘对不齐。 -->
         <Grid Grid.Column="0" Margin="0,0,24,0">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <!-- 插件挂载区（home.top）：无贡献时整行高度为 0，版本卡的位置与从前一致 -->
+                <RowDefinition Height="Auto" />
+                <!-- 插件首页卡片带（contributes.homeCards）：同上，无贡献时整行高度为 0 -->
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
@@ -246,6 +257,13 @@
                 </Border>
             </StackPanel>
 
+            <!-- 插件挂载区（home.top）：装在左列通知区与版本卡之间，没贡献时不占高度 -->
+            <ctrl:PluginContributionPanel Grid.Row="1" Point="home.top" Margin="0,0,0,16" />
+
+            <!-- 插件首页卡片带（homeCards）：固定 120 高、最多 3 张，可收起成一条窄条。
+                 没装插件时整块 Collapsed，版本卡的上边缘与从前一致。 -->
+            <ctrl:HomeCardStrip x:Name="HomeCards" Grid.Row="2" Margin="0,0,0,16" />
+
             <!-- 版本库：卡片撑满左列余下的整格（上边缘与右栏账户卡齐平、下边缘贴列底），列表在卡内滚动。
                  卡片可收起：收起后只剩当前选中那一版的图标与版本名，卡收成 280 宽的窄条，
                  站到左列右沿、再整体右移一格右列空档，紧挨到启动卡左边（间距回到两列间的 24），
@@ -262,7 +280,7 @@
                  必须 Bottom 对齐 + 显式高 —— 收起态窄条沉在列底、与右栏启动卡底边齐平，
                  Stretch 会让环带绷满整列，Top 则会把它顶到列顶去。横向与卡片同为 Right 对齐，
                  负右边距的右移量也照抄卡片（见 ApplyVersionTerminal）。 -->
-            <Grid x:Name="VersionCardShadow" Grid.Row="1" Visibility="Collapsed" IsHitTestVisible="False"
+            <Grid x:Name="VersionCardShadow" Grid.Row="3" Visibility="Collapsed" IsHitTestVisible="False"
                   HorizontalAlignment="Left" VerticalAlignment="Bottom">
                 <Border Margin="-4" CornerRadius="20" Background="Transparent"
                         BorderThickness="4" BorderBrush="#0F000000" />
@@ -274,7 +292,7 @@
                         BorderThickness="4" BorderBrush="#04000000" />
             </Grid>
 
-            <Border x:Name="VersionCard" Grid.Row="1"
+            <Border x:Name="VersionCard" Grid.Row="3"
                     Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16"
@@ -455,9 +473,11 @@
                      整条 40 高（1 边框 + 2 内缩 + 34 按钮 + 2 + 1），与启动行同为整宽、
                      左右边缘对齐；高度上刻意不跟启动行等高——底部那颗是 60 高的大 CTA。
                      悬停时条内浮起一层跟手光斑（ModeBarGlow），与列表行 / 卡片共用一套语汇。
-                     光斑半径由 GlowRadius 显式给成 20：条内的可见区只有 34 高，自动半径
+                     光斑半径由 GlowRadius 显式给成 30：条内的可见区只有 34 高，自动半径
                      （短边 × 2.5 = 85）在竖直方向淡不完，会被条的上下沿硬切一刀，看起来
-                     就是一条上下硬边的灰带（外观割裂）；20 能在可见区里自己淡到零，边界消失。
+                     就是一条上下硬边的灰带（外观割裂）；30 仍有富余能淡到近乎零（上下沿
+                     只剩 6% 的余量，看不出硬边），同时核心比原来的 20 明显铺开一圈——
+                     20 时深色核心只有 16px 宽，在整宽的条里显小。
                      三段按钮自己的悬停 / 按下底刷也一并置空（见各自 Resources）——
                      WinUI 默认会在这颗按钮自己的圆角矩形里刷一层灰，与光斑叠起来又是一块硬边灰方块。 -->
                 <Border x:Name="ModeBar" Grid.Row="0"
@@ -466,7 +486,7 @@
                         BorderThickness="1" CornerRadius="10" Padding="2"
                         beh:HoverShadowBehavior.IsEnabled="True"
                         beh:HoverShadowBehavior.Carrier="{Binding ElementName=ModeBarGlow}"
-                        beh:HoverShadowBehavior.GlowRadius="20">
+                        beh:HoverShadowBehavior.GlowRadius="30">
                     <Grid x:Name="ModeGrid" SizeChanged="ModeGrid_SizeChanged">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

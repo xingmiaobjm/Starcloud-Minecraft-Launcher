@@ -275,13 +275,13 @@ public static class ModPackDialogs
             };
             isoBox = new CheckBox
             {
-                Content = Loc.T("版本隔离（推荐，整合包内容独立存放）"),
+                Content = Loc.T("版本隔离（推荐，整合包内容单独存放）"),
                 IsChecked = true,
             };
             hint = new TextBlock { FontSize = 12, Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
             var note = new TextBlock { FontSize = 12, Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
             void SyncNote() => note.Text = isoBox.IsChecked == true
-                ? Loc.T("整合包内容将独立存放在 versions/<新名称>/ 下。")
+                ? Loc.T("整合包内容将单独存放在 versions/<新名称>/ 下。")
                 : Loc.T("将写入共享 .minecraft 目录，不会新建版本条目。");
             isoBox.Checked += (_, _) => SyncNote();
             isoBox.Unchecked += (_, _) => SyncNote();
