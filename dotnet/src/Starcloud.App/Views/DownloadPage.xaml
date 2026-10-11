@@ -22,9 +22,13 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左侧分类（PCL2 式：原版游戏 + 社区资源分组）；不透明实色，与窗口框架统一 -->
-            <Border Grid.Column="0" VerticalAlignment="Stretch"
-                    Background="{ThemeResource AppPaneBackgroundBrush}"
+            <!-- 左侧分类（PCL2 式：原版游戏 + 社区资源分组）。
+                 底色用 GlassCardBrush，与设置页左导航同形态：页面底是 #232324 一档，
+                 AppPaneBackgroundBrush(#161616) 比它更暗，会读成「挖下去一块」而不是卡片。
+                 上边距 24 = 右栏 RowSpacing(12) × 两个空行（提示区收起时高度为 0、插件挂载区无贡献）：
+                 右栏首个可见元素落在 24 之下，左栏不补同样的边距就比内容区高出一截。 -->
+            <Border Grid.Column="0" VerticalAlignment="Stretch" Margin="0,24,0,0"
+                    Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="8">
                 <ListView x:Name="CategoryList" SelectionMode="Single"
@@ -87,15 +91,9 @@
                 <!-- 插件挂载区（download.top）：有插件贡献时才占位（2.0 声明式 / 1.x HTML 都由它渲染） -->
                 <ctrl:PluginContributionPanel Grid.Row="1" Point="download.top" />
 
-                <!-- 提示与进度 -->
-                <StackPanel Grid.Row="0" Spacing="8">
-                    <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
-                    <InfoBar x:Name="OkBar" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
-                    <ProgressBar x:Name="InstallProgress" IsIndeterminate="True" Visibility="Collapsed" />
-                    <TextBlock x:Name="ProgressText" FontSize="12" Visibility="Collapsed"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                <!-- 提示与进度（ErrorBar / OkBar / InstallProgress / ProgressText）已改成页面级浮层，
+                     见本文件末尾的「提示与进度浮层」：它不再占右栏高度，下载时不会把内容区推下去。
+                     本行（Row 0）因此没有子元素，只靠它的 RowSpacing 与左栏的上边距对齐。 -->
 
                 <!-- ── 原版游戏面板 ── -->
                 <Grid x:Name="VanillaPanel" Grid.Row="2" RowSpacing="12">
@@ -1144,6 +1142,25 @@
                     </Grid>
                 </Grid>
             </Grid>
+        </Grid>
+
+        <!-- 提示与进度浮层：与主体共用同一套列定义，只落在右列上方。
+             VerticalAlignment=Top 让它贴在页面顶部，自身不参与主体布局：
+             下载时进度条浮在内容上方，不会把内容区推下去。
+             列宽（180 + ColumnSpacing 16）与主体两列一致，右列左沿因此与内容区严格对齐。 -->
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="1" VerticalAlignment="Top" Spacing="8">
+                <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+                <InfoBar x:Name="OkBar" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
+                <ProgressBar x:Name="InstallProgress" IsIndeterminate="True" Visibility="Collapsed" />
+                <TextBlock x:Name="ProgressText" FontSize="12" Visibility="Collapsed"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Page>

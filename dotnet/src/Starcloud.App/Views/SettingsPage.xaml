@@ -42,8 +42,10 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左侧分类导航（PCL2 / LauncherX 式） -->
-            <Border Grid.Column="0" VerticalAlignment="Stretch"
+            <!-- 左侧分类导航（PCL2 / LauncherX 式）。
+                 上边距 12 = 右栏 RowSpacing：提示条收起时那一行高度为 0，间距仍然占位，
+                 右栏首个可见元素落在 12 之下，左栏补同样的边距才与之齐平。 -->
+            <Border Grid.Column="0" VerticalAlignment="Stretch" Margin="0,12,0,0"
                     Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="8">
@@ -111,10 +113,9 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Spacing="8">
-                    <InfoBar x:Name="SavedBar" Severity="Success" loc:Loc.Title="已保存" IsOpen="False" IsClosable="True" />
-                    <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
-                </StackPanel>
+                <!-- 提示条（SavedBar / ErrorBar）已改成页面级浮层，见本文件末尾的「提示条浮层」：
+                     它不再占右栏高度，本行（Row 0）因此没有子元素，
+                     只靠 RowSpacing 与左栏的上边距对齐。 -->
 
                 <ScrollViewer x:Name="SectionScroll" Grid.Row="1">
                     <StackPanel Spacing="16">
@@ -595,6 +596,21 @@
                     </Grid>
                 </Border>
             </Grid>
+        </Grid>
+
+        <!-- 提示条浮层：与主体共用同一套列定义，只落在右列上方。
+             VerticalAlignment=Top 让它贴在页面顶部，自身不参与主体布局，
+             所以提示条展开时也不会把下方内容推下去。
+             列宽（180 + ColumnSpacing 16）与主体两列一致，右列左沿因此与内容区严格对齐。 -->
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="1" VerticalAlignment="Top" Spacing="8">
+                <InfoBar x:Name="SavedBar" Severity="Success" loc:Loc.Title="已保存" IsOpen="False" IsClosable="True" />
+                <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Page>
