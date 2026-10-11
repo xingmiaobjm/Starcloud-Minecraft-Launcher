@@ -1,0 +1,17 @@
+<Project>
+
+  <!-- starcloud-multiplayer 是独立解决方案：与启动器（dotnet/）、跨端版（crossplatform/）
+       互不引用。这里只放三个工程共用的编译约定。 -->
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <!-- 本机只装了较新的 .NET 运行时；与启动器的测试工程同一处理，允许向上滚动。 -->
+    <RollForward>LatestMajor</RollForward>
+    <Version>0.1.0</Version>
+    <NeutralLanguage>zh-Hans</NeutralLanguage>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+
+</Project>

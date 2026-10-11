@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Starcloud.Multiplayer.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Starcloud.Multiplayer.Core\Starcloud.Multiplayer.Core.csproj" />
+    <ProjectReference Include="..\..\src\Starcloud.Multiplayer.Client\Starcloud.Multiplayer.Client.csproj" />
+    <ProjectReference Include="..\..\src\Starcloud.Multiplayer.MockServer\Starcloud.Multiplayer.MockServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 端到端测试直接用产品那份 seed，顺带验证它一定能解析。 -->
+    <None Include="..\..\src\Starcloud.Multiplayer.MockServer\seed.json" Link="seed.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 纯逻辑层：只允许 net8.0，不允许引用任何平台 API。
+       各端（桌面 / 未来安卓 / 鸿蒙侧的 ArkTS 实现）共用的是这里定义的「协议与规则」。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Starcloud.Multiplayer.Tests" />
+  </ItemGroup>
+
+</Project>

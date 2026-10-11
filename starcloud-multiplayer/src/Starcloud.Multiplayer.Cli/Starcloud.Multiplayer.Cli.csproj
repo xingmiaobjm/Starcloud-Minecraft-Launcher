@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 验收用的命令行驱动。**不是产品界面**：只用来跑通、自检与排障。
+       它跑在开发机上，不进移动端。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>starcloud-mp</AssemblyName>
+    <RootNamespace>Starcloud.Multiplayer.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Multiplayer.Core\Starcloud.Multiplayer.Core.csproj" />
+    <ProjectReference Include="..\Starcloud.Multiplayer.Client\Starcloud.Multiplayer.Client.csproj" />
+    <!-- 自检要在本进程里起 mock 服务端，所以直接引用它。 -->
+    <ProjectReference Include="..\Starcloud.Multiplayer.MockServer\Starcloud.Multiplayer.MockServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Starcloud.Multiplayer.MockServer\seed.json" Link="seed.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

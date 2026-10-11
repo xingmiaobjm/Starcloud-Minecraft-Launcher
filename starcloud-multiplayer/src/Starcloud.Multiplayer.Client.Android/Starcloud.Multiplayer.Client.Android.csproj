@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net8.0-android 在 .NET 10 SDK 下已 EOL（NETSDK1202），按预案退到 net10.0-android。 -->
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>24</SupportedOSPlatformVersion>
+    <RootNamespace>Starcloud.Multiplayer.Client.Android</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Multiplayer.Client\Starcloud.Multiplayer.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      jniLibs 里的 EasyTier 二进制由 scripts/fetch-kernel.ps1 构建期拉取（不进仓库），
+      按 ABI 目录放置（arm64-v8a / x86_64），打包进 APK 后落在应用 nativeLibraryDir。
+    -->
+    <AndroidNativeLibrary Include="jniLibs/**/*.so" />
+  </ItemGroup>
+
+</Project>

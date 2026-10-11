@@ -1,0 +1,13 @@
+{
+  "//": "预置数据：users 用 starcloud_id 写，服务端按测试通道规则派生 user_id 与 api_key；friendships 是无向好友对。",
+  "//2": "改完重启 mock 服务端生效。原型阶段好友关系没有写接口，客户端只读。",
+  "users": [
+    { "starcloud_id": "alice", "display_name": "Alice" },
+    { "starcloud_id": "bob", "display_name": "Bob" },
+    { "starcloud_id": "carol", "display_name": "Carol" }
+  ],
+  "friendships": [
+    ["alice", "bob"],
+    ["bob", "carol"]
+  ]
+}

@@ -1,0 +1,4 @@
+# EasyTier 二进制由 scripts/fetch-kernel.ps1 构建期拉取，不进仓库。
+# 上游许可是 LGPL-3.0：以独立可执行 + 可替换的方式随 APK 分发即满足。
+*
+!.gitignore

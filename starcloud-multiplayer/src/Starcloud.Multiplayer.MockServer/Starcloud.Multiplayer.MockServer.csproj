@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- 本地模拟云端：按 docs/designs/2026-09-30-starcloud-multiplayer-design.md §6 的契约实现。
+       将来真云端照这份契约实现后，客户端只需换 base url。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Starcloud.Multiplayer.MockServer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Multiplayer.Core\Starcloud.Multiplayer.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="seed.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

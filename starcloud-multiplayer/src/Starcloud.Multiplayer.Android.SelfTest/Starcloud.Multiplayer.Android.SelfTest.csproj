@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 真机自检壳：把 jniLibs 内置内核以子进程拉起 → RPC 存活 → 干净停止，
+         结果落 logcat（tag StarcloudMp）。只用于人工验收，不进正式分发。 -->
+    <!-- TFM 偏差同 Client.Android：net8.0-android 在 .NET 10 SDK 下 EOL（NETSDK1202）。 -->
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>24</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <AndroidApplication>true</AndroidApplication>
+    <!-- 不能沿用工程名当 RootNamespace：它以 .Android 结尾，Resource.designer 会在
+         中间层隐式造出 Starcloud.Multiplayer.Android 命名空间，遮蔽全局 Android.*。 -->
+    <RootNamespace>Starcloud.Multiplayer.SelfTest</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <ApplicationId>cn.starcloud.multiplayer.selftest</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <!-- 内核是子进程可执行文件：必须让安装器把 jniLibs 解出实体文件到 nativeLibraryDir
+         （安卓 W^X 只允许执行该目录下的 lib*.so）；extractNativeLibs=false 时 .so
+         只存在于 APK 内，无法 exec，引擎会报「安装包缺少内置内核」。 -->
+    <AndroidExtractNativeLibs>true</AndroidExtractNativeLibs>
+    <!-- 上游 v2.6.4 二进制为 4 KB 页对齐，Android 16 起将要求 16 KB（XA0141）。
+         升级 EasyTier 时复核上游是否已出 16 KB 对齐包；在那之前压掉该警告。 -->
+    <NoWarn>$(NoWarn);XA0141</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Multiplayer.Client.Android\Starcloud.Multiplayer.Client.Android.csproj" />
+  </ItemGroup>
+
+</Project>

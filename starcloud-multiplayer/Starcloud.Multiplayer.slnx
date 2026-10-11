@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Starcloud.Multiplayer.Core/Starcloud.Multiplayer.Core.csproj" />
+    <Project Path="src/Starcloud.Multiplayer.Client/Starcloud.Multiplayer.Client.csproj" />
+    <Project Path="src/Starcloud.Multiplayer.Client.Android/Starcloud.Multiplayer.Client.Android.csproj" />
+    <Project Path="src/Starcloud.Multiplayer.Android.SelfTest/Starcloud.Multiplayer.Android.SelfTest.csproj" />
+    <Project Path="src/Starcloud.Multiplayer.Cli/Starcloud.Multiplayer.Cli.csproj" />
+    <Project Path="src/Starcloud.Multiplayer.MockServer/Starcloud.Multiplayer.MockServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Starcloud.Multiplayer.Tests/Starcloud.Multiplayer.Tests.csproj" />
+  </Folder>
+</Solution>

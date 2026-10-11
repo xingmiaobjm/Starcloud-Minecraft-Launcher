@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 内核实现层：HTTP 客户端 + 会话 + P2P 引擎。
+       目标框架保持 net8.0：桌面与安卓共用同一份代码，
+       平台差异（数据目录、进程/原生库、日志落盘）全部收敛到 IPlatformHost 后面。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Multiplayer.Core\Starcloud.Multiplayer.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Starcloud.Multiplayer.Tests" />
+  </ItemGroup>
+
+</Project>
