@@ -37,6 +37,18 @@ dotnet/.vs/
 dotnet/**/*.user
 dotnet/AppPackages/
 
+# ─────────────────── starcloud-multiplayer/  联机模块 ───────────────────
+starcloud-multiplayer/**/bin/
+starcloud-multiplayer/**/obj/
+starcloud-multiplayer/.vs/
+starcloud-multiplayer/**/*.user
+
+# ─────────────────── 独立子项目与工具目录（各自独立仓库/不入库）───────────────────
+# 安卓壳是独立交付物，与桌面主产品分仓维护
+/android/
+# WorkBuddy 工作区元数据（记忆、会话日志）
+/.workbuddy/
+
 # ─────────────────── crossplatform/  跨平台版 ───────────────────
 crossplatform/**/bin/
 crossplatform/**/obj/
