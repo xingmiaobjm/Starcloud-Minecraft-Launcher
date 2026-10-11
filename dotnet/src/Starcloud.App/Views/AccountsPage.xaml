@@ -17,29 +17,17 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" MinHeight="220" />
         </Grid.RowDefinitions>
 
-        <!-- 右上主操作 -->
-        <Grid Grid.Row="0" ColumnSpacing="16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Button Grid.Column="1" loc:Loc.Text="添加账户" VerticalAlignment="Center"
-                    Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
-                    Click="AddAccount_Click" />
-        </Grid>
-
         <!-- 状态条 -->
-        <StackPanel Grid.Row="1" Spacing="8">
+        <StackPanel Grid.Row="0" Spacing="8">
             <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
             <InfoBar x:Name="StatusInfo" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
         </StackPanel>
 
         <!-- Starcloud ID 卡：未登录=登录/注册表单（都在卡内，不弹窗），已登录=会话管理 -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="1"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="20">
@@ -109,11 +97,6 @@
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Border CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                                Background="{ThemeResource ControlFillColorDefaultBrush}">
-                            <TextBlock x:Name="ScKeyText" FontSize="12" FontFamily="Consolas" />
-                        </Border>
-                        <ctrl:GlowButton x:Name="ScCopyBtn" loc:Loc.Text="复制 Key" Height="30" Padding="12,0" Click="ScCopyKey_Click" />
                         <ctrl:GlowButton loc:Loc.Text="退出登录" Height="30" Padding="12,0" Click="ScLogout_Click"
                                 Background="Transparent" BorderThickness="0"
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
@@ -124,19 +107,31 @@
 
         <!-- 游戏账户：一行一个账户（头像 / 名字 / 类型 / 正在用的皮肤 / 进详情）。
              列表直接坐在页面上、不做"卡中卡"：行自己就是可点的表面，
-             一屏能看清有几个账户、默认的是哪个。 -->
-        <Grid Grid.Row="3" Margin="0,20,0,0" RowSpacing="6">
+             一屏能看清有几个账户、默认的是哪个。
+             分区不再自带 20 的上边距：按钮行在标题行上方已经起了分隔作用，
+             再叠一层上边距会把 ID 卡与标题行之间拉出一条空带。 -->
+        <Grid Grid.Row="2" RowSpacing="6">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" MinHeight="200" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0" ColumnSpacing="8">
+            <!-- 主操作：添加账户（贴在本分区标题行上方、右对齐，动作与它作用的列表挨着） -->
+            <Grid Grid.Row="0" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="1" loc:Loc.Text="添加账户" VerticalAlignment="Center"
+                        Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                        Click="AddAccount_Click" />
+            </Grid>
+
+            <Grid Grid.Row="1" ColumnSpacing="8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Border Grid.Column="0" Style="{StaticResource ScSectionSpine}" />
@@ -146,18 +141,15 @@
                         Margin="2,0,0,0" Visibility="Collapsed">
                     <TextBlock x:Name="AccountCountText" Style="{StaticResource ScChipText}" />
                 </Border>
-                <TextBlock Grid.Column="4" VerticalAlignment="Center"
-                           Style="{StaticResource ScCardHint}"
-                           loc:Loc.Text="首选账户用于一键启动；点一行进入详情换皮肤" />
             </Grid>
 
-            <ctrl:EmptyStateView x:Name="AccountEmptyText" Grid.Row="1"
+            <ctrl:EmptyStateView x:Name="AccountEmptyText" Grid.Row="2"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Glyph="&#xEB8F;"
                                   loc:Loc.Title="还没有游戏账户"
                                   loc:Loc.ActionText="添加账户"
                                   ActionClick="AddAccount_Click" />
-            <ListView x:Name="AccountList" Grid.Row="1" Margin="0,6,0,0"
+            <ListView x:Name="AccountList" Grid.Row="2" Margin="0,6,0,0"
                       SelectionMode="None" IsItemClickEnabled="True" ItemClick="AccountList_ItemClick"
                       Visibility="Collapsed">
                 <ListView.Resources>

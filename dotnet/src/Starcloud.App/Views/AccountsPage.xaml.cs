@@ -63,7 +63,6 @@ public sealed partial class AccountsPage : Page
         ScNameText.Text = session.DisplayName;
         ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId,
             session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道"));
-        ScKeyText.Text = MaskKey(session.ApiKey);
     }
 
     private string SelectedChannel =>
@@ -165,29 +164,6 @@ public sealed partial class AccountsPage : Page
         {
             ScRegisterBtn.IsEnabled = true;
         }
-    }
-
-    private void ScCopyKey_Click(object sender, RoutedEventArgs e)
-    {
-        if (_s.StarcloudId.Current is not { } session || sender is not Button btn) return;
-        var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage
-        {
-            RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy,
-        };
-        pkg.SetText(session.ApiKey);
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
-
-        var original = btn.Content;
-        btn.Content = Loc.T("已复制");
-        btn.IsEnabled = false;
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        timer.Tick += (_, _) =>
-        {
-            btn.Content = original;
-            btn.IsEnabled = true;
-            timer.Stop();
-        };
-        timer.Start();
     }
 
     private async void ScLogout_Click(object sender, RoutedEventArgs e)
@@ -295,7 +271,4 @@ public sealed partial class AccountsPage : Page
         ErrorBar.IsOpen = false;
         StatusInfo.IsOpen = false;
     }
-
-    private static string MaskKey(string key) =>
-        key.Length <= 14 ? key : key[..10] + "…" + key[^4..];
 }
