@@ -35,6 +35,16 @@ public sealed record LaunchOptions(
 /// <summary>已认证账户凭据（微软 / 第三方账户）；合规要求启动必须携带真实凭证</summary>
 public sealed record LaunchCredentials(string Uuid, string AccessToken, string UserType, string? Xuid = null);
 
+/// <summary>参数构建结果：JVM 参数 / 游戏参数 / 主类（安卓进程内 JVM 启动直接消费，不拼命令行字符串）</summary>
+public sealed record GameArguments(IReadOnlyList<string> JvmArgs, IReadOnlyList<string> GameArgs, string MainClass);
+
+/// <summary>
+/// 构建覆盖项：宿主环境与桌面默认推导不同时注入——
+/// OsName 覆盖库规则过滤平台，NativesDir 覆盖 -Djava.library.path，Classpath 覆盖 ${classpath}。
+/// 桌面端不传（null），行为与原有命令行构建完全一致。
+/// </summary>
+public sealed record BuildOverrides(string? OsName = null, string? NativesDir = null, string? Classpath = null);
+
 public sealed class GameLauncher
 {
     private readonly InstallerService _installer;
@@ -50,6 +60,32 @@ public sealed class GameLauncher
     public async Task<string> BuildCommandLineAsync(MinecraftVersion version, LaunchOptions options,
         CancellationToken ct = default)
     {
+        var (jvmArgs, gameArgs) = BuildArgsCore(version, options, null);
+        var java = string.IsNullOrWhiteSpace(options.JavaExecutable)
+            ? await ResolveJavaAsync(version, options.SharedDir, ct)
+            : options.JavaExecutable!;
+        var parts = new List<string> { QuoteIfNeeded(java) };
+        parts.AddRange(jvmArgs.Select(QuoteIfNeeded));
+        parts.Add(version.MainClass);
+        parts.AddRange(gameArgs.Select(QuoteIfNeeded));
+        return string.Join(' ', parts);
+    }
+
+    /// <summary>
+    /// 构建参数集（不拼 java 前缀、不解析 Java 路径）：供安卓进程内 JVM 启动复用桌面同一套
+    /// 变量替换与新旧代参数逻辑；overrides 覆盖平台差异，缺省时行为与命令行构建完全一致。
+    /// </summary>
+    public Task<GameArguments> BuildArgumentsAsync(MinecraftVersion version, LaunchOptions options,
+        BuildOverrides? overrides = null, CancellationToken ct = default)
+    {
+        var (jvmArgs, gameArgs) = BuildArgsCore(version, options, overrides);
+        return Task.FromResult(new GameArguments(jvmArgs, gameArgs, version.MainClass));
+    }
+
+    /// <summary>参数构建核心（同步）：桌面命令行与安卓进程内启动共用；overrides 为 null 时走桌面默认推导</summary>
+    private (List<string> JvmArgs, List<string> GameArgs) BuildArgsCore(
+        MinecraftVersion version, LaunchOptions options, BuildOverrides? ov)
+    {
         var dotMc = options.SharedDir; // 共享根：libraries/assets/natives/classpath/jar 全走共享
         var versionId = version.Id;
         // 实例目录名才是「这次启动的实例」：jar 与 natives 都由安装器按实例目录名落盘。
@@ -57,20 +93,30 @@ public sealed class GameLauncher
         // 拿它拼路径会指向不存在的目录，jar 被丢掉后 Java 直接报 ClassNotFoundException。
         var instanceId = string.IsNullOrWhiteSpace(options.VersionId) ? versionId : options.VersionId;
         var versionDir = _installer.VersionDir(dotMc, instanceId);
-        var nativesDir = Path.Combine(versionDir, "natives");
+        // 安卓侧由 LaunchSpecBuilder 以组件目录组装 natives 搜索路径（多个目录 ':' 分隔）
+        var nativesDir = ov?.NativesDir ?? Path.Combine(versionDir, "natives");
 
-        // 类路径：windows 内的库（规则过滤；NeoForge 版本 JSON 有重复库条目，需保序去重）
-        var classpathEntries = version.Libraries
-            .Where(l => InstallerService.RulesAllow(l.Rules))
-            .Where(l => l.Downloads?.Artifact is { Url: not "" })
-            .Select(l => Path.Combine(dotMc, "libraries", l.Downloads!.Artifact!.Path ?? ""))
-            .ToList();
-        var ownJar = ResolveClientJar(dotMc, instanceId, versionId)
-                     ?? throw new InvalidOperationException(
-                         $"实例 {instanceId} 缺少客户端 jar（{instanceId}.jar）：请先在版本页执行「补全」再启动");
-        classpathEntries.Add(ownJar);
-        var classpath = string.Join(PlatformInfo.ClasspathSeparator,
-            classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
+        string classpath;
+        if (string.IsNullOrEmpty(ov?.Classpath))
+        {
+            // 类路径：windows 内的库（规则过滤；NeoForge 版本 JSON 有重复库条目，需保序去重）
+            var classpathEntries = version.Libraries
+                .Where(l => InstallerService.RulesAllow(l.Rules, ov?.OsName))
+                .Where(l => l.Downloads?.Artifact is { Url: not "" })
+                .Select(l => Path.Combine(dotMc, "libraries", l.Downloads!.Artifact!.Path ?? ""))
+                .ToList();
+            var ownJar = ResolveClientJar(dotMc, instanceId, versionId)
+                         ?? throw new InvalidOperationException(
+                             $"实例 {instanceId} 缺少客户端 jar（{instanceId}.jar）：请先在版本页执行「补全」再启动");
+            classpathEntries.Add(ownJar);
+            classpath = string.Join(PlatformInfo.ClasspathSeparator,
+                classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
+        }
+        else
+        {
+            // 安卓侧已按组件目录组装好类路径（':' 分隔），直接注入变量表
+            classpath = ov!.Classpath;
+        }
 
         // 参数替换
         var assets = version.Assets ?? version.AssetIndex?.Id ?? "legacy";
@@ -155,9 +201,9 @@ public sealed class GameLauncher
         // 新代参数（arguments.jvm / arguments.game）
         if (version.Arguments is { } args)
         {
-            foreach (var item in args.Jvm.Where(i => RulesAllowValue(i)))
+            foreach (var item in args.Jvm.Where(i => RulesAllowValue(i, ov?.OsName)))
                 AppendValue(jvmArgs, item, Substitute);
-            foreach (var item in args.Game.Where(i => RulesAllowValue(i)))
+            foreach (var item in args.Game.Where(i => RulesAllowValue(i, ov?.OsName)))
                 AppendValue(gameArgs, item, Substitute);
         }
 
@@ -207,14 +253,7 @@ public sealed class GameLauncher
             gameArgs.AddRange(pluginGame);
         }
 
-        var java = string.IsNullOrWhiteSpace(options.JavaExecutable)
-            ? await ResolveJavaAsync(version, dotMc, ct)
-            : options.JavaExecutable!;
-        var parts = new List<string> { QuoteIfNeeded(java) };
-        parts.AddRange(jvmArgs.Select(QuoteIfNeeded));
-        parts.Add(version.MainClass);
-        parts.AddRange(gameArgs.Select(QuoteIfNeeded));
-        return string.Join(' ', parts);
+        return (jvmArgs, gameArgs);
     }
 
     /// <summary>
@@ -274,10 +313,10 @@ public sealed class GameLauncher
         return await _java.DownloadRuntimeAsync(required, null, ct);
     }
 
-    private static bool RulesAllowValue(ArgumentItem item)
+    private static bool RulesAllowValue(ArgumentItem item, string? osName)
     {
         if (item.Rules is null || item.Rules.Count == 0) return true;
-        return InstallerService.RulesAllow(item.Rules);
+        return InstallerService.RulesAllow(item.Rules, osName);
     }
 
     private static void AppendValue(List<string> list, ArgumentItem item,
