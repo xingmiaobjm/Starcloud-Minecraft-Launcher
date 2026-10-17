@@ -80,11 +80,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**68 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**72 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
   贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 离线账户持久化 /
-  宿主退出逆序停用）
+  宿主退出逆序停用 / 游戏会话状态与防双开）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
