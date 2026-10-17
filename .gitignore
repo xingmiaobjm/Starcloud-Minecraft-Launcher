@@ -61,12 +61,11 @@ flutter/build/
 flutter/.dart_tool/
 flutter/.flutter-plugins*
 flutter/.packages
-flutter/pubspec.lock
 # 平台脚手架里按需生成、因机器而异的产物
 flutter/linux/flutter/ephemeral/
 flutter/windows/flutter/ephemeral/
 flutter/macos/Flutter/ephemeral/
-# IDE
+# IDE（pubspec.lock 是应用锁定文件，照 Flutter 惯例入库）
 flutter/.idea/
 flutter/*.iml
 

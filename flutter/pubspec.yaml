@@ -1,0 +1,32 @@
+name: starcloud_launcher
+description: >-
+  Starcloud Minecraft Launcher — 跨平台版（Flutter + Fluent UI）。
+  Linux 端先行，macOS 共用同一套 UI 源码与插件内核（docs/plugin-spec-v3.md）。
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 微软 Fluent 设计系统的 Flutter 实现（NavigationView / Acrylic / 对话框等）。
+  # 版本下限对齐 Flutter 3.32+；经 PUB_HOSTED_URL（pub.flutter-io.cn）获取。
+  fluent_ui: ^4.16.1
+
+  # 状态管理：壳与业务页共享内核状态（贡献点表、插件状态、设置）。
+  flutter_riverpod: ^3.0.3
+
+  # 路径拼接（内核"三根"的跨平台语义由 lib/kernel/paths.dart 定义）。
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
