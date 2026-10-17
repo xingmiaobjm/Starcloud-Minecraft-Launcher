@@ -18,7 +18,8 @@ SelfContained 发布）。解决方案 `dotnet/Starcloud.slnx`。已存在，非
 
 面向 Minecraft Java 版玩家（中文社区为主，界面文案为简体中文）：在校学生与年轻玩家为主，
 运行于个人 Windows 10 1809+ / Windows 11 桌面机。主要场景为"启动游戏、管理版本与
-Mod 加载器、管理微软/第三方账户"。单机单人使用，非团队/机构场景。
+Mod 加载器、管理微软/第三方账户"。以单机单人为主，另覆盖「同一玩家多台设备」场景：
+登录 Starcloud ID 后，存档与版本配置可跨设备同步（局域网 P2P），下载可在设备间网内加速。
 
 ## Product Purpose
 
@@ -72,7 +73,8 @@ launcher 自身解析（非依赖第三方下载器），微软 OAuth 设备码�
 - 未决：OptiFine 未接入（原版 / Fabric / Quilt / Forge / NeoForge 已支持）；
   联机已支持陶瓦联机（Terracotta，官方包原样运行 + 本地 HTTP 控制面）与第三方联机 SDK 清单，
   但房主侧仍需游戏内先「对局域网开放」；
-  跨平台版（`crossplatform/`）POC 已过，三平台 CI 冒烟待跑通
+  跨平台（2026-10 起）：除 Windows 外全面转向 Flutter + Fluent UI（`flutter/`，
+  Linux 端先行），Uno 路线已归档
 
 ## Brand Commitments
 

@@ -18,13 +18,15 @@
 - **运行状态**：当前这一局的 CPU / 内存 / GPU 实时曲线（60 点采样）、启动配置与 JVM 参数、日志尾自动吸底（上滚即暂停），可结束 / 重启 / 复制启动命令
 - **账户**：微软官方设备码登录（OAuth 2.0 device code，XBL → XSTS → Minecraft API 完整链路）+ 第三方登录（authlib-injector / Yggdrasil，认证服务器地址由用户自行填写）；**鉴权令牌只存内存不落盘**，每次应用会话首次启动游戏时就地重新登录
 - **联机**：内置 Terracotta 等联机方案，无需公网 IP 或端口映射即可与好友直连
+- **跨设备互联**：同一 Starcloud ID 的设备在局域网自动互相发现（Wi-Fi / 蓝牙 / 星闪通道，按能力自动降级），存档与版本配置一键推送到其他设备（冲突时新者胜、旧者自动改名保留，绝不覆盖进度）；下载时优先从同账号设备网内取文件（P2P 加速，SHA1 校验不过自动回退公网）
 - **存档**：世界备份 / 恢复 / 清理，跨版本运行态提示
+- **SC 实验室**：内置工具箱——**投影工坊**（.litematic / 结构 nbt / .schematic / .schem 解析、元数据编辑、litematic↔结构 nbt 互转、方块统计与 **3D 模型预览**：直接读本机已启用的资源包 / 客户端 jar / 模组 jar 取真实方块纹理，不是近似色，楼梯栅栏等非立方体几何按整块呈现；点「**空间模式**」可用原版 MC 的方式进到投影里自由行走——WASD、鼠标转视角、空格跳、双击空格切飞行、Shift 下潜，带重力与方块碰撞）、**投影社区**（从多个投影源聚合红石机器与建筑投影，卡片流浏览、搜「世吞」「world eater」「农场」等关键词，一键下载到投影目录；GitHub 源经镜像加速并自动回退直连）、**彩色文字生成器**（Markdown 手感编辑，格式只保留颜色：{#hex 内容} 内联 / {#hex} 开启 / {/} 复位）、**指令助手**（17 个命令模板 + 参数体检）；同一套能力也注册为 Nova 工具
 - **Nova 助手**：顶栏入口 + 游戏内浮窗（共用同一条消息流）；接第三方 LLM（可配多套），能生成「计划」（内存、JVM 参数、版本隔离等）确认后一键执行，对话与操作日志留痕
 - **插件系统**：`.mclplug` 插件包（`manifest.json` + `main.js` 进程内 Jint 沙箱 / `main.py` 子进程），权限白名单制，可扩展游戏启动参数、插件面板与**声明式 UI**（2.0 草案：`contributes` 声明面板、页面挂载点、首页卡片与左侧导航项、组件白名单，界面由宿主渲染为原生控件，动作与绑定仍走同一套权限校验）；规范见 [docs/plugin-spec.md](docs/plugin-spec.md)、[docs/plugin-spec-v2.md](docs/plugin-spec-v2.md)
 - **调度中心**：下载、游戏启动、Java 搜索等长任务统一登记，顶栏入口实时查看聚合进度与分源贡献
 - **Java 管理**：自动检测系统 Java（PATH / JAVA_HOME），一键下载 Adoptium Temurin JDK 8 / 21
 - **外观**：主题跟随系统 / 浅色 / 深色即时生效；背景可选「关闭（纯毛玻璃）/ 内置壁纸 / 本地图片」，模糊强度、不透明度与毛玻璃强度实时可调（毛玻璃强度勾「跟随主题」即用深 0.45 / 浅 0.25 的配方）
-- **界面**：WinUI 3 原生渲染——亚克力窗口 + `ExtendsContentIntoTitleBar` 自绘标题栏、NavigationView 侧栏导航（默认收拢为图标条）、PCL2 式首页双栏布局（左版本列表 / 右 360px 账户与启动卡）与版本详情页分组卡片（概览 / 个性化 / 快捷方式 / 高级管理）；页面抬头不写标题与说明，当前位置由左侧导航的激活项指示；卡片展开 / 收起状态、窗口尺寸等都会记住；跟手光斑、悬停抬升、展开收起等动效由设置里的「界面动效」统一开关
+- **界面**：WinUI 3 原生渲染——亚克力窗口 + `ExtendsContentIntoTitleBar` 自绘标题栏、NavigationView 侧栏导航（默认收拢为图标条）、PCL2 式首页双栏布局（左版本列表 / 右 360px 账户与启动卡）与版本详情页分组卡片（概览 / 个性化 / 快捷方式 / 高级管理）；页面抬头不写标题与说明，当前位置由左侧导航的激活项指示；卡片展开 / 收起状态、窗口尺寸等都会记住；全局动效分四档在设置里手动切换——**极少**（只有页面切换）/ **较少**（+毛玻璃卡片、悬浮微反馈）/ **均衡**（+按钮液态玻璃边缘光、阴影跟随鼠标、按压回弹，默认档）/ **全部**（+更明显的按压回弹与更亮的边缘光，建议高性能独显机型）
 
 ## 构建
 
@@ -34,9 +36,9 @@
 - [.NET SDK 8.0+](https://dotnet.microsoft.com/download)（8 / 9 / 10 均可构建）
 - 无需其他依赖——Windows App SDK 以自包含（SelfContained）方式打包，目标机器无需单独安装运行时
 
-> `crossplatform/` 是独立的跨平台版（Uno Platform，`net10.0-desktop`，目标 macOS / Linux / Windows），
-> 需 .NET SDK 10；构建：`dotnet build crossplatform/Starcloud.Cross.slnx`。跨平台版与 Windows 版
-> 共用 `dotnet/src/Starcloud.Core` 核心库。
+> **跨平台（2026-10 起）**：除 Windows 外全面转向 **Flutter + Fluent UI**（[`flutter/`](flutter/)，
+> Linux 端先行，macOS 共用同一套 UI 源码与内核）。原 Uno 路线已归档至
+> [`legacy/crossplatform-uno/`](legacy/crossplatform-uno/)（不再演进）。
 
 ### 构建与运行
 
@@ -85,11 +87,12 @@ dotnet build dotnet/Starcloud.slnx -c Release -p:CurseForgeApiKey=<key>
 │   │           ├── Rows/                  # 列表行模型 + 版本类型/图标判定
 │   │           └── Shared/                # 页面共用小工具（版本操作、远程图标、窗口背景）
 │   └── tests/Starcloud.Core.Tests/        # Core 单元与集成测试（xUnit）
-├── crossplatform/                 # 跨平台版（Uno Platform：macOS / Linux / Windows）
-│   ├── Starcloud.Cross.slnx
-│   ├── docs/POC-FINDINGS.md       # 选型与冒烟验证结论
-│   └── src/Starcloud.Cross/
+├── flutter/                       # 跨平台版（Flutter + fluent_ui：Linux 先行，macOS 共用 UI 与内核）
+│   ├── lib/kernel/                # 插件内核（描述符/生命周期/契约注册表/贡献点/事件总线）
+│   ├── lib/shell/                 # Fluent 壳（导航从贡献点表渲染）
+│   └── docs 见 README             # 基座说明与验收清单
 ├── legacy/                        # [旧] Rust + Tauri + Preact 实现（仅参考）
+│   └── crossplatform-uno/         # [旧] Uno 跨平台路线（2026-10 归档，不再演进）
 ├── docs/                          # 架构 / API / 用户手册 / 插件规范
 ├── tools/                         # 打包与本地化脚本（build-installer.ps1 等）
 └── examples/plugins/             # 插件示例（.mclplug）：hello-panel / instance-report
@@ -102,8 +105,8 @@ dotnet build dotnet/Starcloud.slnx -c Release -p:CurseForgeApiKey=<key>
 - [产品定位与主张](PRODUCT.md)
 - [视觉设计系统](DESIGN.md)
 - [用户手册](docs/USER_MANUAL.md)
-- [插件开发规范](docs/plugin-spec.md) / [插件规范 2.0（草案）](docs/plugin-spec-v2.md) / [插件 SDK 速查](docs/plugin-sdk.md)
-- [跨平台选型与 POC 结论](crossplatform/docs/POC-FINDINGS.md)
+- [插件开发规范](docs/plugin-spec.md) / [插件规范 2.0（草案）](docs/plugin-spec-v2.md) / [内核与插件规范 3.0（跨平台）](docs/plugin-spec-v3.md) / [插件 SDK 速查](docs/plugin-sdk.md)
+- [跨平台选型与 POC 结论（Uno，已归档）](legacy/crossplatform-uno/docs/POC-FINDINGS.md)
 - [设计记录](docs/designs/)（按日期归档的单点设计决策）
 
 ## 许可证

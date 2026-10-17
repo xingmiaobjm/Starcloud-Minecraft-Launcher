@@ -49,13 +49,28 @@ starcloud-multiplayer/**/*.user
 # WorkBuddy 工作区元数据（记忆、会话日志）
 /.workbuddy/
 
-# ─────────────────── crossplatform/  跨平台版 ───────────────────
+# ─────────────────── crossplatform/  跨平台版（已归档至 legacy/crossplatform-uno/）───────────────────
 crossplatform/**/bin/
 crossplatform/**/obj/
 crossplatform/**/*.user
 crossplatform/.vs/
 
-# ─────────────── legacy/  旧 Rust + Tauri 实现（仅参考） ───────────────
+# ─────────────────── flutter/  跨平台版（Flutter + fluent_ui）───────────────────
+# 构建产物与本地工具状态（可随时重建）
+flutter/build/
+flutter/.dart_tool/
+flutter/.flutter-plugins*
+flutter/.packages
+flutter/pubspec.lock
+# 平台脚手架里按需生成、因机器而异的产物
+flutter/linux/flutter/ephemeral/
+flutter/windows/flutter/ephemeral/
+flutter/macos/Flutter/ephemeral/
+# IDE
+flutter/.idea/
+flutter/*.iml
+
+# ─────────────── legacy/  旧实现归档（Rust+Tauri、Uno 跨平台） ───────────────
 /legacy/target/
 /legacy/node_modules/
 /legacy/ui/node_modules/
@@ -65,6 +80,10 @@ crossplatform/.vs/
 /legacy/package.json
 **/*.rs.bk
 legacy/Cargo.lock.orig
+/legacy/crossplatform-uno/**/bin/
+/legacy/crossplatform-uno/**/obj/
+/legacy/crossplatform-uno/**/*.user
+/legacy/crossplatform-uno/.vs/
 
 # ─────────────────── 本地工具状态与素材库 ───────────────────
 /.agents/
