@@ -23,17 +23,52 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   JavaProbeResult? _javaProbe;
   bool _probing = false;
 
+  @override
+  void dispose() {
+    _gameDir.dispose();
+    _javaPath.dispose();
+    super.dispose();
+  }
+
   Future<void> _probeJava() async {
     setState(() => _probing = true);
-    final java = await ref.read(kernelDepsProvider).launcher.detectJava();
-    if (!mounted || !context.mounted) return;
-    setState(() {
-      _probing = false;
-      _javaProbe = java == null
-          ? const JavaProbeResult(path: '', version: '未找到', major: 0)
-          : JavaProbeResult(
-              path: java.path, version: java.version, major: java.major);
-    });
+    try {
+      final java = await ref.read(kernelDepsProvider).launcher.detectJava();
+      if (!mounted) return;
+      setState(() {
+        _javaProbe = java == null
+            ? const JavaProbeResult(path: '', version: '未找到', major: 0)
+            : JavaProbeResult(
+                path: java.path, version: java.version, major: java.major);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _javaProbe = JavaProbeResult(path: '', version: '探测失败：$e', major: 0);
+      });
+    } finally {
+      // 失败也要复位，否则"探测"按钮永久禁用。
+      if (mounted) setState(() => _probing = false);
+    }
+  }
+
+  /// 写入设置：成功回读服务端值（避免本地显示与持久化状态漂移），失败给出可读提示。
+  Future<void> _save(
+    Future<void> Function() action,
+    String successMessage,
+  ) async {
+    try {
+      await action();
+      if (!mounted || !context.mounted) return;
+      setState(() {
+        _memory = _settings.memoryMb();
+        _source = _settings.downloadSource();
+      });
+      _toast(context, successMessage, InfoBarSeverity.success);
+    } catch (e) {
+      if (!mounted || !context.mounted) return;
+      _toast(context, '保存失败：$e', InfoBarSeverity.error);
+    }
   }
 
   @override
@@ -60,11 +95,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   const SizedBox(width: 12),
                   Button(
-                    onPressed: () async {
-                      await _settings.setGameDir(_gameDir.text.trim());
-                      if (!mounted || !context.mounted) return;
-                      _toast(context, '游戏目录已保存');
-                    },
+                    onPressed: () => _save(
+                      () => _settings.setGameDir(_gameDir.text.trim()),
+                      '游戏目录已保存',
+                    ),
                     child: const Text('保存'),
                   ),
                 ]),
@@ -93,11 +127,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   const SizedBox(width: 12),
                   Button(
-                    onPressed: () async {
-                      await _settings.setJavaPath(_javaPath.text.trim());
-                      if (!mounted || !context.mounted) return;
-                      _toast(context, 'Java 路径已保存');
-                    },
+                    onPressed: () => _save(
+                      () => _settings.setJavaPath(_javaPath.text.trim()),
+                      'Java 路径已保存',
+                    ),
                     child: const Text('保存'),
                   ),
                 ]),
@@ -133,11 +166,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   onChanged: (v) => setState(() => _memory = v.round()),
                 ),
                 FilledButton(
-                  onPressed: () async {
-                    await _settings.setMemoryMb(_memory);
-                    if (!mounted || !context.mounted) return;
-                    _toast(context, '内存已保存（$_memory MB）');
-                  },
+                  onPressed: () => _save(
+                    () => _settings.setMemoryMb(_memory),
+                    '内存已保存（$_memory MB）',
+                  ),
                   child: const Text('保存'),
                 ),
               ],
@@ -155,21 +187,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   value: _source,
                   items: [
                     ComboBoxItem(
+                        value: DownloadSource.auto,
+                        child: const Text('自动（多源竞速）')),
+                    ComboBoxItem(
                         value: DownloadSource.official,
                         child: const Text('官方（piston-meta）')),
                     ComboBoxItem(
                         value: DownloadSource.bmclapi,
                         child: const Text('BMCLAPI 镜像')),
                   ],
-                  onChanged: (v) => setState(() => _source = v ?? DownloadSource.official),
+                  onChanged: (v) =>
+                      setState(() => _source = v ?? DownloadSource.auto),
                 ),
                 const SizedBox(height: 8),
                 FilledButton(
-                  onPressed: () async {
-                    await _settings.setDownloadSource(_source);
-                    if (!mounted || !context.mounted) return;
-                      _toast(context, '下载源已保存（即时生效）');
-                  },
+                  onPressed: () => _save(
+                    () => _settings.setDownloadSource(_source),
+                    '下载源已保存（即时生效）',
+                  ),
                   child: const Text('保存'),
                 ),
               ],
@@ -180,12 +215,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  void _toast(BuildContext context, String message) {
+  void _toast(BuildContext context, String message, InfoBarSeverity severity) {
     displayInfoBar(
       context,
       builder: (context, close) => InfoBar(
         title: Text(message),
-        severity: InfoBarSeverity.success,
+        severity: severity,
         onClose: close,
       ),
     );

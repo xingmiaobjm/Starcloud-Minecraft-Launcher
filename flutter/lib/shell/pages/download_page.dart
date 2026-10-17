@@ -1,6 +1,8 @@
 /// 下载页：官方清单 → 选版本 → 安装（进度可见）。
 library;
 
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -22,11 +24,12 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
   bool _releasesOnly = true;
   String? _installing;
   String _progress = '';
+  bool _failed = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -54,6 +57,7 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
     setState(() {
       _installing = v.id;
       _progress = '开始…';
+      _failed = false;
     });
     try {
       await ref.read(kernelDepsProvider).installer.install(
@@ -68,10 +72,19 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
             },
           );
       if (!mounted) return;
-      setState(() => _progress = '完成 ✓（可回首页启动）');
+      setState(() {
+        _progress = '完成 ✓（可回首页启动）';
+        _failed = false;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _progress = '失败：$e');
+      setState(() {
+        _progress = '失败：$e';
+        _failed = true;
+      });
+    } finally {
+      // 无论成功失败都要复位：否则所有"安装"按钮永久禁用，只能切页重进。
+      if (mounted) setState(() => _installing = null);
     }
   }
 
@@ -122,11 +135,17 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
               severity: InfoBarSeverity.error,
               isLong: true,
             ),
-          if (_installing != null)
+          if (_progress.isNotEmpty)
             InfoBar(
-              title: Text('正在安装 $_installing'),
+              title: Text(_installing != null
+                  ? '正在安装 $_installing'
+                  : (_failed ? '安装失败' : '安装完成')),
               content: Text(_progress),
-              severity: InfoBarSeverity.info,
+              severity: _failed
+                  ? InfoBarSeverity.error
+                  : (_installing != null
+                      ? InfoBarSeverity.info
+                      : InfoBarSeverity.success),
               isLong: true,
             ),
           for (final v in shown.take(80))

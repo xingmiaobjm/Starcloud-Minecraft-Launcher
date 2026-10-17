@@ -84,6 +84,9 @@ class _Record {
   int activationMs = 0;
   String? error;
 
+  /// 成功激活的全局序号：宿主退出时按它逆序停用（§4.2）。
+  int activationSeq = 0;
+
   bool get isActive => state == PluginState.active;
 }
 
@@ -103,6 +106,12 @@ class Kernel implements KernelGate {
 
   final Map<String, _Record> _records = {};
   int _registrationSerial = 0;
+  int _activationSerial = 0;
+  bool _stopping = false;
+  bool _stopped = false;
+
+  /// 宿主正在/已经停止：不再接受激活（防止退出过程中被懒激活拉起来）。
+  bool get isStopping => _stopping || _stopped;
 
   final ServiceRegistry services = ServiceRegistry();
   late final EventBus events = EventBus(onError: (m) => _log('warn', m));
@@ -148,6 +157,10 @@ class Kernel implements KernelGate {
 
   /// 激活。返回是否 Active；失败原因记进记录（诊断页可读），不抛出宿主。
   Future<bool> activate(String id) async {
+    if (isStopping) {
+      _log('warn', '内核正在停止，拒绝激活插件 $id');
+      return false;
+    }
     final record = _records[id];
     if (record == null) {
       _log('error', '激活失败：插件 $id 不存在');
@@ -259,6 +272,7 @@ class Kernel implements KernelGate {
 
       record.state = PluginState.active;
       record.activationMs = watch.elapsedMilliseconds;
+      record.activationSeq = ++_activationSerial;
       _log('info', '插件 $id 已激活（${record.activationMs}ms，'
           '贡献 ${contributions.countForPlugin(id)}，'
           '契约 ${services.countForProvider(id)}）');
@@ -281,7 +295,11 @@ class Kernel implements KernelGate {
 
   /// 停用。essential 被拒（含"被必需插件依赖"）；级联停用幂等。
   /// 返回 null = 成功；否则为拒绝/失败原因（诊断可读）。
-  Future<String?> deactivate(String id) async {
+  Future<String?> deactivate(String id) => _deactivate(id, force: false);
+
+  /// [force] 仅供宿主退出使用：跳过 essential 保护（用户侧禁用仍走
+  /// [deactivate]，规范 §5.6.3 的"必需插件不可停用"不变）。
+  Future<String?> _deactivate(String id, {required bool force}) async {
     final record = _records[id];
     if (record == null) return '插件 $id 不存在';
     if (record.state == PluginState.stopped ||
@@ -292,14 +310,16 @@ class Kernel implements KernelGate {
     if (record.state == PluginState.activating) {
       return '插件 $id 正在激活，不能停用';
     }
-    if (record.descriptor.essential) {
-      return '插件 $id 是内核必需插件，不允许停用';
-    }
-    // 被必需插件依赖 → 也拒绝（规范 §5.6.3）。
-    for (final other in _records.values) {
-      if (!other.descriptor.essential || !other.isActive) continue;
-      if (other.descriptor.depends.containsKey(id)) {
-        return '插件 $id 被必需插件 ${other.descriptor.id} 依赖，不允许停用';
+    if (!force) {
+      if (record.descriptor.essential) {
+        return '插件 $id 是内核必需插件，不允许停用';
+      }
+      // 被必需插件依赖 → 也拒绝（规范 §5.6.3）。
+      for (final other in _records.values) {
+        if (!other.descriptor.essential || !other.isActive) continue;
+        if (other.descriptor.depends.containsKey(id)) {
+          return '插件 $id 被必需插件 ${other.descriptor.id} 依赖，不允许停用';
+        }
       }
     }
 
@@ -315,7 +335,7 @@ class Kernel implements KernelGate {
       });
       if (dependsOnX || soleProvider) {
         _log('info', '插件 ${other.descriptor.id} 因 $id 停用而级联停用');
-        final reason = await deactivate(other.descriptor.id);
+        final reason = await _deactivate(other.descriptor.id, force: force);
         if (reason != null) {
           return '级联停用 ${other.descriptor.id} 失败：$reason';
         }
@@ -338,6 +358,29 @@ class Kernel implements KernelGate {
     _log('info', '插件 $id 已停用');
     events.emit(PluginDeactivated(id));
     return null;
+  }
+
+  /// 宿主退出：按**激活逆序**停用全部插件（essential 也停）。
+  ///
+  /// 与用户侧 [deactivate] 的区别：这里跳过 essential 保护（退出不是禁用），
+  /// 且停止后内核不再接受激活，避免退出过程中被懒激活重新拉起。
+  /// 幂等；单个插件 shutdown 抛异常不会中断其余插件的收尾。
+  Future<void> stop() async {
+    if (_stopping || _stopped) return;
+    _stopping = true;
+    final active = _records.values
+        .where((r) => r.isActive)
+        .toList()
+      ..sort((a, b) => b.activationSeq.compareTo(a.activationSeq));
+    for (final record in active) {
+      final reason = await _deactivate(record.descriptor.id, force: true);
+      if (reason != null) {
+        _log('warn', '退出时停用 ${record.descriptor.id} 失败：$reason');
+      }
+    }
+    _stopping = false;
+    _stopped = true;
+    _log('info', '内核已停止（逆序停用 ${active.length} 个插件）');
   }
 
   // ── 禁用 / 启用（用户侧开关；持久化由宿主设置层做，基座期在内存）──────────

@@ -1,6 +1,8 @@
 /// 账户页：离线账户的增/选/删（微软登录后续迭代并入同一页）。
 library;
 
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,13 +28,32 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     _reload();
   }
 
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
   void _reload() {
-    final store = ref.read(kernelDepsProvider).accounts;
     if (!mounted) return;
+    final store = ref.read(kernelDepsProvider).accounts;
     setState(() {
       _accounts = store.accounts();
       _current = store.current()?.uuid;
     });
+  }
+
+  Future<void> _run(Future<void> Function(AccountStore store) action) async {
+    final store = ref.read(kernelDepsProvider).accounts;
+    try {
+      await action(store);
+      if (!mounted) return;
+      setState(() => _message = null);
+      _reload();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _message = '$e');
+    }
   }
 
   Future<void> _add() async {
@@ -68,7 +89,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                   child: TextBox(
                     controller: _name,
                     placeholder: '如：Notch',
-                    onSubmitted: (_) => _add(),
+                    onSubmitted: (_) => unawaited(_add()),
                   ),
                 ),
               ),
@@ -105,24 +126,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                     const InfoBar(title: Text('当前'), isLong: false)
                   else
                     Button(
-                      onPressed: () async {
-                        await ref
-                            .read(kernelDepsProvider)
-                            .accounts
-                            .setCurrent(a.uuid);
-                        _reload();
-                      },
+                      onPressed: () =>
+                          _run((store) => store.setCurrent(a.uuid)),
                       child: const Text('设为当前'),
                     ),
                   const SizedBox(width: 8),
                   Button(
-                    onPressed: () async {
-                      await ref
-                          .read(kernelDepsProvider)
-                          .accounts
-                          .remove(a.uuid);
-                      _reload();
-                    },
+                    onPressed: () => _run((store) => store.remove(a.uuid)),
                     child: const Text('移除'),
                   ),
                 ]),

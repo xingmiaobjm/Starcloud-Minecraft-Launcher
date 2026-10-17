@@ -80,36 +80,55 @@ class CoreBridge {
   Future<void> _spawn(Duration readyTimeout) async {
     final isDll = dllPath.toLowerCase().endsWith('.dll');
     // 数据根经环境变量注入 → C# 与 Flutter 共享同一份 accounts/设置/缓存。
+    // 父 PID 用于 C# 侧看门狗：父进程崩溃/热重启后桥接进程自杀，不留孤儿。
     final process = await Process.start(
       isDll ? dotnetExecutable : dllPath,
       isDll ? [dllPath] : const [],
-      environment: {'STARCLOUD_DATA_DIR': dataDir},
+      environment: {
+        'STARCLOUD_DATA_DIR': dataDir,
+        'STARCLOUD_BRIDGE_PARENT_PID': '$pid',
+      },
     );
     _process = process;
 
     _ready = Completer<void>();
 
+    // allowMalformed：一行坏字节只丢这一行，不能把整条协议流判死
+    // （Windows 控制台代码页/第三方日志都可能混进非 UTF-8 字节）。
     process.stdout
-        .transform(utf8.decoder)
+        .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter())
         .listen(
           _onLine,
-          onError: (Object e) => _fail(e),
-          cancelOnError: false,
+          onError: (Object e) {
+            // stdout 解码/读流出错不等于进程已死；退出由 exitCode 收口。
+            // ignore: avoid_print
+            print('[bridge/stdout] $e');
+          },
         );
     process.stderr
-        .transform(utf8.decoder)
+        .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter())
         .listen((line) {
       // .NET 的运行期警告走 stderr；不当作协议数据，保留在调试输出。
       // ignore: avoid_print
       print('[bridge/stderr] $line');
-    }, onError: (Object e) => _fail(e));
+    }, onError: (Object e) {
+      // ignore: avoid_print
+      print('[bridge/stderr] $e');
+    });
     process.exitCode.then((code) {
       _fail(BridgeException('桥接进程退出（$code）'));
     });
 
-    await _ready!.future.timeout(readyTimeout);
+    try {
+      await _ready!.future.timeout(readyTimeout);
+    } catch (e) {
+      // 启动失败必须回收进程，否则留下一个永远不会被使用的孤儿。
+      process.kill();
+      _fail(e);
+      rethrow;
+    }
   }
 
   void _onLine(String line) {
@@ -181,6 +200,14 @@ class CoreBridge {
       _pending.remove(id);
       return Future.error(BridgeException('写入桥接进程失败：$e'));
     }
+    // EPIPE/SocketException 是异步错误：flush 失败时立刻结束这个请求，
+    // 而不是干等到超时。
+    unawaited(process.stdin.flush().catchError((Object e) {
+      final pending = _pending.remove(id);
+      if (pending != null && !pending.isCompleted) {
+        pending.completeError(BridgeException('写入桥接进程失败：$e'));
+      }
+    }));
     return completer.future.timeout(timeout, onTimeout: () {
       _pending.remove(id);
       throw BridgeException('桥接请求超时：$method（${timeout.inSeconds}s）');

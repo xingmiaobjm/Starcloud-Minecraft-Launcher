@@ -84,11 +84,27 @@ class BridgeInstaller implements MinecraftInstaller {
     void Function(InstallProgress progress)? onProgress,
   }) async {
     final done = Completer<void>();
+    Timer? watchdog;
+
+    // 事件丢失/宿主半死时不能让 UI 永远转圈：10 分钟无任何进度即判死。
+    void armWatchdog() {
+      watchdog?.cancel();
+      watchdog = Timer(const Duration(minutes: 10), () {
+        if (!done.isCompleted) {
+          done.completeError(
+            TimeoutException('安装长时间没有进度（10 分钟），已放弃等待'),
+          );
+        }
+      });
+    }
+
+    armWatchdog();
     // 先订阅再发请求：C# 的进度事件可能早于 "已受理" 回执到达。
     final subscription = _bridge.events.listen((event) {
       if (done.isCompleted) return;
       if (!_matches(event, versionId)) return;
       if (event.name == 'install.progress') {
+        armWatchdog();
         final params = event.params;
         onProgress?.call(InstallProgress(
           params['stage'] as String? ?? '安装',
@@ -116,6 +132,7 @@ class BridgeInstaller implements MinecraftInstaller {
       );
     } catch (_) {
       await subscription.cancel();
+      watchdog?.cancel();
       done.future.ignore();
       rethrow;
     }
@@ -123,6 +140,7 @@ class BridgeInstaller implements MinecraftInstaller {
     try {
       await done.future;
     } finally {
+      watchdog?.cancel();
       await subscription.cancel();
     }
   }
@@ -171,7 +189,9 @@ class BridgeLauncher implements GameLauncher {
     required String versionId,
     required String playerName,
   }) async {
-    final output = StreamController<String>.broadcast();
+    // 单订阅控制器会在首个 listener 之前缓冲事件：启动早期的日志（最需要
+    // 的崩溃日志）不会因为调用方还没拿到 session 而丢失。
+    final output = StreamController<String>();
     final exited = Completer<int>();
     final buffered = <BridgeEvent>[];
     int? sessionId;

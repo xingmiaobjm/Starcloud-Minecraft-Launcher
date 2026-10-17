@@ -136,7 +136,12 @@ abstract class AccountStore {
 
 // ── 设置 ─────────────────────────────────────────────────────────────────────
 
-enum DownloadSource { official, bmclapi }
+enum DownloadSource {
+  /// 多源竞速（C# 侧默认；BMCLAPI/FastMirror 等按可达性自动选择）。
+  auto,
+  official,
+  bmclapi,
+}
 
 abstract class LauncherSettings {
   /// 游戏根目录（.minecraft）。默认 `~/.minecraft`，可改。

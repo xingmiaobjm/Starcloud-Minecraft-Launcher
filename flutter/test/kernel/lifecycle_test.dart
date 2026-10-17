@@ -204,4 +204,40 @@ void main() {
     await k.start();
     expect(k.hasEssentialFailure, isTrue);
   });
+
+  test('宿主退出 stop()：按激活逆序停用（含 essential），且不再接受激活', () async {
+    final k = makeKernel();
+    final order = <String>[];
+    void reg(
+      String id, {
+      PluginKind kind = PluginKind.feature,
+      bool essential = false,
+      Map<String, String> depends = const {},
+    }) {
+      k.registerPlugin(
+        descriptor(id, kind: kind, essential: essential, depends: depends),
+        () => ProbePlugin(onShutdown: () => order.add(id)),
+      );
+    }
+
+    reg('starcloud.engine', kind: PluginKind.engine, essential: true);
+    reg('starcloud.a');
+    reg('starcloud.b', depends: {'starcloud.a': '*'});
+    await k.start();
+
+    // 用户侧仍然不允许停用 essential（退出路径才放行）。
+    expect(await k.deactivate('starcloud.engine'), isNotNull);
+
+    await k.stop();
+    expect(order, ['starcloud.b', 'starcloud.a', 'starcloud.engine'],
+        reason: '依赖者先停，essential 也随宿主退出停用');
+    expect(k.snapshots().every((s) => s.state == PluginState.stopped), isTrue);
+    expect(k.contributions.length, 0);
+    expect(k.services.length, 0);
+    expect(await k.activate('starcloud.a'), isFalse,
+        reason: '停止后不允许被懒激活重新拉起');
+
+    await k.stop(); // 幂等
+    expect(order.length, 3);
+  });
 }

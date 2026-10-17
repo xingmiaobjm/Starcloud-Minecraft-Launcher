@@ -20,7 +20,7 @@ class BridgeLauncherSettings implements LauncherSettings {
   String _gameDir = '';
   String _javaPath = '';
   int _memoryMb = 4096;
-  DownloadSource _source = DownloadSource.official;
+  DownloadSource _source = DownloadSource.auto;
 
   /// 拉取 C# 侧当前设置（插件激活时调用一次）。
   Future<void> refresh() async {
@@ -34,9 +34,13 @@ class BridgeLauncherSettings implements LauncherSettings {
     if (gameDir is String && gameDir.isNotEmpty) _gameDir = gameDir;
     _javaPath = (result['javaExecutable'] as String?) ?? '';
     _memoryMb = (result['maxMemoryMb'] as num?)?.toInt() ?? _memoryMb;
-    _source = result['downloadSource'] == 'bmclapi'
-        ? DownloadSource.bmclapi
-        : DownloadSource.official;
+    _source = switch (result['downloadSource']) {
+      'bmclapi' => DownloadSource.bmclapi,
+      'official' => DownloadSource.official,
+      // auto 以及 fastmirror/rainyun/custom 等其它 C# 源：Dart 侧统一按自动处理，
+      // 避免"读不懂就当成 official"把多源竞速悄悄关掉。
+      _ => DownloadSource.auto,
+    };
   }
 
   Future<void> _patch(Map<String, Object?> values) async {
@@ -79,8 +83,11 @@ class BridgeLauncherSettings implements LauncherSettings {
 
   @override
   Future<void> setDownloadSource(DownloadSource source) => _patch({
-        'downloadSource':
-            source == DownloadSource.bmclapi ? 'bmclapi' : 'official',
+        'downloadSource': switch (source) {
+          DownloadSource.bmclapi => 'bmclapi',
+          DownloadSource.official => 'official',
+          DownloadSource.auto => 'auto',
+        },
       });
 
   @override

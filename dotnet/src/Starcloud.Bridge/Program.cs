@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Starcloud.Core;
@@ -23,13 +26,25 @@ public static class Program
     private static JavaService _java = null!;
     private static GameLauncher _launcher = null!;
     private static AccountStore _accounts = null!;
-    private static readonly Dictionary<int, GameSession> Sessions = new();
+    private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
     private static Task? _installTask;
     private static readonly object InstallGate = new();
 
     public static async Task<int> Main(string[] args)
     {
+        // stdio 固定 UTF-8：Windows 控制台默认代码页会让中文路径/版本名乱码，
+        // Dart 侧的严格 UTF-8 解码会因此把整条协议流判死。
+        var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        using var stdin = new StreamReader(Console.OpenStandardInput(), utf8);
+        var stdout = new StreamWriter(Console.OpenStandardOutput(), utf8)
+        {
+            AutoFlush = true,
+        };
+
+        // 父进程消失（崩溃/热重启）时自杀，避免留下孤儿桥接进程。
+        StartParentWatchdog();
+
         // 数据根由拉起方（Flutter 壳）经环境变量注入，两端共享同一份数据。
         _settings = LauncherSettings.Load();
         _download = new DownloadService(() => _settings);
@@ -39,15 +54,14 @@ public static class Program
         _launcher = new GameLauncher(_installer, _java);
         _accounts = AccountStore.Load();
 
-        Emit("bridge.ready", new
+        Emit(stdout, "bridge.ready", new
         {
             dataDir = LauncherPaths.DataDir,
             dotMinecraft = _settings.DotMinecraft,
             downloadSource = _settings.DownloadSource,
         });
 
-        var stdout = Console.Out;
-        while (await Console.In.ReadLineAsync() is { } line)
+        while (await stdin.ReadLineAsync() is { } line)
         {
             if (line.Length == 0) continue;
             try
@@ -77,7 +91,29 @@ public static class Program
                     continue;
                 }
 
-                var result = await DispatchAsync(method, parameters);
+                // 长请求不能串行阻塞主循环：否则下载/扫描 Java 期间 ping、game.kill
+                // 全部排队，Dart 侧的短超时会把"其实已受理"的操作误判为失败。
+                if (IsLongRunning(method))
+                {
+                    var capturedId = id;
+                    var capturedMethod = method;
+                    var capturedParams = parameters;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var result = await DispatchAsync(stdout, capturedMethod, capturedParams);
+                            Reply(stdout, capturedId, ok: true, result: result);
+                        }
+                        catch (Exception e)
+                        {
+                            Reply(stdout, capturedId, ok: false, error: e.Message);
+                        }
+                    });
+                    continue;
+                }
+
+                var result = await DispatchAsync(stdout, method, parameters);
                 Reply(stdout, id, ok: true, result: result);
             }
             catch (Exception e)
@@ -93,15 +129,48 @@ public static class Program
                 if (failedId.HasValue)
                     Reply(stdout, failedId.Value, ok: false, error: e.Message);
                 else
-                    Emit("bridge.error", new { message = e.Message });
+                    Emit(stdout, "bridge.error", new { message = e.Message });
             }
         }
         return 0;
     }
 
+    private static bool IsLongRunning(string method) =>
+        method is "download.file" or "download.text" or "java.list" or "launch.start";
+
+    /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
+    private static void StartParentWatchdog()
+    {
+        if (!int.TryParse(
+                Environment.GetEnvironmentVariable("STARCLOUD_BRIDGE_PARENT_PID"),
+                out var parentPid) || parentPid <= 0)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                await Task.Delay(2000);
+                try
+                {
+                    using var parent = Process.GetProcessById(parentPid);
+                    if (parent.HasExited) Environment.Exit(0);
+                }
+                catch (ArgumentException)
+                {
+                    Environment.Exit(0); // 父进程已不存在
+                }
+                catch
+                {
+                    // 权限等临时错误不当作父进程消失
+                }
+            }
+        });
+    }
+
     // ── 方法分发 ─────────────────────────────────────────────────────────────
 
-    private static async Task<object?> DispatchAsync(string method, JsonElement p)
+    private static async Task<object?> DispatchAsync(TextWriter stdout, string method, JsonElement p)
     {
         switch (method)
         {
@@ -226,7 +295,11 @@ public static class Program
                 var options = new LaunchOptions(
                     VersionId: versionId,
                     PlayerName: playerName,
-                    GameDir: Path.Combine(_settings.DotMinecraft, "versions", versionId),
+                    // 与 Windows 端共用 version_isolated 语义：关闭隔离时
+                    // 存档/mods 落在 .minecraft 根，而不是 versions/<id>。
+                    GameDir: _settings.VersionIsolated
+                        ? Path.Combine(_settings.DotMinecraft, "versions", versionId)
+                        : _settings.DotMinecraft,
                     SharedDir: _settings.DotMinecraft,
                     MinMemoryMb: 512,
                     MaxMemoryMb: maxMemory,
@@ -240,12 +313,18 @@ public static class Program
                 var sessionId = ++_nextSessionId;
                 Sessions[sessionId] = session;
                 session.OutputLine += line =>
-                    Emit("game.output", new { sessionId, line });
-                session.Exited += code =>
+                    Emit(stdout, "game.output", new { sessionId, line });
+                // 退出事件只触发一次；进程可能在订阅前就已退出（参数错误/缺 jar），
+                // 用 Interlocked 兜底补发，避免 Dart 侧 exitCode 永远不完成。
+                var exitRaised = 0;
+                void RaiseExited(int code)
                 {
-                    Emit("game.exited", new { sessionId, code });
-                    Sessions.Remove(sessionId);
-                };
+                    if (Interlocked.Exchange(ref exitRaised, 1) != 0) return;
+                    Emit(stdout, "game.exited", new { sessionId, code });
+                    Sessions.TryRemove(sessionId, out _);
+                }
+                session.Exited += RaiseExited;
+                if (session.HasExited) RaiseExited(session.ExitCode);
                 return new { sessionId, pid = session.Pid, logFile = session.LogFile };
             }
 
@@ -253,7 +332,7 @@ public static class Program
             {
                 var sessionId = p.GetProperty("sessionId").GetInt32();
                 if (!Sessions.TryGetValue(sessionId, out var session))
-                    throw new Exception($"会话不存在：{sessionId}");
+                    return new { ok = false, alreadyExited = true };
                 session.Kill(entireTree: true);
                 return new { ok = true };
             }
@@ -269,7 +348,7 @@ public static class Program
         {
             var entry = await FindManifestEntryAsync(versionId)
                         ?? throw new Exception($"版本 {versionId} 不在官方清单里");
-            var progress = new Progress<BatchProgress>(b => Emit("install.progress", new
+            var progress = new Progress<BatchProgress>(b => Emit(stdout, "install.progress", new
             {
                 versionId,
                 stage = b.Stage,
@@ -280,12 +359,12 @@ public static class Program
                 speedBytesPerSec = b.SpeedBytesPerSec,
             }));
             await _installer.InstallVanillaAsync(versionId, entry.Url, _settings, progress);
-            Emit("install.done", new { versionId });
+            Emit(stdout, "install.done", new { versionId });
             Reply(stdout, id, ok: true, result: new { versionId, installed = true });
         }
         catch (Exception e)
         {
-            Emit("install.failed", new { versionId, error = e.Message });
+            Emit(stdout, "install.failed", new { versionId, error = e.Message });
             Reply(stdout, id, ok: false, error: e.Message);
         }
     }
@@ -310,7 +389,7 @@ public static class Program
 
     private static void Reply(TextWriter writer, int id, bool ok, object? result = null, string? error = null)
     {
-        WriteLine(JsonSerializer.Serialize(new
+        WriteLine(writer, JsonSerializer.Serialize(new
         {
             id,
             ok,
@@ -319,21 +398,21 @@ public static class Program
         }, JsonOpts));
     }
 
-    private static void Emit(string eventName, object parameters)
+    private static void Emit(TextWriter writer, string eventName, object parameters)
     {
-        WriteLine(JsonSerializer.Serialize(new
+        WriteLine(writer, JsonSerializer.Serialize(new
         {
             @event = eventName,
             @params = parameters,
         }, JsonOpts));
     }
 
-    private static void WriteLine(string line)
+    private static void WriteLine(TextWriter writer, string line)
     {
         lock (StdoutLock)
         {
-            Console.Out.WriteLine(line);
-            Console.Out.Flush();
+            writer.WriteLine(line);
+            writer.Flush();
         }
     }
 }

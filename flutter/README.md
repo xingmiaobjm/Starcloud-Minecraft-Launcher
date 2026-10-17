@@ -80,10 +80,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**67 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**68 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
-  贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 离线账户持久化）
+  贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 离线账户持久化 /
+  宿主退出逆序停用）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -99,6 +100,17 @@ lib/
   `starcloud.csharp_core` 激活 460ms / 登记 5 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
+- 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
+  `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
+
+### 桥接健壮性（2026-10-18 加固）
+
+- stdio 两端固定 UTF-8；Dart 侧 `allowMalformed`，一行坏字节不会判死整条协议流。
+- 长请求（`download.*` / `java.list` / `launch.start`）在宿主侧并发执行，
+  不再阻塞 `ping` / `game.kill` / 安装受理。
+- 游戏进程退出事件做了"订阅前已退出"兜底，Dart 的 `exitCode` 不会永远悬挂。
+- 父进程看门狗：Flutter 崩溃/热重启后，C# 桥接进程在 2 秒内自行退出。
+- 安装事件 10 分钟无进度即判死，UI 不会无限转圈；下载源支持 `auto` 多源竞速。
 
 ### 已知项
 

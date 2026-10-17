@@ -344,6 +344,37 @@ public sealed class GameLauncher
     private static string QuoteIfNeeded(string arg) =>
         arg.Contains(' ') ? '"' + arg + '"' : arg;
 
+    /// <summary>
+    /// 引号感知的命令行切分（与 <see cref="QuoteIfNeeded"/> 对称）。
+    /// 只处理"整段参数被双引号包住"的情形——启动参数里没有嵌套引号。
+    /// </summary>
+    private static List<string> SplitCommandLine(string commandLine)
+    {
+        var result = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+        foreach (var c in commandLine)
+        {
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (char.IsWhiteSpace(c) && !inQuotes)
+            {
+                if (current.Length > 0)
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+                continue;
+            }
+            current.Append(c);
+        }
+        if (current.Length > 0) result.Add(current.ToString());
+        return result;
+    }
+
     /// <summary>版本是否支持现代窗口参数（--width/--height/--fullscreen）：≥1.13 或无法解析（快照/特殊命名视为现代）</summary>
     public static bool ModernWindowArgs(string versionId)
     {
@@ -355,10 +386,13 @@ public sealed class GameLauncher
     public GameSession Launch(string commandLine, string workingDirectory, string versionId,
         IReadOnlyDictionary<string, string>? envVars = null)
     {
+        // 不能按空格切命令行：Java 路径几乎总在 "Program Files" 这类含空格目录下。
+        // 先做引号感知切分，再交给 ArgumentList 逐项转义。
+        var parts = SplitCommandLine(commandLine);
+        if (parts.Count == 0) throw new InvalidOperationException("启动命令行为空");
         var psi = new ProcessStartInfo
         {
-            FileName = commandLine.Split(' ')[0].Trim('"'),
-            Arguments = commandLine.Substring(commandLine.Split(' ')[0].Length).TrimStart(),
+            FileName = parts[0],
             UseShellExecute = false,
             WorkingDirectory = workingDirectory,
             CreateNoWindow = true,
@@ -367,6 +401,7 @@ public sealed class GameLauncher
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+        for (var i = 1; i < parts.Count; i++) psi.ArgumentList.Add(parts[i]);
         if (envVars is not null)
         {
             foreach (var (k, v) in envVars) psi.Environment[k] = v;
