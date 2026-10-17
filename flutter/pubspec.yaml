@@ -22,6 +22,12 @@ dependencies:
   # 路径拼接（内核"三根"的跨平台语义由 lib/kernel/paths.dart 定义）。
   path: ^1.9.1
 
+  # SHA1（下载校验）与离线账户 UUID（MD5）。
+  crypto: ^3.0.6
+
+  # natives jar 解压（LWJGL 的 linux natives）。
+  archive: ^4.0.7
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

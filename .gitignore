@@ -37,6 +37,12 @@ dotnet/.vs/
 dotnet/**/*.user
 dotnet/AppPackages/
 
+# C# 桥接宿主的发布产物（dotnet publish 生成，可随时重建；
+# Flutter 端运行时直接拉起，不随源码入库）
+/bridge-linux-x64/
+/bridge-win-x64/
+/bridge-osx-x64/
+
 # ─────────────────── starcloud-multiplayer/  联机模块 ───────────────────
 starcloud-multiplayer/**/bin/
 starcloud-multiplayer/**/obj/

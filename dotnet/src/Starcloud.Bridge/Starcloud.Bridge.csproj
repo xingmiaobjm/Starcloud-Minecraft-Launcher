@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Starcloud.Bridge — 内核桥接宿主（Linux / macOS 端的"部分后端"承载者）。
+
+    定位（2026-10-18 架构决定）：下载 / 安装 / 启动相关能力**全部在 C# 侧实现**
+    （Starcloud.Core，纯 net8.0 跨平台），其它端不重写——Linux/macOS 的 Flutter 壳
+    拉起本进程，经 stdin/stdout 行式 JSON 协议直接复用 Core 的实现
+    （与 Plugins/PyPluginRuntime.cs 的 Python 插件协议同一模式）。
+
+    数据根：由拉起方经 STARCLOUD_DATA_DIR 环境变量注入（LauncherPaths 支持），
+    这样 Flutter 壳与本进程共享同一份 accounts.json / 设置 / 缓存。
+
+    协议（每行一个 JSON 对象）：
+      请求  {"id":1,"method":"catalog.versions","params":{...}}
+      响应  {"id":1,"ok":true,"result":{...}} | {"id":1,"ok":false,"error":"..."}
+      事件  {"event":"install.progress","params":{...}} | {"event":"game.output","params":{...}}
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>Starcloud.Bridge</AssemblyName>
+    <RootNamespace>Starcloud.Bridge</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Core\Starcloud.Core.csproj" />
+  </ItemGroup>
+
+</Project>

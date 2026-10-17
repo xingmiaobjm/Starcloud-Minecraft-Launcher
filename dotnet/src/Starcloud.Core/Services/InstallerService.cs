@@ -152,6 +152,14 @@ public sealed class InstallerService
                 nativesJobs.Add((native,
                     Path.Combine(dotMc, "libraries", native.Path ?? ""), lib.Extract));
             }
+            else if (dl?.Artifact is { Url: not "" } modernNative && IsModernNative(lib.Name))
+            {
+                // 1.19+ 把 natives 拆成独立库条目（name 以 :natives-linux 等结尾），
+                // 不再是 downloads.classifiers。artifact 已在上面入下载队列，
+                // 这里补一条解压任务，否则 java.library.path 指向空目录。
+                nativesJobs.Add((modernNative,
+                    Path.Combine(dotMc, "libraries", modernNative.Path ?? ""), lib.Extract));
+            }
         }
 
         // 资源索引
@@ -210,6 +218,17 @@ public sealed class InstallerService
             var target = Path.Combine(nativesDir, Path.GetFileName(entry.FullName));
             entry.ExtractToFile(target, overwrite: true);
         }
+    }
+
+    /// <summary>新版清单的 natives 库条目：name 以 `:natives-&lt;当前平台 classifier&gt;` 结尾</summary>
+    private static bool IsModernNative(string name)
+    {
+        foreach (var candidate in PlatformInfo.NativesClassifierCandidates)
+        {
+            if (name.EndsWith(":" + candidate, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>从 classifiers 里取当前平台的 natives（按候选键顺序回退）；无对应平台键时返回 null</summary>
