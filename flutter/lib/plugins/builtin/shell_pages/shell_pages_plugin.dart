@@ -10,6 +10,7 @@ import '../../../kernel/contribution_registry.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import '../../../shell/pages/placeholder_page.dart';
+import '../../../shell/pages/session_logs_page.dart';
 
 /// 页面定义：id / 标题 / 图标 / 说明（占位页正文）。
 class _PageSpec {
@@ -52,17 +53,24 @@ class ShellPagesPlugin implements Plugin {
         footer: page.footer,
       ));
       // 页面（惰性工厂：注册时不创建，首次进入才创建，规范 §8.2 page）。
+      // 运行状态/日志两页已经接上应用级会话状态（gameSessionProvider），
+      // 其余页面仍是占位。
       ctx.contributions.upsert(Contribution(
         kind: ContributionKind.page,
         pluginId: ctx.descriptor.id,
         id: page.id,
         title: page.title,
         order: page.order,
-        view: (_) => PlaceholderPage(
-          title: page.title,
-          description: page.description,
-          pluginId: ctx.descriptor.id,
-        ),
+        view: (_) => switch (page.id) {
+          'running' =>
+            SessionLogsPage(title: page.title, showSessionInfo: true),
+          'logs' => SessionLogsPage(title: page.title),
+          _ => PlaceholderPage(
+              title: page.title,
+              description: page.description,
+              pluginId: ctx.descriptor.id,
+            ),
+        },
       ));
     }
     ctx.log('已贡献 ${_pages.length} 个导航项与页面');

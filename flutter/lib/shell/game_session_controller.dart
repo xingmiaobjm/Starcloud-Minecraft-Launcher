@@ -126,4 +126,10 @@ class GameSessionController extends Notifier<GameSessionState> {
       state = state.copyWith(launching: false, status: '启动失败：$e');
     }
   }
+
+  /// 清空日志显示（不影响游戏进程）。
+  void clearLogs() {
+    if (_disposed) return;
+    state = state.copyWith(logs: const []);
+  }
 }
