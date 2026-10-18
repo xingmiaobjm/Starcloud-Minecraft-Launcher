@@ -167,15 +167,16 @@ class _VersionListPageState extends ConsumerState<VersionListPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Text(version.id, style: typography.bodyStrong),
-                  const SizedBox(width: 8),
-                  for (final tag in tags)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: Text('[$tag]', style: typography.caption),
-                    ),
-                ]),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 2,
+                  children: [
+                    Text(version.id, style: typography.bodyStrong),
+                    for (final tag in tags)
+                      Text('[$tag]', style: typography.caption),
+                  ],
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${_formatSize(version.sizeBytes)}'
