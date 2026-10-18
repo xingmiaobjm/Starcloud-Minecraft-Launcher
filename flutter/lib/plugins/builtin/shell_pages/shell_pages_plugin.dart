@@ -1,4 +1,4 @@
-/// 内置插件：版本/存档/运行状态/日志已接真实实现，联机仍是占位页。
+/// 内置插件：版本/存档/联机/运行状态/日志已接真实实现（占位页仅剩未使用的兜底）。
 ///
 /// 首页/下载/账户/设置已经由各自的功能插件提供；版本页读 C# 核心的
 /// `catalog.installed` 并支持删除/打开目录/设为默认；运行状态与日志页读
@@ -10,6 +10,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../kernel/contribution_registry.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
+import '../../../shell/pages/multiplayer_page.dart';
 import '../../../shell/pages/placeholder_page.dart';
 import '../../../shell/pages/saves_page.dart';
 import '../../../shell/pages/session_logs_page.dart';
@@ -67,6 +68,7 @@ class ShellPagesPlugin implements Plugin {
         view: (_) => switch (page.id) {
           'versions' => const VersionListPage(),
           'saves' => const SavesPage(),
+          'multiplayer' => const MultiplayerPage(),
           'running' =>
             SessionLogsPage(title: page.title, showSessionInfo: true),
           'logs' => SessionLogsPage(title: page.title),

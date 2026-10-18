@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'contracts/minecraft.dart';
+import 'contracts/multiplayer.dart';
 import 'kernel/paths.dart';
 import 'kernel/plugin_host.dart';
 import 'kernel/scheduler.dart';
@@ -34,6 +35,7 @@ class KernelDeps {
     required this.settings,
     required this.saves,
     required this.auth,
+    required this.multiplayer,
   });
 
   final MinecraftCatalog catalog;
@@ -43,6 +45,7 @@ class KernelDeps {
   final LauncherSettings settings;
   final SaveCatalog saves;
   final AccountAuth auth;
+  final MultiplayerControl multiplayer;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -55,6 +58,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     settings: services.get<LauncherSettings>(),
     saves: services.get<SaveCatalog>(),
     auth: services.get<AccountAuth>(),
+    multiplayer: services.get<MultiplayerControl>(),
   );
 });
 

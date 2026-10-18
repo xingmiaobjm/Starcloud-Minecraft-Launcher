@@ -25,6 +25,7 @@ import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_accounts.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_multiplayer.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_saves.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_settings.dart';
 
@@ -164,6 +165,22 @@ Future<void> main(List<String> args) async {
       await store.refresh();
       stdout.writeln('[acc] after remove: '
           '${store.accounts().map((a) => a.name).join(', ')}');
+    }
+
+    if (mode == 'multiplayer') {
+      final mp = BridgeMultiplayer(bridge);
+      var snap = await mp.snapshot();
+      stdout.writeln('[mp] providers: '
+          '${snap.providers.map((p) => '${p.id}/${p.displayName}').join(', ')}');
+      stdout.writeln('[mp] active=${snap.activeId} core=${snap.core.installed} '
+          'phase=${snap.state.phase.name} nickname=${snap.nickname}');
+      snap = await mp.setNickname('E2EPlayer');
+      snap = await mp.setNodeRegion('cn');
+      stdout.writeln('[mp] after settings: nickname=${snap.nickname} '
+          'region=${snap.nodeRegion}');
+      snap = await mp.selectProvider('terracotta');
+      stdout.writeln('[mp] provider=${snap.activeId}');
+      await mp.dispose();
     }
 
     if (mode == 'download') {

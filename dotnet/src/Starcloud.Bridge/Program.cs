@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using Starcloud.Core;
 using Starcloud.Core.Models;
 using Starcloud.Core.Services;
+using Starcloud.Core.Services.Multiplayer;
 
 namespace Starcloud.Bridge;
 
@@ -32,9 +33,11 @@ public static class Program
         PendingDeviceCodes = new();
     private static SaveService _saves = null!;
     private static SaveLibraryService _saveLibrary = null!;
+    private static MultiplayerService _multiplayer = null!;
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
     private static Task? _installTask;
+    private static Task? _mpInstallTask;
     private static readonly object InstallGate = new();
 
     public static async Task<int> Main(string[] args)
@@ -63,6 +66,14 @@ public static class Program
         _yggdrasil = new YggdrasilService();
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
+        _multiplayer = new MultiplayerService(
+            _download,
+            () => _settings,
+            () => _accounts.Default?.Username,
+            () => _settings.Save());
+        _multiplayer.Changed += snapshot =>
+            Emit(stdout, "multiplayer.changed", MultiplayerPayload(snapshot));
+        _multiplayer.StartPolling();
 
         Emit(stdout, "bridge.ready", new
         {
@@ -96,6 +107,22 @@ public static class Program
                         }
                         var versionId = parameters.GetProperty("versionId").GetString()!;
                         _installTask = RunInstallAsync(stdout, id, versionId);
+                    }
+                    Reply(stdout, id, ok: true, result: new { accepted = true });
+                    continue;
+                }
+
+                // 联机核心安装同样是长任务：先回执，进度/终态走事件。
+                if (method == "multiplayer.install")
+                {
+                    lock (InstallGate)
+                    {
+                        if (_mpInstallTask is { IsCompleted: false })
+                        {
+                            Reply(stdout, id, ok: false, error: "联机核心正在安装");
+                            continue;
+                        }
+                        _mpInstallTask = RunMultiplayerInstallAsync(stdout, id);
                     }
                     Reply(stdout, id, ok: true, result: new { accepted = true });
                     continue;
@@ -146,7 +173,9 @@ public static class Program
     }
 
     private static bool IsLongRunning(string method) =>
-        method is "download.file" or "download.text" or "java.list" or "launch.start";
+        method is "download.file" or "download.text" or "java.list" or "launch.start"
+            or "multiplayer.host" or "multiplayer.join" or "multiplayer.stop"
+            or "multiplayer.logs" or "multiplayer.nodes";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
     private static void StartParentWatchdog()
@@ -352,6 +381,61 @@ public static class Program
                 _saves.Delete(root, folder);
                 return new { ok = true, freedBytes = freed };
             }
+
+            case "multiplayer.state":
+            {
+                var snap = _multiplayer.Snapshot ?? await _multiplayer.RefreshAsync();
+                return MultiplayerPayload(snap);
+            }
+
+            case "multiplayer.selectProvider":
+            {
+                _multiplayer.SelectProvider(p.GetProperty("id").GetString()!);
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.setNickname":
+            {
+                _multiplayer.Nickname = p.GetProperty("name").GetString() ?? "";
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.setNodeRegion":
+            {
+                _multiplayer.NodeRegion = p.GetProperty("region").GetString() ?? "auto";
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.host":
+            {
+                await _multiplayer.HostAsync(CancellationToken.None);
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.join":
+            {
+                await _multiplayer.JoinAsync(
+                    p.GetProperty("room").GetString()!, CancellationToken.None);
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.idle":
+            {
+                await _multiplayer.IdleAsync(CancellationToken.None);
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.stop":
+            {
+                await _multiplayer.StopAsync(CancellationToken.None);
+                return MultiplayerPayload(await _multiplayer.RefreshAsync());
+            }
+
+            case "multiplayer.logs":
+                return new { logs = await _multiplayer.FetchLogsAsync(CancellationToken.None) };
+
+            case "multiplayer.nodes":
+                return new { nodes = await _multiplayer.FetchNodesAsync(CancellationToken.None) };
 
             case "java.list":
             {
@@ -772,6 +856,80 @@ public static class Program
         else
         {
             Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\""));
+        }
+    }
+
+    /// <summary>联机快照 + 提供方/玩家名/节点地区，一次给全（UI 只渲染）。</summary>
+    private static object MultiplayerPayload(MultiplayerSnapshot snap)
+    {
+        var state = snap.State;
+        return new
+        {
+            providers = _multiplayer.Providers.Select(p => new
+            {
+                p.Id,
+                p.DisplayName,
+                p.Vendor,
+                p.VendorUrl,
+                p.Description,
+                p.BuiltIn,
+            }),
+            activeId = snap.ProviderId,
+            nickname = _multiplayer.Nickname,
+            nodeRegion = _multiplayer.NodeRegion,
+            core = new
+            {
+                installed = snap.Core.Installed,
+                version = snap.Core.Version,
+                sessionRunning = snap.Core.SessionRunning,
+            },
+            state = new
+            {
+                phase = PhaseKey(state.Phase),
+                room = state.Room,
+                address = state.Address,
+                difficulty = state.Difficulty,
+                players = state.Players,
+                errorKind = state.ErrorKind,
+                error = state.Error,
+                isBusy = state.IsBusy,
+            },
+            lastError = snap.LastError,
+        };
+    }
+
+    private static string PhaseKey(MultiplayerPhase phase) => phase switch
+    {
+        MultiplayerPhase.Idle => "idle",
+        MultiplayerPhase.HostScanning => "hostScanning",
+        MultiplayerPhase.HostStarting => "hostStarting",
+        MultiplayerPhase.HostReady => "hostReady",
+        MultiplayerPhase.GuestConnecting => "guestConnecting",
+        MultiplayerPhase.GuestEntering => "guestEntering",
+        MultiplayerPhase.GuestReady => "guestReady",
+        _ => "failed",
+    };
+
+    private static async Task RunMultiplayerInstallAsync(TextWriter stdout, int id)
+    {
+        try
+        {
+            var progress = new Progress<MultiplayerProgress>(p =>
+                Emit(stdout, "multiplayer.progress", new
+                {
+                    stage = p.Stage,
+                    bytes = p.Bytes,
+                    total = p.Total,
+                    speedBps = p.SpeedBps,
+                }));
+            await _multiplayer.InstallCoreAsync(progress, CancellationToken.None);
+            Emit(stdout, "multiplayer.install.done", new { });
+            Reply(stdout, id, ok: true, result: new { installed = true });
+        }
+        catch (Exception e)
+        {
+            Emit(stdout, "multiplayer.install.failed", new { error = e.Message });
+            Reply(stdout, id, ok: false, error: e.Message);
         }
     }
 

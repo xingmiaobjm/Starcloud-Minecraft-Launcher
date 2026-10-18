@@ -15,11 +15,13 @@ import 'package:path/path.dart' as p;
 import '../../../bridge/core_bridge.dart';
 import '../../../contracts/download_engine.dart';
 import '../../../contracts/minecraft.dart';
+import '../../../contracts/multiplayer.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import 'bridge_accounts.dart';
 import 'bridge_download.dart';
 import 'bridge_minecraft.dart';
+import 'bridge_multiplayer.dart';
 import 'bridge_saves.dart';
 import 'bridge_settings.dart';
 
@@ -79,6 +81,7 @@ class CSharpCorePlugin implements Plugin {
 
   CoreBridge? _bridge;
   BridgeDownloadEngine? _download;
+  BridgeMultiplayer? _multiplayer;
 
   @override
   Future<void> initialize(PluginContext ctx) async {
@@ -95,6 +98,8 @@ class CSharpCorePlugin implements Plugin {
     _download = download;
     final accounts = BridgeAccountStore(bridge);
     await accounts.refresh();
+    final multiplayer = BridgeMultiplayer(bridge);
+    _multiplayer = multiplayer;
 
     ctx.services.add<LauncherSettings>(settings);
     ctx.services.add<DownloadEngine>(download);
@@ -104,12 +109,15 @@ class CSharpCorePlugin implements Plugin {
     ctx.services.add<SaveCatalog>(BridgeSaveCatalog(bridge));
     ctx.services.add<AccountStore>(accounts);
     ctx.services.add<AccountAuth>(BridgeAccountAuth(bridge, accounts));
+    ctx.services.add<MultiplayerControl>(multiplayer);
     ctx.log('C# 核心就绪（${p.basename(bridge.dllPath)}，'
         'gameDir=${settings.gameDir()}）');
   }
 
   @override
   Future<void> shutdown() async {
+    await _multiplayer?.dispose();
+    _multiplayer = null;
     await _download?.dispose();
     _download = null;
     await _bridge?.dispose();
@@ -132,6 +140,7 @@ PluginDescriptor csharpCoreDescriptor() => PluginDescriptor.create(
         SaveCatalog,
         AccountStore,
         AccountAuth,
+        MultiplayerControl,
       ],
       permissions: const [
         'net.http',

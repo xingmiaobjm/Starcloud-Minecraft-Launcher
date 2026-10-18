@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:starcloud_launcher/bootstrap.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/shell/pages/saves_page.dart';
 
 /// 存档页的渲染与交互（用假契约顶替 C# 桥接）。
@@ -65,7 +66,44 @@ KernelDeps _deps(SaveCatalog saves) => KernelDeps(
       settings: _FakeSettings(),
       saves: saves,
       auth: _FakeAuth(),
+      multiplayer: _FakeMultiplayer(),
     );
+
+class _FakeMultiplayer implements MultiplayerControl {
+  @override
+  Stream<MultiplayerSnapshot> get changes => const Stream.empty();
+  @override
+  Future<MultiplayerSnapshot> snapshot() async => const MultiplayerSnapshot(
+        providers: [],
+        activeId: '',
+        nickname: '',
+        nodeRegion: 'auto',
+        core: MultiplayerCoreStatus(installed: false, sessionRunning: false),
+        state: MultiplayerState(phase: MultiplayerPhase.idle),
+      );
+  @override
+  Future<MultiplayerSnapshot> selectProvider(String id) => snapshot();
+  @override
+  Future<MultiplayerSnapshot> setNickname(String name) => snapshot();
+  @override
+  Future<MultiplayerSnapshot> setNodeRegion(String region) => snapshot();
+  @override
+  Future<MultiplayerSnapshot> host() => snapshot();
+  @override
+  Future<MultiplayerSnapshot> join(String room) => snapshot();
+  @override
+  Future<MultiplayerSnapshot> idle() => snapshot();
+  @override
+  Future<MultiplayerSnapshot> stop() => snapshot();
+  @override
+  Future<void> installCore({
+    void Function(MultiplayerProgress progress)? onProgress,
+  }) async {}
+  @override
+  Future<String> logs() async => '';
+  @override
+  Future<List<String>> nodes() async => const [];
+}
 
 class _FakeAuth implements AccountAuth {
   @override
