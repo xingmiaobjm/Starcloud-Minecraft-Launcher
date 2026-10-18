@@ -27,6 +27,7 @@ import 'package:starcloud_launcher/contracts/nova.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_accounts.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_content.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_lab.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_multiplayer.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_nova.dart';
@@ -170,6 +171,22 @@ Future<void> main(List<String> args) async {
       await store.refresh();
       stdout.writeln('[acc] after remove: '
           '${store.accounts().map((a) => a.name).join(', ')}');
+    }
+
+    if (mode == 'lab') {
+      final lab = BridgeLab(bridge);
+      final path = await lab.generateWorldEater();
+      stdout.writeln('[lab] generated: $path');
+      final preview = await lab.load(path);
+      if (preview.unsupported != null) {
+        throw StateError(preview.unsupported!);
+      }
+      stdout.writeln('[lab] ${preview.sizeX}x${preview.sizeY}x${preview.sizeZ} '
+          'blocks=${preview.totalBlocks} distinct=${preview.distinctBlocks} '
+          'preview=${preview.preview.length} truncated=${preview.truncated}');
+      for (final stat in preview.stats.take(3)) {
+        stdout.writeln('[lab] ${stat.id}: ${stat.count}');
+      }
     }
 
     if (mode == 'nova') {

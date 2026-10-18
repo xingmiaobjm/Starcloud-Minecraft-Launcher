@@ -81,11 +81,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**73 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**74 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
   贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 宿主退出逆序停用 /
-  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·账户详情·联机页·Nova 页）
+  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·账户详情·联机页·Nova 页·实验室页）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -98,7 +98,7 @@ lib/
   ```
 
 - 后端复用 E2E（WSL + BMCLAPI，`dart run tool/bridge_e2e.dart all`）：
-  `starcloud.csharp_core` 激活约 0.4~4s / 登记 12 个契约；1.20.4 安装 3864 个文件
+  `starcloud.csharp_core` 激活约 0.4~4s / 登记 13 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
@@ -132,6 +132,9 @@ lib/
   「帮我调一下优化配置」生成确认清单 → `nova.plan.execute` 执行 →
   设置实际变更（内存从 4096 变为 3915 MB）。Nova 页已接真实实现
   （流式对话、工具调用提示、自接模型配置、确认清单执行/取消）。
+- 实验室 E2E（`dart run tool/bridge_e2e.dart lab`）：生成世吞模板
+  （63×5×19、768 个 TNT）→ 解析 → 尺寸/方块数/种类统计正确。
+  实验室页已接真实实现（路径加载、方块统计、等距 3D 预览、生成示例）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -149,12 +152,14 @@ lib/
 ### 与 Windows 端的差距（持续收敛中）
 
 - 已对齐：首页 / 下载 / 版本（含详情、内容管理、实例参数、更新与依赖检查）/
-  存档 / 联机 / 运行状态 / 账户（含详情与皮肤）/ Nova / 启动器日志 / 设置。
+  存档 / 联机 / 实验室 / 运行状态 / 账户（含详情与皮肤）/ Nova / 启动器日志 / 设置。
 - Nova：流式对话、自接 OpenAI 兼容模型、本地能力路由（诊断/冲突/联机指引）、
   只读工具与**写操作确认清单**（生成 → 用户确认 → `NovaPlan.ExecuteAsync`；
   取消会丢弃清单）。
-- 未移植：实验室（deepslate 投影渲染）、插件市场
-  （外部沙箱插件按 spec v3 决策暂缓）。
+- 实验室：支持 .litematic / 结构 .nbt 的解析、方块统计、等距 3D 预览与世吞模板
+  生成；预览按方块 id 着色，**不使用 deepslate 的纹理/模型渲染**（Windows 端的
+  完整纹理渲染尚未移植）。
+- 未移植：插件市场（外部沙箱插件按 spec v3 决策暂缓）。
 
 ### 已知项
 

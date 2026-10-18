@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:starcloud_launcher/bootstrap.dart';
 import 'package:starcloud_launcher/contracts/content.dart';
+import 'package:starcloud_launcher/contracts/lab.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/contracts/nova.dart';
 import 'package:starcloud_launcher/contracts/skins.dart';
@@ -72,7 +73,24 @@ KernelDeps _deps(MinecraftCatalog catalog) => KernelDeps(
       content: _FakeContent(),
       skins: _FakeSkins(),
       nova: _FakeNova(),
+      lab: _FakeLab(),
     );
+
+class _FakeLab implements LabService {
+  @override
+  Future<ProjectionPreview> load(String path) async =>
+      ProjectionPreview(path: path);
+  @override
+  Future<String> generateWorldEater({
+    int length = 64,
+    int width = 16,
+    int layers = 3,
+    int spacing = 2,
+    int layerGap = 1,
+    int offset = 2,
+  }) async =>
+      '/tmp/lab.litematic';
+}
 
 class _FakeNova implements NovaClient {
   @override

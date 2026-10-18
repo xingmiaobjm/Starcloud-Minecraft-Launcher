@@ -3,6 +3,7 @@ library;
 
 import 'package:starcloud_launcher/bootstrap.dart';
 import 'package:starcloud_launcher/contracts/content.dart';
+import 'package:starcloud_launcher/contracts/lab.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/contracts/nova.dart';
@@ -20,6 +21,7 @@ KernelDeps fakeDeps({
   ContentManager? content,
   SkinManager? skins,
   NovaClient? nova,
+  LabService? lab,
 }) =>
     KernelDeps(
       catalog: catalog ?? FakeCatalog(),
@@ -33,6 +35,7 @@ KernelDeps fakeDeps({
       content: content ?? FakeContent(),
       skins: skins ?? FakeSkins(),
       nova: nova ?? FakeNova(),
+      lab: lab ?? FakeLab(),
     );
 
 class FakeCatalog implements MinecraftCatalog {
@@ -276,4 +279,20 @@ class FakeNova implements NovaClient {
   Future<String> executePlan(String planId) async => '';
   @override
   Future<void> discardPlan(String planId) async {}
+}
+
+class FakeLab implements LabService {
+  @override
+  Future<ProjectionPreview> load(String path) async =>
+      ProjectionPreview(path: path);
+  @override
+  Future<String> generateWorldEater({
+    int length = 64,
+    int width = 16,
+    int layers = 3,
+    int spacing = 2,
+    int layerGap = 1,
+    int offset = 2,
+  }) async =>
+      '/tmp/lab.litematic';
 }

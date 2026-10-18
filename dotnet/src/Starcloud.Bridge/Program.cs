@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using Starcloud.Core;
 using Starcloud.Core.Models;
 using Starcloud.Core.Services;
+using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
 
 namespace Starcloud.Bridge;
@@ -246,7 +247,8 @@ public static class Program
             or "content.search" or "content.install"
             or "version.checkUpdates" or "version.updateMod" or "version.checkDependencies"
             or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
-            or "nova.plan.execute";
+            or "nova.plan.execute"
+            or "lab.load" or "lab.worldEater";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
     private static void StartParentWatchdog()
@@ -451,6 +453,68 @@ public static class Program
                 catch { /* 统计失败不影响删除 */ }
                 _saves.Delete(root, folder);
                 return new { ok = true, freedBytes = freed };
+            }
+
+            case "lab.load":
+            {
+                var path = p.GetProperty("path").GetString()!;
+                if (!File.Exists(path))
+                    throw new Exception($"文件不存在：{path}");
+                var voxels = VoxelExporter.Read(path, VoxelExporter.MaxBlocks);
+                if (voxels.Unsupported is { } unsupported)
+                    return new { ok = false, path, unsupported };
+                var stats = voxels.Blocks
+                    .GroupBy(b => LabStripState(b.State))
+                    .Select(g => new { id = g.Key, count = g.Count() })
+                    .OrderByDescending(x => x.count)
+                    .ToList();
+                const int previewLimit = 8000;
+                var stride = Math.Max(1, voxels.Blocks.Count / previewLimit);
+                var preview = new List<object>();
+                for (var i = 0; i < voxels.Blocks.Count && preview.Count < previewLimit; i += stride)
+                {
+                    var block = voxels.Blocks[i];
+                    preview.Add(new
+                    {
+                        block.X,
+                        block.Y,
+                        block.Z,
+                        id = LabStripState(block.State),
+                    });
+                }
+                return new
+                {
+                    ok = true,
+                    path,
+                    sizeX = voxels.SizeX,
+                    sizeY = voxels.SizeY,
+                    sizeZ = voxels.SizeZ,
+                    truncated = voxels.Truncated,
+                    totalBlocks = voxels.Blocks.Count,
+                    distinctBlocks = stats.Count,
+                    stats = stats.Take(60),
+                    preview,
+                    previewTruncated = preview.Count < voxels.Blocks.Count,
+                };
+            }
+
+            case "lab.worldEater":
+            {
+                var options = new WorldEaterOptions(
+                    Length: LabInt(p, "length", 64),
+                    Width: LabInt(p, "width", 16),
+                    Layers: LabInt(p, "layers", 3),
+                    Spacing: LabInt(p, "spacing", 2),
+                    LayerGap: LabInt(p, "layerGap", 1),
+                    Offset: LabInt(p, "offset", 2));
+                var error = WorldEater.Validate(options);
+                if (error is not null) throw new Exception(error);
+                var dir = Path.Combine(LauncherPaths.DataDir, "lab");
+                Directory.CreateDirectory(dir);
+                var dest = Path.Combine(dir,
+                    $"world-eater-{DateTime.Now:yyyyMMdd-HHmmss}.litematic");
+                var path = WorldEater.GenerateLitematic(options, dest);
+                return new { ok = true, path };
             }
 
             case "version.settings":
@@ -1551,6 +1615,17 @@ public static class Program
         entry.Height,
         addedAt = entry.AddedAt.ToString("O"),
     };
+
+    private static string LabStripState(string state)
+    {
+        var bracket = state.IndexOf('[');
+        return bracket < 0 ? state : state[..bracket];
+    }
+
+    private static int LabInt(JsonElement p, string key, int fallback) =>
+        p.TryGetProperty(key, out var value) && value.TryGetInt32(out var number)
+            ? number
+            : fallback;
 
     /// <summary>版本实例设置：档案原值 + 层叠后的生效值。</summary>
     private static object VersionSettingsPayload(string versionId)

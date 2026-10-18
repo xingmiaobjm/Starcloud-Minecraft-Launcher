@@ -20,14 +20,14 @@ class PluginManagerPlugin implements Plugin {
       id: 'plugin-manager',
       title: '插件',
       icon: FluentIcons.puzzle,
-      order: 7, // 与 shell_pages 的"插件"项同位（先撤后挂，见下）
+      order: 8, // 与 shell_pages 的"插件"项同位（先撤后挂，见下）
     ));
     ctx.contributions.upsert(Contribution(
       kind: ContributionKind.page,
       pluginId: ctx.descriptor.id,
       id: 'plugin-manager',
       title: '插件',
-      order: 7,
+      order: 8,
       view: (_) => const PluginDiagnosticsPage(),
     ));
     ctx.log('插件管理器已贡献导航项与诊断页');

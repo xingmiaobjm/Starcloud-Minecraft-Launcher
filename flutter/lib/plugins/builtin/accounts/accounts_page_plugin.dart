@@ -18,14 +18,14 @@ class AccountsPagePlugin implements Plugin {
       id: 'accounts',
       title: '账户',
       icon: FluentIcons.contact,
-      order: 6,
+      order: 7,
     ));
     ctx.contributions.upsert(Contribution(
       kind: ContributionKind.page,
       pluginId: ctx.descriptor.id,
       id: 'accounts',
       title: '账户',
-      order: 6,
+      order: 7,
       view: (_) => const AccountsPage(),
     ));
   }

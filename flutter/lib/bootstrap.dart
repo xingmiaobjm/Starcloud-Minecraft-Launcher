@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'contracts/content.dart';
+import 'contracts/lab.dart';
 import 'contracts/minecraft.dart';
 import 'contracts/multiplayer.dart';
 import 'contracts/nova.dart';
@@ -42,6 +43,7 @@ class KernelDeps {
     required this.content,
     required this.skins,
     required this.nova,
+    required this.lab,
   });
 
   final MinecraftCatalog catalog;
@@ -55,6 +57,7 @@ class KernelDeps {
   final ContentManager content;
   final SkinManager skins;
   final NovaClient nova;
+  final LabService lab;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -71,6 +74,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     content: services.get<ContentManager>(),
     skins: services.get<SkinManager>(),
     nova: services.get<NovaClient>(),
+    lab: services.get<LabService>(),
   );
 });
 
