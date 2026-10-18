@@ -100,6 +100,7 @@ lib/
   `starcloud.csharp_core` 激活 460ms / 登记 5 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
+  单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -111,6 +112,8 @@ lib/
 - 游戏进程退出事件做了"订阅前已退出"兜底，Dart 的 `exitCode` 不会永远悬挂。
 - 父进程看门狗：Flutter 崩溃/热重启后，C# 桥接进程在 2 秒内自行退出。
 - 安装事件 10 分钟无进度即判死，UI 不会无限转圈；下载源支持 `auto` 多源竞速。
+- 单文件下载广播 `download.progress`（约 5Hz，`received` 为累计字节，
+  `total=-1` 表示长度未知，结束时 `done=true`）。
 
 ### 已知项
 

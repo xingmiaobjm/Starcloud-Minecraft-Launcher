@@ -81,11 +81,24 @@ public sealed class DownloadService
     /// <summary>下载日志出口（「文件 → 源 → 字节数」）；默认 null = 零开销</summary>
     public Action<string>? Log { get; set; }
 
+    /// <summary>
+    /// P2P 对等文件源（设计：2026-10-14-p2p-download-design.md ③）：局域网同账号设备已有同
+    /// SHA1 文件时网内拉取。App 层构造完成后注入（避免服务相互构造依赖）；null 或 PeerCount=0
+    /// 时完全跳过，行为与从前逐字节一致。
+    /// </summary>
+    public Func<IPeerFileSource?>? PeerSource { get; set; }
+
     /// <summary>单文件下载（含重试），可选 SHA1 校验</summary>
     public Task DownloadFileAsync(
         string url, string destFile, string? sha1 = null, int maxRetries = 3,
         CancellationToken ct = default)
         => DownloadOneAsync(url, destFile, sha1, maxRetries, ct, 0, null);
+
+    /// <summary>单文件下载（带字节进度回调；回调值是**本次增量**字节，需由调用方累加）</summary>
+    public Task DownloadFileAsync(
+        string url, string destFile, string? sha1, int maxRetries,
+        Action<long> onBytes, CancellationToken ct = default)
+        => DownloadOneAsync(url, destFile, sha1, maxRetries, ct, 0, onBytes);
 
     /// <summary>
     /// 单文件下载入口。CurseForge CDN 直链失败时，最后再试一次 MCIM 文件镜像
@@ -573,6 +586,31 @@ public sealed class DownloadService
             LauncherLog.Write("download", $"本地复用不可用，按原计划下载：{ex.Message}");
         }
         if (reused > 0) stage = $"{stage}（本地复用 {reused} 个）";
+
+        // P2P 对等复用（第三个源）：局域网同账号设备已有同 SHA1 文件 → 网内拉取。
+        // 只认 SHA1（与本地复用同一条安全线）；无哈希的条目不参与；失败逐条静默回退公网。
+        var p2pHits = 0;
+        var peer = PeerSource?.Invoke();
+        if (peer is { PeerCount: > 0 })
+        {
+            foreach (var f in pending.ToList())
+            {
+                if (string.IsNullOrEmpty(f.Sha1)) continue; // 没哈希可比：不冒险
+                try
+                {
+                    if (!peer.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
+                    pending.Remove(f);
+                    p2pHits++;
+                    LauncherLog.Write("download",
+                        $"P2P 复用 {Path.GetFileName(f.Dest)} ← {via}");
+                }
+                catch
+                {
+                    // 单条 P2P 失败不影响下载：照常走公网
+                }
+            }
+            if (p2pHits > 0) stage = $"{stage}（P2P 复用 {p2pHits} 个）";
+        }
 
         long totalBytes = pending.Sum(f => Math.Max(f.Size, 0));
         long doneBytes = 0;

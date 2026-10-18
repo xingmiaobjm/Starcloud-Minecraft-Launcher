@@ -261,8 +261,41 @@ public static class Program
                 string? sha1 = p.TryGetProperty("sha1", out var s1) && s1.ValueKind == JsonValueKind.String
                     ? s1.GetString()
                     : null;
-                await _download.DownloadFileAsync(url, dest, sha1);
-                return new { ok = true };
+
+                // 字节进度：DownloadService 的回调是**增量**（分片下载会并发回调），
+                // 这里累加并按 5 Hz 节流成事件；total 未知时按契约填 -1。
+                var gate = new object();
+                long received = 0;
+                var lastEmit = 0L;
+                void OnBytes(long increment)
+                {
+                    long snapshot = 0;
+                    var emit = false;
+                    lock (gate)
+                    {
+                        received += increment;
+                        var now = Environment.TickCount64;
+                        if (now - lastEmit >= 200)
+                        {
+                            lastEmit = now;
+                            snapshot = received;
+                            emit = true;
+                        }
+                    }
+                    if (emit)
+                    {
+                        Emit(stdout, "download.progress",
+                            new { url, received = snapshot, total = -1L, done = false });
+                    }
+                }
+
+                await _download.DownloadFileAsync(
+                    url, dest, sha1, _settings.DownloadMaxRetries, onBytes: OnBytes);
+                long total;
+                lock (gate) total = received;
+                Emit(stdout, "download.progress",
+                    new { url, received = total, total, done = true });
+                return new { ok = true, bytes = total };
             }
 
             case "settings.get":

@@ -18,6 +18,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:starcloud_launcher/bridge/core_bridge.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_settings.dart';
 
@@ -52,6 +53,27 @@ Future<void> main(List<String> args) async {
     await settings.setDownloadSource(DownloadSource.bmclapi);
     stdout.writeln('[e2e] settings: gameDir=${settings.gameDir()} '
         'memory=${settings.memoryMb()} source=${settings.downloadSource().name}');
+
+    if (mode == 'download') {
+      final engine = BridgeDownloadEngine(bridge);
+      final seen = <String>[];
+      final sub = engine.events.listen((e) =>
+          seen.add('${e.received}/${e.total} done=${e.done}'));
+      // 默认拿 1.20.4 客户端 jar（约 24MB），保证能看到多次进度事件。
+      final url = _arg(args, '--url') ??
+          'https://bmclapi2.bangbang93.com/version/1.20.4/client';
+      final dest = p.join(dataDir, 'download-test.bin');
+      await engine.downloadFile(url, dest);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await sub.cancel();
+      await engine.dispose();
+      stdout.writeln('[e2e] download events: ${seen.length}');
+      for (final line in seen.take(5)) {
+        stdout.writeln('[dl] $line');
+      }
+      stdout.writeln('[e2e] last: ${seen.isEmpty ? 'none' : seen.last}');
+      stdout.writeln('[e2e] file: ${File(dest).lengthSync()} bytes');
+    }
 
     if (mode == 'install' || mode == 'all') {
       final remote = await catalog.remoteVersions();

@@ -3,9 +3,8 @@
 /// 这里只做协议翻译，不重写任何下载逻辑——这正是"Windows 端写一次、
 /// 其它端复用"的落点。
 ///
-/// 注意：`events` 目前只在宿主主动广播 `download.progress` 时才有数据；
-/// 当前 C# 侧只在安装任务里发 `install.progress`，单文件下载暂无字节级进度。
-/// 依赖该流的插件应把"无事件"当作正常情况处理。
+/// 注意：`events` 由宿主在单文件下载时按约 5Hz 广播 `download.progress`
+/// （`received` 是累计字节，`total = -1` 表示长度未知，结束时 `done = true`）。
 library;
 
 import 'dart:async';
