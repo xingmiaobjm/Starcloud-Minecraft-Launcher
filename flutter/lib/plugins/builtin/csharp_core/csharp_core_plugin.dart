@@ -19,6 +19,7 @@ import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import 'bridge_download.dart';
 import 'bridge_minecraft.dart';
+import 'bridge_saves.dart';
 import 'bridge_settings.dart';
 
 /// 解析桥接宿主路径：环境变量 → 安装布局 → 仓库开发布局。
@@ -97,6 +98,7 @@ class CSharpCorePlugin implements Plugin {
     ctx.services.add<MinecraftCatalog>(BridgeCatalog(bridge, settings));
     ctx.services.add<MinecraftInstaller>(BridgeInstaller(bridge));
     ctx.services.add<GameLauncher>(BridgeLauncher(bridge, settings));
+    ctx.services.add<SaveCatalog>(BridgeSaveCatalog(bridge));
     ctx.log('C# 核心就绪（${p.basename(bridge.dllPath)}，'
         'gameDir=${settings.gameDir()}）');
   }
@@ -122,6 +124,7 @@ PluginDescriptor csharpCoreDescriptor() => PluginDescriptor.create(
         MinecraftCatalog,
         MinecraftInstaller,
         GameLauncher,
+        SaveCatalog,
       ],
       permissions: const [
         'net.http',

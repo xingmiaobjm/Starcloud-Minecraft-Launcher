@@ -62,7 +62,19 @@ KernelDeps _deps(MinecraftCatalog catalog) => KernelDeps(
       launcher: _FakeLauncher(),
       accounts: _FakeAccounts(),
       settings: _FakeSettings(),
+      saves: _FakeSaves(),
     );
+
+class _FakeSaves implements SaveCatalog {
+  @override
+  Future<List<SaveInfo>> listSaves() async => const [];
+  @override
+  Future<void> openSaveFolder(SaveInfo save) async {}
+  @override
+  Future<String> backupSave(SaveInfo save) async => '';
+  @override
+  Future<void> deleteSave(SaveInfo save) async {}
+}
 
 class _FakeCatalog implements MinecraftCatalog {
   _FakeCatalog(List<InstalledVersion> versions) : _versions = [...versions];

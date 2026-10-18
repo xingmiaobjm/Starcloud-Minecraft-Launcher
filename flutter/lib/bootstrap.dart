@@ -33,6 +33,7 @@ class KernelDeps {
     required this.launcher,
     required this.accounts,
     required this.settings,
+    required this.saves,
   });
 
   final MinecraftCatalog catalog;
@@ -40,6 +41,7 @@ class KernelDeps {
   final GameLauncher launcher;
   final AccountStore accounts;
   final LauncherSettings settings;
+  final SaveCatalog saves;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -50,6 +52,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     launcher: services.get<GameLauncher>(),
     accounts: services.get<AccountStore>(),
     settings: services.get<LauncherSettings>(),
+    saves: services.get<SaveCatalog>(),
   );
 });
 

@@ -1,4 +1,4 @@
-/// 内置插件：暂未插件化的占位页（存档/联机）与已接真实实现的版本/运行状态/日志页。
+/// 内置插件：版本/存档/运行状态/日志已接真实实现，联机仍是占位页。
 ///
 /// 首页/下载/账户/设置已经由各自的功能插件提供；版本页读 C# 核心的
 /// `catalog.installed` 并支持删除/打开目录/设为默认；运行状态与日志页读
@@ -11,6 +11,7 @@ import '../../../kernel/contribution_registry.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import '../../../shell/pages/placeholder_page.dart';
+import '../../../shell/pages/saves_page.dart';
 import '../../../shell/pages/session_logs_page.dart';
 import '../../../shell/pages/version_list_page.dart';
 
@@ -65,6 +66,7 @@ class ShellPagesPlugin implements Plugin {
         order: page.order,
         view: (_) => switch (page.id) {
           'versions' => const VersionListPage(),
+          'saves' => const SavesPage(),
           'running' =>
             SessionLogsPage(title: page.title, showSessionInfo: true),
           'logs' => SessionLogsPage(title: page.title),
@@ -96,6 +98,6 @@ PluginDescriptor shellPagesDescriptor() => PluginDescriptor.create(
       activation: PluginActivation.eager,
       essential: false, // 只是占位页集：缺失时其它插件照样工作
       permissions: const ['ui.contribute'],
-      description: '版本/运行状态/日志（真实实现）+ 存档/联机（占位）',
+      description: '版本/存档/运行状态/日志（真实实现）+ 联机（占位）',
       author: 'Starcloud',
     );

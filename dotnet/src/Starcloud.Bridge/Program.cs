@@ -26,6 +26,8 @@ public static class Program
     private static JavaService _java = null!;
     private static GameLauncher _launcher = null!;
     private static AccountStore _accounts = null!;
+    private static SaveService _saves = null!;
+    private static SaveLibraryService _saveLibrary = null!;
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
     private static Task? _installTask;
@@ -53,6 +55,8 @@ public static class Program
         _java = new JavaService(_download);
         _launcher = new GameLauncher(_installer, _java);
         _accounts = AccountStore.Load();
+        _saves = new SaveService();
+        _saveLibrary = new SaveLibraryService(_manifest, _saves);
 
         Emit(stdout, "bridge.ready", new
         {
@@ -268,21 +272,7 @@ public static class Program
                 var dir = Path.Combine(_settings.DotMinecraft, "versions", versionId);
                 if (!Directory.Exists(dir))
                     throw new Exception($"版本目录不存在：{versionId}");
-                if (OperatingSystem.IsWindows())
-                {
-                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"")
-                    {
-                        UseShellExecute = true,
-                    });
-                }
-                else if (OperatingSystem.IsMacOS())
-                {
-                    Process.Start(new ProcessStartInfo("open", $"\"{dir}\""));
-                }
-                else
-                {
-                    Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\""));
-                }
+                OpenFolder(dir);
                 return new { ok = true, path = dir };
             }
 
@@ -298,6 +288,63 @@ public static class Program
                 _settings.LastVersion = string.IsNullOrEmpty(versionId) ? null : versionId;
                 _settings.Save();
                 return new { ok = true, lastVersion = _settings.LastVersion };
+            }
+
+            case "saves.list":
+            {
+                var list = _saveLibrary.ListAll(_settings.DotMinecraft, _settings);
+                return new
+                {
+                    saves = list.Select(s => new
+                    {
+                        s.FolderName,
+                        s.LevelName,
+                        lastPlayed = s.LastPlayed?.ToString("O"),
+                        s.SizeBytes,
+                        s.IconPath,
+                        s.VersionId,
+                        s.Isolated,
+                        s.GameRoot,
+                    }),
+                };
+            }
+
+            case "saves.openFolder":
+            {
+                var (root, folder) = SaveTarget(p);
+                var dir = Path.Combine(root, "saves", folder);
+                if (!Directory.Exists(dir))
+                    throw new Exception($"存档目录不存在：{folder}");
+                OpenFolder(dir);
+                return new { ok = true, path = dir };
+            }
+
+            case "saves.backup":
+            {
+                var (root, folder) = SaveTarget(p);
+                var backupsDir = Path.Combine(_settings.DotMinecraft, "backups");
+                var zip = _saves.Backup(root, backupsDir, folder);
+                return new { ok = true, path = zip, sizeBytes = new FileInfo(zip).Length };
+            }
+
+            case "saves.delete":
+            {
+                var (root, folder) = SaveTarget(p);
+                if (Sessions.Values.Any(s => !s.HasExited))
+                    throw new Exception("游戏正在运行，请先关闭游戏再删除存档");
+                var dir = Path.Combine(root, "saves", folder);
+                if (!Directory.Exists(dir))
+                    throw new Exception($"存档目录不存在：{folder}");
+                long freed = 0;
+                try
+                {
+                    freed = new DirectoryInfo(dir)
+                        .EnumerateFiles("*", SearchOption.AllDirectories)
+                        .Sum(f => f.Length);
+                }
+                catch { /* 统计失败不影响删除 */ }
+                _saves.Delete(root, folder);
+                return new { ok = true, freedBytes = freed };
             }
 
             case "java.list":
@@ -520,6 +567,49 @@ public static class Program
         maxMemoryMb = _settings.DefaultMaxMemoryMb,
         downloadSource = _settings.DownloadSource,
     };
+
+    /// <summary>校验存档操作目标：根目录必须在游戏目录内，目录名不得含路径符号。</summary>
+    private static (string Root, string Folder) SaveTarget(JsonElement p)
+    {
+        var root = NormalizeGameRoot(p.GetProperty("gameRoot").GetString()!);
+        var folder = p.GetProperty("folderName").GetString()!;
+        if (string.IsNullOrWhiteSpace(folder) || folder is "." or ".." ||
+            folder.IndexOfAny(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) >= 0)
+            throw new Exception("非法存档目录名");
+        return (root, folder);
+    }
+
+    private static string NormalizeGameRoot(string gameRoot)
+    {
+        var full = Path.GetFullPath(gameRoot);
+        var dotMc = Path.GetFullPath(_settings.DotMinecraft);
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!string.Equals(full, dotMc, comparison) &&
+            !full.StartsWith(dotMc + Path.DirectorySeparatorChar, comparison))
+            throw new Exception("存档根目录不在游戏目录内");
+        return full;
+    }
+
+    private static void OpenFolder(string dir)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"")
+            {
+                UseShellExecute = true,
+            });
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            Process.Start(new ProcessStartInfo("open", $"\"{dir}\""));
+        }
+        else
+        {
+            Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\""));
+        }
+    }
 
     /// <summary>版本列表条目：目录/JSON/jar/依赖/默认/隔离状态一次给全，UI 不再自己猜。</summary>
     private static object DescribeInstalled(

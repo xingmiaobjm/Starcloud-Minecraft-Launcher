@@ -5,6 +5,9 @@
 ///   dart run tool/bridge_e2e.dart install --version 1.20.4
 ///   dart run tool/bridge_e2e.dart launch  --version 1.20.4
 ///   dart run tool/bridge_e2e.dart all
+///   dart run tool/bridge_e2e.dart download      # 单文件下载进度
+///   dart run tool/bridge_e2e.dart versions      # 版本列表/删除保护
+///   dart run tool/bridge_e2e.dart saves         # 存档列表/备份/删除
 ///
 /// 环境变量：
 ///   STARCLOUD_BRIDGE_DLL   桥接宿主路径（默认 ../bridge-linux-x64/Starcloud.Bridge.dll）
@@ -21,6 +24,7 @@ import 'package:starcloud_launcher/bridge/core_bridge.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_saves.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_settings.dart';
 
 Future<void> main(List<String> args) async {
@@ -93,6 +97,48 @@ Future<void> main(List<String> args) async {
           '${after.where((v) => v.isDefault).map((v) => v.id).join(', ')}');
       if (Directory(p.join(root, '__e2e_parent__')).existsSync()) {
         throw StateError('临时版本目录未删除');
+      }
+    }
+
+    if (mode == 'saves') {
+      final saves = BridgeSaveCatalog(bridge);
+      final world = Directory(p.join(gameDir, 'saves', '__e2e_world__'))
+        ..createSync(recursive: true);
+      // 故意写一个非 gzip 的 level.dat：解析失败时回退为目录名，仍应列出。
+      File(p.join(world.path, 'level.dat'))
+          .writeAsBytesSync(List.filled(64, 0));
+      File(p.join(world.path, 'data.bin')).writeAsBytesSync(List.filled(1024, 1));
+
+      final listed = await saves.listSaves();
+      final matches =
+          listed.where((s) => s.folderName == '__e2e_world__').toList();
+      if (matches.isEmpty) throw StateError('存档列表里没有临时世界');
+      final save = matches.single;
+      stdout.writeln('[save] ${save.levelName} root=${save.gameRoot} '
+          'version=${save.versionId} isolated=${save.isolated} '
+          'size=${save.sizeBytes}');
+
+      final zip = await saves.backupSave(save);
+      stdout.writeln('[e2e] backup: $zip (${File(zip).lengthSync()} bytes)');
+      File(zip).deleteSync();
+
+      await saves.deleteSave(save);
+      if (Directory(world.path).existsSync()) {
+        throw StateError('存档目录未删除');
+      }
+      stdout.writeln('[e2e] save deleted');
+
+      // 越界根目录 / 非法目录名必须被宿主拒绝。
+      for (final probe in [
+        {'gameRoot': '/tmp', 'folderName': '__e2e_world__'},
+        {'gameRoot': gameDir, 'folderName': '../escape'},
+      ]) {
+        try {
+          await bridge.request('saves.delete', probe);
+          stdout.writeln('[e2e] ERROR: 非法目标未被拒绝：$probe');
+        } catch (e) {
+          stdout.writeln('[e2e] refused as expected: $e');
+        }
       }
     }
 

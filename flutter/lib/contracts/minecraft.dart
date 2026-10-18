@@ -139,6 +139,47 @@ abstract class GameLauncher {
   });
 }
 
+// ── 存档 ─────────────────────────────────────────────────────────────────────
+
+/// 一个世界（`saves/<folder>/`，含 level.dat）。
+class SaveInfo {
+  const SaveInfo({
+    required this.folderName,
+    required this.levelName,
+    required this.gameRoot,
+    required this.versionId,
+    required this.isolated,
+    this.sizeBytes = 0,
+    this.iconPath,
+    this.lastPlayedAt,
+  });
+
+  final String folderName;
+  final String levelName;
+
+  /// 存档所在的实例根（共享 `.minecraft` 或隔离版本目录）。
+  final String gameRoot;
+
+  /// 所属版本 id；空串 = 共享根。
+  final String versionId;
+  final bool isolated;
+  final int sizeBytes;
+  final String? iconPath;
+  final String? lastPlayedAt;
+}
+
+abstract class SaveCatalog {
+  /// 共享根 + 各隔离版本根下的全部世界（最近游玩在前）。
+  Future<List<SaveInfo>> listSaves();
+
+  Future<void> openSaveFolder(SaveInfo save);
+
+  /// 备份为 zip，返回 zip 路径。
+  Future<String> backupSave(SaveInfo save);
+
+  Future<void> deleteSave(SaveInfo save);
+}
+
 // ── 账户（基座期只支持离线；微软设备码登录后续迭代）─────────────────────────
 
 enum AccountKind { offline }

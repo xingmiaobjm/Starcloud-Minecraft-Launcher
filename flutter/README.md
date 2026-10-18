@@ -80,11 +80,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**73 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**74 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
   贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 离线账户持久化 /
-  宿主退出逆序停用 / 游戏会话状态与防双开 / 版本页渲染与删除确认）
+  宿主退出逆序停用 / 游戏会话状态与防双开 / 版本页与存档页渲染交互）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -97,13 +97,16 @@ lib/
   ```
 
 - 后端复用 E2E（WSL + BMCLAPI，`dart run tool/bridge_e2e.dart all`）：
-  `starcloud.csharp_core` 激活 460ms / 登记 5 个契约；1.20.4 安装 3864 个文件
+  `starcloud.csharp_core` 激活 460ms / 登记 6 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
 - 版本管理 E2E（`dart run tool/bridge_e2e.dart versions`）：列表返回目录/大小/
   jar 存在性/默认/隔离/`inheritsFrom`；删除被依赖的父版本被拒绝；临时版本
   清理后列表与默认版本均正确。版本页已接真实实现（打开目录 / 设为默认 / 删除）。
+- 存档 E2E（`dart run tool/bridge_e2e.dart saves`）：跨版本列表、备份 zip、
+  删除均成功；越界 `gameRoot` 与 `../` 目录名被宿主拒绝。存档页已接真实实现
+  （打开目录 / 备份 / 删除）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
