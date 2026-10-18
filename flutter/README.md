@@ -81,11 +81,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**70 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**71 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
   贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 宿主退出逆序停用 /
-  游戏会话状态与防双开 / 版本页·存档页·账户页·联机页渲染交互）
+  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·联机页渲染交互）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -98,7 +98,7 @@ lib/
   ```
 
 - 后端复用 E2E（WSL + BMCLAPI，`dart run tool/bridge_e2e.dart all`）：
-  `starcloud.csharp_core` 激活约 0.4~4s / 登记 9 个契约；1.20.4 安装 3864 个文件
+  `starcloud.csharp_core` 激活约 0.4~4s / 登记 10 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
@@ -116,6 +116,10 @@ lib/
 - 联机 E2E（`dart run tool/bridge_e2e.dart multiplayer`）：提供方列表（陶瓦）、
   核心状态、阶段快照、玩家名/节点地区持久化均正确。联机页已接真实实现
   （安装核心 / 创建房间 / 加入房间 / 停止 / 日志）。
+- 内容管理 E2E（`dart run tool/bridge_e2e.dart content`）：版本详情返回实例根/
+  MC 版本/加载器；假模组创建→停用→启用→删除；Modrinth 搜索（Faithful 系列）
+  并安装资源包到版本目录、随后清理。版本详情页已接真实实现
+  （模组/资源包/光影 列表、启停、删除、Modrinth 搜索安装、必需依赖递归）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -132,9 +136,12 @@ lib/
 
 ### 与 Windows 端的差距（持续收敛中）
 
-- 已对齐：首页 / 下载 / 版本 / 存档 / 联机 / 运行状态 / 账户 / 启动器日志 / 设置。
-- 未移植：Nova AI 助手、实验室（deepslate 投影渲染）、版本详情页
-  （mods / 资源包 / 光影管理）、插件市场（外部沙箱插件按 spec v3 决策暂缓）。
+- 已对齐：首页 / 下载 / 版本（含详情与内容管理）/ 存档 / 联机 / 运行状态 /
+  账户 / 启动器日志 / 设置。
+- 部分对齐：版本详情（已支持 mods / 资源包 / 光影的列表、启停、删除、Modrinth
+  搜索安装与必需依赖递归；更新检查、依赖冲突提示、实例参数编辑尚未做）。
+- 未移植：Nova AI 助手、实验室（deepslate 投影渲染）、插件市场
+  （外部沙箱插件按 spec v3 决策暂缓）。
 
 ### 已知项
 

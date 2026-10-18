@@ -33,6 +33,8 @@ public static class Program
         PendingDeviceCodes = new();
     private static SaveService _saves = null!;
     private static SaveLibraryService _saveLibrary = null!;
+    private static ModrinthService _modrinth = null!;
+    private static ContentLibraryService _contentLibrary = null!;
     private static MultiplayerService _multiplayer = null!;
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
@@ -66,6 +68,9 @@ public static class Program
         _yggdrasil = new YggdrasilService();
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
+        _modrinth = new ModrinthService(_download);
+        _contentLibrary = new ContentLibraryService(
+            _download, _modrinth, _manifest, () => _settings);
         _multiplayer = new MultiplayerService(
             _download,
             () => _settings,
@@ -175,7 +180,8 @@ public static class Program
     private static bool IsLongRunning(string method) =>
         method is "download.file" or "download.text" or "java.list" or "launch.start"
             or "multiplayer.host" or "multiplayer.join" or "multiplayer.stop"
-            or "multiplayer.logs" or "multiplayer.nodes";
+            or "multiplayer.logs" or "multiplayer.nodes"
+            or "content.search" or "content.install";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
     private static void StartParentWatchdog()
@@ -380,6 +386,188 @@ public static class Program
                 catch { /* 统计失败不影响删除 */ }
                 _saves.Delete(root, folder);
                 return new { ok = true, freedBytes = freed };
+            }
+
+            case "version.detail":
+            {
+                var versionId = p.GetProperty("versionId").GetString()!;
+                var ctx = VersionContentContext(versionId);
+                return new
+                {
+                    versionId,
+                    gameRoot = ctx.GameRoot,
+                    isolated = ctx.Isolated,
+                    mcVersion = ctx.McVersion,
+                    loader = ctx.Loader,
+                    loaderVersion = ctx.LoaderVersion,
+                    lastPlayedAt = new InstanceSettingsStore(_settings.DotMinecraft)
+                        .Get(versionId).LastPlayedAt?.ToString("O"),
+                    mods = ContentFiles(ctx.GameRoot, "mod"),
+                    resourcepacks = ContentFiles(ctx.GameRoot, "resourcepack"),
+                    shaderpacks = ContentFiles(ctx.GameRoot, "shader"),
+                };
+            }
+
+            case "version.toggleContent":
+            {
+                var versionId = p.GetProperty("versionId").GetString()!;
+                var kind = NormalizeKind(p.GetProperty("kind").GetString());
+                var fileName = SafeFileName(p.GetProperty("fileName").GetString()!);
+                var enabled = p.GetProperty("enabled").GetBoolean();
+                var ctx = VersionContentContext(versionId);
+                var dir = Path.Combine(ctx.GameRoot, InstanceLayout.ContentDirFor(kind));
+                var current = Path.Combine(dir, fileName);
+                if (!File.Exists(current)) throw new Exception($"文件不存在：{fileName}");
+                var disabled = current.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+                if (enabled != disabled) return new { files = ContentFiles(ctx.GameRoot, kind) };
+                var target = enabled ? current[..^".disabled".Length] : current + ".disabled";
+                if (File.Exists(target)) throw new Exception("目标文件已存在，未做改名");
+                File.Move(current, target);
+                return new { files = ContentFiles(ctx.GameRoot, kind) };
+            }
+
+            case "version.deleteContent":
+            {
+                var versionId = p.GetProperty("versionId").GetString()!;
+                var kind = NormalizeKind(p.GetProperty("kind").GetString());
+                var fileName = SafeFileName(p.GetProperty("fileName").GetString()!);
+                var ctx = VersionContentContext(versionId);
+                var path = Path.Combine(
+                    ctx.GameRoot, InstanceLayout.ContentDirFor(kind), fileName);
+                if (!File.Exists(path)) throw new Exception($"文件不存在：{fileName}");
+                File.Delete(path);
+                return new { files = ContentFiles(ctx.GameRoot, kind) };
+            }
+
+            case "version.openContentFolder":
+            {
+                var versionId = p.GetProperty("versionId").GetString()!;
+                var kind = NormalizeKind(p.GetProperty("kind").GetString());
+                var ctx = VersionContentContext(versionId);
+                var dir = Path.Combine(ctx.GameRoot, InstanceLayout.ContentDirFor(kind));
+                Directory.CreateDirectory(dir);
+                OpenFolder(dir);
+                return new { ok = true, path = dir };
+            }
+
+            case "content.search":
+            {
+                var kind = NormalizeKind(p.GetProperty("kind").GetString());
+                var projectType = kind switch
+                {
+                    "mod" => "mod",
+                    "resourcepack" => "resourcepack",
+                    _ => "shader",
+                };
+                var query = p.TryGetProperty("query", out var q) &&
+                            q.ValueKind == JsonValueKind.String
+                    ? q.GetString() ?? ""
+                    : "";
+                var gameVersion = p.TryGetProperty("gameVersion", out var gv) &&
+                                  gv.ValueKind == JsonValueKind.String
+                    ? gv.GetString()
+                    : null;
+                var loader = p.TryGetProperty("loader", out var ld) &&
+                             ld.ValueKind == JsonValueKind.String
+                    ? ld.GetString()
+                    : null;
+                var offset = p.TryGetProperty("offset", out var off) && off.TryGetInt32(out var o)
+                    ? o
+                    : 0;
+                var limit = p.TryGetProperty("limit", out var lim) && lim.TryGetInt32(out var l)
+                    ? l
+                    : 20;
+                var result = await _modrinth.SearchAsync(
+                    query, projectType, loader, gameVersion, offset, limit);
+                return new
+                {
+                    totalHits = result.TotalHits,
+                    hits = result.Hits.Select(h => new
+                    {
+                        h.ProjectId,
+                        h.Slug,
+                        h.Title,
+                        h.Description,
+                        h.Author,
+                        h.Downloads,
+                        h.IconUrl,
+                        h.DisplayCategories,
+                        h.Loaders,
+                        h.WebUrl,
+                    }),
+                };
+            }
+
+            case "content.install":
+            {
+                var kind = NormalizeKind(p.GetProperty("kind").GetString());
+                var projectId = p.GetProperty("projectId").GetString()!;
+                var title = p.TryGetProperty("title", out var t) &&
+                            t.ValueKind == JsonValueKind.String
+                    ? t.GetString()
+                    : null;
+                var targetVersionId = p.GetProperty("targetVersionId").GetString()!;
+                var ctx = VersionContentContext(targetVersionId);
+                var installed = new List<object>();
+                var missing = new List<object>();
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                async Task InstallOneAsync(
+                    string pid, string? versionHint, string? displayTitle, int depth)
+                {
+                    if (depth > 5 || !visited.Add(pid)) return;
+                    var versions = await _modrinth.ListVersionsAsync(
+                        pid, ctx.Loader, ctx.McVersion);
+                    if (versions.Count == 0)
+                        versions = await _modrinth.ListVersionsAsync(pid, ctx.Loader, null);
+                    if (versions.Count == 0)
+                        versions = await _modrinth.ListVersionsAsync(pid, null, ctx.McVersion);
+                    if (versions.Count == 0)
+                    {
+                        missing.Add(new { projectId = pid, reason = "没有兼容版本" });
+                        return;
+                    }
+                    var version = versionHint is null
+                        ? null
+                        : versions.FirstOrDefault(v => v.Id == versionHint);
+                    version ??= versions[0];
+                    var file = version.PrimaryFile;
+                    if (file is null)
+                    {
+                        missing.Add(new { projectId = pid, reason = "没有可下载文件" });
+                        return;
+                    }
+                    var name = displayTitle ??
+                               await _modrinth.GetProjectTitleAsync(pid) ?? pid;
+                    Emit(stdout, "content.progress",
+                        new { projectId = pid, stage = $"下载 {file.Filename}" });
+                    var entry = await _contentLibrary.DownloadAndAdoptAsync(
+                        kind, file.Url, file.Filename, file.Sha1,
+                        new LibraryAdoptInfo(
+                            name, null, null, pid, version.Id, version.VersionNumber,
+                            version.GameVersions, version.Loaders,
+                            $"https://modrinth.com/project/{pid}",
+                            ContentSourceIds.Modrinth));
+                    var path = await _contentLibrary.InstallToVersionAsync(
+                        entry, targetVersionId);
+                    installed.Add(new
+                    {
+                        projectId = pid,
+                        title = name,
+                        fileName = entry.FileName,
+                        versionNumber = entry.VersionNumber,
+                        path,
+                    });
+                    foreach (var dep in version.Dependencies.Where(d =>
+                                 d.DependencyType == "required" &&
+                                 !string.IsNullOrEmpty(d.ProjectId)))
+                    {
+                        await InstallOneAsync(dep.ProjectId!, dep.VersionId, null, depth + 1);
+                    }
+                }
+
+                await InstallOneAsync(projectId, null, title, 0);
+                return new { installed, missing };
             }
 
             case "multiplayer.state":
@@ -857,6 +1045,66 @@ public static class Program
         {
             Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\""));
         }
+    }
+
+    /// <summary>版本内容上下文：实例根、隔离、MC 版本、加载器（mods/资源包/光影共用）。</summary>
+    private static (string GameRoot, bool Isolated, string McVersion,
+        string Loader, string? LoaderVersion) VersionContentContext(string versionId)
+    {
+        if (!InstanceLayout.IsValidVersionId(versionId))
+            throw new Exception("非法版本 id");
+        var dotMc = _settings.DotMinecraft;
+        var profile = new InstanceSettingsStore(dotMc).Get(versionId);
+        var isolated = InstanceLayout.IsIsolated(profile, _settings);
+        var root = InstanceLayout.GameRoot(dotMc, versionId, isolated);
+        var loader = ContentLibraryService.ResolveLoader(versionId, out var loaderVersion);
+        return (root, isolated, ContentLibraryService.ResolveMc(versionId),
+            loader, loaderVersion);
+    }
+
+    private static string NormalizeKind(string? kind) => kind switch
+    {
+        "mod" or "resourcepack" or "shader" => kind,
+        _ => throw new Exception($"未知内容类别：{kind}"),
+    };
+
+    private static string SafeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name is "." or ".." ||
+            name.IndexOfAny(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) >= 0)
+            throw new Exception("非法文件名");
+        return name;
+    }
+
+    /// <summary>列出实例内容目录里的 jar/zip（`.disabled` 视为已停用）。</summary>
+    private static object[] ContentFiles(string gameRoot, string kind)
+    {
+        var dir = Path.Combine(gameRoot, InstanceLayout.ContentDirFor(kind));
+        if (!Directory.Exists(dir)) return [];
+        return Directory.EnumerateFiles(dir)
+            .Where(f =>
+            {
+                var n = Path.GetFileName(f);
+                return n.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ||
+                       n.EndsWith(".jar.disabled", StringComparison.OrdinalIgnoreCase) ||
+                       n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                       n.EndsWith(".zip.disabled", StringComparison.OrdinalIgnoreCase);
+            })
+            .Select(f =>
+            {
+                var name = Path.GetFileName(f);
+                var disabled = name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+                return new
+                {
+                    fileName = name,
+                    displayName = disabled ? name[..^".disabled".Length] : name,
+                    enabled = !disabled,
+                    sizeBytes = new FileInfo(f).Length,
+                    path = f,
+                };
+            })
+            .OrderBy(x => x.displayName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     /// <summary>联机快照 + 提供方/玩家名/节点地区，一次给全（UI 只渲染）。</summary>

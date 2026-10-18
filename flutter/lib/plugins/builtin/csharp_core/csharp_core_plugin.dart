@@ -13,12 +13,14 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../../bridge/core_bridge.dart';
+import '../../../contracts/content.dart';
 import '../../../contracts/download_engine.dart';
 import '../../../contracts/minecraft.dart';
 import '../../../contracts/multiplayer.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import 'bridge_accounts.dart';
+import 'bridge_content.dart';
 import 'bridge_download.dart';
 import 'bridge_minecraft.dart';
 import 'bridge_multiplayer.dart';
@@ -110,6 +112,7 @@ class CSharpCorePlugin implements Plugin {
     ctx.services.add<AccountStore>(accounts);
     ctx.services.add<AccountAuth>(BridgeAccountAuth(bridge, accounts));
     ctx.services.add<MultiplayerControl>(multiplayer);
+    ctx.services.add<ContentManager>(BridgeContentManager(bridge));
     ctx.log('C# 核心就绪（${p.basename(bridge.dllPath)}，'
         'gameDir=${settings.gameDir()}）');
   }
@@ -141,6 +144,7 @@ PluginDescriptor csharpCoreDescriptor() => PluginDescriptor.create(
         AccountStore,
         AccountAuth,
         MultiplayerControl,
+        ContentManager,
       ],
       permissions: const [
         'net.http',

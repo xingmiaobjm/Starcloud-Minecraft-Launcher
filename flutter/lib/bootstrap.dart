@@ -7,6 +7,7 @@ library;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'contracts/content.dart';
 import 'contracts/minecraft.dart';
 import 'contracts/multiplayer.dart';
 import 'kernel/paths.dart';
@@ -36,6 +37,7 @@ class KernelDeps {
     required this.saves,
     required this.auth,
     required this.multiplayer,
+    required this.content,
   });
 
   final MinecraftCatalog catalog;
@@ -46,6 +48,7 @@ class KernelDeps {
   final SaveCatalog saves;
   final AccountAuth auth;
   final MultiplayerControl multiplayer;
+  final ContentManager content;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -59,6 +62,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     saves: services.get<SaveCatalog>(),
     auth: services.get<AccountAuth>(),
     multiplayer: services.get<MultiplayerControl>(),
+    content: services.get<ContentManager>(),
   );
 });
 

@@ -22,7 +22,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:starcloud_launcher/bridge/core_bridge.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/contracts/content.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_accounts.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_content.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_multiplayer.dart';
@@ -165,6 +167,66 @@ Future<void> main(List<String> args) async {
       await store.refresh();
       stdout.writeln('[acc] after remove: '
           '${store.accounts().map((a) => a.name).join(', ')}');
+    }
+
+    if (mode == 'content') {
+      final content = BridgeContentManager(bridge);
+      var detail = await content.detail(version);
+      stdout.writeln('[content] ${detail.versionId} mc=${detail.mcVersion} '
+          'loader=${detail.loader} root=${detail.gameRoot}');
+
+      // 本地文件：造一个假模组 → 停用 → 启用 → 删除。
+      final modsDir =
+          Directory(p.join(detail.gameRoot, 'mods'))..createSync(recursive: true);
+      final fake = File(p.join(modsDir.path, '__e2e_mod__.jar'))
+        ..writeAsBytesSync(List.filled(4096, 7));
+      detail = await content.detail(version);
+      stdout.writeln('[content] mods: '
+          '${detail.mods.map((f) => '${f.displayName}/${f.enabled}').join(', ')}');
+
+      var files = await content.toggle(
+          version, ContentKind.mod, '__e2e_mod__.jar', false);
+      stdout.writeln('[content] after disable: '
+          '${files.map((f) => '${f.displayName}/${f.enabled}').join(', ')}');
+      final disabled = files.firstWhere((f) => f.displayName == '__e2e_mod__.jar');
+      files = await content.toggle(
+          version, ContentKind.mod, disabled.fileName, true);
+      final enabled = files.firstWhere((f) => f.displayName == '__e2e_mod__.jar');
+      files = await content.delete(
+          version, ContentKind.mod, enabled.fileName);
+      stdout.writeln('[content] after delete: '
+          '${files.map((f) => f.displayName).join(', ')}');
+      if (fake.existsSync()) throw StateError('假模组未删除');
+
+      // 在线：搜索 + 安装一个资源包，再清理。
+      final hits = await content.search(
+        kind: ContentKind.resourcepack,
+        query: 'faithful',
+        gameVersion: detail.mcVersion,
+        limit: 3,
+      );
+      stdout.writeln('[content] search: ${hits.map((h) => h.title).join(', ')}');
+      if (hits.isNotEmpty) {
+        final result = await content.install(
+          kind: ContentKind.resourcepack,
+          projectId: hits.first.projectId,
+          title: hits.first.title,
+          targetVersionId: version,
+          onProgress: (stage) => stdout.writeln('[content] $stage'),
+        );
+        stdout.writeln('[content] installed: '
+            '${result.installed.map((i) => i.fileName).join(', ')} '
+            'missing=${result.missing.length}');
+        detail = await content.detail(version);
+        stdout.writeln('[content] resourcepacks: '
+            '${detail.resourcepacks.map((f) => f.fileName).join(', ')}');
+        for (final file in detail.resourcepacks) {
+          if (result.installed.any((i) => i.fileName == file.fileName)) {
+            await content.delete(
+                version, ContentKind.resourcepack, file.fileName);
+          }
+        }
+      }
     }
 
     if (mode == 'multiplayer') {

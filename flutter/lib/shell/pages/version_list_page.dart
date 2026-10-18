@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../bootstrap.dart';
 import '../../../contracts/minecraft.dart';
+import 'version_detail_page.dart';
 
 class VersionListPage extends ConsumerStatefulWidget {
   const VersionListPage({super.key});
@@ -24,6 +25,9 @@ class _VersionListPageState extends ConsumerState<VersionListPage> {
   bool _loading = true;
   String? _error;
   String? _busyId;
+
+  /// 非空时整页显示版本详情（页内导航，不依赖壳的路由栈）。
+  InstalledVersion? _detail;
 
   @override
   void initState() {
@@ -95,6 +99,13 @@ class _VersionListPageState extends ConsumerState<VersionListPage> {
 
   @override
   Widget build(BuildContext context) {
+    final detail = _detail;
+    if (detail != null) {
+      return VersionDetailPage(
+        version: detail,
+        onBack: () => setState(() => _detail = null),
+      );
+    }
     final typography = FluentTheme.of(context).typography;
     return ScaffoldPage(
       header: PageHeader(
@@ -158,62 +169,85 @@ class _VersionListPageState extends ConsumerState<VersionListPage> {
       if (version.isModded) version.modLoader ?? 'modded',
       if (version.inheritsFrom != null) '继承 ${version.inheritsFrom}',
     ];
+
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 2,
+          children: [
+            Text(version.id, style: typography.bodyStrong),
+            for (final tag in tags) Text('[$tag]', style: typography.caption),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${_formatSize(version.sizeBytes)}'
+          '${version.lastPlayedAt != null ? ' · 最近游玩 ${_formatTime(version.lastPlayedAt!)}' : ''}'
+          '${version.jarExists ? '' : ' · 缺少客户端 jar'}',
+          style: typography.caption,
+        ),
+        Text(version.directory, style: typography.caption),
+      ],
+    );
+
+    final actions = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton(
+          onPressed: busy ? null : () => setState(() => _detail = version),
+          child: const Text('详情'),
+        ),
+        Button(
+          onPressed: busy
+              ? null
+              : () => _run(
+                    version.id,
+                    (catalog) => catalog.openVersionFolder(version.id),
+                  ),
+          child: const Text('打开目录'),
+        ),
+        Button(
+          onPressed: busy || version.isDefault
+              ? null
+              : () => _run(
+                    version.id,
+                    (catalog) => catalog.setDefaultVersion(version.id),
+                  ),
+          child: const Text('设为默认'),
+        ),
+        Button(
+          onPressed: busy ? null : () => _confirmDelete(version),
+          child: Text(_busyId == version.id ? '处理中…' : '删除'),
+        ),
+      ],
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Card(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: LayoutBuilder(builder: (context, constraints) {
+          // 窄窗口把按钮换到下一行，避免四个按钮把信息区挤爆。
+          if (constraints.maxWidth < 760) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 2,
-                  children: [
-                    Text(version.id, style: typography.bodyStrong),
-                    for (final tag in tags)
-                      Text('[$tag]', style: typography.caption),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_formatSize(version.sizeBytes)}'
-                  '${version.lastPlayedAt != null ? ' · 最近游玩 ${_formatTime(version.lastPlayedAt!)}' : ''}'
-                  '${version.jarExists ? '' : ' · 缺少客户端 jar'}',
-                  style: typography.caption,
-                ),
-                Text(version.directory, style: typography.caption),
+                info,
+                const SizedBox(height: 10),
+                actions,
               ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Button(
-            onPressed: busy
-                ? null
-                : () => _run(
-                    version.id,
-                    (catalog) => catalog.openVersionFolder(version.id),
-                  ),
-            child: const Text('打开目录'),
-          ),
-          const SizedBox(width: 8),
-          Button(
-            onPressed: busy || version.isDefault
-                ? null
-                : () => _run(
-                    version.id,
-                    (catalog) => catalog.setDefaultVersion(version.id),
-                  ),
-            child: const Text('设为默认'),
-          ),
-          const SizedBox(width: 8),
-          Button(
-            onPressed: busy ? null : () => _confirmDelete(version),
-            child: Text(_busyId == version.id ? '处理中…' : '删除'),
-          ),
-        ]),
+            );
+          }
+          return Row(children: [
+            Expanded(child: info),
+            const SizedBox(width: 12),
+            actions,
+          ]);
+        }),
       ),
     );
   }

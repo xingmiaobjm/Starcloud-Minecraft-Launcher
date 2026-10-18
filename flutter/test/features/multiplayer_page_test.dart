@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:starcloud_launcher/bootstrap.dart';
+import 'package:starcloud_launcher/contracts/content.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/shell/pages/multiplayer_page.dart';
@@ -52,7 +53,55 @@ KernelDeps _deps(MultiplayerControl multiplayer) => KernelDeps(
       saves: _FakeSaves(),
       auth: _FakeAuth(),
       multiplayer: multiplayer,
+      content: _FakeContent(),
     );
+
+class _FakeContent implements ContentManager {
+  @override
+  Future<VersionContent> detail(String versionId) async => VersionContent(
+        versionId: versionId,
+        gameRoot: '/mc',
+        isolated: true,
+        mcVersion: '1.20.4',
+        loader: 'vanilla',
+      );
+  @override
+  Future<List<ContentFile>> toggle(
+    String versionId,
+    ContentKind kind,
+    String fileName,
+    bool enabled,
+  ) async =>
+      const [];
+  @override
+  Future<List<ContentFile>> delete(
+    String versionId,
+    ContentKind kind,
+    String fileName,
+  ) async =>
+      const [];
+  @override
+  Future<void> openFolder(String versionId, ContentKind kind) async {}
+  @override
+  Future<List<ContentSearchHit>> search({
+    required ContentKind kind,
+    required String query,
+    String? gameVersion,
+    String? loader,
+    int offset = 0,
+    int limit = 20,
+  }) async =>
+      const [];
+  @override
+  Future<ContentInstallResult> install({
+    required ContentKind kind,
+    required String projectId,
+    required String title,
+    required String targetVersionId,
+    void Function(String stage)? onProgress,
+  }) async =>
+      const ContentInstallResult();
+}
 
 class _FakeMultiplayer implements MultiplayerControl {
   MultiplayerSnapshot current = const MultiplayerSnapshot(
