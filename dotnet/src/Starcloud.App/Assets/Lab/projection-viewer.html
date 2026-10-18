@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>投影预览</title>
+<style>
+  :root { --bg: #161616; --line: #3a3a3a; --text: #f5f5f5; --dim: #a0a0a0; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
+    font: 12px/1.5 "HarmonyOS Sans SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  }
+  /* canvas 是替换元素：只写 inset:0 不会改变它 300×150 的固有尺寸，
+     必须显式给宽高百分比，否则画面只占左上角一小块 */
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; display: block; }
+  #stage.dragging { cursor: grabbing; }
+  #hud {
+    position: absolute; left: 12px; top: 10px; right: 12px; display: flex; gap: 10px;
+    align-items: center; flex-wrap: wrap; pointer-events: none; z-index: 2;
+  }
+  #hud .pill {
+    background: rgba(35,35,35,.85); border: 1px solid var(--line); border-radius: 999px;
+    padding: 3px 10px; color: var(--dim);
+  }
+  #hud .pill b { color: var(--text); font-weight: 600; }
+  /* 空间模式开关：HUD 整体不吃鼠标事件，按钮要单独放行 */
+  #hud .pill.btn {
+    pointer-events: auto; cursor: pointer; color: var(--text); font: inherit;
+    padding: 3px 12px; transition: background .12s ease, border-color .12s ease;
+  }
+  #hud .pill.btn:hover { background: rgba(52,52,52,.92); border-color: #6a6a6a; }
+  #hud .pill.btn.on { background: #2f6fb0; border-color: #4b93d8; color: #fff; }
+  #empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--dim); text-align: center; padding: 20px;
+  }
+  /* 第一人称准星 */
+  #cross {
+    position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+    pointer-events: none; display: none;
+  }
+  #cross::before, #cross::after {
+    content: ""; position: absolute; background: rgba(255,255,255,.8);
+    box-shadow: 0 0 2px rgba(0,0,0,.9);
+  }
+  #cross::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  /* 空间模式未锁定指针时的遮罩：点一下继续走（z-index 低于 HUD，好让"退出空间模式"按钮还能点到） */
+  #lock {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 6px; background: rgba(10,10,10,.5); cursor: pointer;
+    color: #ececec; text-align: center; padding: 20px; z-index: 1;
+  }
+  #lock small { color: var(--dim); }
+  /* 空间模式隐藏鼠标指针（指针锁定时系统本来也会隐藏，这里兜住锁定失败的情况） */
+  body.space, body.space * { cursor: none !important; }
+  body.space #lock, body.space #lock * { cursor: pointer !important; }
+  /* 首次进入空间模式的键位提示：不挡操作（pointer-events:none），几秒后自己淡出 */
+  #hint {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 3; opacity: 0; transition: opacity .3s ease;
+  }
+  #hint .card {
+    background: rgba(24,24,24,.92); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 20px; min-width: 260px; box-shadow: 0 8px 28px rgba(0,0,0,.45);
+  }
+  #hint .card .t { font-weight: 600; margin-bottom: 10px; color: var(--text); }
+  #hint .card .r { display: flex; gap: 12px; line-height: 1.9; color: var(--dim); }
+  #hint .card .r b { color: var(--text); font-weight: 600; min-width: 62px; }
+  #hint .card .f { margin-top: 10px; color: #6b6b6b; font-size: 11px; }
+</style>
+</head>
+<body>
+  <canvas id="stage" tabindex="0"></canvas>
+  <div id="hud">
+    <span class="pill" id="pSize">—</span>
+    <span class="pill" id="pCount">—</span>
+    <span class="pill" id="pTex">—</span>
+    <span class="pill" id="pAngle">—</span>
+    <span class="pill" id="pPos" style="display:none">—</span>
+    <button class="pill btn" id="pMode" type="button">空间模式</button>
+  </div>
+  <div id="cross"></div>
+  <div id="lock">
+    <div>点击画面开始自由行走</div>
+    <small>WASD 移动 · 鼠标转视角 · 空格跳（双击空格飞行）· Shift 下潜 · Ctrl 加速 · 滚轮调速</small>
+    <small>Esc 退出空间模式</small>
+  </div>
+  <div id="hint">
+    <div class="card">
+      <div class="t">空间模式 · 键位</div>
+      <div class="r"><b>W A S D</b><span>移动</span></div>
+      <div class="r"><b>鼠标</b><span>转视角</span></div>
+      <div class="r"><b>空格</b><span>跳跃 / 上升，双击切飞行</span></div>
+      <div class="r"><b>Shift</b><span>潜行 / 下潜</span></div>
+      <div class="r"><b>Ctrl</b><span>加速</span></div>
+      <div class="r"><b>滚轮</b><span>调整速度</span></div>
+      <div class="r"><b>Esc</b><span>退出空间模式</span></div>
+      <div class="f">按任意键或点击画面即可开始</div>
+    </div>
+  </div>
+  <div id="empty">等待投影数据…（在「投影工坊」里选中一个投影即可预览）</div>
+  <script src="three.min.js"></script>
+<script>
+/*
+ * 投影预览渲染层（three.js，分块贪心网格）
+ *
+ * 为什么不用 deepslate：它每加一个方块都要线性扫调色板（8 千种状态 × 8 万方块），
+ * 且默认不剔除相邻面，8 万方块的机械投影会把 WebView 渲染进程拖到 OOM。
+ * 这里改成：
+ *   ① 方块按 16³ 分块，块内按「同贴图 + 同朝向」贪心合并成大四边形；
+ *   ② 只画暴露面（邻居是不透明整方块就剔除）；
+ *   ③ 非整方块（楼梯/活塞/珊瑚扇等）按模型元素逐个画盒子，保留形状；
+ *   ④ 每个贴图一个材质（RepeatWrapping），全部合并成少量 BufferGeometry。
+ */
+(function () {
+  const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
+  const canvas = document.getElementById("stage");
+  const $ = id => document.getElementById(id);
+  const T = window.THREE;
+
+  // ── 数据（宿主分块推过来） ──
+  let data = null;              // { sizeX, sizeY, sizeZ, truncated }
+  let pendingBlocks = [];
+  let blockStatesRaw = {};      // "minecraft:piston" → blockstates JSON 文本
+  let modelsRaw = {};           // "minecraft:block/stone" → model JSON 文本
+  let texturesRaw = {};         // "minecraft:block/stone" → data:image/png;base64,...
+  let assetSource = "";
+
+  // ── 渲染 ──
+  const CH = 16;                // 分块边长
+  let threeRenderer = null, scene = null, camera = null;
+  let gridLines = null;
+  const meshes = [];
+  let blockMap = new Map();     // 线性下标 → 类型下标
+  let boxGeometry = null;       // 所有实例共用的单位立方体
+
+  /** 方块坐标 → 线性下标（x 最高位，便于反解） */
+  function keyOf(x, y, z) { return (x * sizeY + y) * sizeZ + z; }
+  let types = [];               // 方块类型（贴图/元素）
+  let sizeX = 1, sizeY = 1, sizeZ = 1;
+  const texIds = new Map();     // 贴图 id → 下标
+  const texList = [];           // 下标 → { id, tex, opaque }
+  let dirty = true, lastFrame = 0;
+  let buildSeq = 0;   // 快速切换投影时，旧构建的结果要丢弃
+
+  // ── 轨道相机 ──
+  let azimuth = -0.7, elevation = 0.55, zoom = 1, panX = 0, panY = 0;
+  let dragging = false, panning = false, lastX = 0, lastY = 0;
+
+  // ── 空间模式（第一人称，手感对齐原版） ──
+  const PLAYER = { width: 0.6, height: 1.8, eye: 1.62 };
+  const GRAVITY = 32, JUMP_V = 8.4, TERMINAL = 78;
+  const SPEED = { walk: 4.317, sprint: 5.612, fly: 10.92, flySprint: 21.6 };
+  const MOUSE_SENS = 0.0045;
+  let spaceMode = false, locked = false, fly = false, onGround = false;
+  let yaw = 0, pitch = 0, speedScale = 1, lastSpaceTap = 0;
+  const player = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+  const keys = Object.create(null);
+  let solidSet = new Set();
+  const spawn = { x: 0.5, y: 1.2, z: 0.5 };
+  let spaceHintFirstRun = false, hintTimer = 0;
+
+  // ── 鼠标/键盘交互辅助 ──
+  function keyId(e) {
+    if (e.code) return e.code;
+    const k = e.key;
+    if (!k) return "";
+    if (k === " ") return "Space";
+    if (k === "Shift") return "ShiftLeft";
+    if (k === "Control") return "ControlLeft";
+    if (k === "Alt") return "AltLeft";
+    return k.length === 1 ? "Key" + k.toUpperCase() : k;
+  }
+
+  // ── 初始化 three.js ──
+  function initThree() {
+    if (threeRenderer) return true;
+    if (!T) { $("empty").textContent = "渲染引擎加载失败（Assets/Lab/three.min.js 缺失）。"; return false; }
+    try {
+      threeRenderer = new T.WebGLRenderer({ canvas, antialias: true });
+    } catch (e) {
+      $("empty").textContent = "这台机器没有可用的 WebGL：" + e.message;
+      return false;
+    }
+    threeRenderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    threeRenderer.setClearColor(0x161616, 1);
+    scene = new T.Scene();
+    // 实例化方块用 Lambert 材质：环境光打底 + 一盏斜射平行光，靠面法线做出体积感
+    scene.add(new T.AmbientLight(0xffffff, 1.5));
+    const sun = new T.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(0.6, 1, 0.35);
+    scene.add(sun);
+    camera = new T.PerspectiveCamera(70, 1, 0.1, 100000);
+    return true;
+  }
+
+  // ── 方块状态 / 模型解析 ──
+
+  function parseState(s) {
+    const b = s.indexOf("[");
+    if (b < 0) return { name: s, props: {} };
+    const props = {};
+    for (const pair of s.slice(b + 1, -1).split(",")) {
+      const e = pair.indexOf("=");
+      if (e > 0) props[pair.slice(0, e)] = pair.slice(e + 1);
+    }
+    return { name: s.slice(0, b), props };
+  }
+
+  const defCache = new Map();
+  function getDefJson(name) {
+    if (defCache.has(name)) return defCache.get(name);
+    let json = null;
+    const text = blockStatesRaw[name];
+    if (text) { try { json = JSON.parse(text); } catch { json = null; } }
+    defCache.set(name, json);
+    return json;
+  }
+
+  function variantMatches(key, props) {
+    if (!key) return true;
+    for (const part of key.split(",")) {
+      const e = part.indexOf("=");
+      if (e < 0) continue;
+      if (props[part.slice(0, e)] !== part.slice(e + 1)) return false;
+    }
+    return true;
+  }
+
+  function matchWhen(when, props) {
+    if (!when) return true;
+    if (when.OR) return when.OR.some(w => matchWhen(w, props));
+    if (when.AND) return when.AND.every(w => matchWhen(w, props));
+    for (const k in when) {
+      if (k === "OR" || k === "AND") continue;
+      if (!String(when[k]).split("|").includes(String(props[k]))) return false;
+    }
+    return true;
+  }
+
+  /** blockstate JSON + 属性 → 要用的模型引用（含变体旋转） */
+  function resolveModelRefs(def, props) {
+    const out = [];
+    if (def.variants) {
+      let best = null;
+      for (const k in def.variants) {
+        if (!variantMatches(k, props)) continue;
+        if (best === null || k.length > best.length) best = k;
+      }
+      if (best !== null) {
+        const v = def.variants[best];
+        const item = Array.isArray(v) ? v[0] : v;
+        if (item && item.model) out.push(item);
+      }
+    }
+    if (def.multipart) {
+      for (const part of def.multipart) {
+        if (!part.apply) continue;
+        if (!matchWhen(part.when, props)) continue;
+        const item = Array.isArray(part.apply) ? part.apply[0] : part.apply;
+        if (item && item.model) out.push(item);
+      }
+    }
+    return out;
+  }
+
+  const modelCache = new Map();
+  /** 模型继承链：elements / textures 逐级取父级 */
+  function getModel(id, depth = 0) {
+    // 模型继承链里的 parent 常常不带命名空间（block/cube），资源包里存的是 minecraft:block/cube
+    if (!id.includes(":")) id = "minecraft:" + id;
+    if (modelCache.has(id)) return modelCache.get(id);
+    let model = null;
+    const text = modelsRaw[id];
+    if (text) {
+      try {
+        const json = JSON.parse(text);
+        let elements = json.elements || null;
+        const textures = Object.assign({}, json.textures || {});
+        if (json.parent && depth < 16) {
+          const parent = getModel(json.parent, depth + 1);
+          if (parent) {
+            if (!elements) elements = parent.elements;
+            for (const k in parent.textures) if (!(k in textures)) textures[k] = parent.textures[k];
+          }
+        }
+        model = { elements: elements || [], textures };
+      } catch { model = null; }
+    }
+    modelCache.set(id, model);
+    return model;
+  }
+
+  function resolveTex(model, ref) {
+    let cur = ref;
+    for (let i = 0; i < 8 && cur; i++) {
+      if (cur[0] !== "#") {
+        // 模型里常见不带命名空间的相对路径（block/stone）；C# 侧收集时会补成
+        // minecraft:block/stone，这里必须同样补，否则整类方块查不到贴图变灰块
+        return cur.includes(":") ? cur : "minecraft:" + cur;
+      }
+      cur = model.textures[cur.slice(1)];
+    }
+    return null;
+  }
+
+  function texIndexOf(id) {
+    let i = texIds.get(id);
+    if (i === undefined) {
+      i = texList.length;
+      texIds.set(id, i);
+      texList.push({ id, tex: null, opaque: true });
+    }
+    return i;
+  }
+
+  /** 方块染色（原版用 block color provider 给灰度贴图上色；这里给常用的几类做近似） */
+  function blockTint(name, props) {
+    if (name === "minecraft:redstone_wire") {
+      const p = Math.max(0, Math.min(15, parseInt(props.power || "0", 10) || 0)) / 15;
+      // 对齐原版 RedStoneWireBlock.getColor：功率越高越红
+      const g = p * 0.6 + (p > 0 ? 0.4 : 0.3);
+      const h = Math.max(0, Math.min(1, p * p * 0.7 - 0.5));
+      const i = Math.max(0, Math.min(1, p * p * 0.6 - 0.7));
+      return [g, h, i];
+    }
+    if (name === "minecraft:water" || name === "minecraft:bubble_column") return [0.25, 0.46, 0.89];
+    if (name === "minecraft:grass_block" || name === "minecraft:grass" || name === "minecraft:tall_grass" ||
+        name === "minecraft:fern" || name === "minecraft:large_fern" || name === "minecraft:sugar_cane" ||
+        name === "minecraft:lily_pad" || name === "minecraft:vine") return [0.55, 0.73, 0.35];
+    if (name.endsWith("_leaves")) return [0.45, 0.66, 0.30];
+    return null;
+  }
+
+  const FACES = ["east", "west", "up", "down", "south", "north"];   // 与 BoxGeometry 的 6 个 group 同序
+  const typeCache = new Map();
+
+  function isFullCubeElement(e) {
+    if (!e || e.rotation) return false;
+    const f = e.from, t = e.to;
+    return f[0] === 0 && f[1] === 0 && f[2] === 0 && t[0] === 16 && t[1] === 16 && t[2] === 16;
+  }
+
+  /** 完整方块状态字符串 → 渲染类型：整方块走六面贴图，其余保留模型元素（铁轨/楼梯/活塞等） */
+  function buildType(stateStr) {
+    const hit = typeCache.get(stateStr);
+    if (hit !== undefined) return hit;
+    const { name, props } = parseState(stateStr);
+    const def = getDefJson(name);
+    const refs = def ? resolveModelRefs(def, props) : [];
+    const tex = [-1, -1, -1, -1, -1, -1];
+    const elements = [];
+    let rotX = 0, rotY = 0, cube = false;
+    const tint = blockTint(name, props);
+
+    for (const ref of refs) {
+      const model = getModel(ref.model);
+      if (!model || model.elements.length === 0) continue;
+      if (rotX === 0 && rotY === 0) { rotX = ref.x || 0; rotY = ref.y || 0; }
+      if (model.elements.length === 1 && isFullCubeElement(model.elements[0])) {
+        const e = model.elements[0];
+        for (let d = 0; d < 6; d++) {
+          if (tex[d] >= 0) continue;
+          const f = e.faces && e.faces[FACES[d]];
+          const tx = f && f.texture ? resolveTex(model, f.texture) : null;
+          if (tx && texturesRaw[tx]) tex[d] = texIndexOf(tx);
+        }
+        cube = true;
+      } else {
+        for (const e of model.elements) elements.push({ e, model });
+      }
+    }
+
+    const first = tex.find(i => i >= 0);
+    for (let d = 0; d < 6; d++) if (tex[d] < 0) tex[d] = first;
+    // 有元素就按元素画（哪怕同时命中了整方块模型，也以元素为准）
+    if (elements.length > 0) cube = false;
+
+    const type = { cube, tex, rotX, rotY, elements, tint };
+    typeCache.set(stateStr, type);
+    return type;
+  }
+
+  // ── 贴图加载（同时判断是否全不透明） ──
+
+  function loadTextures() {
+    const entries = Object.entries(texturesRaw);
+    if (entries.length === 0) return Promise.resolve();
+    return Promise.all(entries.map(([id, url]) => new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        let opaque = true;
+        try {
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth || 16;
+          c.height = img.naturalHeight || 16;
+          const g = c.getContext("2d");
+          g.drawImage(img, 0, 0);
+          const px = g.getImageData(0, 0, c.width, c.height).data;
+          for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { opaque = false; break; }
+        } catch { opaque = false; }
+        const tex = new T.Texture(img);
+        tex.magFilter = T.NearestFilter;
+        // 远处不做 mipmap 会出严重摩尔纹：缩小过滤走 mipmap，放大仍保持像素风
+        tex.minFilter = T.NearestMipmapLinearFilter;
+        tex.wrapS = tex.wrapT = T.RepeatWrapping;
+        tex.generateMipmaps = true;
+        if (threeRenderer) {
+          const maxAniso = threeRenderer.capabilities && threeRenderer.capabilities.getMaxAnisotropy
+            ? threeRenderer.capabilities.getMaxAnisotropy() : 1;
+          if (maxAniso > 1) tex.anisotropy = Math.min(8, maxAniso);
+        }
+        // three.js 的 BoxGeometry UV 是 v 向上，必须配默认 flipY=true 才和 MC 的「左上原点」一致；
+        // 元素几何的 UV 是 MC 约定（v 向下），在 faceUvs 里翻成 v 向上
+        if (T.SRGBColorSpace) tex.colorSpace = T.SRGBColorSpace;
+        tex.needsUpdate = true;
+        const idx = texIndexOf(id);
+        texList[idx].tex = tex;
+        texList[idx].opaque = opaque;
+        resolve();
+      };
+      img.onerror = resolve;
+      img.src = url;
+    })));
+  }
+
+  function clearScene() {
+    for (const m of meshes) {
+      scene.remove(m);
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        if (mat.map) mat.map.dispose();
+        mat.dispose();
+      }
+      if (m.geometry && m.geometry !== boxGeometry) m.geometry.dispose();
+    }
+    meshes.length = 0;
+    if (gridLines) { scene.remove(gridLines); gridLines.geometry.dispose(); gridLines.material.dispose(); gridLines = null; }
+  }
+
+  // ── 非整方块：按模型元素生成几何（铁轨、楼梯、活塞、珊瑚扇等） ──
+
+  function rotatePoint(p, origin, axis, deg) {
+    if (!deg) return p;
+    const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    let x = p[0] - origin[0], y = p[1] - origin[1], z = p[2] - origin[2];
+    if (axis === "x") { const ny = y * c - z * s; z = y * s + z * c; y = ny; }
+    else if (axis === "y") { const nx = x * c + z * s; z = -x * s + z * c; x = nx; }
+    else { const nx = x * c - y * s; y = x * s + y * c; x = nx; }
+    return [x + origin[0], y + origin[1], z + origin[2]];
+  }
+
+  function faceCorners(e, face) {
+    const f = e.from, t = e.to;
+    switch (face) {
+      case "east": return [[t[0], f[1], f[2]], [t[0], t[1], f[2]], [t[0], t[1], t[2]], [t[0], f[1], t[2]]];
+      case "west": return [[f[0], f[1], t[2]], [f[0], t[1], t[2]], [f[0], t[1], f[2]], [f[0], f[1], f[2]]];
+      case "up": return [[f[0], t[1], f[2]], [f[0], t[1], t[2]], [t[0], t[1], t[2]], [t[0], t[1], f[2]]];
+      case "down": return [[f[0], f[1], f[2]], [t[0], f[1], f[2]], [t[0], f[1], t[2]], [f[0], f[1], t[2]]];
+      case "south": return [[f[0], f[1], t[2]], [t[0], f[1], t[2]], [t[0], t[1], t[2]], [f[0], t[1], t[2]]];
+      case "north": return [[t[0], f[1], f[2]], [f[0], f[1], f[2]], [f[0], t[1], f[2]], [t[0], t[1], f[2]]];
+    }
+    return null;
+  }
+
+  function faceShade(face) {
+    switch (face) {
+      case "up": return 1.0;
+      case "down": return 0.52;
+      case "east": return 0.72;
+      case "west": return 0.62;
+      case "south": return 0.86;
+      default: return 0.78;   // north
+    }
+  }
+
+  function faceNormal(face) {
+    switch (face) {
+      case "east": return [1, 0, 0];
+      case "west": return [-1, 0, 0];
+      case "up": return [0, 1, 0];
+      case "down": return [0, -1, 0];
+      case "south": return [0, 0, 1];
+      case "north": return [0, 0, -1];
+    }
+    return [0, 1, 0];
+  }
+
+  /** 面 UV：优先用模型里写的 uv，否则按盒子在贴图里的投影 */
+  function faceUvs(e, face, uvRect) {
+    const f = e.from, t = e.to;
+    const span = (a, b) => (b - a) || 1;
+    const uv = uvRect || [0, 0, 16, 16];
+    const [u1, v1, u2, v2] = uv;
+    return faceCorners(e, face).map(p => {
+      let a, b;
+      if (face === "up" || face === "down") { a = (p[0] - f[0]) / span(f[0], t[0]); b = (p[2] - f[2]) / span(f[2], t[2]); }
+      else if (face === "north" || face === "south") { a = (p[0] - f[0]) / span(f[0], t[0]); b = (t[1] - p[1]) / span(f[1], t[1]); }
+      else { a = (p[2] - f[2]) / span(f[2], t[2]); b = (t[1] - p[1]) / span(f[1], t[1]); }
+      // MC 的 v 向下、three 的 v 向上：这里翻一下
+      return [(u1 + (u2 - u1) * a) / 16, 1 - (v1 + (v2 - v1) * b) / 16];
+    });
+  }
+
+  /** 把一个类型的模型元素烘成一份几何（局部坐标以方块中心为原点），配合实例化复用 */
+  function buildElementGeometry(info) {
+    const buckets = new Map();
+    const bucket = ti => {
+      let b = buckets.get(ti);
+      if (!b) { b = { pos: [], uv: [], nrm: [], col: [] }; buckets.set(ti, b); }
+      return b;
+    };
+
+    for (const item of info.elements) {
+      const e = item.e, model = item.model;
+      for (const face of FACES) {
+        const fd = e.faces && e.faces[face];
+        if (!fd) continue;
+        const txId = fd.texture ? resolveTex(model, fd.texture) : null;
+        if (!txId || !texturesRaw[txId]) continue;
+        let pts = faceCorners(e, face);
+        if (!pts) continue;
+        if (e.rotation) {
+          const r = e.rotation;
+          pts = pts.map(p => rotatePoint(p, r.origin || [8, 8, 8], r.axis || "y", r.angle || 0));
+        }
+        pts = pts.map(p => [p[0] / 16 - 0.5, p[1] / 16 - 0.5, p[2] / 16 - 0.5]);
+        const uvs = faceUvs(e, face, fd.uv);
+        const n = faceNormal(face);
+        const b = bucket(texIndexOf(txId));
+        const tintOn = info.tint && typeof fd.tintindex === "number" && fd.tintindex >= 0;
+        // 顶点色同时承载面明暗和方块染色
+        const sh = faceShade(face);
+        const cr = sh * (tintOn ? info.tint[0] : 1);
+        const cg = sh * (tintOn ? info.tint[1] : 1);
+        const cb = sh * (tintOn ? info.tint[2] : 1);
+        for (const i of [0, 1, 2, 0, 2, 3]) {
+          b.pos.push(pts[i][0], pts[i][1], pts[i][2]);
+          b.uv.push(uvs[i][0], uvs[i][1]);
+          b.nrm.push(n[0], n[1], n[2]);
+          b.col.push(cr, cg, cb);
+        }
+      }
+    }
+    if (buckets.size === 0) return null;
+
+    const geometry = new T.BufferGeometry();
+    const positions = [], uvs = [], normals = [], colors = [], materials = [];
+    let start = 0;
+    for (const [ti, b] of buckets) {
+      const count = b.pos.length / 3;
+      if (count === 0) continue;
+      const t = texList[ti];
+      materials.push(t && t.tex
+        ? new T.MeshLambertMaterial({ map: t.tex, alphaTest: 0.5, side: T.DoubleSide })
+        : new T.MeshLambertMaterial({ color: 0x8a8a8a, side: T.DoubleSide }));
+      for (const v of b.pos) positions.push(v);
+      for (const v of b.uv) uvs.push(v);
+      for (const v of b.nrm) normals.push(v);
+      for (const v of b.col) colors.push(v);
+      geometry.addGroup(start, count, materials.length - 1);
+      start += count;
+    }
+    geometry.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new T.Float32BufferAttribute(uvs, 2));
+    geometry.setAttribute("normal", new T.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3));
+    for (const m of materials) m.vertexColors = true;
+    return { geometry, materials };
+  }
+
+  /** 每个方块类型一个 InstancedMesh：位置由数据直接给出，不做网格合并（不会错位） */
+  function buildInstances() {
+    clearScene();
+    if (!boxGeometry) boxGeometry = new T.BoxGeometry(1, 1, 1);
+
+    // 不透明整方块：六个邻居都是它就可以整块跳过（完全看不见），实心建筑能省一大半实例
+    const opaque = types.map(t => t.cube && t.tex.every(i => i >= 0 && texList[i] && texList[i].opaque));
+    const enclosed = (key) => {
+      const z = key % sizeZ;
+      const rest = (key - z) / sizeZ;
+      const y = rest % sizeY;
+      const x = (rest - y) / sizeY;
+      const solid = (dx, dy, dz) => {
+        const nx = x + dx, ny = y + dy, nz = z + dz;
+        if (nx < 0 || ny < 0 || nz < 0 || nx >= sizeX || ny >= sizeY || nz >= sizeZ) return false;
+        const nt = blockMap.get(keyOf(nx, ny, nz));
+        return nt !== undefined && opaque[nt];
+      };
+      return solid(1, 0, 0) && solid(-1, 0, 0) && solid(0, 1, 0) &&
+             solid(0, -1, 0) && solid(0, 0, 1) && solid(0, 0, -1);
+    };
+
+    const groups = new Map();   // 类型下标 → 线性下标数组
+    for (const [key, ti] of blockMap) {
+      if (opaque[ti] && enclosed(key)) continue;
+      let list = groups.get(ti);
+      if (!list) { list = []; groups.set(ti, list); }
+      list.push(key);
+    }
+
+    const dummy = new T.Object3D();
+    dummy.rotation.order = "YXZ";   // 与原版一致：先绕 X、再绕 Y（变体朝向）
+    const rx = Math.PI / 180;
+    for (const [ti, keys] of groups) {
+      const info = types[ti];
+      let geo = boxGeometry, mats;
+      if (info.cube) {
+        // 六个面各一份材质：BoxGeometry 的 group 顺序 = +x,-x,+y,-y,+z,-z = 东/西/上/下/南/北
+        mats = info.tex.map(i => {
+          const t = i >= 0 ? texList[i] : null;
+          const mat = t && t.tex
+            ? new T.MeshLambertMaterial({ map: t.tex, alphaTest: 0.5 })
+            : new T.MeshLambertMaterial({ color: 0x8a8a8a });
+          if (info.tint) mat.color.setRGB(info.tint[0], info.tint[1], info.tint[2]);
+          return mat;
+        });
+      } else if (info.elements && info.elements.length > 0) {
+        const built = buildElementGeometry(info);
+        if (!built) continue;
+        geo = built.geometry;
+        mats = built.materials;
+      } else {
+        continue;   // 既不是整方块、也没有模型：跳过
+      }
+
+      const mesh = new T.InstancedMesh(geo, mats, keys.length);
+      mesh.frustumCulled = false;   // 实例矩阵不进包围球，关掉剔除免得整批消失
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const z = key % sizeZ;
+        const rest = (key - z) / sizeZ;
+        const y = rest % sizeY;
+        const x = (rest - y) / sizeY;
+        dummy.position.set(x + 0.5, y + 0.5, z + 0.5);
+        // 原版 BlockModelRotation 用的是负角（从轴正向看顺时针）
+        dummy.rotation.set(-info.rotX * rx, -info.rotY * rx, 0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      scene.add(mesh);
+      meshes.push(mesh);
+    }
+
+    // 地面网格：给空间模式一个方向感
+    const spanX = Math.max(64, sizeX), spanZ = Math.max(64, sizeZ);
+    // 网格线太密在远处也会产生摩尔纹：按 64 格一条，并压暗
+    const grid = new T.GridHelper(Math.max(spanX, spanZ), Math.ceil(Math.max(spanX, spanZ) / 64), 0x3c3c3c, 0x262626);
+    grid.position.set(sizeX / 2, 0.02, sizeZ / 2);
+    grid.material.opacity = 0.4;
+    grid.material.transparent = true;
+    scene.add(grid);
+    gridLines = grid;
+  }
+
+  async function buildScene() {
+    if (!data || !initThree()) return;
+    const seq = ++buildSeq;
+    $("pTex").innerHTML = "纹理 <b>构建网格…</b>";
+    sizeX = data.sizeX || 1; sizeY = data.sizeY || 1; sizeZ = data.sizeZ || 1;
+
+    // 资源（每次重建都清空缓存，避免旧投影的模型串味）
+    defCache.clear(); modelCache.clear(); typeCache.clear();
+    texIds.clear(); texList.length = 0;
+    await loadTextures();
+    if (seq !== buildSeq) return;   // 期间又选了别的投影：这次构建作废
+
+    // 方块 → 类型
+    blockMap = new Map();
+    types = [];
+    const typeIndexByState = new Map();
+    for (const b of data.blocks) {
+      const state = b[3] || "minecraft:stone";
+      let ti = typeIndexByState.get(state);
+      if (ti === undefined) {
+        ti = types.length;
+        types.push(buildType(state));
+        typeIndexByState.set(state, ti);
+      }
+      blockMap.set(keyOf(b[0], b[1], b[2]), ti);
+    }
+
+    // 空间模式用的占用表 + 出生点
+    solidSet = new Set();
+    const columnTop = new Map();
+    const cx = Math.floor(sizeX / 2), cz = Math.floor(sizeZ / 2);
+    let topY = 0;
+    for (const [key] of blockMap) {
+      const z = key % sizeZ;
+      const rest = (key - z) / sizeZ;
+      const y = rest % sizeY;
+      const x = (rest - y) / sizeY;
+      solidSet.add(x + "," + y + "," + z);
+      if (y > topY) topY = y;
+      const k = x + "," + z;
+      const t = columnTop.get(k);
+      if (t === undefined || y > t) columnTop.set(k, y);
+    }
+    let best = null;
+    for (const [k, top] of columnTop) {
+      const comma = k.indexOf(",");
+      const x = +k.slice(0, comma), z = +k.slice(comma + 1);
+      const dist = Math.max(Math.abs(x - cx), Math.abs(z - cz));
+      if (!best || dist < best.dist || (dist === best.dist && top > best.top)) best = { dist, top, x, z };
+    }
+    spawn.x = (best ? best.x : cx) + 0.5;
+    spawn.y = (best ? best.top : topY) + 1.2;
+    spawn.z = (best ? best.z : cz) + 0.5;
+
+    buildInstances();
+
+    if (spaceMode) respawn();
+
+    const texCount = texList.filter(t => t.tex).length;
+    $("pTex").innerHTML = texCount > 0
+      ? `纹理 <b>真实（${texCount} 张${assetSource ? " · " + assetSource : ""}）</b>`
+      : "纹理 <b>缺失（洋红占位）</b>";
+    data.blocks = [];
+    pendingBlocks = [];
+    dirty = true;
+  }
+
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    if (threeRenderer) threeRenderer.setSize(w, h, false);
+    if (camera) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
+    dirty = true;
+  }
+  window.addEventListener("resize", resize);
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+
+  // ── 相机 ──
+
+  function orbitCamera() {
+    const center = new T.Vector3(sizeX / 2 + panX, sizeY / 2 + panY, sizeZ / 2);
+    const radius = 0.5 * Math.hypot(sizeX, sizeY, sizeZ);
+    const dist = Math.max(2, radius / Math.sin(35 * Math.PI / 180) * 1.08) / zoom;
+    const cosE = Math.cos(elevation);
+    camera.position.set(
+      center.x + Math.sin(azimuth) * cosE * dist,
+      center.y + Math.sin(elevation) * dist,
+      center.z + Math.cos(azimuth) * cosE * dist);
+    camera.near = Math.max(0.1, dist / 5000);
+    camera.far = Math.max(1000, dist * 6);
+    camera.updateProjectionMatrix();
+    camera.up.set(0, 1, 0);
+    camera.lookAt(center);
+    $("pAngle").innerHTML = `视角 <b>${Math.round(azimuth * 180 / Math.PI)}° / ${Math.round(elevation * 180 / Math.PI)}°</b>`;
+  }
+
+  function spaceCamera() {
+    camera.position.set(player.x, player.y + PLAYER.eye, player.z);
+    const cosP = Math.cos(pitch);
+    const dir = new T.Vector3(-Math.sin(yaw) * cosP, Math.sin(pitch), -Math.cos(yaw) * cosP);
+    camera.near = 0.05;
+    camera.far = Math.max(1000, Math.hypot(sizeX, sizeY, sizeZ) * 4);
+    camera.updateProjectionMatrix();
+    camera.up.set(0, 1, 0);
+    camera.lookAt(camera.position.clone().add(dir));
+  }
+
+  function draw() {
+    if (!threeRenderer || !scene || !camera || !data) return;
+    if (spaceMode) spaceCamera(); else orbitCamera();
+    try {
+      threeRenderer.render(scene, camera);
+    } catch (e) {
+      $("empty").textContent = "渲染出错：" + e.message;
+      $("empty").style.display = "flex";
+    }
+  }
+
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (spaceMode) {
+      const dt = lastFrame ? Math.min(0.05, (now - lastFrame) / 1000) : 0;
+      lastFrame = now;
+      updatePlayer(dt);
+      dirty = true;
+    } else {
+      lastFrame = now;
+    }
+    if (!dirty) return;
+    dirty = false;
+    draw();
+  }
+
+  // ── 空间模式：移动与碰撞 ──
+
+  const isSolid = (x, y, z) => solidSet.has(x + "," + y + "," + z);
+
+  function moveAxis(axis, amount) {
+    if (amount === 0) return;
+    player[axis] += amount;
+    const half = PLAYER.width / 2;
+    const minX = Math.floor(player.x - half), maxX = Math.floor(player.x + half);
+    const minY = Math.floor(player.y), maxY = Math.floor(player.y + PLAYER.height - 0.001);
+    const minZ = Math.floor(player.z - half), maxZ = Math.floor(player.z + half);
+    for (let x = minX; x <= maxX; x++)
+      for (let y = minY; y <= maxY; y++)
+        for (let z = minZ; z <= maxZ; z++) {
+          if (!isSolid(x, y, z)) continue;
+          if (axis === "x") { player.x = amount > 0 ? x - half - 0.001 : x + 1 + half + 0.001; player.vx = 0; }
+          else if (axis === "z") { player.z = amount > 0 ? z - half - 0.001 : z + 1 + half + 0.001; player.vz = 0; }
+          else if (amount > 0) { player.y = y - PLAYER.height - 0.001; player.vy = 0; }
+          else { player.y = y + 1 + 0.001; player.vy = 0; onGround = true; }
+          return;
+        }
+  }
+
+  function respawn() {
+    if (fly && data) {
+      const radius = 0.5 * Math.hypot(sizeX, sizeY, sizeZ);
+      const dist = Math.max(3, radius / Math.sin(35 * Math.PI / 180) * 1.15);
+      const cosE = Math.cos(elevation);
+      player.x = Math.sin(azimuth) * cosE * dist + sizeX / 2;
+      player.y = Math.sin(elevation) * dist + sizeY / 2 - PLAYER.eye;
+      player.z = Math.cos(azimuth) * cosE * dist + sizeZ / 2;
+      yaw = azimuth;
+      pitch = -elevation;
+    } else {
+      player.x = spawn.x; player.y = spawn.y; player.z = spawn.z;
+      yaw = 0; pitch = -0.25;
+    }
+    player.vx = player.vy = player.vz = 0;
+    onGround = false;
+    updatePosHud();
+  }
+
+  function updatePosHud() {
+    $("pPos").innerHTML = `位置 <b>${player.x.toFixed(1)} ${player.y.toFixed(1)} ${player.z.toFixed(1)}</b>` +
+      ` · ${fly ? "飞行" : "行走"}${speedScale !== 1 ? ` · 速度 ×${speedScale.toFixed(1)}` : ""}`;
+  }
+
+  function updatePlayer(dt) {
+    if (dt <= 0 || !data) return;
+    const cosP = Math.cos(pitch);
+    const fx = -Math.sin(yaw) * cosP, fz = -Math.cos(yaw) * cosP;
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+
+    let wx = 0, wz = 0;
+    if (keys.KeyW) { wx += fx; wz += fz; }
+    if (keys.KeyS) { wx -= fx; wz -= fz; }
+    if (keys.KeyD) { wx += rx; wz += rz; }
+    if (keys.KeyA) { wx -= rx; wz -= rz; }
+    const len = Math.hypot(wx, wz);
+    if (len > 0) { wx /= len; wz /= len; }
+
+    const sprint = !!(keys.ControlLeft || keys.ControlRight);
+    const sneak = !!(keys.ShiftLeft || keys.ShiftRight) && !fly;
+    let speed = fly ? (sprint ? SPEED.flySprint : SPEED.fly) : (sprint ? SPEED.sprint : SPEED.walk);
+    if (sneak) speed *= 0.3;
+    speed *= speedScale;
+
+    const k = 1 - Math.exp(-dt * 18);
+    player.vx += (wx * speed - player.vx) * k;
+    player.vz += (wz * speed - player.vz) * k;
+
+    const grounded = onGround;
+    if (fly) {
+      const up = (keys.Space ? 1 : 0) - (keys.ShiftLeft || keys.ShiftRight ? 1 : 0);
+      player.vy += (up * speed - player.vy) * (1 - Math.exp(-dt * 14));
+    } else {
+      player.vy -= GRAVITY * dt;
+      if (player.vy < -TERMINAL) player.vy = -TERMINAL;
+      if (keys.Space && grounded) player.vy = JUMP_V;
+    }
+
+    onGround = false;
+    moveAxis("y", player.vy * dt);
+    moveAxis("x", player.vx * dt);
+    moveAxis("z", player.vz * dt);
+    if (player.y < -8) { respawn(); return; }
+    updatePosHud();
+  }
+
+  // ── 空间模式开关 ──
+
+  function focusStage() {
+    try { $("pMode").blur(); canvas.focus(); } catch { /* 忽略 */ }
+  }
+
+  function showSpaceHint() {
+    const el = $("hint");
+    clearTimeout(hintTimer);
+    el.style.display = "flex";
+    requestAnimationFrame(() => { el.style.opacity = "1"; });
+    hintTimer = setTimeout(hideSpaceHint, 9000);
+    if (host) { try { host.postMessage({ type: "hintShown" }); } catch { } }
+  }
+
+  function hideSpaceHint() {
+    const el = $("hint");
+    if (el.style.display === "none" || !el.style.display) return;
+    clearTimeout(hintTimer);
+    el.style.opacity = "0";
+    hintTimer = setTimeout(() => { el.style.display = "none"; }, 300);
+  }
+
+  function setSpaceMode(on) {
+    if (on && !data) return;
+    spaceMode = on;
+    $("pMode").classList.toggle("on", on);
+    $("pMode").textContent = on ? "退出空间模式" : "空间模式";
+    $("pPos").style.display = on ? "" : "none";
+    $("pAngle").style.display = on ? "none" : "";
+    document.body.classList.toggle("space", on);
+
+    if (on) {
+      fly = true;
+      speedScale = 1;
+      respawn();
+      $("lock").style.display = "flex";
+      focusStage();
+      requestLock();
+      if (spaceHintFirstRun) { spaceHintFirstRun = false; showSpaceHint(); }
+    } else {
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      $("lock").style.display = "none";
+      $("cross").style.display = "none";
+      for (const k in keys) keys[k] = false;
+      updatePosHud();
+    }
+    if (host) { try { host.postMessage({ type: "space", on }); } catch { } }
+    dirty = true;
+  }
+
+  function requestLock() {
+    focusStage();
+    try {
+      const r = canvas.requestPointerLock();
+      if (r && r.catch) r.catch(() => { /* 浏览器拒绝时靠遮罩提示再点一次 */ });
+    } catch { /* 不支持指针锁定：仍可用按钮进出 */ }
+  }
+
+  // ── 交互：轨道模式 ──
+  canvas.addEventListener("contextmenu", e => e.preventDefault());
+  canvas.addEventListener("pointerdown", e => {
+    if (spaceMode) return;
+    dragging = e.button === 0; panning = e.button === 2;
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.classList.add("dragging");
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", e => {
+    if (spaceMode || (!dragging && !panning)) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (dragging) {
+      azimuth -= dx * 0.008;
+      elevation = Math.max(-1.5, Math.min(1.5, elevation + dy * 0.006));
+    } else {
+      panX -= dx * 0.6;
+      panY += dy * 0.6;
+    }
+    dirty = true;
+  });
+  canvas.addEventListener("pointerup", e => {
+    if (spaceMode) return;
+    dragging = panning = false;
+    canvas.classList.remove("dragging");
+    canvas.releasePointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    if (spaceMode) {
+      speedScale = Math.max(0.25, Math.min(8, speedScale * (e.deltaY > 0 ? 0.9 : 1.1)));
+      updatePosHud();
+      return;
+    }
+    zoom = Math.max(0.2, Math.min(12, zoom * (e.deltaY > 0 ? 0.9 : 1.12)));
+    dirty = true;
+  }, { passive: false });
+  canvas.addEventListener("dblclick", () => {
+    if (spaceMode) return;
+    azimuth = -0.7; elevation = 0.55; panX = panY = 0; zoom = 1;
+    dirty = true;
+  });
+
+  // ── 交互：空间模式 ──
+  canvas.addEventListener("click", () => { if (spaceMode && !locked) requestLock(); });
+  $("lock").addEventListener("click", () => { if (spaceMode) requestLock(); });
+  canvas.addEventListener("pointerdown", () => hideSpaceHint(), true);
+  document.addEventListener("pointerlockchange", () => {
+    locked = document.pointerLockElement === canvas;
+    $("lock").style.display = spaceMode && !locked ? "flex" : "none";
+    $("cross").style.display = spaceMode && locked ? "block" : "none";
+    for (const k in keys) keys[k] = false;
+    if (spaceMode && !locked) setSpaceMode(false);
+  });
+  document.addEventListener("mousemove", e => {
+    if (!spaceMode || !locked) return;
+    // WebView2 在指针锁定刚生效/窗口切换时偶尔给出几千像素的 movement 尖峰，直接乘灵敏度会瞬移
+    const mx = Math.max(-180, Math.min(180, e.movementX || 0));
+    const my = Math.max(-180, Math.min(180, e.movementY || 0));
+    yaw -= mx * MOUSE_SENS;
+    pitch -= my * MOUSE_SENS;
+    const lim = Math.PI / 2 - 0.01;
+    pitch = Math.max(-lim, Math.min(lim, pitch));
+    dirty = true;
+  });
+  window.addEventListener("keydown", e => {
+    if (!spaceMode) return;
+    hideSpaceHint();
+    if (e.key === "Escape") { setSpaceMode(false); return; }
+    keys[keyId(e)] = true;
+    if (e.code === "Space" || e.key === " ") {
+      e.preventDefault();
+      if (!e.repeat) {
+        const now = performance.now();
+        if (now - lastSpaceTap < 300) { fly = !fly; player.vy = 0; updatePosHud(); }
+        lastSpaceTap = now;
+      }
+    } else if (e.code === "KeyF" || e.key === "f" || e.key === "F") {
+      if (!e.repeat) { fly = !fly; player.vy = 0; updatePosHud(); }
+    }
+  });
+  window.addEventListener("keyup", e => { keys[keyId(e)] = false; });
+  window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+  $("pMode").addEventListener("click", () => setSpaceMode(!spaceMode));
+
+  // ── 与宿主通信（分块接收） ──
+  function onMessage(e) {
+    const msg = e.data || {};
+    if (msg.type === "voxelBegin") {
+      // 先放掉上一份结构再收新数据：连续切换两个大投影时旧网格还挂在 GPU 上，
+      // 和新结构叠加会把渲染进程顶到 OOM
+      buildSeq++;   // 让在途构建作废
+      if (threeRenderer) clearScene();
+      blockMap = new Map(); types = [];
+      data = {
+        sizeX: msg.sizeX, sizeY: msg.sizeY, sizeZ: msg.sizeZ,
+        truncated: msg.truncated, blocks: [],
+      };
+      assetSource = msg.assetSource || "";
+      blockStatesRaw = {}; modelsRaw = {}; texturesRaw = {}; pendingBlocks = [];
+      $("empty").style.display = "none";
+      $("pSize").innerHTML = `尺寸 <b>${msg.sizeX}×${msg.sizeY}×${msg.sizeZ}</b>`;
+      $("pCount").innerHTML = "方块 <b>…</b>";
+      $("pTex").innerHTML = "纹理 <b>加载中…</b>";
+    } else if (msg.type === "voxelStates") {
+      Object.assign(blockStatesRaw, msg.items || {});
+    } else if (msg.type === "voxelModels") {
+      Object.assign(modelsRaw, msg.items || {});
+    } else if (msg.type === "voxelTextures") {
+      Object.assign(texturesRaw, msg.items || {});
+    } else if (msg.type === "voxelBlocks") {
+      if (!data) return;
+      for (const item of msg.items || []) pendingBlocks.push(item);
+      $("pCount").innerHTML = `方块 <b>${pendingBlocks.length.toLocaleString()}</b>` +
+        (data.truncated ? "（已抽样）" : "");
+    } else if (msg.type === "voxelEnd") {
+      if (!data) return;
+      data.blocks = pendingBlocks;
+      $("pCount").innerHTML = `方块 <b>${data.blocks.length.toLocaleString()}</b>` +
+        (data.truncated ? "（已抽样）" : "");
+      buildScene().then(() => { resize(); dirty = true; });
+    } else if (msg.type === "clear") {
+      if (spaceMode) setSpaceMode(false);
+      if (threeRenderer) clearScene();
+      data = null; pendingBlocks = [];
+      blockMap = new Map(); types = [];
+      blockStatesRaw = {}; modelsRaw = {}; texturesRaw = {};
+      $("pSize").textContent = $("pCount").textContent = $("pTex").textContent = $("pAngle").textContent = "—";
+      $("empty").style.display = "flex";
+      $("empty").textContent = "等待投影数据…（在「投影工坊」里选中一个投影即可预览）";
+      dirty = true;
+    } else if (msg.type === "notice") {
+      if (spaceMode) setSpaceMode(false);
+      data = null; pendingBlocks = [];
+      $("empty").textContent = msg.text || "";
+      $("empty").style.display = "flex";
+    } else if (msg.type === "exitSpace") {
+      if (spaceMode) setSpaceMode(false);
+    } else if (msg.type === "init") {
+      spaceHintFirstRun = msg.firstRun === true;
+    }
+  }
+  if (host) {
+    host.addEventListener("message", onMessage);
+    host.postMessage({ type: "ready" });
+  }
+  // 独立浏览器里调试预览页时用同一条消息通道（WebView2 环境下 window 收不到宿主消息，不会重复触发）
+  window.addEventListener("message", onMessage);
+
+  if (initThree()) {
+    resize();
+    loop(0);
+  }
+})();
+</script>
+</body>
+</html>

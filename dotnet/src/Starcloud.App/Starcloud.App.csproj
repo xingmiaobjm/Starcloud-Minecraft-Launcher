@@ -16,8 +16,8 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 启动器自身版本（当前为测试版 V0.3.2）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
-    <Version>0.3.2</Version>
+    <!-- 启动器自身版本（当前为开发版 V0.3.4）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
+    <Version>0.3.4</Version>
     <!-- 应用图标（品牌标记，由 tools/gen-app-icon.ps1 生成）：嵌入 exe 资源供资源管理器/任务栏/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
@@ -51,6 +51,18 @@
     <Content Include="Assets\Brand\starcloud-mark-light.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\starcloud-mark-dark.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\starcloud-mark-small.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\devices-nav.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\lab-nav.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\lab-nav-dark.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\projection-nav.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\projection-nav-dark.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Lab\projection-viewer.html" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 投影 3D 预览的渲染引擎：deepslate（MIT，第三方；自带模型继承/元素旋转/多部件/图集/剔除） -->
+    <Content Include="Assets\Lab\vendor\deepslate.umd.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Lab\vendor\deepslate-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 旧的自研预览引擎（three.js）已不再使用，文件保留供回退对照 -->
+    <Content Include="Assets\Lab\three.min.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Lab\three-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <!-- 3D 玩家形象：skinview3d 引擎 bundle + 宿主页（WebView2 经 app3d.local 虚拟域加载） -->
     <Content Include="Assets\3d\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- authlib-injector（第三方认证）：LaunchOptions -javaagent 注入，随输出目录发布 -->

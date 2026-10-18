@@ -81,7 +81,7 @@
                         </ItemsControl>
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0"
                                     Visibility="{x:Bind PlanButtonsVisible, Mode=OneWay}">
-                            <Button Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="确认执行"
+                            <Button Style="{StaticResource ScAccentButtonStyle}" loc:Loc.Text="确认执行"
                                     FontWeight="Medium"
                                     loc:Loc.Name="确认执行" Click="PlanConfirm_Click" />
                             <ctrl:GlowButton loc:Loc.Text="取消" loc:Loc.Name="取消执行"
@@ -148,7 +148,7 @@
                      KeyDown="InputBox_KeyDown" />
             <ProgressRing x:Name="SendProgress" Grid.Column="1" IsActive="False"
                           Width="22" Height="22" VerticalAlignment="Center" />
-            <Button x:Name="SendBtn" Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
+            <Button x:Name="SendBtn" Grid.Column="2" Style="{StaticResource ScAccentButtonStyle}"
                     loc:Loc.Text="发送" Padding="16,5" MinWidth="80" Click="Send_Click"
                     FontWeight="Medium"
                     VerticalAlignment="Center" />

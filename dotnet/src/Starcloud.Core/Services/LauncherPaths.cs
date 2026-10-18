@@ -376,7 +376,44 @@ public sealed class LauncherSettings
     public bool BackgroundFollowTheme { get; set; } = true;
 
     // ── 界面动效（设计：ui-polish-motion-design.md §4） ──
-    /// <summary>界面动效：system（跟随系统）/ on（始终开启）/ off（关闭）</summary>
+    /// <summary>
+    /// 界面动效四档：minimal（极少，只有页面切换）/ lite（较少，+跟手光斑与毛玻璃）/
+    /// balanced（均衡，+全局鼠标光照与引力形变）/ full（全部，+弹簧与环境光斑）。
+    /// <para>旧值迁移：为空或非法时按旧字段 <see cref="UiAnimations"/> 推导（off → 极少，其余 → 均衡）。</para>
+    /// </summary>
+    [JsonPropertyName("ui_motion_level")]
+    public string UiMotionLevel { get; set; } = "";
+
+    // ── 跨设备同步与 P2P 加速（设计：2026-10-14-cross-device-sync-design.md） ──
+    /// <summary>设备链路总开关（UDP 发现 + TCP 服务）：需登录 Starcloud ID 才会真正启动</summary>
+    [JsonPropertyName("device_link_enabled")]
+    public bool DeviceLinkEnabled { get; set; } = false;
+
+    /// <summary>本机在对端展示的设备名（空 = 用机器名）</summary>
+    [JsonPropertyName("device_name")]
+    public string DeviceName { get; set; } = "";
+
+    /// <summary>下载 P2P 加速：优先从局域网同账号设备取已下载文件（只认 SHA1，校验不过回退公网）</summary>
+    [JsonPropertyName("p2p_download_enabled")]
+    public bool P2pDownloadEnabled { get; set; } = true;
+
+    // ── SC 实验室 · 投影社区（2026-10-14） ──
+    /// <summary>投影社区 GitHub API 基址（空 = 默认 gh-proxy 镜像优先、直连回退；可填自定义代理前缀）</summary>
+    [JsonPropertyName("projection_github_api")]
+    public string? ProjectionGithubApi { get; set; } = "";
+
+    /// <summary>投影社区 GitHub Token（可选；匿名 API 每小时仅 60 次，填了 Token 是 5000/h，Release 探测更稳）</summary>
+    [JsonPropertyName("projection_github_token")]
+    public string? ProjectionGithubToken { get; set; } = "";
+
+    /// <summary>投影社区自定义源（每行一个 JSON 接口 URL；返回数组，字段见 GenericJsonSource）</summary>
+    [JsonPropertyName("projection_custom_sources")]
+    public string? ProjectionCustomSources { get; set; } = "";
+
+    /// <summary>
+    /// 旧版界面动效开关（system / on / off），保留给插件 API（白名单键 ui_animations）兼容；
+    /// 与 <see cref="UiMotionLevel"/> 同义同步：极少 = off，其余 = on。
+    /// </summary>
     [JsonPropertyName("ui_animations")]
     public string UiAnimations { get; set; } = "system";
 
@@ -402,7 +439,11 @@ public sealed class LauncherSettings
         BackgroundImageOpacity = Math.Clamp(BackgroundImageOpacity, 0.2, 1.0);
         BackgroundBlurRadius = Math.Clamp(BackgroundBlurRadius, 0, 64);
         if (BackgroundMaskOpacity is { } m) BackgroundMaskOpacity = Math.Clamp(m, 0, 1);
-        if (UiAnimations is not ("system" or "on" or "off")) UiAnimations = "system";
+        // 动效四档：为空（老配置首次升级）或非法时按旧开关推导；随后把旧开关同步成同义值，
+        // 插件读写的 ui_animations 与等级永远一致。
+        if (UiMotionLevel is not ("minimal" or "lite" or "balanced" or "full"))
+            UiMotionLevel = UiAnimations == "off" ? "minimal" : "balanced";
+        UiAnimations = UiMotionLevel == "minimal" ? "off" : "on";
     }
 
     /// <summary>本地背景图实际生效路径；未配置 / 文件不存在 → null（builtin 由 App 侧解析）。</summary>

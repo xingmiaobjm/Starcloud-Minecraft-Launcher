@@ -26,9 +26,24 @@
     </UnoFeatures>
   </PropertyGroup>
 
-  <!-- Segoe Fluent Icons 替代：非 Windows 头的 Fluent 图标字体（字形码位兼容 E7xx） -->
+  <!-- Segoe Fluent Icons 替代：非 Windows 头的 Fluent 图标字体（字形码位兼容 E7xx）。
+       现在只作框架模板（下拉箭头 / 导航展开箭头…）的兜底符号字体；
+       应用自己的图标统一改用 HarmonyOS 图标库（见下）。 -->
   <ItemGroup>
     <PackageReference Include="Uno.Fonts.Fluent" />
+  </ItemGroup>
+
+  <!-- 应用图标字体：与 Windows 版共用同一物理文件（单一事实来源，不复制源文件；
+       与 pluginsdk / authlib-injector 链接发布同一模式）。
+       来源 IKKI2000/harmonyos-icons（MIT），家族名 harmonyos；
+       ms-appx:///Assets/Fonts/… 在 Skia 后端按输出目录解析。 -->
+  <ItemGroup>
+    <Content Include="..\..\..\dotnet\src\Starcloud.App\Assets\Fonts\HarmonyOSIcons.ttf"
+             Link="Assets\Fonts\HarmonyOSIcons.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\dotnet\src\Starcloud.App\Assets\Fonts\HarmonyOSIcons-LICENSE.txt"
+             Link="Assets\Fonts\HarmonyOSIcons-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 共享核心库（单一事实来源，跨目录引用；Core 保持 net8.0） -->

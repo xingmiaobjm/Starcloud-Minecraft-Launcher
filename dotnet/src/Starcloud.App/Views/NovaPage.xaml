@@ -62,7 +62,7 @@
                                 <ComboBoxItem loc:Loc.Text="云端通道（真实账号）" />
                             </ComboBox>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="登录"
+                                <Button x:Name="LoginBtn" Style="{StaticResource ScAccentButtonStyle}" loc:Loc.Text="登录"
                                         FontWeight="Medium" MinWidth="160" Click="Login_Click" />
                                 <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24"
                                               VerticalAlignment="Center" />
@@ -178,7 +178,7 @@
 
                         <!-- 新增模型：预设模板流程（选服务商 → 填 Key → 选模型） -->
                         <Button x:Name="LlmAddOpenBtn" loc:Loc.Text="新增模型"
-                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                 MinWidth="120" HorizontalAlignment="Left"
                                 Margin="0,4,0,0" Click="LlmAddOpen_Click" />
 
@@ -210,7 +210,7 @@
                             <ComboBox x:Name="LlmModelBox" IsEditable="True"
                                       HorizontalAlignment="Stretch" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="LlmSaveBtn" Style="{StaticResource AccentButtonStyle}"
+                                <Button x:Name="LlmSaveBtn" Style="{StaticResource ScAccentButtonStyle}"
                                         loc:Loc.Text="保存" MinWidth="120" FontWeight="Medium" Click="LlmAdd_Click" />
                                 <ctrl:GlowButton x:Name="LlmTestBtn" loc:Loc.Text="测试连接" MinWidth="100"
                                         Click="LlmTest_Click" />

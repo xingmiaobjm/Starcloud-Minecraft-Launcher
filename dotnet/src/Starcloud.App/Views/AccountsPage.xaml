@@ -48,7 +48,7 @@
                             <ComboBoxItem loc:Loc.Text="测试通道" />
                             <ComboBoxItem loc:Loc.Text="云端通道" />
                         </ComboBox>
-                        <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource AccentButtonStyle}"
+                        <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource ScAccentButtonStyle}"
                                 FontWeight="Medium" Click="ScLogin_Click" />
                         <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
                                       IsActive="False" VerticalAlignment="Center" />
@@ -74,7 +74,7 @@
                         <PasswordBox x:Name="ScRegPwdBox" loc:Loc.Placeholder="至少 6 位" Width="150" />
                         <PasswordBox x:Name="ScRegPwd2Box" loc:Loc.Placeholder="再次输入密码" Width="150" />
                         <Button x:Name="ScRegisterBtn" loc:Loc.Text="创建账户"
-                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                 Click="ScRegister_Click" />
                         <ctrl:GlowButton loc:Loc.Text="取消" Click="ScCancelRegister_Click" />
                     </StackPanel>
@@ -124,7 +124,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="1" loc:Loc.Text="添加账户" VerticalAlignment="Center"
-                        Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                        Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                         Click="AddAccount_Click" />
             </Grid>
 

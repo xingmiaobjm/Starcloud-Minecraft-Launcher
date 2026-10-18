@@ -1,0 +1,13 @@
+{
+  "name": "starcloud-minecraft-launcher",
+  "version": "0.1.0",
+  "description": "StarCloud Minecraft Launcher - LGPL-3.0-only",
+  "private": true,
+  "scripts": {
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "tauri:dev": "npm --prefix web run tauri dev",
+    "tauri:build": "npm --prefix web run tauri build"
+  },
+  "license": "LGPL-3.0-only"
+}

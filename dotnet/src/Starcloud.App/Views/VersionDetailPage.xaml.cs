@@ -1001,7 +1001,7 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>返回：用框架的滑动转场（从左侧滑出），与进入时的 drill-in 方向互补。</summary>
     private void Back_Click(object sender, RoutedEventArgs e) =>
         Frame.GoBack(Starcloud.App.Services.MotionService.BackTransition(
-            Starcloud.App.Services.AppServices.Instance.Motion.Enabled));
+            Starcloud.App.Services.AppServices.Instance.Motion.Transitions));
 
     private void Launch_Click(object sender, RoutedEventArgs e)
     {

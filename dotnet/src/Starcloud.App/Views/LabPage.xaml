@@ -1,0 +1,434 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.App.Views.LabPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
+    xmlns:loc="using:Starcloud.App.Localization"
+    NavigationCacheMode="Disabled">
+
+    <Page.Resources>
+        <Style x:Key="LabCard" TargetType="Border" BasedOn="{StaticResource ScCard}" />
+        <Style x:Key="LabSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource ScSectionTitle}" />
+        <Style x:Key="LabHead" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Spacing" Value="8" />
+        </Style>
+        <Style x:Key="LabLabel" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+            <Setter Property="Width" Value="86" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Page.Resources>
+
+    <Grid x:Name="LabRoot" MaxWidth="1280" HorizontalAlignment="Stretch">
+        <!-- 提示条浮层 -->
+        <Grid VerticalAlignment="Top">
+            <StackPanel Spacing="8">
+                <InfoBar x:Name="OkBar" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="已完成" />
+                <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+            </StackPanel>
+        </Grid>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 实验室内部导航 -->
+            <Border Grid.Column="0" VerticalAlignment="Stretch" Margin="0,12,0,0"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="8">
+                <ListView x:Name="ToolList" SelectionMode="Single"
+                          SelectionChanged="Tool_SelectionChanged">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="40" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.Resources>
+                        <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                    </ListView.Resources>
+                    <ListViewItem Tag="projection" IsSelected="True">
+                        <ctrl:CategoryNavItem x:Name="ToolProjection" IsActive="True"
+                                              Glyph="&#xEA94;" loc:Loc.Text="投影工坊" />
+                    </ListViewItem>
+                    <ListViewItem Tag="text">
+                        <ctrl:CategoryNavItem x:Name="ToolText" Glyph="&#xEC04;" loc:Loc.Text="彩色文字" />
+                    </ListViewItem>
+                    <ListViewItem Tag="community">
+                        <ctrl:CategoryNavItem x:Name="ToolCommunity" Glyph="&#xEC3B;" loc:Loc.Text="投影社区" />
+                    </ListViewItem>
+                    <ListViewItem Tag="commands">
+                        <ctrl:CategoryNavItem x:Name="ToolCommands" Glyph="&#xE90C;" loc:Loc.Text="指令助手" />
+                    </ListViewItem>
+                </ListView>
+            </Border>
+
+            <Grid Grid.Column="1" RowSpacing="12">
+                <ScrollViewer x:Name="ToolScroll">
+                    <StackPanel Spacing="16">
+
+                        <!-- ══ 投影工坊 ══ -->
+                        <StackPanel x:Name="SectionProjection" Spacing="16">
+                            <Border x:Name="ProjectionListCard" Style="{StaticResource LabCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource LabHead}">
+                                        <Border Style="{StaticResource ScSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="投影工坊" Style="{StaticResource LabSectionTitle}" />
+                                        <TextBlock x:Name="ProjectionDirText" FontSize="11" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ctrl:GlowButton loc:Loc.Text="刷新列表" Click="RefreshProjections_Click" />
+                                        <ctrl:GlowButton loc:Loc.Text="打开文件…" Click="OpenProjection_Click" />
+                                        <ctrl:GlowButton x:Name="OpenProjectionDirBtn" loc:Loc.Text="打开投影目录"
+                                                         Click="OpenProjectionDir_Click" />
+                                    </StackPanel>
+                                    <Grid MinHeight="150" MaxHeight="260">
+                                        <ListView x:Name="ProjectionList" SelectionMode="Single"
+                                                  SelectionChanged="ProjectionList_SelectionChanged">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="48" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,2" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                        </ListView>
+                                        <ctrl:EmptyStateView x:Name="ProjectionEmpty" Visibility="Collapsed"
+                                                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                             Glyph="&#xEA90;"
+                                                             loc:Loc.Title="还没有投影文件"
+                                                             loc:Loc.Subtitle="把 .litematic / .nbt / .schematic / .schem 放进 .minecraft\schematics，或用「打开文件…」直接选" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 详情 + 元数据编辑 -->
+                            <Border x:Name="ProjectionDetailCard" Style="{StaticResource LabCard}" Visibility="Collapsed">
+                                <StackPanel x:Name="ProjectionCardStack" Spacing="12">
+                                    <!-- 元数据编辑区：进空间模式时整体收起，把画面让给预览 -->
+                                    <StackPanel x:Name="ProjectionMetaBlock" Spacing="12">
+                                        <StackPanel Style="{StaticResource LabHead}">
+                                            <Border Style="{StaticResource ScSectionSpine}" />
+                                            <TextBlock x:Name="ProjectionTitle" Style="{StaticResource LabSectionTitle}" />
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock loc:Loc.Text="名称" Style="{StaticResource LabLabel}" />
+                                            <TextBox x:Name="ProjNameBox" Width="320" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock loc:Loc.Text="作者" Style="{StaticResource LabLabel}" />
+                                            <TextBox x:Name="ProjAuthorBox" Width="320" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock loc:Loc.Text="描述" Style="{StaticResource LabLabel}" />
+                                            <TextBox x:Name="ProjDescBox" Width="320" AcceptsReturn="True" TextWrapping="Wrap" Height="64" />
+                                        </StackPanel>
+
+                                        <TextBlock x:Name="ProjectionMeta" FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <ctrl:GlowButton x:Name="SaveMetaBtn" loc:Loc.Text="保存元数据" Click="SaveProjectionMeta_Click" />
+                                            <ctrl:GlowButton x:Name="ConvertNbtBtn" loc:Loc.Text="另存为结构 .nbt" Click="ConvertToNbt_Click" />
+                                            <ctrl:GlowButton x:Name="ConvertLitematicBtn" loc:Loc.Text="另存为 .litematic" Click="ConvertToLitematic_Click" />
+                                            <ctrl:GlowButton x:Name="OpenProjectionFileBtn" loc:Loc.Text="在文件夹中显示" Click="RevealProjection_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- 3D 预览：WebView2 里的体素渲染（可拖拽旋转 / 滚轮缩放；空间模式见 SetPreviewSpaceLayout） -->
+                                    <TextBlock x:Name="PreviewLabel" loc:Loc.Text="3D 预览" FontSize="12" FontWeight="Medium" Margin="0,4,0,0" />
+                                    <Grid x:Name="PreviewHost" Height="380" CornerRadius="10">
+                                        <controls:WebView2 x:Name="PreviewWeb" DefaultBackgroundColor="#161616" />
+                                    </Grid>
+
+                                    <StackPanel x:Name="ProjectionStatBlock" Spacing="8">
+                                        <TextBlock loc:Loc.Text="方块统计（Top 24，不含空气）" FontSize="12" FontWeight="Medium" Margin="0,4,0,0" />
+                                        <ListView x:Name="BlockStatList" MaxHeight="200" SelectionMode="None">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="30" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                        </ListView>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ══ 彩色文字（Markdown 手感的编辑界面，但只保留颜色） ══ -->
+                        <StackPanel x:Name="SectionText" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource LabCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource LabHead}">
+                                        <Border Style="{StaticResource ScSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="彩色文字生成器" Style="{StaticResource LabSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="像 Word 一样：在编辑框里选中一段文字，直接点下面的色块立即上色；渐变 / 彩虹只作用于选区。右侧实时生成能直接粘贴到游戏的 § 代码。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="430" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 左：格式工具栏 + 富文本编辑 -->
+                                        <StackPanel Grid.Column="0" Spacing="8">
+
+                                            <!-- 第一行：字形 / 清除 / 精度 -->
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button loc:Loc.Text="粗体" Padding="10,4" Click="ToggleBold_Click" />
+                                                <Button loc:Loc.Text="斜体" Padding="10,4" Click="ToggleItalic_Click" />
+                                                <Button loc:Loc.Text="下划线" Padding="10,4" Click="ToggleUnderline_Click" />
+                                                <Button loc:Loc.Text="删除线" Padding="10,4" Click="ToggleStrike_Click" />
+                                                <Button loc:Loc.Text="清除格式" Padding="10,4" Click="ClearFormat_Click" />
+                                                <ComboBox x:Name="TextPrecisionCombo" Width="180" VerticalAlignment="Center"
+                                                          SelectionChanged="PaintColor_Changed">
+                                                    <ComboBoxItem loc:Loc.Text="逐字符精确色（1.16+）" Tag="exact" IsSelected="True" />
+                                                    <ComboBoxItem loc:Loc.Text="16 原版色（兼容旧版本）" Tag="legacy" />
+                                                </ComboBox>
+                                            </StackPanel>
+
+                                            <!-- 第二行：文字颜色（点一下直接作用于选区） -->
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock loc:Loc.Text="文字颜色" FontSize="11" VerticalAlignment="Center"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <Button Tag="#FF5555" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#FF5555" ToolTipService.ToolTip="#FF5555" />
+                                                <Button Tag="#FFAA00" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#FFAA00" ToolTipService.ToolTip="#FFAA00" />
+                                                <Button Tag="#FFFF55" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#FFFF55" ToolTipService.ToolTip="#FFFF55" />
+                                                <Button Tag="#55FF55" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#55FF55" ToolTipService.ToolTip="#55FF55" />
+                                                <Button Tag="#55FFFF" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#55FFFF" ToolTipService.ToolTip="#55FFFF" />
+                                                <Button Tag="#5555FF" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#5555FF" ToolTipService.ToolTip="#5555FF" />
+                                                <Button Tag="#FF55FF" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#FF55FF" ToolTipService.ToolTip="#FF55FF" />
+                                                <Button Tag="#FFFFFF" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#FFFFFF" ToolTipService.ToolTip="#FFFFFF" />
+                                                <Button Tag="#AAAAAA" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#AAAAAA" ToolTipService.ToolTip="#AAAAAA" />
+                                                <Button Tag="#333333" Click="PaletteColor_Click" Width="24" Height="24" Padding="0" Background="#333333" ToolTipService.ToolTip="#333333" />
+                                            </StackPanel>
+
+                                            <!-- 第三行：渐变 / 彩虹 -->
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock loc:Loc.Text="渐变" FontSize="11" VerticalAlignment="Center"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <TextBox x:Name="PaintFromBox" Width="104" Text="#55FFFF"
+                                                         TextChanged="PaintColor_Changed" />
+                                                <TextBlock Text="→" VerticalAlignment="Center" />
+                                                <TextBox x:Name="PaintToBox" Width="104" Text="#FF55FF"
+                                                         TextChanged="PaintColor_Changed" />
+                                                <Button loc:Loc.Text="应用渐变" Padding="10,4" Click="ApplyGradient_Click" />
+                                                <Button loc:Loc.Text="应用彩虹" Padding="10,4" Click="ApplyRainbow_Click" />
+                                            </StackPanel>
+
+                                            <Border Height="260" CornerRadius="8" Padding="10"
+                                                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1">
+                                                <RichEditBox x:Name="RichEditor" FontSize="16"
+                                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                                             IsSpellCheckEnabled="False"
+                                                             IsTextPredictionEnabled="False"
+                                                             SelectionChanged="RichEditor_SelectionChanged"
+                                                             TextChanged="RichEditor_TextChanged" />
+                                            </Border>
+                                        </StackPanel>
+
+                                        <!-- 右：§ 输出 -->
+                                        <StackPanel Grid.Column="1" Spacing="8">
+                                            <TextBlock loc:Loc.Text="选中一段文字再点色块；没有选区时会提示你先选中。"
+                                                       FontSize="11" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                            <TextBlock loc:Loc.Text="输出（直接粘贴到游戏）" Style="{StaticResource LabLabel}" />
+                                            <TextBox x:Name="TextOutput" AcceptsReturn="True" TextWrapping="Wrap" Height="330"
+                                                     IsReadOnly="True" FontFamily="Consolas" FontSize="12" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <ctrl:GlowButton loc:Loc.Text="复制输出" Click="CopyText_Click" />
+                                                <TextBlock x:Name="TextHint" FontSize="12" VerticalAlignment="Center"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ══ 投影社区（多源聚合 + 卡片列表 + 一键下载到投影目录） ══ -->
+                        <StackPanel x:Name="SectionCommunity" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource LabCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource LabHead}">
+                                        <Border Style="{StaticResource ScSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="投影社区" Style="{StaticResource LabSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="自动从多个投影源（GitHub 经镜像加速等）聚合红石机器与建筑投影：搜「世吞」「world eater」「农场」等关键词，点「下载投影」会自动保存到启动器投影目录，可直接在「投影工坊」里 3D 预览与编辑。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <AutoSuggestBox x:Name="CommunitySearch" Width="320"
+                                                        loc:Loc.Placeholder="搜索投影（如：世吞 / world eater / farm）"
+                                                        QuerySubmitted="CommunitySearch_Submitted" />
+                                        <ctrl:GlowButton loc:Loc.Text="搜索" Click="CommunitySearch_Click" />
+                                        <ctrl:GlowButton loc:Loc.Text="刷新" Click="CommunityRefresh_Click" />
+                                        <ctrl:GlowButton loc:Loc.Text="打开投影目录" Click="OpenProjectionDir_Click" />
+                                    </StackPanel>
+
+                                    <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                              loc:Loc.Header="源设置（GitHub API 基址 / 自定义源）">
+                                        <StackPanel Spacing="10" Margin="0,8,0,0">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock loc:Loc.Text="GitHub API 基址" Style="{StaticResource LabLabel}" Width="120" />
+                                                <TextBox x:Name="CommunityApiBaseBox" Width="430"
+                                                         loc:Loc.Placeholder="留空 = 自动（gh-proxy 镜像优先、直连回退）；可填自定义代理前缀" />
+                                            </StackPanel>
+                                            <TextBlock x:Name="CommunityBaseLabel" FontSize="11" Margin="128,0,0,0"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock loc:Loc.Text="GitHub Token" Style="{StaticResource LabLabel}" Width="120" />
+                                                <PasswordBox x:Name="CommunityTokenBox" Width="430"
+                                                             loc:Loc.Placeholder="可选：匿名 API 每小时仅 60 次，填 Token 为 5000/h（Release 探测更稳）" />
+                                            </StackPanel>
+                                            <TextBlock loc:Loc.Text="自定义源：每行一个 JSON 接口 URL（返回数组，字段 name / author / description / url / image，大小写不敏感）"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <TextBox x:Name="CommunityCustomSourcesBox" Width="560" Height="72"
+                                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                                     FontFamily="Consolas" FontSize="12"
+                                                     loc:Loc.Placeholder="https://example.com/projections.json" />
+                                            <ctrl:GlowButton loc:Loc.Text="保存并刷新" Click="CommunitySaveSources_Click" />
+                                        </StackPanel>
+                                    </Expander>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <ProgressRing x:Name="CommunityLoading" IsActive="False" Width="18" Height="18" />
+                                        <TextBlock x:Name="CommunityStatus" FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <CheckBox x:Name="CommunityFilterCheck" MinWidth="0" IsChecked="True"
+                                                  loc:Loc.Text="只显示含投影文件的仓库"
+                                                  Checked="CommunityFilter_Changed" Unchecked="CommunityFilter_Changed" />
+                                    </StackPanel>
+
+                                    <GridView x:Name="CommunityGrid" SelectionMode="None"
+                                              ScrollViewer.VerticalScrollMode="Disabled"
+                                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                        <!-- 固定列宽：卡片是 300 定宽，默认 ItemsWrapGrid 会把 item 拉伸填满行，
+                                             导致封面图跟着变宽拉高（截图实测的观感问题） -->
+                                        <GridView.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="312" />
+                                            </ItemsPanelTemplate>
+                                        </GridView.ItemsPanel>
+                                        <GridView.ItemContainerStyle>
+                                            <Style TargetType="GridViewItem">
+                                                <Setter Property="Margin" Value="0,0,12,12" />
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="MinWidth" Value="0" />
+                                                <Setter Property="MinHeight" Value="0" />
+                                            </Style>
+                                        </GridView.ItemContainerStyle>
+                                    </GridView>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 本地离线生成：无网络时可用 -->
+                            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                      loc:Loc.Header="本地离线生成：TNT 爆破阵列">
+                                <StackPanel Spacing="12" Margin="0,8,0,0">
+                                    <TextBlock loc:Loc.Text="离线可用的简易工具：按参数铺分层 TNT 阵列，用于地形清理或作为自建机器的药室参照。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="长度（X）" Style="{StaticResource LabLabel}" />
+                                        <NumberBox x:Name="EaterLength" Width="120" Minimum="1" Maximum="512" Value="64"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="EaterOptions_Changed" />
+                                        <TextBlock loc:Loc.Text="宽度（Z）" Style="{StaticResource LabLabel}" Width="70" />
+                                        <NumberBox x:Name="EaterWidth" Width="120" Minimum="1" Maximum="512" Value="16"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="EaterOptions_Changed" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="层数" Style="{StaticResource LabLabel}" />
+                                        <NumberBox x:Name="EaterLayers" Width="120" Minimum="1" Maximum="32" Value="3"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="EaterOptions_Changed" />
+                                        <TextBlock loc:Loc.Text="同层间隔" Style="{StaticResource LabLabel}" Width="70" />
+                                        <NumberBox x:Name="EaterSpacing" Width="120" Minimum="1" Maximum="16" Value="2"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="EaterOptions_Changed" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="层间空层" Style="{StaticResource LabLabel}" />
+                                        <NumberBox x:Name="EaterLayerGap" Width="120" Minimum="0" Maximum="16" Value="1"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="EaterOptions_Changed" />
+                                        <TextBlock loc:Loc.Text="逐层错位（Z）" Style="{StaticResource LabLabel}" Width="100" />
+                                        <NumberBox x:Name="EaterOffset" Width="120" Minimum="-64" Maximum="64" Value="2"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="EaterOptions_Changed" />
+                                    </StackPanel>
+
+                                    <TextBlock x:Name="EaterEstimate" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ctrl:GlowButton loc:Loc.Text="生成 .litematic…" Click="GenerateEater_Click" />
+                                        <TextBlock loc:Loc.Text="生成后会放进投影目录，可在「投影工坊」里继续查看与编辑。"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+
+                        <!-- ══ 指令助手 ══ -->
+                        <StackPanel x:Name="SectionCommands" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource LabCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource LabHead}">
+                                        <Border Style="{StaticResource ScSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="指令助手" Style="{StaticResource LabSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="选一个命令模板、填参数，生成可直接粘贴到游戏里的命令；括号与引号会自动体检。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="分类" Style="{StaticResource LabLabel}" />
+                                        <ComboBox x:Name="CmdCategoryCombo" Width="160" SelectionChanged="CmdCategory_Changed" />
+                                        <TextBlock loc:Loc.Text="命令" Style="{StaticResource LabLabel}" Width="50" />
+                                        <ComboBox x:Name="CmdTemplateCombo" Width="300" SelectionChanged="CmdTemplate_Changed" />
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="CmdParamPanel" Spacing="8" />
+
+                                    <TextBlock loc:Loc.Text="生成结果" FontSize="12" FontWeight="Medium" />
+                                    <TextBox x:Name="CmdOutput" AcceptsReturn="True" TextWrapping="Wrap" Height="72"
+                                             IsReadOnly="True" FontFamily="Consolas" FontSize="12" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ctrl:GlowButton loc:Loc.Text="复制命令" Click="CopyCommand_Click" />
+                                        <TextBlock x:Name="CmdHint" FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

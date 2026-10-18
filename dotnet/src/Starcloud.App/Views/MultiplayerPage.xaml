@@ -133,7 +133,7 @@
                             <TextBlock x:Name="InstallHint" Style="{StaticResource ScCardHint}" />
                             <StackPanel Orientation="Horizontal" Spacing="10">
                                 <Button x:Name="InstallBtn" loc:Loc.Text="安装联机核心"
-                                        Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                        Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                         MinWidth="140" Click="Install_Click" />
                                 <ctrl:GlowButton x:Name="CancelInstallBtn" loc:Loc.Text="取消安装"
                                         Visibility="Collapsed" Click="CancelInstall_Click" />
@@ -144,7 +144,7 @@
                         <StackPanel x:Name="PlayActions" Spacing="10" Visibility="Collapsed">
                             <StackPanel Orientation="Horizontal" Spacing="10">
                                 <Button x:Name="HostBtn" loc:Loc.Text="创建房间"
-                                        Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                        Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                         MinWidth="120" Click="Host_Click" />
                                 <ctrl:GlowButton x:Name="JoinToggleBtn" loc:Loc.Text="加入好友的房间" MinWidth="140"
                                         Click="JoinToggle_Click" />

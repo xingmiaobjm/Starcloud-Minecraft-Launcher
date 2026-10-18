@@ -82,7 +82,37 @@ public sealed class LocalFileReuse
     /// <summary>目标文件能不能用本地已有的同内容文件补上；能则复制过去并返回来源路径</summary>
     public bool TryProvide(string destPath, string? expectedSha1, long size, out string? source)
     {
-        source = null;
+        var hit = FindByHash(destPath, expectedSha1, size);
+        if (hit is null)
+        {
+            source = null;
+            return false;
+        }
+        try
+        {
+            var dir = Path.GetDirectoryName(destPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.Copy(hit, destPath, overwrite: true);
+            source = hit;
+            return true;
+        }
+        catch
+        {
+            // 复制失败（占用 / 权限 / 跨盘中断）：退回下载
+            source = null;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 只查不拷：索引里有没有「大小相符且 SHA1 校验通过」的候选；命中返回其路径。
+    /// P2P 加速的对端用它在<b>不复制</b>的前提下确认自己有这个文件（候选只有个位数个，
+    /// 单文件哈希毫秒级，结果由调用方缓存）。与 <see cref="TryProvide"/> 同一条安全线：
+    /// 没有期望哈希一律不认。
+    /// </summary>
+    public string? FindByHash(string destPath, string? expectedSha1, long size)
+    {
+        if (string.IsNullOrEmpty(expectedSha1)) return null;
         var candidates = new List<string>();
         if (_byName.TryGetValue(Path.GetFileName(destPath), out var sameName))
             candidates.AddRange(sameName);
@@ -91,28 +121,12 @@ public sealed class LocalFileReuse
         foreach (var candidate in candidates)
         {
             if (string.IsNullOrEmpty(candidate) || !File.Exists(candidate)) continue;
-            if (PathsEqual(candidate, destPath)) continue;          // 别把自己当来源
-
+            if (PathsEqual(candidate, destPath)) continue;           // 别把自己当来源
             var info = new FileInfo(candidate);
             if (size > 0 && info.Length != size) continue;           // 先比大小：省掉绝大多数哈希
-            if (string.IsNullOrEmpty(expectedSha1)) continue;        // 没哈希可比：不冒险
-            if (!Sha1Matches(candidate, expectedSha1)) continue;
-
-            try
-            {
-                var dir = Path.GetDirectoryName(destPath);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.Copy(candidate, destPath, overwrite: true);
-                source = candidate;
-                return true;
-            }
-            catch
-            {
-                // 复制失败（占用 / 权限 / 跨盘中断）：退回下载
-                return false;
-            }
+            if (Sha1Matches(candidate, expectedSha1)) return candidate;
         }
-        return false;
+        return null;
     }
 
     private static readonly string[] ContentDirs = ["mods", "resourcepacks", "shaderpacks", "datapacks"];

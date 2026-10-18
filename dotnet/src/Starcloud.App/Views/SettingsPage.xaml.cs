@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Behaviors;
 using Starcloud.App.Views.Controls;
 using Starcloud.App.Views.Dialogs;
 using Starcloud.Core.Services;
@@ -33,6 +34,9 @@ public sealed partial class SettingsPage : Page
     {
         InitializeComponent();
         _dq = DispatcherQueue.GetForCurrentThread();
+        // 动效说明是按当前选择动态拼的（不走 loc:Loc 附加属性），切语言时手动重放一次
+        Loc.LanguageChanged += UpdateMotionHint;
+        Unloaded += (_, _) => Loc.LanguageChanged -= UpdateMotionHint;
         Loaded += async (_, _) =>
         {
             var s = _s.Settings;
@@ -93,12 +97,14 @@ public sealed partial class SettingsPage : Page
                 "dark" => 2,
                 _ => 0,
             };
-            MotionCombo.SelectedIndex = s.UiAnimations switch
+            MotionCombo.SelectedIndex = s.UiMotionLevel switch
             {
-                "on" => 1,
-                "off" => 2,
-                _ => 0,
+                "minimal" => 0,
+                "lite" => 1,
+                "full" => 3,
+                _ => 2,
             };
+            UpdateMotionHint();
             LanguageCombo.SelectedIndex =
                 string.Equals(s.UiLanguage, "en-US", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             OverlaySwitch.IsOn = s.NovaOverlayEnabled;
@@ -106,6 +112,15 @@ public sealed partial class SettingsPage : Page
             WalkAnimSwitch.IsOn = s.AccountWalkAnimation;
             EmbeddedLoginSwitch.IsOn = s.MicrosoftLoginEmbedded;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
+
+            // 跨设备与 P2P
+            DeviceLinkSwitch.IsOn = s.DeviceLinkEnabled;
+            P2pSwitch.IsOn = s.P2pDownloadEnabled;
+            DeviceNameBox.Text = s.DeviceName ?? "";
+            UpdateSyncLoginHint();
+            _ = RefreshChannelStatusAsync();
+            StartPeerTimer();
+            RefreshPeers();
 
             // 背景与外观（D1）
             BackgroundModeCombo.SelectedIndex = s.BackgroundMode switch
@@ -151,16 +166,18 @@ public sealed partial class SettingsPage : Page
         CatJava.IsActive = tag == "java";
         CatDownload.IsActive = tag == "download";
         CatGeneral.IsActive = tag == "general";
+        CatCross.IsActive = tag == "crossdev";
 
         var target = tag switch
         {
             "java" => SectionJava,
             "download" => SectionDownload,
             "general" => SectionGeneral,
+            "crossdev" => SectionCross,
             _ => SectionGame,
         };
 
-        foreach (var section in new[] { SectionGame, SectionJava, SectionDownload, SectionGeneral })
+        foreach (var section in new[] { SectionGame, SectionJava, SectionDownload, SectionGeneral, SectionCross })
             section.Visibility = ReferenceEquals(section, target) ? Visibility.Visible : Visibility.Collapsed;
 
         // 进入 Java 页自动重新搜索（本机可能刚装了新 Java）
@@ -531,14 +548,261 @@ public sealed partial class SettingsPage : Page
         MainWindow.RefreshAppearance();
     }
 
-    // 界面动效：切换即落盘（转场在下次导航生效，悬浮反馈在下次进页生效）
+    // 界面动效四档：切换即落盘，毛玻璃材质即时生效；悬浮/光照/形变等接了线的动效
+    // 对已加载页面不追溯，下次进页生效（与旧开关同一约定）。
     private void Motion_Changed(object s, SelectionChangedEventArgs e)
     {
         if (!_loaded) return;
-        _s.Settings.UiAnimations =
-            (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
-        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        ApplyMotionLevel((MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "balanced");
         SavedBar.IsOpen = true;
+    }
+
+    /// <summary>把下拉框当前选择的档位落到设置并让全部效果当场生效。</summary>
+    private void ApplyMotionLevel(string level)
+    {
+        var s = _s.Settings;
+        s.UiMotionLevel = level;
+        // 旧开关（插件 API 的 ui_animations）与等级保持同义：极少 = off，其余 = on
+        s.UiAnimations = level == "minimal" ? "off" : "on";
+        UpdateMotionHint();
+        MotionMaterials.Apply(s);      // 卡片毛玻璃的收起/恢复是改画刷属性，当场可见
+        HoverShadowBehavior.RefreshAll();    // 光斑：极少当场摘掉，切回当场接上
+        PointerLightBehavior.RefreshAll();   // 玻璃面/玻璃缘/阴影/形变：同上
+        try { s.Save(); } catch { /* 落盘失败不阻断 */ }
+    }
+
+    /// <summary>按当前选择刷新动效档位说明。</summary>
+    private void UpdateMotionHint()
+    {
+        if (MotionHint is null) return;
+        MotionHint.Text = Loc.T((MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
+        {
+            "minimal" => "只保留最基本的页面切换动画。",
+            "lite" => "在极少的基础上，加入毛玻璃卡片与悬浮微反馈。",
+            "full" => "拥有全部动效（更明显的按压回弹与更亮的边缘光），建议高性能独立显卡机型使用。",
+            _ => "在较少的基础上，加入按钮边缘光、阴影跟随与按压回弹（推荐）。",
+        });
+    }
+
+    // ── 跨设备与 P2P（设计：2026-10-14-cross-device-sync-design.md） ──
+
+    private void DeviceLinkSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.DeviceLinkEnabled = DeviceLinkSwitch.IsOn;
+        ApplyDeviceLink();
+    }
+
+    private void P2pSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.P2pDownloadEnabled = P2pSwitch.IsOn;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        // P2P 开关即时生效（PeerCount 按 settings 实时判定），无需重启链路
+        SavedBar.IsOpen = true;
+    }
+
+    /// <summary>设备链路开关：落盘 + 当场启停（beacon/服务随开关起，不需要重启启动器）。</summary>
+    /// <summary>
+    /// 设备链路开关：落盘 + 当场启停。
+    /// <para><b>启停必须离开 UI 线程</b>：首次绑定监听端口时 Windows 防火墙可能同步阻塞（规则协商/弹窗），
+    /// Stop 里还有等待后台循环退出的同步 Wait——直接在 UI 线程做就是"开一下卡几秒"。
+    /// 这里只 await 一个后台任务，UI 期间不冻结。</para>
+    /// </summary>
+    private async void ApplyDeviceLink()
+    {
+        var link = _s.DeviceLink;
+        var enable = _s.Settings.DeviceLinkEnabled;
+        UpdateSyncLoginHint();
+        SavedBar.IsOpen = true;
+
+        if (enable && link.CanStart)
+        {
+            var ok = await Task.Run(() => link.Start());
+            if (!ok)
+            {
+                ErrorBar.Message = Loc.T("设备链路启动失败（端口被占用或防火墙拦截）");
+                ErrorBar.IsOpen = true;
+            }
+        }
+        else if (!enable)
+        {
+            await Task.Run(() => link.Stop());
+        }
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        await RefreshChannelStatusAsync();
+        RefreshPeers();
+    }
+
+    private void UpdateSyncLoginHint()
+    {
+        SyncLoginHint.Visibility = _s.StarcloudId.IsLoggedIn ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void GoLogin_Click(object s, RoutedEventArgs e)
+    {
+        if (App.MainWindow is MainWindow win) win.NavigateTo("accounts");
+    }
+
+    /// <summary>三条通道的实时状态（蓝牙 / 星闪探针在这里才执行，需要前台窗口）。</summary>
+    private async Task RefreshChannelStatusAsync()
+    {
+        try
+        {
+            var channels = await _s.DeviceLink.ChannelsAsync();
+            var peers = _s.DeviceLink.Peers.Count;
+            var link = _s.DeviceLink.Running
+                ? Loc.T("链路运行中 · 本机名称 {0} · 在线设备 {1} 台", _s.DeviceLink.DeviceName, peers)
+                : Loc.T("链路未运行：开启开关后，同一 Starcloud ID 的设备即可互相发现");
+            LinkStatusText.Text = link;
+            ChannelStatusText.Text = string.Join(" · ", channels.Select(c => Loc.T("{0}：{1}", c.Name, c.Note)));
+        }
+        catch
+        {
+            ChannelStatusText.Text = "";
+        }
+    }
+
+    // ── 跨设备：在线设备列表（2 秒自刷，只在「跨设备」分区可见时工作） ──
+
+    private DispatcherQueueTimer? _peerTimer;
+
+    private void StartPeerTimer()
+    {
+        if (_peerTimer is not null) return;
+        _peerTimer = _dq.CreateTimer();
+        _peerTimer.Interval = TimeSpan.FromSeconds(2); // 必须显式设：默认 0 会自旋
+        _peerTimer.IsRepeating = true;
+        _peerTimer.Tick += (_, _) =>
+        {
+            if (SectionCross.Visibility == Visibility.Visible) RefreshPeers();
+        };
+        _peerTimer.Start();
+    }
+
+    private void RefreshPeers()
+    {
+        var peers = _s.DeviceLink.Peers;
+        var selected = (PeerList.SelectedItem as PeerRow)?.Key;
+
+        PeerList.ItemsSource = peers.Select(p => new PeerRow(
+            $"{p.Address}:{p.Port}",
+            p.Name,
+            p.Address,
+            Loc.T("在线 {0} 秒前", (int)(DateTime.Now - p.LastSeen).TotalSeconds))).ToList();
+
+        PeerCountText.Text = Loc.T("{0} 台", peers.Count);
+        if (selected is not null)
+        {
+            var keep = PeerList.Items.OfType<PeerRow>().FirstOrDefault(r => r.Key == selected);
+            if (keep is not null) PeerList.SelectedItem = keep;
+        }
+        EmptyHint.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdatePeerActions();
+    }
+
+    private void PeerList_SelectionChanged(object s, SelectionChangedEventArgs e) => UpdatePeerActions();
+
+    private void RefreshCross_Click(object s, RoutedEventArgs e) => RefreshPeers();
+
+    private void UpdatePeerActions()
+    {
+        PullBtn.IsEnabled = PeerList.SelectedItem is PeerRow && !_peerBusy && _s.StarcloudId.IsLoggedIn;
+    }
+
+    private bool _peerBusy;
+
+    /// <summary>从选中的对端列出世界 → 选一个拉回本机（落到共享根）。</summary>
+    private async void Pull_Click(object s, RoutedEventArgs e)
+    {
+        if (PeerList.SelectedItem is not PeerRow row || _peerBusy) return;
+        var peer = _s.DeviceLink.Peers.FirstOrDefault(p => $"{p.Address}:{p.Port}" == row.Key);
+        if (peer is null) return;
+
+        _peerBusy = true;
+        UpdatePeerActions();
+        try
+        {
+            var remotes = await _s.SaveSync.ListRemoteAsync(peer);
+            if (remotes is null || remotes.Count == 0)
+            {
+                ErrorBar.Message = Loc.T("没能从 {0} 读到存档清单（设备离线或对端没有世界）", peer.Name);
+                ErrorBar.IsOpen = true;
+                return;
+            }
+
+            var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 220 };
+            foreach (var r in remotes)
+            {
+                list.Items.Add(new ListViewItem
+                {
+                    Content = new TextBlock
+                    {
+                        Text = Loc.T("{0}（{1}· 上次游玩 {2:yyyy-MM-dd HH:mm}）",
+                            r.LevelName, r.Isolated ? r.VersionId : Loc.T("共享"), r.LastPlayed ?? DateTime.MinValue),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    Tag = r,
+                    Padding = new Thickness(8, 6, 8, 6),
+                });
+            }
+            list.SelectedIndex = 0;
+            var dlg = new ThemedDialog
+            {
+                Title = Loc.T("从 {0} 拉取存档", peer.Name),
+                Content = new StackPanel
+                {
+                    Spacing = 8,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = Loc.T("选择要拉回的世界；本机同名世界更新时会被拒收，较旧时自动改名保留。"),
+                            TextWrapping = TextWrapping.Wrap,
+                        },
+                        list,
+                    },
+                },
+                PrimaryButtonText = Loc.T("拉取"),
+                CloseButtonText = Loc.T("取消"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot,
+            };
+            if (await dlg.ShowAsync() != ContentDialogResult.Primary ||
+                list.SelectedItem is not ListViewItem item || item.Tag is not RemoteSaveInfo remote) return;
+
+            var localIsolated = remote.Isolated &&
+                                Directory.Exists(Path.Combine(_s.Settings.DotMinecraft, "versions", remote.VersionId));
+            var result = await _s.SaveSync.PullAsync(peer, remote, remote.VersionId, localIsolated);
+            if (result.Ok)
+            {
+                SavedBar.Title = Loc.T("已完成");
+                SavedBar.Message = result.Message;
+                SavedBar.IsOpen = true;
+                NotificationCenter.Instance.Info(result.Message);
+            }
+            else
+            {
+                ErrorBar.Message = result.Message;
+                ErrorBar.IsOpen = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("拉取失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            _peerBusy = false;
+            UpdatePeerActions();
+        }
+    }
+
+    /// <summary>设备列表行（Key 用于自刷时保持选中）；ToString 直接给 ListView 当行文案</summary>
+    public sealed record PeerRow(string Key, string Name, string Address, string Seen)
+    {
+        public override string ToString() => Loc.T("{0} · {1} · {2}", Name, Address, Seen);
     }
 
     // 界面语言：切换即时生效（词典热替换 + 已本地化的 XAML 文案重放）
@@ -824,7 +1088,13 @@ public sealed partial class SettingsPage : Page
 
         // 通用
         s0.Theme = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
-        s0.UiAnimations = (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        s0.UiMotionLevel = (MotionCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "balanced";
+        s0.UiAnimations = s0.UiMotionLevel == "minimal" ? "off" : "on";
+        MotionMaterials.Apply(s0);
+        HoverShadowBehavior.RefreshAll();
+        PointerLightBehavior.RefreshAll();
+        // 跨设备：设备名改动即时生效（beacon 每次广播实时取）
+        s0.DeviceName = DeviceNameBox.Text.Trim();
         s0.UiLanguage = (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "zh-CN";
         s0.VersionIsolated = IsolationDefaultRadio.SelectedIndex == 0;
         s0.MicrosoftLoginEmbedded = EmbeddedLoginSwitch.IsOn;

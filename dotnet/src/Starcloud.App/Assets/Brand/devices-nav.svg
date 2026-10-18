@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="我的设备">
+  <!--
+    「我的设备」导航图标：两台设备（台式机 + 手机）经一条链路线互联。
+    描边取中性灰 #9AA3B2：浅/深主题都可读，与 starcloud-mark-small 同一「不跟主题」策略。
+    随输出目录发布（Assets\Brand 条目）。
+  -->
+  <g fill="none" stroke="#9AA3B2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.75" y="4.75" width="13.5" height="10" rx="1.8"/>
+    <path d="M6.5,18.25 L12.5,18.25 M9.5,14.75 L9.5,18.25"/>
+    <rect x="16.25" y="9.75" width="5" height="9.5" rx="1.5"/>
+    <path d="M18.05,17.4 L19.45,17.4"/>
+    <path d="M14.75,18.25 C16.75,18.25 16.75,14.5 14.75,12.25" stroke-dasharray="1.6 1.8"/>
+  </g>
+</svg>

@@ -1,7 +1,9 @@
 // 共享服务单例（对应旧 Tauri AppState）
 
+using Starcloud.Core.Kernel.Plugins;
 using Starcloud.Core.Plugins;
 using Starcloud.Core.Services;
+using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
 
 namespace Starcloud.App.Services;
@@ -11,6 +13,13 @@ public sealed class AppServices
     public static AppServices Instance { get; } = new();
 
     public LauncherSettings Settings { get; private set; }
+
+    /// <summary>内核：插件宿主 + 契约注册表 + 事件总线（万物皆插件的地基）</summary>
+    public Starcloud.Core.Kernel.KernelHost Kernel { get; }
+
+    /// <summary>投影管理（内核插件 starcloud.projections 提供）</summary>
+    public Starcloud.Core.Kernel.Contracts.IProjectionLibrary ProjectionLibrary { get; }
+
     public DownloadService Download { get; }
     public ResourceCacheService ResourceCache { get; }
     public IconCacheService IconCache { get; }
@@ -53,6 +62,27 @@ public sealed class AppServices
     public MultiplayerService Multiplayer { get; }
 
     public StarcloudIdService StarcloudId { get; }
+
+    /// <summary>
+    /// 跨设备链路（设计：2026-10-14-cross-device-sync-design.md）：同 Starcloud ID 设备发现、
+    /// 存档/版本数据同步、下载 P2P 加速共用的唯一链路。需登录 + 设置开关才真正启动。
+    /// </summary>
+    public DeviceLinkService DeviceLink { get; }
+
+    /// <summary>存档同步语义（推送 / 拉取 / 清单），走 <see cref="DeviceLink"/>。</summary>
+    public SaveSyncService SaveSync { get; }
+
+    /// <summary>SC 实验室 · 投影工坊（.litematic / 结构 nbt / schematic / schem 的解析、元数据编辑与转换）</summary>
+    public ProjectionService Projections { get; }
+
+    /// <summary>SC 实验室 · 投影社区（多源聚合投影资源列表 + 下载；GitHub 经镜像加速，基址可在界面配置）</summary>
+    public ProjectionCommunityService ProjectionCommunity { get; }
+
+    /// <summary>SC 实验室 · 社区文本翻译（英文描述 → 中文，卡片先原文后换译文）</summary>
+    public CommunityTranslator CommunityTranslation { get; }
+
+    /// <summary>SC 实验室 · 本机 Minecraft 资源包（投影 3D 预览的真实方块纹理来源）</summary>
+    public MinecraftAssets MinecraftAssets { get; }
     public GameDiagnosticsService Diagnostics { get; }
     public LaunchPreflightService Preflight { get; }
     public CrashAnalysisService CrashAnalyzer { get; }
@@ -96,12 +126,28 @@ public sealed class AppServices
     {
         LauncherPaths.EnsureDataDir();
         Settings = LauncherSettings.Load();
-        Download = new DownloadService(() => Settings);
+
+        // ── 内核：登记内置插件并启动 ──
+        // 插件化改造的 P0：内核先跑起来，下面那几个服务改成"从内核取"。
+        // 老调用点（页面里直接 AppServices.Instance.Download）暂时不动，行为完全不变。
+        Kernel = new Starcloud.Core.Kernel.KernelHost(new Starcloud.Core.Kernel.KernelOptions
+        {
+            DataRoot = LauncherPaths.DataDir,
+        });
+        Kernel.Register(BuiltinDownloadPlugin.Descriptor, _ => new BuiltinDownloadPlugin(() => Settings));
+        Kernel.Register(BuiltinVersionPlugin.Descriptor, _ => new BuiltinVersionPlugin());
+        Kernel.Register(BuiltinTranslatePlugin.Descriptor, _ => new BuiltinTranslatePlugin());
+        Kernel.Register(BuiltinIconCachePlugin.Descriptor, _ => new BuiltinIconCachePlugin(() => Settings));
+        Kernel.Register(BuiltinProjectionPlugin.Descriptor, _ => new BuiltinProjectionPlugin(() => Settings));
+        // 内置插件的 InitializeAsync 都是纯内存构造，同步启动即可（有 I/O 的插件应声明 lazy）
+        Kernel.StartAsync().GetAwaiter().GetResult();
+
+        Download = Kernel.Get<DownloadService>();
         // 下载源命中情况写进启动器日志，用于确认多源竞速是否生效
         Download.Log = msg => LauncherLog.Write("download", msg);
-        ResourceCache = new ResourceCacheService(() => Settings);
-        IconCache = new IconCacheService(Download, () => Settings);
-        Manifest = new ManifestService(Download, ResourceCache);
+        ResourceCache = Kernel.Get<ResourceCacheService>();
+        IconCache = Kernel.Get<IconCacheService>();
+        Manifest = Kernel.Get<ManifestService>();
         Installer = new InstallerService(Download);
         Fabric = new FabricService(Download);
         Java = new JavaService(Download);
@@ -109,7 +155,8 @@ public sealed class AppServices
         Mods = new ModrinthService(Download, ResourceCache);
         CurseForge = new CurseForgeService(Download, () => Settings);
         CurseForgePacks = new CurseForgePackInstaller(Download, CurseForge);
-        SearchTranslation = new SearchTranslationService(Download);
+        ProjectionLibrary = Kernel.Get<Starcloud.Core.Kernel.Contracts.IProjectionLibrary>();
+        SearchTranslation = Kernel.Get<SearchTranslationService>();
         ModSummaries = new ModSummaryTranslationService(Download, () => Settings);
         ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
         Launcher = new GameLauncher(Installer, Java);
@@ -131,6 +178,22 @@ public sealed class AppServices
                 ?? Accounts.Accounts.FirstOrDefault()?.Username,
             SaveSettings);
         StarcloudId = new StarcloudIdService();
+        // 跨设备链路：需要 SaveLibrary / Saves / StarcloudId（都已在上面就位）；
+        // 下载管线从这里拿 P2P 对等源（PeerCount=0 时管线零开销跳过）
+        DeviceLink = new DeviceLinkService(() => Settings, StarcloudId, SaveLibrary, Saves)
+        {
+            Log = msg => LauncherLog.Write("devlink", msg),
+        };
+        SaveSync = new SaveSyncService(() => Settings, StarcloudId, DeviceLink, Saves,
+            msg => LauncherLog.Write("devlink", msg));
+        Download.PeerSource = () => DeviceLink;
+        Projections = new ProjectionService(() => Settings);
+        ProjectionCommunity = new ProjectionCommunityService(() => Settings, Download);
+        CommunityTranslation = new CommunityTranslator(Download);
+        MinecraftAssets = new MinecraftAssets(() => Settings);
+        // 通道探针：蓝牙 / 星闪可用性要 Windows 专属 API（Radio / 注册表），在 App 层注入
+        DeviceLink.RegisterProbe("蓝牙", LinkProbes.BluetoothAsync);
+        DeviceLink.RegisterProbe("星闪（NearLink）", LinkProbes.NearLinkAsync);
         // 皮肤库（多皮肤管理）+ 离线皮肤注入：账户指向库内条目，启动器按需起本机纹理服务
         Skins = new SkinLibraryService();
         SkinUpload = new SkinUploadService();

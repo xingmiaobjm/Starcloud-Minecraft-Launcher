@@ -208,6 +208,32 @@ public class NovaToolRegistryTests
         Assert.Contains("不要贴给用户", NovaAgentLoop.AgentPromptSuffix);
     }
 
+    [Fact]
+    public async Task 实验室工具能生成命令与彩色文字()
+    {
+        var registry = new NovaToolRegistry(Context());
+
+        // 五个实验室工具都在（只读）
+        foreach (var name in new[] { "list_projections", "read_projection", "format_colored_text",
+                                     "list_command_templates", "generate_minecraft_command" })
+        {
+            var tool = registry.Find(name);
+            Assert.NotNull(tool);
+            Assert.True(tool!.ReadOnly, $"{name} 是纯查询/纯计算，应为只读");
+        }
+
+        var command = await registry.ExecuteAsync("generate_minecraft_command",
+            """{"template":"传送","params":{"target":"@p","x":"1","y":"2","z":"3"}}""");
+        Assert.Contains("tp @p 1 2 3", command);
+
+        var colored = await registry.ExecuteAsync("format_colored_text",
+            """{"text":"ab","mode":"solid","from":"#FF0000"}""");
+        Assert.Contains("§x§F§F§0§0§0§0ab", colored);
+
+        var templates = await registry.ExecuteAsync("list_command_templates", "{}");
+        Assert.Contains("给予物品", templates);
+    }
+
     /// <summary>宿主能力替身：只用来验证工具注册与否，不实际执行</summary>
     private sealed class FakeHost : INovaHostActions
     {

@@ -11,6 +11,15 @@
 
       <!-- Add resources here -->
 
+      <!-- ══ 全局图标：HarmonyOS 图标库（字体图标，随包发布） ══
+           与 Windows 版（Starcloud.App/App.xaml）同一套：来源 IKKI2000/harmonyos-icons
+           （MIT，字形取自 HarmonyOS Design 图标库），家族名就是文件里的 harmonyos。
+           用法：<FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xXXXX;" />
+           注意：只给应用自己的 FontIcon 挂这个字体（逐元素指定），
+           不做 FontIcon 隐式样式——框架模板（下拉箭头 / 消息条关闭 / 导航展开箭头…）
+           也用 FontIcon，隐式样式会把它们的 Segoe 字形打成缺字。 -->
+      <FontFamily x:Key="ScIconFont">ms-appx:///Assets/Fonts/HarmonyOSIcons.ttf#harmonyos</FontFamily>
+
     </ResourceDictionary>
   </Application.Resources>
 

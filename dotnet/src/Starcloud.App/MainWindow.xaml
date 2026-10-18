@@ -78,7 +78,7 @@
                 <ctrl:BrandMark Width="22" Height="22" VerticalAlignment="Center" />
                 <TextBlock Text="Starcloud" FontWeight="Medium" FontSize="14"
                            VerticalAlignment="Center" />
-                <!-- 测试版标识：启动器自身版本号（读 csproj <Version>，见 MainWindow.xaml.cs） -->
+                <!-- 开发版标识：启动器自身版本号（读 csproj <Version>，见 MainWindow.xaml.cs） -->
                 <Border CornerRadius="6" Padding="6,2" VerticalAlignment="Center"
                         Background="{ThemeResource ControlFillColorSecondaryBrush}">
                     <TextBlock x:Name="VersionBadgeText" FontSize="11"
@@ -438,6 +438,18 @@
                 </NavigationViewItem>
                 <!-- 运行状态：Content 换成横排（文案 + 运行中圆点），故不能在条目上用 loc:Loc.Text
                      （ContentControl 分支会把 Content 整个覆盖掉），文案落在内部 TextBlock 上 -->
+                <!-- SC 实验室：投影工坊 / 彩色文字 / 世吞生成器 / 指令助手（内置工具箱） -->
+                <NavigationViewItem loc:Loc.Text="实验室" Tag="lab">
+                    <NavigationViewItem.Icon>
+                        <ImageIcon x:Name="LabNavIcon" Source="ms-appx:///Assets/Brand/lab-nav.svg" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <!-- 投影管理：扫描全局/各实例 schematics，跨版本复制（内核插件 starcloud.projections 提供能力） -->
+                <NavigationViewItem loc:Loc.Text="投影管理" Tag="projections">
+                    <NavigationViewItem.Icon>
+                        <ImageIcon x:Name="ProjectionNavIcon" Source="ms-appx:///Assets/Brand/projection-nav.svg" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="running" loc:Loc.Name="运行状态">
                     <NavigationViewItem.Icon>
                         <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC3B;" />
@@ -628,7 +640,7 @@
                         <TextBlock loc:Loc.Text="登录 Starcloud ID 后可使用云端模型，以及邀请、时刻等在线能力；凭据只保存在本机。"
                                    FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <Button Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="去 Nova 页登录"
+                        <Button Style="{StaticResource ScAccentButtonStyle}" loc:Loc.Text="去 Nova 页登录"
                                 Click="NovaPanelLogin_Click" />
                     </StackPanel>
 
@@ -646,5 +658,20 @@
         <InfoBar x:Name="PluginNotifyTip" Grid.Row="0" IsOpen="False" IsClosable="True"
                  Severity="Informational" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                  Margin="0,0,24,24" MaxWidth="420" />
+
+        <!-- 设备上下线横幅（跨设备互联的"活"信号）：右上角滑入，3 秒后滑出；点击直达设备页。
+             进出场走合成层平移+淡入（MotionFx），动效关闭时直接落位。 -->
+        <Border x:Name="DeviceBanner" Grid.RowSpan="2" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,56,16,0" Padding="14,10" CornerRadius="12"
+                Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" Visibility="Collapsed" IsHitTestVisible="True"
+                Tapped="DeviceBanner_Tapped">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Ellipse x:Name="DeviceBannerDot" Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{ThemeResource SystemFillColorSuccessBrush}" />
+                <TextBlock x:Name="DeviceBannerText" FontSize="13" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>

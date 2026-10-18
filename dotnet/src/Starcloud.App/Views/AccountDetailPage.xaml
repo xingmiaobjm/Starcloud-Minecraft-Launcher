@@ -160,7 +160,7 @@
                                           SelectionChanged="Model_SelectionChanged" />
                             </Grid>
                             <Button x:Name="ApplyBtn" loc:Loc.Text="应用到该账户"
-                                    Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                    Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                     HorizontalAlignment="Stretch" Click="Apply_Click" />
                             <!-- 「同步到账号」已移除：上传到微软账号 / 皮肤站与"本机换肤"是两件事，
                                  这里只做本机注入（正版会先警告），不需要上传按钮。 -->

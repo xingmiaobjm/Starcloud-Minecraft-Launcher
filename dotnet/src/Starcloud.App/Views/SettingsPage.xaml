@@ -102,6 +102,23 @@
                     <ListViewItem Tag="general">
                         <ctrl:CategoryNavItem x:Name="CatGeneral" Glyph="&#xEC04;" loc:Loc.Text="通用" />
                     </ListViewItem>
+                    <ListViewItem Tag="crossdev">
+                        <ctrl:CategoryNavItem x:Name="CatCross" loc:Loc.Text="跨设备">
+                            <!-- 自绘图标：两台设备（方块）+ 虚线链路（与「我的设备」SVG 同一意象） -->
+                            <ctrl:CategoryNavItem.Icon>
+                                <Viewbox Width="14" Height="14">
+                                    <Grid Width="16" Height="16">
+                                        <Path HorizontalAlignment="Left" VerticalAlignment="Top" Stretch="None"
+                                              Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                              StrokeThickness="1.25"
+                                              StrokeLineJoin="Round"
+                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                              Data="M1.5,3.5 L9.5,3.5 L9.5,10.5 L1.5,10.5 Z M4.4,13.5 L6.6,13.5 M5.5,10.5 L5.5,13.5 M11.5,6.5 L14.5,6.5 L14.5,13.5 L11.5,13.5 Z M10,8.2 C11.6,8.6 11.6,11.4 10,11.8" />
+                                    </Grid>
+                                </Viewbox>
+                            </ctrl:CategoryNavItem.Icon>
+                        </ctrl:CategoryNavItem>
+                    </ListViewItem>
                 </ListView>
             </Border>
 
@@ -366,6 +383,107 @@
                             </Border>
                         </StackPanel>
 
+                        <!-- ══ 跨设备 ══ -->
+                        <StackPanel x:Name="SectionCross" Spacing="16" Visibility="Collapsed">
+                                    <!-- 跨设备与 P2P（设计：2026-10-14-cross-device-sync-design.md） -->
+                                    <Border Style="{StaticResource PclCard}">
+                                        <StackPanel Spacing="12">
+                                            <StackPanel Style="{StaticResource PclSectionHead}">
+                                                <Border Style="{StaticResource PclSectionSpine}" />
+                                                <TextBlock loc:Loc.Text="跨设备与 P2P" Style="{StaticResource PclSectionTitle}" />
+                                            </StackPanel>
+
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock loc:Loc.Text="跨设备存档同步" FontWeight="Medium" />
+                                                    <TextBlock loc:Loc.Text="同一 Starcloud ID 的设备在局域网内互相可见，可把世界与版本配置推送到其他设备。"
+                                                               FontSize="12" TextWrapping="Wrap"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <ToggleSwitch x:Name="DeviceLinkSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                              loc:Loc.Name="跨设备同步开关"
+                                                              Toggled="DeviceLinkSwitch_Toggled" />
+                                            </Grid>
+
+                                            <!-- 未登录引导：同步能力整体压在 Starcloud ID 之下 -->
+                                            <StackPanel x:Name="SyncLoginHint" Orientation="Horizontal" Spacing="8"
+                                                        Visibility="Collapsed">
+                                                <TextBlock loc:Loc.Text="同步与 P2P 加速需要登录 Starcloud ID。"
+                                                           FontSize="12" VerticalAlignment="Center"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <ctrl:GlowButton loc:Loc.Text="去登录" Click="GoLogin_Click" />
+                                            </StackPanel>
+
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock loc:Loc.Text="设备名称" Style="{StaticResource PclLabel}" />
+                                                <TextBox x:Name="DeviceNameBox" Width="240"
+                                                         loc:Loc.Placeholder="留空使用机器名" />
+                                            </StackPanel>
+
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock loc:Loc.Text="下载 P2P 加速" FontWeight="Medium" />
+                                                    <TextBlock loc:Loc.Text="下载时优先从局域网同账号设备取已有文件（SHA1 校验不过自动回退公网下载）。"
+                                                               FontSize="12" TextWrapping="Wrap"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <ToggleSwitch x:Name="P2pSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                              loc:Loc.Name="P2P 加速开关"
+                                                              Toggled="P2pSwitch_Toggled" />
+                                            </Grid>
+
+                                            <TextBlock x:Name="ChannelStatusText" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                    </Border>
+
+                            <!-- 在线设备：2 秒自刷（beacon 快照），选中即可把对端世界拉回本机 -->
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="在线设备" Style="{StaticResource PclSectionTitle}" />
+                                        <TextBlock x:Name="PeerCountText" FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="LinkStatusText" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ctrl:GlowButton x:Name="PullBtn" loc:Loc.Text="从这台设备拉取存档…"
+                                                         IsEnabled="False" Click="Pull_Click" />
+                                        <ctrl:GlowButton x:Name="RefreshCrossBtn" loc:Loc.Text="刷新"
+                                                         Click="RefreshCross_Click" />
+                                    </StackPanel>
+                                    <Grid MinHeight="180">
+                                        <ListView x:Name="PeerList" SelectionMode="Single" Padding="4"
+                                                  SelectionChanged="PeerList_SelectionChanged">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="MinHeight" Value="52" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,2" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                        </ListView>
+                                        <ctrl:EmptyStateView x:Name="EmptyHint" Visibility="Collapsed"
+                                                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                             Glyph="&#xEA90;"
+                                                             loc:Loc.Title="还没有设备在线"
+                                                             loc:Loc.Subtitle="在其他设备上登录同一 Starcloud ID 并打开跨设备互联，它就会出现在这里" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
                         <!-- ══ 通用 ══ -->
                         <StackPanel x:Name="SectionGeneral" Spacing="16" Visibility="Collapsed">
                             <Border Style="{StaticResource PclCard}">
@@ -387,11 +505,16 @@
                                         <ComboBox x:Name="MotionCombo" Width="160"
                                                   loc:Loc.Name="界面动效"
                                                   SelectionChanged="Motion_Changed">
-                                            <ComboBoxItem loc:Loc.Text="跟随系统" Tag="system" />
-                                            <ComboBoxItem loc:Loc.Text="始终开启" Tag="on" />
-                                            <ComboBoxItem loc:Loc.Text="关闭" Tag="off" />
+                                            <ComboBoxItem loc:Loc.Text="极少" Tag="minimal" />
+                                            <ComboBoxItem loc:Loc.Text="较少" Tag="lite" />
+                                            <ComboBoxItem loc:Loc.Text="均衡" Tag="balanced" />
+                                            <ComboBoxItem loc:Loc.Text="全部" Tag="full" />
                                         </ComboBox>
                                     </StackPanel>
+                                    <!-- 当前档位的说明：跟在选择行下面，缩进对齐选择框（86px 标签 + 8px 间距） -->
+                                    <TextBlock x:Name="MotionHint" FontSize="12" TextWrapping="Wrap"
+                                               Margin="94,0,0,0"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock loc:Loc.Text="界面语言" Style="{StaticResource PclLabel}" />
                                         <ComboBox x:Name="LanguageCombo" Width="160"
@@ -404,7 +527,8 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- 背景与外观（设计：custom-background-theme-design.md §8） -->
+
+                                    <!-- 背景与外观（设计：custom-background-theme-design.md §8） -->
                             <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="12">
                                     <StackPanel Style="{StaticResource PclSectionHead}">
@@ -592,7 +716,7 @@
                                    loc:Loc.Text="修改后在下方保存；未保存的改动会在切换分类时保留。"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <Button Grid.Column="1" loc:Loc.Text="保存设置" MinWidth="120"
-                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium" Click="Save_Click" />
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium" Click="Save_Click" />
                     </Grid>
                 </Border>
             </Grid>

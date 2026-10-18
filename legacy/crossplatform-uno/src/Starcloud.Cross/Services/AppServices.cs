@@ -20,6 +20,7 @@ public sealed class AppServices
     public InstallerService Installer { get; }
     public FabricService Fabric { get; }
     public ModrinthService Mods { get; }
+    public CurseForgeService CurseForge { get; }
     public ContentLibraryService ContentLibrary { get; }
     public GameLauncher Launcher { get; }
     public AccountStore Accounts { get; }
@@ -67,13 +68,15 @@ public sealed class AppServices
         Java = new JavaService(Download);
         Forge = new ForgeInstallerService(Download, Java);
         Mods = new ModrinthService(Download, ResourceCache);
+        // CurseForge 源：ModPackExport / Nova 工具表都要用（与 Windows 版同一接线）
+        CurseForge = new CurseForgeService(Download, () => Settings);
         ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
         Yggdrasil = new YggdrasilService();
         MrPack = new MrPackInstallerService(Download);
-        ModPackExport = new ModPackExportService(Mods);
+        ModPackExport = new ModPackExportService(Mods, CurseForge);
         VersionBackup = new VersionBackupService();
         Saves = new SaveService();
         SaveLibrary = new SaveLibraryService(Manifest, Saves);
@@ -89,9 +92,37 @@ public sealed class AppServices
         NovaMoments = new NovaMomentsService();
         NovaInvites = new NovaInviteService(Installer, Manifest, Java, Launcher, Download,
             AgentJarPath, () => PluginHost);
-        // Agent 工具注册表先于 Nova 建（Nova 持有 Agent 循环，工具复用上面的服务）
-        NovaTools = new NovaToolRegistry(Manifest, Installer, Forge, Fabric, Mods, ContentLibrary,
-            () => Settings, SaveSettings);
+        // Agent 工具注册表先于 Nova 建（Nova 持有 Agent 循环，工具复用上面的服务）。
+        // NovaToolContext 只有 5 个必需项（Manifest/Installer/Mods/Library/Settings），
+        // 其余可选：本宿主没提供的能力（跨设备翻译 / CurseForge 整合包 / 联机 / 宿主适配器）
+        // 对应工具自动不注册 —— 与 Core 里 NovaToolContext 的设计注释一致。
+        NovaTools = new NovaToolRegistry(new NovaToolContext
+        {
+            Manifest = Manifest,
+            Installer = Installer,
+            Mods = Mods,
+            Library = ContentLibrary,
+            Settings = () => Settings,
+            SaveSettings = SaveSettings,
+            Forge = Forge,
+            Fabric = Fabric,
+            CurseForge = CurseForge,
+            Diagnostics = Diagnostics,
+            Crash = CrashAnalyzer,
+            Conflicts = ModConflicts,
+            EnvCheck = EnvCheck,
+            Preflight = Preflight,
+            Java = Java,
+            Launcher = Launcher,
+            Accounts = LaunchAccount,
+            Store = Accounts,
+            Saves = Saves,
+            SaveLibrary = SaveLibrary,
+            Backups = VersionBackup,
+            Export = ModPackExport,
+            MrPack = MrPack,
+            Updates = SelfUpdate,
+        });
         Nova = new NovaService(Mods, Diagnostics, ModConflicts, NovaPermissions,
             NovaLog, NovaMoments, NovaInvites, Saves, NovaTools);
         // 插件系统：宿主版本号取自启动器 InformationalVersion（minLauncherVersion 校验 / ctx 透出）

@@ -118,3 +118,13 @@ legacy/Cargo.lock.orig
 
 # 本地化工具中间产物（由 tools/extract-loc-keys.ps1 生成，可随时重建）
 /loc-keys.txt
+
+# electron 实验目录的依赖与产物（路径过长会导致 git add 失败）
+electron/node_modules/
+electron/dist/
+
+# 巨型构建产物与实验目录（不随源码上传）
+/target/
+/src-tauri/target/
+/web/
+*.csproj.bak

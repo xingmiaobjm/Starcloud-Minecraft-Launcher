@@ -90,7 +90,7 @@
                                TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="MsLoginBtn" loc:Loc.Text="使用内置登录窗口登录"
-                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                 Click="MsLogin_Click" />
                         <ProgressRing x:Name="MsProgress" Width="20" Height="20" IsActive="False"
                                       Visibility="Collapsed" VerticalAlignment="Center" />
@@ -117,7 +117,7 @@
                     <PasswordBox x:Name="ExtPwdBox" loc:Loc.Placeholder="密码" KeyDown="ExtPwdBox_KeyDown" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="ExtLoginBtn" loc:Loc.Text="登录"
-                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                 Click="ExtLogin_Click" />
                         <ProgressRing x:Name="ExtProgress" Width="20" Height="20" IsActive="False"
                                       Visibility="Collapsed" VerticalAlignment="Center" />
@@ -145,7 +145,7 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="OfflineAddBtn" loc:Loc.Text="添加"
-                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                 Click="OfflineAdd_Click" />
                         <TextBlock x:Name="OfflineStatus" FontSize="12" VerticalAlignment="Center"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />

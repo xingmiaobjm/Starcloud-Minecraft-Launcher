@@ -152,6 +152,42 @@ public static class HoverShadowBehavior
 
     public static void SetLiftEnabled(DependencyObject element, bool value) => element.SetValue(LiftEnabledProperty, value);
 
+    /// <summary>
+    /// 柔光档（滑块用）：自建光斑层时放宽「必须有可见底色」的限制，并用更淡的一档透明度。
+    /// <para>滑轨本体是透明的（框架模板不读 Control.Background），按原判定自建层不会建出来；
+    /// 但滑块恰恰需要那层跟手柔光——光标滑过时轨道像玻璃管被点亮。淡档（最浓 0x14）保证
+    /// 叠在轨道上只读作「光」，不会把滑轨染脏。</para>
+    /// </summary>
+    public static readonly DependencyProperty SoftGlowProperty =
+        DependencyProperty.RegisterAttached(
+            "SoftGlow",
+            typeof(bool),
+            typeof(HoverShadowBehavior),
+            new PropertyMetadata(false));
+
+    public static bool GetSoftGlow(DependencyObject element) => (bool)element.GetValue(SoftGlowProperty);
+
+    public static void SetSoftGlow(DependencyObject element, bool value) => element.SetValue(SoftGlowProperty, value);
+
+    /// <summary>
+    /// 是否允许"表面光斑"（铺满控件的那层跟手径向渐变），<b>默认 false</b>。
+    /// <para>按用户反馈整体退役：鼠标周围不该出现一团晕——那团晕会盖住原生悬停底色，
+    /// 读起来像"照亮了毛玻璃"而不是"照亮了控件"。悬停反馈改为：原生 Fluent 底色（主）
+    /// + 边缘光（<see cref="PointerLightBehavior"/>，按钮类）+ 悬浮微上浮（本行为保留）。
+    /// 想给某个元素单独开回表面光斑时显式设 True。</para>
+    /// </summary>
+    public static readonly DependencyProperty SurfaceGlowProperty =
+        DependencyProperty.RegisterAttached(
+            "SurfaceGlow",
+            typeof(bool),
+            typeof(HoverShadowBehavior),
+            new PropertyMetadata(false));
+
+    public static bool GetSurfaceGlow(DependencyObject element) => (bool)element.GetValue(SurfaceGlowProperty);
+
+    public static void SetSurfaceGlow(DependencyObject element, bool value) =>
+        element.SetValue(SurfaceGlowProperty, value);
+
     private static void OnGlowRadiusChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         // 半径是摆光源时才用的：改完立刻按当前位置重画一次，不必等下一次鼠标移动
@@ -169,6 +205,42 @@ public static class HoverShadowBehavior
         Wire(fe);
     }
 
+    /// <summary>
+    /// 动效档位变化后的全量重接线：遍历各窗口在场元素，把低于较少档时接线的光斑<b>当场</b>摘掉、
+    /// 切回较少及以上时当场接回，不等下一次进页。
+    /// <para>与 <see cref="PointerLightBehavior.RefreshAll"/> 成对调用（设置页切档时）。</para>
+    /// </summary>
+    internal static void RefreshAll()
+    {
+        var enable = AppServices.Instance.Motion.Enabled;
+        foreach (var root in CollectRoots())
+            Walk(root);
+
+        void Walk(DependencyObject node)
+        {
+            if (node is FrameworkElement fe && GetIsEnabled(fe))
+            {
+                var wired = States.TryGetValue(fe, out var s) && s.Wired;
+                if (enable && !wired) Wire(fe);
+                else if (!enable && wired) Unwire(fe);
+            }
+            var n = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node);
+            for (var i = 0; i < n; i++)
+                Walk(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i));
+        }
+    }
+
+    /// <summary>RefreshAll 的遍历根：主窗口内容树 + 已挂看门狗的窗口根（理由同
+    /// PointerLightBehavior.CollectRoots——极少档启动时看门狗一个都没挂）。</summary>
+    private static List<FrameworkElement> CollectRoots()
+    {
+        List<FrameworkElement> roots = [];
+        if (App.MainWindow?.Content is FrameworkElement main) roots.Add(main);
+        foreach (var r in HookedRoots)
+            if (!roots.Contains(r)) roots.Add(r);
+        return roots;
+    }
+
     private static void OnIsEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is not FrameworkElement fe) return;
@@ -181,13 +253,17 @@ public static class HoverShadowBehavior
         var state = States.GetOrCreateValue(element);
         if (state.Wired) return;
 
+        // 动效等级门控：极少档连光斑整族都不接线（零开销）。已在场的元素不追溯——
+        // 等级切换后下次进页重新走 Wire/Unwire 生效，与悬浮反馈的既有约定一致。
+        if (!AppServices.Instance.Motion.Enabled) return;
+
         try
         {
             state.Visual = ElementCompositionPreview.GetElementVisual(element);
             state.Compositor = state.Visual.Compositor;
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
 
-            if (GetCarrier(element) is { } layer)
+            if (GetCarrier(element) is { } layer && GetSurfaceGlow(element))
             {
                 // 调用方自带的 XAML 阴影层（列表行、卡片、瓦片）
                 state.Layer = layer;
@@ -214,11 +290,13 @@ public static class HoverShadowBehavior
                 element.Loaded += RetryOnLoaded;
             }
 
-            // 没有自带载体的（普通按钮）：自建一层合成光斑；建不出来就放弃接这个元素
+            // 没有自带载体的（普通按钮）：自建一层合成光斑；建不出来就放弃接这个元素。
+            // 例外：显式关掉表面光斑的元素仍要接线——它要的是"悬浮微上浮"（Animate 里 LayerVisual
+            // 为空时只做位移），光的部分交给 PointerLightBehavior 的边缘光。
             var layerVisual = state.LayerVisual ?? CreateAutoLayer(element, state);
-            if (layerVisual is null) return;
+            if (layerVisual is null && GetSurfaceGlow(element)) return;
 
-            layerVisual.Opacity = 0f;   // 常态：阴影层不可见
+            if (layerVisual is not null) layerVisual.Opacity = 0f; // 常态：阴影层不可见
             ApplyLight(element, state, element.ActualWidth / 2, element.ActualHeight / 2);
             state.Element = element;
             state.Root = RootOf(element);
@@ -815,9 +893,16 @@ public static class HoverShadowBehavior
 
     /// <summary>
     /// 光斑渐变的档位透明度，末档 1.0 固定全透明（见 <see cref="GlowOffsets"/>）。
-    /// 与各页 XAML 里内联的 <c>&lt;RadialGradientBrush&gt;</c> 共用同一张表：0x28 → 0x05 依次衰减。
+    /// 与各页 XAML 里内联的 <c>&lt;RadialGradientBrush&gt;</c> 同源（浓度约为其六成）：
+    /// 光斑只读作"光落在按钮上"，不能盖过原生悬停底色变化——那是"高光压过悬停"毛病的根源。
     /// </summary>
-    private static readonly byte[] GlowAlphas = [0x28, 0x1F, 0x16, 0x0D, 0x05];
+    private static readonly byte[] GlowAlphas = [0x18, 0x12, 0x0D, 0x08, 0x04];
+
+    /// <summary>
+    /// 柔光档（滑轨）的档位透明度：整表压到普通档的一半以下——叠在透明的滑轨上只能读作「光」，
+    /// 不能把轨道染出一团可辨的深色。
+    /// </summary>
+    private static readonly byte[] SoftGlowAlphas = [0x14, 0x10, 0x0B, 0x07, 0x03];
 
     /// <summary>
     /// 光斑底色：浅色主题叠黑压暗、深色主题叠白提亮——深色下沿用黑只会让那一块比背景更暗。
@@ -837,11 +922,15 @@ public static class HoverShadowBehavior
     private static Visual? CreateAutoLayer(FrameworkElement element, State state)
     {
         if (state.Compositor is not { } compositor) return null;
-        if (!HasVisibleBackground(element)) return null; // 纯透明底图标按钮：不加
+        var soft = GetSoftGlow(element);
+        // 按钮类显式关闭表面光斑（光只照边缘，见 SurfaceGlow 注释）：不建层、不进表
+        if (!soft && !GetSurfaceGlow(element)) return null;
+        // 纯透明底图标按钮：不加光斑；柔光档（滑轨）例外——它的光就是全部意义
+        if (!soft && !HasVisibleBackground(element)) return null;
 
         var brush = compositor.CreateRadialGradientBrush();
         brush.MappingMode = CompositionMappingMode.Relative; // 与 XAML 径向渐变同一套 0~1 语义
-        FillAutoBrush(brush, element.ActualTheme);
+        FillAutoBrush(brush, element.ActualTheme, soft);
 
         var size = new Vector2((float)element.ActualWidth, (float)element.ActualHeight);
         // 必须用圆角矩形：按钮是圆角的（本主题 ControlCornerRadius=12），直角矩形会把光斑
@@ -866,16 +955,17 @@ public static class HoverShadowBehavior
     }
 
     /// <summary>
-    /// 往自建光斑画刷里写颜色：底色随主题（<see cref="GlowTint"/>），档位用 <see cref="GlowAlphas"/>，
-    /// 末档 1.0 全透明收尾。
+    /// 往自建光斑画刷里写颜色：底色随主题（<see cref="GlowTint"/>），档位用 <see cref="GlowAlphas"/>
+    /// （柔光档用 <see cref="SoftGlowAlphas"/>），末档 1.0 全透明收尾。
     /// <para>创建时与切主题时都走这里，保证两条路径的观感一致。</para>
     /// </summary>
-    private static void FillAutoBrush(CompositionRadialGradientBrush brush, ElementTheme theme)
+    private static void FillAutoBrush(CompositionRadialGradientBrush brush, ElementTheme theme, bool soft = false)
     {
         var tint = GlowTint(theme);
+        var alphas = soft ? SoftGlowAlphas : GlowAlphas;
         for (var i = 0; i < GlowOffsets.Length; i++)
         {
-            var a = i < GlowAlphas.Length ? GlowAlphas[i] : (byte)0;
+            var a = i < alphas.Length ? alphas[i] : (byte)0;
             var color = Color.FromArgb(a, tint.R, tint.G, tint.B);
             if (i < brush.ColorStops.Count) brush.ColorStops[i].Color = color;
             else brush.ColorStops.Add(brush.Compositor.CreateColorGradientStop(GlowOffsets[i], color));
@@ -891,7 +981,8 @@ public static class HoverShadowBehavior
         if (!States.TryGetValue(sender, out var state)) return;
         try
         {
-            if (state.AutoBrush is { } auto) FillAutoBrush(auto, sender.ActualTheme);
+            if (state.AutoBrush is { } auto)
+                FillAutoBrush(auto, sender.ActualTheme, GetSoftGlow(sender));
             else if (state.Brush is { } brush) RetintBrush(brush, sender.ActualTheme);
         }
         catch { /* 静默降级 */ }

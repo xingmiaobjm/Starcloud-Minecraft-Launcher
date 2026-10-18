@@ -129,8 +129,11 @@ public sealed partial class SavesPage : Page
         LaunchOtherBtn.IsEnabled = has && !_busy;
         CopyOtherBtn.IsEnabled = has && !_busy;
         BackupBtn.IsEnabled = has && !_busy;
+        SyncBtn.IsEnabled = has && !_busy;
+        ShareBtn.IsEnabled = has && !_busy;
         DeleteBtn.IsEnabled = has && !_busy;
         OpenFolderBtn.IsEnabled = has;
+        ImportShareBtn.IsEnabled = !_busy;
     }
 
     private void SaveList_SelectionChanged(object s, SelectionChangedEventArgs e) => UpdateRowActions();
@@ -171,9 +174,174 @@ public sealed partial class SavesPage : Page
         OpenInExplorer(dir, select: false);
     }
 
-    private async void Backup_Click(object s, RoutedEventArgs e)
+    /// <summary>
+    /// 同步到设备：把所选世界（连同其版本配置）推送到选定的同账号在线设备。
+    /// 冲突保护在链路层（新者胜、旧者改名保留），推送结果落 OkBar / ErrorBar 与通知中心。
+    /// </summary>
+    private async void SyncToDevice_Click(object s, RoutedEventArgs e)
     {
         if (SaveList.SelectedItem is not SaveRow row || _busy) return;
+        if (!_s.StarcloudId.IsLoggedIn)
+        {
+            ErrorBar.Message = Loc.T("同步需要先登录 Starcloud ID（设置 → 账户）");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+        var peers = _s.DeviceLink.Peers;
+        if (peers.Count == 0)
+        {
+            ErrorBar.Message = Loc.T("当前没有在线设备：对端需登录同一 Starcloud ID，并在设置里开启「跨设备存档同步」。");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+
+        // 设备选择对话框
+        var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 180, Padding = new Thickness(0) };
+        foreach (var p in peers)
+            list.Items.Add(new ListViewItem
+            {
+                Content = $"{p.Name}（{p.Address}）",
+                Tag = p,
+                Padding = new Thickness(8, 6, 8, 6),
+            });
+        list.SelectedIndex = 0;
+        var dlg = new ThemedDialog
+        {
+            Title = Loc.T("同步到设备"),
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = Loc.T("把「{0}」推送到哪台设备？对端同名世界更新时会拒收（不会覆盖对端进度）。", row.Name),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    list,
+                },
+            },
+            PrimaryButtonText = Loc.T("开始同步"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary ||
+            list.SelectedItem is not ListViewItem item || item.Tag is not PeerInfo peer) return;
+
+        // 行里只有展示文本：按 folder+version 回到聚合列表拿原始 SaveInfo（LastPlayed 参与冲突裁决）
+        var save = _s.SaveLibrary.ListAll(_s.Settings.DotMinecraft, _s.Settings)
+            .FirstOrDefault(v => v.FolderName == row.FolderName && v.VersionId == row.VersionId);
+        if (save is null) return;
+
+        _busy = true;
+        BackupProgress.Visibility = Visibility.Visible;
+        UpdateRowActions();
+        try
+        {
+            var result = await Task.Run(() => _s.SaveSync.PushAsync(peer, save));
+            if (result.Ok)
+            {
+                OkBar.Message = result.Message;
+                OkBar.IsOpen = true;
+                NotificationCenter.Instance.Info(Loc.T("世界「{0}」已同步到 {1}", row.Name, peer.Name));
+            }
+            else
+            {
+                ErrorBar.Message = result.Message;
+                ErrorBar.IsOpen = true;
+            }
+        }
+        finally
+        {
+            _busy = false;
+            BackupProgress.Visibility = Visibility.Collapsed;
+            UpdateRowActions();
+        }
+    }
+
+    /// <summary>
+    /// 分享给陌生人：把世界导出为分享包文件（zip），经由聊天工具等任意渠道发送；
+    /// 对方在存档页「导入分享包」即可，无需登录任何账号（跨账号分享走文件，不经云端）。
+    /// </summary>
+    private async void ExportShare_Click(object s, RoutedEventArgs e)
+    {
+        if (SaveList.SelectedItem is not SaveRow row || _busy) return;
+        var picker = new Windows.Storage.Pickers.FileSavePicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        picker.SuggestedFileName = Loc.T("{0}-分享包", row.Name);
+        picker.DefaultFileExtension = ".zip";
+        picker.FileTypeChoices.Add(Loc.T("世界分享包"), new List<string> { ".zip" });
+        var file = await picker.PickSaveFileAsync();
+        if (file is null) return;
+
+        _busy = true;
+        BackupProgress.Visibility = Visibility.Visible;
+        UpdateRowActions();
+        try
+        {
+            await Task.Run(() => _s.Saves.ExportForShare(row.GameRoot, row.FolderName, file.Path));
+            OkBar.Message = Loc.T("已导出分享包：{0}。把它发给任何人，对方点「导入分享包」即可。", file.Path);
+            OkBar.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("导出失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+            BackupProgress.Visibility = Visibility.Collapsed;
+            UpdateRowActions();
+        }
+    }
+
+    /// <summary>导入分享包：选一个 zip（自己导出的或别人发来的），落到共享根的 saves。</summary>
+    private async void ImportShare_Click(object s, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        picker.FileTypeFilter.Add(".zip");
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+
+        if (!SaveService.IsValidSharePackage(file.Path))
+        {
+            ErrorBar.Message = Loc.T("这不是有效的世界分享包（zip 根目录缺少 level.dat）");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+
+        _busy = true;
+        BackupProgress.Visibility = Visibility.Visible;
+        UpdateRowActions();
+        try
+        {
+            var folder = await Task.Run(() => _s.Saves.ImportShared(file.Path, _s.Settings.DotMinecraft));
+            OkBar.Message = Loc.T("已导入世界「{0}」到共享存档；可在列表里选中它并用「用其他版本启动」或「复制到其他版本」。", folder);
+            OkBar.IsOpen = true;
+            NotificationCenter.Instance.Info(Loc.T("已导入世界「{0}」", folder));
+            LoadSaves();
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("导入失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+            BackupProgress.Visibility = Visibility.Collapsed;
+            UpdateRowActions();
+        }
+    }
+
+    private async void Backup_Click(object s, RoutedEventArgs e)
+    {        if (SaveList.SelectedItem is not SaveRow row || _busy) return;
         var dlg = new ThemedDialog
         {
             Title = Loc.T("备份世界"),

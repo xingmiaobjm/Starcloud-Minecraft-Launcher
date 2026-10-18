@@ -82,7 +82,7 @@ public sealed partial class AccountDetailPage : Page
     private void Back_Click(object sender, RoutedEventArgs e)
     {
         if (Frame.CanGoBack)
-            Frame.GoBack(MotionService.BackTransition(_s.Motion.Enabled));
+            Frame.GoBack(MotionService.BackTransition(_s.Motion.Transitions));
         else
             (App.MainWindow as MainWindow)?.NavigateTo("accounts");
     }

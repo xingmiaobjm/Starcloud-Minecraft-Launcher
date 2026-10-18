@@ -54,6 +54,13 @@ public partial class App : Application
             catch { /* 插件加载失败不阻塞启动 */ }
         });
 
+        // 跨设备链路：已登录 Starcloud ID 且设置开启时后台启动（beacon + TCP 服务），失败静默
+        _ = Task.Run(() =>
+        {
+            try { AppServices.Instance.DeviceLink.Start(); }
+            catch { /* 链路启动失败不影响启动器主功能 */ }
+        });
+
         // 自动更新：延迟几秒后台检查（游戏运行时避让），发现新版弹窗确认
         _ = UpdateStartup.RunAsync();
 

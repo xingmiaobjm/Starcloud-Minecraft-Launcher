@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="投影管理">
+  <!--
+    「投影管理」导航图标：等轴立方体悬浮在虚线投影台上（像被投影出来的模型）。
+    深底用（浅色）描边：与同主题下的导航文字/图标同色。
+  -->
+  <g transform="translate(12 12) scale(1.15) translate(-12 -12)" fill="none" stroke="#E6EAF2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12,2.8 L18.8,6.7 L18.8,14.1 L12,18 L5.2,14.1 L5.2,6.7 Z"/>
+    <path d="M5.2,6.7 L12,10.6 L18.8,6.7"/>
+    <path d="M12,10.6 L12,18"/>
+    <path d="M6.4,20.5 L17.6,20.5" stroke-dasharray="1.7 2"/>
+  </g>
+</svg>

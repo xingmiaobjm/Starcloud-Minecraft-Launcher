@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views.Dialogs;
+using Starcloud.Core.Kernel;
 using Starcloud.Core.Plugins;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -49,6 +50,21 @@ public sealed record PluginPanelRow(string Id, string Title, string PluginName)
     public string PluginName { get; set; } = PluginName;
 }
 
+/// <summary>
+/// 内核插件行（内置插件）。内置与外部插件是同一套插件模型的**两档信任等级**：
+/// 内置 = 进程内完全信任，外部 = 沙箱 + 权限白名单，所以放在同一页展示。
+/// </summary>
+public sealed record KernelPluginRow(
+    string Id, string Name, string Version, string KindText, string Detail, string StateText)
+{
+    public string Id { get; set; } = Id;
+    public string Name { get; set; } = Name;
+    public string Version { get; set; } = Version;
+    public string KindText { get; set; } = KindText;
+    public string Detail { get; set; } = Detail;
+    public string StateText { get; set; } = StateText;
+}
+
 public sealed partial class PluginsPage : Page, INotifyPropertyChanged
 {
     private readonly AppServices _s = AppServices.Instance;
@@ -60,6 +76,9 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
     public ObservableCollection<PluginRow> Rows { get; } = [];
     public ObservableCollection<PluginPanelRow> PanelRows { get; } = [];
 
+    /// <summary>内置插件（内核插件）：与外部插件同一页展示，标注信任等级与激活状态</summary>
+    public ObservableCollection<KernelPluginRow> KernelRows { get; } = [];
+
     public Visibility PanelsCardVisible =>
         PanelRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -67,6 +86,7 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
     {
         InitializeComponent();
         PluginList.ItemsSource = Rows;
+        KernelList.ItemsSource = KernelRows;
         _s.PluginHost.PanelRegistered += OnPanelsChanged;
         _s.PluginHost.PanelUnregistered += (_, _) => EnqueueRefresh();
     }
@@ -92,8 +112,42 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
 
     private void RefreshAll()
     {
+        RefreshKernelRows();
         RefreshPanelRows();
         RefreshRows();
+    }
+
+    private void RefreshKernelRows()
+    {
+        KernelRows.Clear();
+        foreach (var runtime in _s.Kernel.Plugins
+                     .OrderBy(p => p.Descriptor.Kind)
+                     .ThenBy(p => p.Descriptor.Name, StringComparer.Ordinal))
+        {
+            var descriptor = runtime.Descriptor;
+            var kind = descriptor.Kind switch
+            {
+                PluginKind.Engine => Loc.T("引擎"),
+                PluginKind.Feature => Loc.T("功能"),
+                PluginKind.Assistant => Loc.T("助手"),
+                _ => Loc.T("界面"),
+            };
+            var detail = descriptor.Description ?? "";
+            if (descriptor.Provides.Length > 0)
+                detail = (detail.Length > 0 ? detail + "　" : "")
+                       + Loc.T("提供：{0}", string.Join("、", descriptor.Provides.Select(t => t.Name)));
+            var state = runtime.State switch
+            {
+                PluginState.Active => Loc.T("运行中 · {0:F0}ms", runtime.ActivationMs),
+                PluginState.Activating => Loc.T("激活中…"),
+                PluginState.Failed => Loc.T("失败：{0}", runtime.Error ?? ""),
+                PluginState.Disabled => Loc.T("已禁用"),
+                PluginState.Stopped => Loc.T("已停用"),
+                _ => Loc.T("待激活"),
+            };
+            KernelRows.Add(new KernelPluginRow(descriptor.Id, descriptor.Name, descriptor.Version, kind, detail, state));
+        }
+        KernelSummary.Text = Loc.T("共 {0} 个 · 内核 {1}", KernelRows.Count, KernelVersion.Kernel);
     }
 
     private void RefreshPanelRows()
@@ -281,7 +335,7 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
                     ?? _s.PluginHost.Panels.FirstOrDefault(p => p.PluginId == id);
         if (panel is null) return;
         Frame.Navigate(typeof(PluginPanelPage), panel,
-            MotionService.TransitionFor(_s.Motion.Enabled));
+            MotionService.TransitionFor(_s.Motion.Transitions));
     }
 
     // ── 小工具 ──

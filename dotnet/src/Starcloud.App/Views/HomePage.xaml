@@ -649,7 +649,7 @@
                          下行外面用 Grid 而不是再套一层 StackPanel：Grid 会撑满按钮内容区，
                          超长版本名才有确定的宽度可裁，TextTrimming 的省略号才生效。 -->
                     <Button x:Name="LaunchBtn" Grid.Column="0" HorizontalAlignment="Stretch" Height="60"
-                            Style="{StaticResource AccentButtonStyle}" CornerRadius="9"
+                            Style="{StaticResource ScAccentButtonStyle}" CornerRadius="9"
                             loc:Loc.Name="启动游戏"
                             Click="LaunchBtn_Click">
                         <Grid>
@@ -810,7 +810,7 @@
                             Click="LaunchCancelBtn_Click" />
                     <Button x:Name="LaunchBackBtn" Grid.Column="1" loc:Loc.Text="返回主页"
                             HorizontalAlignment="Stretch" Visibility="Collapsed"
-                            Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                            Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                             Click="LaunchBackBtn_Click" />
                 </Grid>
             </StackPanel>

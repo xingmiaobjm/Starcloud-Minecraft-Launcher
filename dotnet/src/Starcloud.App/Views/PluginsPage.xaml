@@ -21,7 +21,7 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Button x:Name="InstallBtn" Grid.Column="1" loc:Loc.Text="安装插件…"
-                            Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                            Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                             MinWidth="120" VerticalAlignment="Center" Click="Install_Click" />
                 </Grid>
 
@@ -53,6 +53,54 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- 内核插件（内置）：与外部插件同一套插件模型的"信任等级最高"那一档 -->
+                <Border Background="{ThemeResource GlassCardBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="16" Padding="16">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock loc:Loc.Text="内核插件" FontWeight="Medium" FontSize="13" />
+                            <TextBlock x:Name="KernelSummary" FontSize="11" Opacity="0.6"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ListView x:Name="KernelList" SelectionMode="None" IsItemClickEnabled="False">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="MinHeight" Value="44" />
+                                    <Setter Property="Padding" Value="0" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="local:KernelPluginRow">
+                                    <Grid ColumnSpacing="10" Padding="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Style="{StaticResource ScChip}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind KindText}" FontSize="11" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{x:Bind Name}" FontWeight="Medium" />
+                                                <TextBlock Text="{x:Bind Version}" FontSize="11" Opacity="0.6"
+                                                           VerticalAlignment="Center" />
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind Detail}" FontSize="11" Opacity="0.6"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind StateText}" FontSize="11"
+                                                   VerticalAlignment="Center" Opacity="0.75" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
                     </StackPanel>
                 </Border>
 

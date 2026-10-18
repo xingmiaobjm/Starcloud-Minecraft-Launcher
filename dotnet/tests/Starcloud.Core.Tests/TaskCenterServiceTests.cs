@@ -131,7 +131,11 @@ public class TaskCenterServiceTests
 
         var snapshot = tc.Snapshot();
 
-        Assert.Equal(second.Id, snapshot[0].Id);
-        Assert.Equal(first.Id, snapshot[1].Id);
+        // 断言"相对顺序"而不是绝对位置：单例是进程内共享的，其他 collection 的并行测试
+        // （下载集成测试会上报字节并登记任务）可能往同一份列表里塞任务——
+        // 绝对位置断言会因此偶发失败（2026-10-14 实测到的 flaky）
+        var ids = snapshot.Select(t => t.Id).ToList();
+        Assert.True(ids.IndexOf(second.Id) < ids.IndexOf(first.Id),
+            $"新任务应排在旧任务之前：second@{ids.IndexOf(second.Id)} first@{ids.IndexOf(first.Id)}");
     }
 }

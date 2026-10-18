@@ -87,15 +87,47 @@
                 <Setter Property="FontWeight" Value="Medium" />
             </Style>
 
-            <!-- 对话框底部的白底按钮（取消 / 关闭 / 次要）：按钮由 ContentDialog 的模板生成，
-                 XAML 里够不到它们，没法像页面按钮那样逐个挂附加属性。这里给一个等价的按钮样式
-                 （同样基于 DefaultButtonStyle，外观与默认一模一样，只多挂阴影开关），
-                 由 ThemedDialog 在构造时挂到 CloseButtonStyle / SecondaryButtonStyle 上。
-                 强调色主按钮（Primary）不受影响。 -->
-            <Style x:Key="ScShadowButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <!-- ══ 按钮光照样式族 ══
+                 ScLightButtonStyle：字体三件套 + 液态玻璃模板（玻璃面/玻璃缘/阴影三层载体，
+                 较少档起静态呈现、均衡档起动态）+ 跟手光斑 + 全局鼠标光照。
+                 模板里的三层玻璃由 PointerLightBehavior 驱动；普通按钮没有代码认领环节，
+                 行为在接线/Loaded 时按部件名在可视树里自行查找（EdgeLight/GlassSurface/ShadowHost）。
+                 隐式样式让所有默认按钮默认带上；强调色按钮走 ScAccentButtonStyle（与框架
+                 AccentButtonStyle 同源配色——accent 的四态资源键与普通按钮不同族，不换模板，
+                 悬停换色保持 accent 语义，光照行为照挂）；对话框底部按钮的
+                 ScShadowButtonStyle 也改为基于 ScLightButtonStyle。 -->
+            <Style x:Key="ScLightButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Template" Value="{StaticResource ScGlowButtonTemplate}" />
                 <Setter Property="beh:HoverShadowBehavior.IsEnabled" Value="True" />
+                <Setter Property="beh:HoverShadowBehavior.SurfaceGlow" Value="False" />
+                <Setter Property="beh:PointerLightBehavior.Mode" Value="Button" />
                 <Setter Property="FontFamily" Value="{StaticResource ScUiFontFamily}" />
                 <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+            <Style TargetType="Button" BasedOn="{StaticResource ScLightButtonStyle}" />
+
+            <!-- 强调色主按钮：四态配色仍读框架 AccentButtonStyle 那一族主题资源（别名覆盖见
+                 主题字典），只补光照与字重。页面调用点用 ScAccentButtonStyle 替换原引用。 -->
+            <Style x:Key="ScAccentButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+                <Setter Property="beh:HoverShadowBehavior.IsEnabled" Value="True" />
+                <Setter Property="beh:HoverShadowBehavior.SurfaceGlow" Value="False" />
+                <Setter Property="beh:PointerLightBehavior.Mode" Value="Button" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+
+            <!-- 对话框底部的白底按钮（取消 / 关闭 / 次要）：按钮由 ContentDialog 的模板生成，
+                 XAML 里够不到它们，没法像页面按钮那样逐个挂附加属性。给一个等价按钮样式
+                 （与默认外观一致，只多挂光照），由 ThemedDialog 在构造时挂到
+                 CloseButtonStyle / SecondaryButtonStyle 上。强调色主按钮（Primary）不受影响。 -->
+            <Style x:Key="ScShadowButtonStyle" TargetType="Button"
+                   BasedOn="{StaticResource ScLightButtonStyle}" />
+
+            <!-- 隐式滑块样式：跟手柔光（滑轨像玻璃管被光标点亮，淡档不染脏轨道）
+                 + 均衡档引力形变。 -->
+            <Style TargetType="Slider" BasedOn="{StaticResource DefaultSliderStyle}">
+                <Setter Property="beh:HoverShadowBehavior.IsEnabled" Value="True" />
+                <Setter Property="beh:HoverShadowBehavior.SoftGlow" Value="True" />
+                <Setter Property="beh:PointerLightBehavior.Mode" Value="Tube" />
             </Style>
 
             <!-- ══ 可复用按钮：ctrl:GlowButton（跟手内阴影写进模板） ══
@@ -117,30 +149,51 @@
                                                  （抽屉头 / 组头：换成半透明的 Fluent 悬停色会从深色卡片
                                                  突变成浅色，故这类按钮的悬停反馈只走高亮层与光斑）。 -->
 
-            <!-- 光斑层在底色之上、内容之下：与原先各页面手写时的层序一致，文字不会被压暗 -->
-            <ControlTemplate x:Key="ScGlowButtonTemplate" TargetType="ctrl:GlowButton">
+            <!-- 光斑层在底色之上、内容之下：与原先各页面手写时的层序一致，文字不会被压暗。
+                 另有两层液态玻璃载体（见 PointerLightBehavior，较少档起静态呈现、均衡档起动态）：
+                 · ShadowHost —— 按钮底下的软阴影（最底层，两层同心半透明圆角矩形外扩，
+                   RenderTransform 的平移由行为逐帧驱动：光标在左，影子往右跑）；
+                 · EdgeLight —— 1px 内缘的径向渐变（液态玻璃的玻璃缘），渐变中心摆向光标一侧。
+                 两层常态 Opacity=0：极少档全灭；较少档摆成静态玻璃质感（常亮缘 + 落影）；
+                 均衡档起阴影跟手、边缘光跟手。
+                 （玻璃高光面 GlassSurface 曾在此，实测立体感过强已整体移除；
+                 行为侧按部件名找不到该层时自动跳过，想恢复加回这层即可。）
+                 TargetType 写 Button 而不是 ctrl:GlowButton：模板里只有标准模板绑定，放宽后
+                 默认按钮样式（ScLightButtonStyle）也能换用同一套玻璃模板。 -->
+            <ControlTemplate x:Key="ScGlowButtonTemplate" TargetType="Button">
                 <Grid>
+                    <Grid x:Name="ShadowHost" Opacity="0" IsHitTestVisible="False">
+                        <Border CornerRadius="{TemplateBinding CornerRadius}" Margin="-2"
+                                Background="{ThemeResource ScBtnShadowOuterBrush}" />
+                        <Border CornerRadius="{TemplateBinding CornerRadius}" Margin="0,1,0,2"
+                                Background="{ThemeResource ScBtnShadowInnerBrush}" />
+                    </Grid>
+
                     <Border x:Name="SurfacePresenter"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="{TemplateBinding CornerRadius}"
-                            AutomationProperties.AccessibilityView="Raw" />
+                            AutomationProperties.AccessibilityView="Raw">
+                        <!-- 悬停/按下换色的柔和过渡（微软商店同款）：光斑与边缘光都压低后，
+                             原生悬停底色变化是主要的指针反馈，突变会显得生硬 -->
+                        <Border.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Border.BackgroundTransition>
+                    </Border>
 
-                    <!-- 跟手光斑：内联径向渐变（底色按主题由 HoverShadowBehavior 重写，浅叠黑 / 深叠白）；
-                         圆角读同一个模板值，与按钮表面结构上不可能错配。 -->
-                    <Border x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}"
-                            Opacity="0" IsHitTestVisible="False">
-                        <Border.Background>
-                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#28000000" Offset="0" />
-                                <GradientStop Color="#1F000000" Offset="0.18" />
-                                <GradientStop Color="#16000000" Offset="0.40" />
-                                <GradientStop Color="#0D000000" Offset="0.62" />
-                                <GradientStop Color="#05000000" Offset="0.82" />
-                                <GradientStop Color="#00000000" Offset="1" />
+                    <!-- 液态玻璃缘：1px 内描边，径向渐变亮核由 PointerLightBehavior 摆到朝向光标的那条边。
+                         悬停最高只到半亮（EdgeMaxOpacity=0.5），高光退到原生悬停之后的第二层反馈。 -->
+                    <Border x:Name="EdgeLight" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False" BorderThickness="1">
+                        <Border.BorderBrush>
+                            <RadialGradientBrush MappingMode="RelativeToBoundingBox" Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                 RadiusX="0.85" RadiusY="0.85">
+                                <GradientStop Color="#4DFFFFFF" Offset="0" />
+                                <GradientStop Color="#1FFFFFFF" Offset="0.42" />
+                                <GradientStop Color="#00FFFFFF" Offset="0.82" />
                             </RadialGradientBrush>
-                        </Border.Background>
+                        </Border.BorderBrush>
                     </Border>
 
                     <ContentPresenter x:Name="ContentPresenter"
@@ -204,9 +257,16 @@
             </ControlTemplate>
 
             <!-- 卡片式：视觉树与上面完全相同，只是不挂四态换色 —— 底色是调用点给的 GlassCardBrush，
-                 悬停时不该被 Fluent 的半透明悬停色顶掉。 -->
-            <ControlTemplate x:Key="ScGlowCardButtonTemplate" TargetType="ctrl:GlowButton">
+                 悬停时不该被 Fluent 的半透明悬停色顶掉。TargetType 放宽到 Button，理由同上。 -->
+            <ControlTemplate x:Key="ScGlowCardButtonTemplate" TargetType="Button">
                 <Grid>
+                    <Grid x:Name="ShadowHost" Opacity="0" IsHitTestVisible="False">
+                        <Border CornerRadius="{TemplateBinding CornerRadius}" Margin="-2"
+                                Background="{ThemeResource ScBtnShadowOuterBrush}" />
+                        <Border CornerRadius="{TemplateBinding CornerRadius}" Margin="0,1,0,2"
+                                Background="{ThemeResource ScBtnShadowInnerBrush}" />
+                    </Grid>
+
                     <Border x:Name="SurfacePresenter"
                             Background="{TemplateBinding Background}"
                             BackgroundSizing="{TemplateBinding BackgroundSizing}"
@@ -219,18 +279,24 @@
                         </Border.BackgroundTransition>
                     </Border>
 
-                    <Border x:Name="Glow" CornerRadius="{TemplateBinding CornerRadius}"
-                            Opacity="0" IsHitTestVisible="False">
-                        <Border.Background>
-                            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#28000000" Offset="0" />
-                                <GradientStop Color="#1F000000" Offset="0.18" />
-                                <GradientStop Color="#16000000" Offset="0.40" />
-                                <GradientStop Color="#0D000000" Offset="0.62" />
-                                <GradientStop Color="#05000000" Offset="0.82" />
-                                <GradientStop Color="#00000000" Offset="1" />
+                    <!-- 原生悬停层：卡片底色（GlassCardBrush）不能被 Fluent 悬停色整块顶掉（会突变成浅色），
+                         所以悬停反馈用框架的 Subtle 微色薄薄铺一层——修复"这类按钮只有高光、
+                         没有原生悬停"的观感缺失，与普通按钮的商店式悬停同语言 -->
+                    <Border x:Name="HoverLayer" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}" />
+
+                    <!-- 液态玻璃缘：与 ScGlowButtonTemplate 同一层，见那边注释 -->
+                    <Border x:Name="EdgeLight" CornerRadius="{TemplateBinding CornerRadius}"
+                            Opacity="0" IsHitTestVisible="False" BorderThickness="1">
+                        <Border.BorderBrush>
+                            <RadialGradientBrush MappingMode="RelativeToBoundingBox" Center="0.5,0.5" GradientOrigin="0.5,0.5"
+                                                 RadiusX="0.85" RadiusY="0.85">
+                                <GradientStop Color="#4DFFFFFF" Offset="0" />
+                                <GradientStop Color="#1FFFFFFF" Offset="0.42" />
+                                <GradientStop Color="#00FFFFFF" Offset="0.82" />
                             </RadialGradientBrush>
-                        </Border.Background>
+                        </Border.BorderBrush>
                     </Border>
 
                     <ContentPresenter x:Name="ContentPresenter"
@@ -242,6 +308,27 @@
                                       HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
                                       VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
                                       AutomationProperties.AccessibilityView="Raw" />
+
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CommonStates">
+                            <VisualState x:Name="Normal" />
+                            <VisualState x:Name="PointerOver">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="HoverLayer"
+                                                     Storyboard.TargetProperty="Opacity"
+                                                     To="1" Duration="0:0:0.083" />
+                                </Storyboard>
+                            </VisualState>
+                            <VisualState x:Name="Pressed">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="HoverLayer"
+                                                     Storyboard.TargetProperty="Opacity"
+                                                     To="1" Duration="0:0:0.083" />
+                                </Storyboard>
+                            </VisualState>
+                            <VisualState x:Name="Disabled" />
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
                 </Grid>
             </ControlTemplate>
 
@@ -303,11 +390,11 @@
                             Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
-                                <GradientStop Color="#28000000" Offset="0" />
-                                <GradientStop Color="#1F000000" Offset="0.18" />
-                                <GradientStop Color="#16000000" Offset="0.40" />
-                                <GradientStop Color="#0D000000" Offset="0.62" />
-                                <GradientStop Color="#05000000" Offset="0.82" />
+                                <GradientStop Color="#18000000" Offset="0" />
+                                <GradientStop Color="#12000000" Offset="0.18" />
+                                <GradientStop Color="#0D000000" Offset="0.40" />
+                                <GradientStop Color="#08000000" Offset="0.62" />
+                                <GradientStop Color="#04000000" Offset="0.82" />
                                 <GradientStop Color="#00000000" Offset="1" />
                             </RadialGradientBrush>
                         </Border.Background>
@@ -518,6 +605,10 @@
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#FFFFFF" TintOpacity="0.72" FallbackColor="#FFF9F9F9" />
+                    <!-- 按钮软阴影（GlowButton 模板的 ShadowHost 两层同心）：浅色主题近黑低透明，
+                         平时几乎不可见，只在阴影跟随鼠标位移时从按钮边缘露出一弯 -->
+                    <SolidColorBrush x:Key="ScBtnShadowOuterBrush" Color="#06000000" />
+                    <SolidColorBrush x:Key="ScBtnShadowInnerBrush" Color="#0C000000" />
                     <!-- 列表行/分类项的「压暗底」（悬停与选中共用一层，压在跟手光斑之下）。
                          浅色主题就是原先 ListViewItem 的选中底色（黑 4%）。
                          两个主题都必须是「压暗」：深色下若改用 Fluent 那套半透明白叠加，
@@ -584,6 +675,10 @@
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#2B2B2B" TintOpacity="0.75" FallbackColor="#FF1F1F1F" />
+                    <!-- 按钮软阴影（理由见浅色主题同名键）：深色下也压到"隐约可辨"一档，
+                         只随鼠标位移时轻微可见，不做重立体感 -->
+                    <SolidColorBrush x:Key="ScBtnShadowOuterBrush" Color="#16000000" />
+                    <SolidColorBrush x:Key="ScBtnShadowInnerBrush" Color="#24000000" />
                     <!-- 列表行的「压暗底」（理由见浅色主题同名键）：深色下取黑 22%，
                          与浅色主题的对比幅度对齐（都是比宿主暗十来级），光斑叠上去才是同一个「阴影」 -->
                     <SolidColorBrush x:Key="ScRowShadeBrush" Color="#38000000" />

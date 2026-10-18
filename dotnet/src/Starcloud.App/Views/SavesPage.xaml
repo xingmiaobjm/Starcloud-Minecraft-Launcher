@@ -37,10 +37,20 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="LaunchOtherBtn" Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                <Button x:Name="LaunchOtherBtn" Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                         loc:Loc.Text="用其他版本启动" IsEnabled="False" Click="LaunchOther_Click" />
                 <ctrl:GlowButton x:Name="CopyOtherBtn" loc:Loc.Text="复制到其他版本" IsEnabled="False" Click="CopyOther_Click" />
                 <ctrl:GlowButton x:Name="BackupBtn" loc:Loc.Text="备份所选世界" IsEnabled="False" Click="Backup_Click" />
+                <ctrl:GlowButton x:Name="SyncBtn" loc:Loc.Text="同步到设备…" IsEnabled="False" Click="SyncToDevice_Click" />
+                <!-- 分享给陌生人：导出为分享包文件（任意渠道发送），对方无需登录任何账号 -->
+                <Button x:Name="ShareBtn" Style="{StaticResource ScLightButtonStyle}"
+                        loc:Loc.Text="分享" IsEnabled="False" Padding="10,5">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem loc:Loc.Text="导出分享文件…" Click="ExportShare_Click" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <ctrl:GlowButton x:Name="DeleteBtn" loc:Loc.Text="删除" IsEnabled="False" Click="Delete_Click" />
                 <ctrl:GlowButton x:Name="OpenFolderBtn" loc:Loc.Text="打开世界文件夹" IsEnabled="False" Click="OpenFolder_Click" />
             </StackPanel>
@@ -53,6 +63,7 @@
                     </AutoSuggestBox.QueryIcon>
                 </AutoSuggestBox>
                 <ComboBox x:Name="VersionFilter" MinWidth="150" SelectionChanged="VersionFilter_SelectionChanged" />
+                <ctrl:GlowButton loc:Loc.Text="导入分享包" x:Name="ImportShareBtn" Click="ImportShare_Click" loc:Loc.Tip="从分享包文件导入世界（支持别人发来的任意 zip）" />
                 <ctrl:GlowButton loc:Loc.Text="打开存档目录" Click="OpenSavesDir_Click" />
                 <ctrl:GlowButton Padding="6" MinWidth="32" Background="Transparent" BorderThickness="0"
                         Click="Refresh_Click" loc:Loc.Name="刷新" loc:Loc.Tip="刷新">

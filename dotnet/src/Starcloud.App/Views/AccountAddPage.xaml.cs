@@ -168,7 +168,7 @@ public sealed partial class AccountAddPage : Page
     private void GoBack()
     {
         if (Frame.CanGoBack)
-            Frame.GoBack(MotionService.BackTransition(_s.Motion.Enabled));
+            Frame.GoBack(MotionService.BackTransition(_s.Motion.Transitions));
         else
             (App.MainWindow as MainWindow)?.NavigateTo("accounts");
     }

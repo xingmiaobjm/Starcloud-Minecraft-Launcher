@@ -15,6 +15,10 @@
 //     <ctrl:GlowButton Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">…</ctrl:GlowButton>
 // 需要限制圆角时照旧设按钮自己的 CornerRadius，光斑会跟着走。
 //
+// 「均衡」档起的全局鼠标光照也收在这里：模板里另有两层——
+//   · EdgeLight（1px 内缘的径向渐变）：朝向光标那侧被点亮（液态玻璃的玻璃缘）；
+//   · ShadowHost（按钮底下的软阴影层）：朝背离光标的方向平移（阴影跟随鼠标）。
+// 悬停时按钮还朝光标方向微微隆起（引力形变，见 PointerLightBehavior）。
 // 模板见 App.xaml 的 ScGlowButtonTemplate（普通按钮，保留 Fluent 四态换色）
 // 与 ScGlowCardButtonTemplate（卡片式按钮，底色自带、悬停不换色）。
 
@@ -29,6 +33,12 @@ public sealed class GlowButton : Button
 {
     /// <summary>模板里那层光斑的部件名（ScGlowButtonTemplate / ScGlowCardButtonTemplate 里都叫 Glow）。</summary>
     private const string GlowPartName = "Glow";
+    /// <summary>模板里那层边缘光（全局鼠标光照的「液态玻璃缘」，PointerLightBehavior 驱动）</summary>
+    private const string EdgePartName = "EdgeLight";
+    /// <summary>模板里那层玻璃高光面（液态玻璃材质，较少档起静态呈现）</summary>
+    private const string GlassPartName = "GlassSurface";
+    /// <summary>模板里那层软阴影（阴影跟随鼠标的载体，PointerLightBehavior 驱动）</summary>
+    private const string ShadowPartName = "ShadowHost";
 
     /// <summary>
     /// 是否保留悬停反馈（跟手光斑 + 微上浮），默认 true。
@@ -64,8 +74,10 @@ public sealed class GlowButton : Button
     {
         if (!HoverEffectEnabled)
         {
-            // 关掉时把行为一并停掉：值可能在模板之后才设进来，这里兜住
+            // 关掉时把行为一并停掉：值可能在模板之后才设进来，这里兜住。
+            // 静态瓦片要的就是"一点反馈都不要"，全局光照也不进。
             HoverShadowBehavior.SetIsEnabled(this, false);
+            PointerLightBehavior.SetMode(this, PointerLightMode.None);
             return;
         }
 
@@ -75,12 +87,31 @@ public sealed class GlowButton : Button
         // NavButtonStyle 里设 Transparent、选中态才在代码里换成 accent）属于有意发光，
         // 本地值查不到，不能一并跳过；只有调用点在自己身上写死透明底的才算明确不要光斑。
         if (!HoverShadowBehavior.HasVisibleBackground(this) &&
-            ReadLocalValue(BackgroundProperty) != DependencyProperty.UnsetValue) return;
+            ReadLocalValue(BackgroundProperty) != DependencyProperty.UnsetValue)
+        {
+            PointerLightBehavior.SetMode(this, PointerLightMode.None);
+            return;
+        }
+
+        // 光只照边缘：按钮不再铺表面光斑（那团晕会盖住原生悬停底色，读作"照亮毛玻璃"），
+        // 悬停反馈由边缘光（EdgeLight）承担；列表行/卡片仍保留表面光斑。
+        HoverShadowBehavior.SetSurfaceGlow(this, false);
 
         // 顺序要紧：先把载体认下来，再开行为开关。反过来的话第一次接线时还没有载体，
         // 行为会先自建一层光斑，等载体到位再拆掉重建 —— 白白闪一帧。
         if (GetTemplateChild(GlowPartName) is FrameworkElement glow)
             HoverShadowBehavior.SetCarrier(this, glow);
+
+        // 全局鼠标光照 + 液态玻璃材质：把模板里的边缘光、玻璃面与阴影层认下来交给
+        // PointerLightBehavior。行为内部按动效等级分档——极少全灭、较少摆静态玻璃质感、
+        // 均衡起全动态（边缘光跟手、阴影跟随、引力形变）。
+        if (GetTemplateChild(EdgePartName) is Border edge)
+            PointerLightBehavior.SetEdgePart(this, edge);
+        if (GetTemplateChild(GlassPartName) is Border glass)
+            PointerLightBehavior.SetGlassPart(this, glass);
+        if (GetTemplateChild(ShadowPartName) is FrameworkElement shadow)
+            PointerLightBehavior.SetShadowPart(this, shadow);
+        PointerLightBehavior.SetMode(this, PointerLightMode.Button);
 
         HoverShadowBehavior.SetIsEnabled(this, true);
     }

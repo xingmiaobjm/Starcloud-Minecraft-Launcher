@@ -78,14 +78,14 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         Title = "Starcloud Minecraft Launcher";
 
-        // 测试版标识：启动器自身版本号（取自 csproj <Version>）→「测试版 V0.2.1」
+        // 开发版标识：启动器自身版本号（取自 csproj <Version>）→「开发版 V0.3.3」
         var rawVer = typeof(MainWindow).Assembly
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
             .FirstOrDefault()?.InformationalVersion ?? "0.0.0";
         var meta = rawVer.IndexOf('+'); // 去掉 SourceLink 附加的 +<commit>
         if (meta >= 0) rawVer = rawVer[..meta];
-        VersionBadgeText.Text = Loc.T("测试版 V{0}", rawVer);
+        VersionBadgeText.Text = Loc.T("开发版 V{0}", rawVer);
 
         // Nova 内嵌（NOVA_INTEGRATION.md 五入口）：顶栏 Orb 随全局状态机联动
         var rt = AppServices.Instance.NovaRuntime;
@@ -104,7 +104,7 @@ public sealed partial class MainWindow : Window
         Activated += (_, _) => RefreshAccountButton();
 
         Nav.SelectedItem = Nav.MenuItems[0];
-        ContentFrame.Navigate(typeof(HomePage), null, MotionService.TransitionFor(AppServices.Instance.Motion.Enabled));
+        ContentFrame.Navigate(typeof(HomePage), null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
         ContentFrame.NavigationFailed += (_, e) =>
             LauncherLog.Error("nav", $"导航到 {e.SourcePageType.Name} 失败", e.Exception);
         Closed += (_, _) =>
@@ -132,23 +132,85 @@ public sealed partial class MainWindow : Window
                 NotificationCenter.Instance.Info($"{heading}：{message}");
             });
 
+        // 跨设备链路：设备上下线横幅（核心卖点的"活"信号）。事件来自 beacon 后台线程，
+        // 统一度调到 UI 线程；横幅点击直达「我的设备」页。
+        AppServices.Instance.DeviceLink.PeerUp += (name, _) => ShowDeviceBanner(name, up: true);
+        AppServices.Instance.DeviceLink.PeerDown += name => ShowDeviceBanner(name, up: false);
+        _deviceBannerHide.IsRepeating = false;
+        _deviceBannerHide.Tick += (_, _) =>
+        {
+            _deviceBannerHide.Stop();
+            MotionFx.FadeOut(DeviceBanner, 400);
+        };
+
         // 外观（D1）：主题在启动时即生效（修历史 bug：设置页回填时 _loaded=false 导致主题被忽略）
         _background = new WindowBackgroundHost(BackgroundLayer, BackgroundImage, BackgroundBlurHost, BackgroundMask);
         var root = (FrameworkElement)Content;
         AppServices.Instance.Appearance.ApplyTheme(AppServices.Instance.Settings.Theme, root);
+        // 自绘的导航 SVG 不吃主题色：浅/深两套描边在这里换源（与 BrandMark 同一策略）
+        ApplyNavIconTheme(root.ActualTheme);
+        root.ActualThemeChanged += (s, _) => ApplyNavIconTheme(((FrameworkElement)s).ActualTheme);
         _background.Apply(AppServices.Instance.Settings, root.ActualTheme);
         ApplyGlassStrength(AppServices.Instance.Settings);
+        MotionMaterials.Apply(AppServices.Instance.Settings); // 极少档收起卡片毛玻璃，其余档恢复原配方
         root.SizeChanged += (_, _) => _background.Resize(root.ActualWidth, root.ActualHeight);
 
         // 插件导航组：插件是后台加载的，加载 / 停用都要重建；首次 Loaded 时也重建一次
         // （挂到根元素而不是 Window —— WinUI 3 的 Window 没有 Loaded 事件）
         root.Loaded += (_, _) =>
         {
+            ApplyNavIconTheme(root.ActualTheme);   // 挂进可视树后 ActualTheme 才确定
             if (_pluginNavHooked) return;
             _pluginNavHooked = true;
             AppServices.Instance.PluginHost.ContributionsChanged += OnPluginContributionsChanged;
             RebuildPluginNavGroup();
         };
+    }
+
+    // ── 设备上下线横幅 ──
+
+    /// <summary>横幅自动收回定时器（3 秒）；Interval 必须显式设，理由同 _taskRefresh。</summary>
+    private readonly DispatcherQueueTimer _deviceBannerHide =
+        DispatcherQueue.GetForCurrentThread().CreateTimer();
+
+    private void ShowDeviceBanner(string name, bool up) =>
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                DeviceBannerText.Text = up
+                    ? Loc.T("设备「{0}」已连接", name)
+                    : Loc.T("设备「{0}」已断开", name);
+                DeviceBannerDot.Fill = up
+                    ? ThemedBrush("SystemFillColorSuccessBrush")
+                    : ThemedBrush("TextFillColorDisabledBrush");
+                if (DeviceBanner.Visibility != Visibility.Visible)
+                {
+                    DeviceBanner.Visibility = Visibility.Visible;
+                    MotionFx.Reset(DeviceBanner);
+                    MotionFx.FadeSlideIn(DeviceBanner, -14, MotionFx.EnterMs);
+                }
+                else
+                {
+                    // 连续事件：就地换文案并重新计时，不重复播进场
+                    MotionFx.FadeIn(DeviceBanner, 120);
+                }
+                _deviceBannerHide.Stop();
+                _deviceBannerHide.Interval = TimeSpan.FromSeconds(3);
+                _deviceBannerHide.Start();
+                if (up) NotificationCenter.Instance.Info(Loc.T("设备「{0}」已连接", name));
+            }
+            catch
+            {
+                // 横幅失败不影响链路
+            }
+        });
+
+    private void DeviceBanner_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        _deviceBannerHide.Stop();
+        DeviceBanner.Visibility = Visibility.Collapsed;
+        NavigateTo("settings"); // 跨设备互联已并入设置页（「跨设备」分区）
     }
 
     // ── 插件事件（launcher:events）：游戏起停广播 ──
@@ -212,6 +274,7 @@ public sealed partial class MainWindow : Window
         AppServices.Instance.Appearance.ApplyTheme(s.Theme, root);
         w._background.Apply(s, root.ActualTheme);
         w.ApplyGlassStrength(s);
+        MotionMaterials.Apply(s);
         w._background.Resize(root.ActualWidth, root.ActualHeight);
     }
 
@@ -243,6 +306,10 @@ public sealed partial class MainWindow : Window
         {
             _taskRefresh.Stop();
             AppServices.Instance.NovaRuntime.StopTimers();
+            // 设备链路：不等待收尾（Stop 里有同步 Wait，等在 UI 线程就是"关窗卡一下"）。
+            // beacon / TCP 循环都是后台线程，进程退出即随之结束；置后台只为尽早松开端口。
+            var link = AppServices.Instance.DeviceLink;
+            _ = Task.Run(() => link.Stop());
         }
         catch
         {
@@ -288,7 +355,7 @@ public sealed partial class MainWindow : Window
                 (ContentFrame.Content as PluginNavPage)?.PluginId != pluginId)
             {
                 ContentFrame.Navigate(typeof(PluginNavPage), navArgs,
-                    MotionService.TransitionFor(AppServices.Instance.Motion.Enabled));
+                    MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
             }
             Nav.IsPaneOpen = false;
             return;
@@ -298,6 +365,8 @@ public sealed partial class MainWindow : Window
             "versions" => typeof(VersionsPage),
             "saves" => typeof(SavesPage),
             "multiplayer" => typeof(MultiplayerPage),
+            "lab" => typeof(LabPage),
+            "projections" => typeof(ProjectionManagerPage),
             "running" => typeof(RunningStatusPage),
             "download" => typeof(DownloadPage),
             "accounts" => typeof(AccountsPage),
@@ -310,7 +379,7 @@ public sealed partial class MainWindow : Window
         if (ContentFrame.CurrentSourcePageType != page)
         {
             LauncherLog.Write("nav", $"导航 {ContentFrame.CurrentSourcePageType?.Name} → {page.Name}（tag={tag}）");
-            var ok = ContentFrame.Navigate(page, null, MotionService.TransitionFor(AppServices.Instance.Motion.Enabled));
+            var ok = ContentFrame.Navigate(page, null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
             LauncherLog.Write("nav", $"Navigate 返回 {ok}，CurrentSourcePageType={ContentFrame.CurrentSourcePageType?.Name}，Content={(ContentFrame.Content?.GetType().Name ?? "null")}");
         }
         // 选择完成后自动收起侧栏，保持内容区宽畅
@@ -391,17 +460,17 @@ public sealed partial class MainWindow : Window
     /// <summary>版本详情子页：直接 Frame 导航（不占用侧栏选中项，返回即回来源页）。</summary>
     public void NavigateToVersionDetail(string versionId) =>
         ContentFrame.Navigate(typeof(VersionDetailPage), versionId,
-            MotionService.TransitionFor(AppServices.Instance.Motion.Enabled, drillIn: true));
+            MotionService.TransitionFor(AppServices.Instance.Motion.Transitions, drillIn: true));
 
     /// <summary>账户详情子页（形象与皮肤 / 账户信息）：同样不占侧栏选中项。</summary>
     public void NavigateToAccountDetail(string uuid) =>
         ContentFrame.Navigate(typeof(AccountDetailPage), uuid,
-            MotionService.TransitionFor(AppServices.Instance.Motion.Enabled, drillIn: true));
+            MotionService.TransitionFor(AppServices.Instance.Motion.Transitions, drillIn: true));
 
     /// <summary>添加游戏账户子页（左选身份 + 右填表单）。</summary>
     public void NavigateToAddAccount() =>
         ContentFrame.Navigate(typeof(AccountAddPage), null,
-            MotionService.TransitionFor(AppServices.Instance.Motion.Enabled, drillIn: true));
+            MotionService.TransitionFor(AppServices.Instance.Motion.Transitions, drillIn: true));
 
     // ── 自绘窗口按钮（最小化 / 最大化-还原 / 关闭，见 MainWindow.xaml） ──
 
@@ -913,6 +982,16 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>最大化时显示「还原」图标，否则显示「最大化」图标（含 Win+↑、拖到屏幕顶端等外部操作）。</summary>
+    /// <summary>导航里的自绘 SVG 按主题换源（浅底用深色描边，深底用浅色描边）</summary>
+    private void ApplyNavIconTheme(ElementTheme theme)
+    {
+        var suffix = theme == ElementTheme.Dark ? "-dark" : "";
+        LabNavIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
+            new Uri($"ms-appx:///Assets/Brand/lab-nav{suffix}.svg"));
+        ProjectionNavIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
+            new Uri($"ms-appx:///Assets/Brand/projection-nav{suffix}.svg"));
+    }
+
     private void UpdateMaximizeGlyph()
     {
         var maximized = (AppWindow.Presenter as OverlappedPresenter)?.State == OverlappedPresenterState.Maximized;

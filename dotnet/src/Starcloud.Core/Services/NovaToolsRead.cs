@@ -136,6 +136,33 @@ public sealed partial class NovaToolRegistry
             """{"type":"object","properties":{}}""",
             true, CheckUpdatesAsync);
 
+        // ── SC 实验室（投影工坊 / 彩色文字 / 指令助手）：与实验室页共用同一套 Core 实现 ──
+
+        yield return new("list_projections", "列出投影文件",
+            "列出 .minecraft/schematics 下的投影文件（.litematic / .nbt / .schematic / .schem）。用户问「我有哪些投影」看这里。",
+            """{"type":"object","properties":{}}""",
+            true, ListProjectionsAsync);
+
+        yield return new("read_projection", "查看投影详情",
+            "解析一个投影文件：格式、尺寸、区域数、非空气方块数、作者与方块统计 Top 榜。name 用文件名（可省略扩展名）。",
+            """{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}""",
+            true, ReadProjectionAsync);
+
+        yield return new("format_colored_text", "生成彩色文字",
+            "把文本转成 Minecraft § 格式代码（可粘贴到聊天 / 告示牌 / title）。mode: gradient(默认) / solid / rainbow。",
+            """{"type":"object","properties":{"text":{"type":"string"},"mode":{"type":"string"},"from":{"type":"string"},"to":{"type":"string"},"bold":{"type":"boolean"}},"required":["text"]}""",
+            true, FormatColoredTextAsync);
+
+        yield return new("list_command_templates", "列出指令模板",
+            "列出指令助手的全部命令模板（分类、名称、参数与常用值）。生成命令前先看这里，不要臆造模板名。",
+            """{"type":"object","properties":{}}""",
+            true, ListCommandTemplatesAsync);
+
+        yield return new("generate_minecraft_command", "生成 Minecraft 命令",
+            "按模板名与参数生成可直接粘贴的游戏命令。params 是 JSON 对象（键 = 模板参数名）。",
+            """{"type":"object","properties":{"template":{"type":"string"},"params":{"type":"object"}},"required":["template"]}""",
+            true, GenerateCommandAsync);
+
         // ── 联机 / 录屏 / 插件 ──
 
         if (_c.Multiplayer is not null)
@@ -568,6 +595,107 @@ public sealed partial class NovaToolRegistry
             if (snap.State.Error is { Length: > 0 } err) sb.AppendLine($"上次错误：{err}");
         }
         else sb.Append("还没有会话，用 multiplayer_host 建房或 multiplayer_join 加入。");
+        return Task.FromResult(sb.ToString());
+    }
+
+    // ── SC 实验室（与 LabPage 共用 Core 实现） ──
+
+    private Task<string> ListProjectionsAsync(JsonElement args, CancellationToken ct)
+    {
+        var service = new ProjectionService(_c.Settings);
+        var files = service.List();
+        if (files.Count == 0)
+            return Task.FromResult("投影目录（.minecraft/schematics）里还没有文件；可用实验室的世吞生成器生成一个，或把 .litematic 放进去。");
+        var sb = new StringBuilder($"共 {files.Count} 个投影（最近在前）：");
+        foreach (var f in files.Take(20))
+            sb.Append('\n').Append(f.Name).Append(" · ").Append(f.SizeText).Append(" · ")
+              .Append(f.ModifiedAt.ToString("MM-dd HH:mm"));
+        return Task.FromResult(sb.ToString());
+    }
+
+    private Task<string> ReadProjectionAsync(JsonElement args, CancellationToken ct)
+    {
+        var name = Str(args, "name");
+        if (string.IsNullOrWhiteSpace(name)) return Task.FromResult("需要 name（投影文件名，可省略扩展名）。");
+        var service = new ProjectionService(_c.Settings);
+        var file = service.List().FirstOrDefault(f =>
+            string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            f.Name.Contains(name, StringComparison.OrdinalIgnoreCase) ||
+            Path.GetFileName(f.Path).Contains(name, StringComparison.OrdinalIgnoreCase));
+        if (file is null) return Task.FromResult($"没找到叫「{name}」的投影，先用 list_projections 看看有哪些。");
+        try
+        {
+            var info = service.Read(file.Path);
+            var sb = new StringBuilder();
+            sb.AppendLine($"{info.Name}（{info.FormatName}）");
+            sb.AppendLine($"尺寸 {info.Size.X}×{info.Size.Y}×{info.Size.Z} · 区域 {info.RegionCount} · 非空气方块 {info.TotalBlocks} · 调色板 {info.PaletteSize} 项");
+            if (info.Author.Length > 0) sb.AppendLine($"作者：{info.Author}");
+            if (info.Description.Length > 0) sb.AppendLine($"描述：{Cut(info.Description, 200)}");
+            if (info.TopBlocks.Count > 0)
+                sb.AppendLine("方块 Top：" + string.Join("、", info.TopBlocks.Take(6).Select(b => $"{b.BlockId}×{b.Count}")));
+            return Task.FromResult(sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult($"解析失败：{ex.Message}");
+        }
+    }
+
+    private Task<string> FormatColoredTextAsync(JsonElement args, CancellationToken ct)
+    {
+        var text = Str(args, "text");
+        if (string.IsNullOrEmpty(text)) return Task.FromResult("需要 text。");
+        var mode = Str(args, "mode") ?? "gradient";
+        var from = Str(args, "from") ?? "#55FFFF";
+        var to = Str(args, "to") ?? "#FF55FF";
+        var style = args.TryGetProperty("bold", out var b) && b.ValueKind == JsonValueKind.True
+            ? Lab.McText.StyleCodes(bold: true) : "";
+        var result = mode switch
+        {
+            "solid" => Lab.McText.Solid(text, from, styleCodes: style),
+            "rainbow" => Lab.McText.Rainbow(text, styleCodes: style),
+            _ => Lab.McText.Gradient(text, from, to, styleCodes: style),
+        };
+        return Task.FromResult($"§ 代码文本（可直接粘贴；纯文本 {Lab.McText.Strip(result).Length} 字）："
+            + "\n" + result);
+    }
+
+    private Task<string> ListCommandTemplatesAsync(JsonElement args, CancellationToken ct)
+    {
+        var sb = new StringBuilder("指令模板（generate_minecraft_command 用模板名调用）：");
+        foreach (var group in Lab.CommandHelper.Templates.GroupBy(t => t.Category))
+        {
+            sb.Append("\n[").Append(group.Key).Append("] ");
+            sb.Append(string.Join("、", group.Select(t => t.Name)));
+        }
+        sb.Append("\n参数：generate_minecraft_command 的 params 用模板参数名（见模板说明）。");
+        return Task.FromResult(sb.ToString());
+    }
+
+    private Task<string> GenerateCommandAsync(JsonElement args, CancellationToken ct)
+    {
+        var name = Str(args, "template");
+        if (string.IsNullOrWhiteSpace(name)) return Task.FromResult("需要 template（模板名，可先用 list_command_templates 查看）。");
+        var template = Lab.CommandHelper.Templates.FirstOrDefault(t =>
+            string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(t.Id, name, StringComparison.OrdinalIgnoreCase) ||
+            t.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+        if (template is null) return Task.FromResult($"没有叫「{name}」的模板，先用 list_command_templates 看可用模板。");
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var param in template.Params) values[param.Key] = param.Default;
+        if (args.TryGetProperty("params", out var p) && p.ValueKind == JsonValueKind.Object)
+            foreach (var item in p.EnumerateObject())
+                if (item.Value.ValueKind == JsonValueKind.String) values[item.Name] = item.Value.GetString() ?? "";
+
+        var command = Lab.CommandHelper.Build(template, values);
+        var sb = new StringBuilder();
+        sb.Append('/').Append(command);
+        if (Lab.CommandHelper.HasUnfilled(command))
+            sb.Append("\n（还有没填的参数，显示为 {占位符}）");
+        else if (Lab.CommandHelper.Validate(command) is { } problem)
+            sb.Append("\n（体检提示：").Append(problem).Append('）');
+        if (template.Note.Length > 0) sb.Append("\n提示：").Append(template.Note);
         return Task.FromResult(sb.ToString());
     }
 }

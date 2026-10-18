@@ -3,22 +3,25 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-  <!-- Phase 2 验证页：NavigationView / FontIcon 字形 / 中文文案 / 真实服务接线（设置 + Java 扫描） -->
+  <!-- Phase 2 验证页：NavigationView / FontIcon 字形 / 中文文案 / 真实服务接线（设置 + Java 扫描）
+       导航图标与 Windows 版（Starcloud.App/MainWindow.xaml）逐项对齐，统一用 HarmonyOS 图标库：
+       首页 EC77、版本 EA94、设置 EC04。
+       （此前用的是 Segoe/Fluent 旧码位 E768 / E8B7 / E713，与产品其余部分的设计语言不一致。） -->
   <NavigationView x:Name="Nav" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed">
     <NavigationView.MenuItems>
       <NavigationViewItem Content="首页" Tag="home" IsSelected="True">
         <NavigationViewItem.Icon>
-          <FontIcon Glyph="&#xE768;" />
+          <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC77;" />
         </NavigationViewItem.Icon>
       </NavigationViewItem>
       <NavigationViewItem Content="版本" Tag="versions">
         <NavigationViewItem.Icon>
-          <FontIcon Glyph="&#xE8B7;" />
+          <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA94;" />
         </NavigationViewItem.Icon>
       </NavigationViewItem>
       <NavigationViewItem Content="设置" Tag="settings">
         <NavigationViewItem.Icon>
-          <FontIcon Glyph="&#xE713;" />
+          <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC04;" />
         </NavigationViewItem.Icon>
       </NavigationViewItem>
     </NavigationView.MenuItems>
