@@ -23,11 +23,13 @@ import 'package:path/path.dart' as p;
 import 'package:starcloud_launcher/bridge/core_bridge.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/contracts/content.dart';
+import 'package:starcloud_launcher/contracts/nova.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_accounts.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_content.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_multiplayer.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_nova.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_saves.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_settings.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_skins.dart';
@@ -168,6 +170,37 @@ Future<void> main(List<String> args) async {
       await store.refresh();
       stdout.writeln('[acc] after remove: '
           '${store.accounts().map((a) => a.name).join(', ')}');
+    }
+
+    if (mode == 'nova') {
+      final nova = BridgeNova(bridge);
+      var config = await nova.config();
+      stdout.writeln('[nova] config: baseUrl=${config.baseUrl} '
+          'model=${config.model} configured=${config.configured}');
+      config = await nova.saveConfig(const NovaConfig(
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        model: 'local',
+      ));
+      stdout.writeln('[nova] saved: ${config.baseUrl} / ${config.model}');
+
+      await for (final event in nova.chat(
+        message: '诊断 1.20.4',
+        versionId: version,
+      )) {
+        if (event is NovaDelta) {
+          stdout.writeln('[nova] delta: ${event.text}');
+        } else if (event is NovaTool) {
+          stdout.writeln('[nova] tool: ${event.tool}');
+        } else if (event is NovaDone) {
+          stdout.writeln('[nova] done: ${event.text} '
+              'cloud=${event.fromCloud} plan=${event.plan.length}');
+        } else if (event is NovaFailed) {
+          stdout.writeln('[nova] failed: ${event.error}');
+        }
+      }
+
+      await nova.saveConfig(const NovaConfig());
+      stdout.writeln('[nova] config cleared');
     }
 
     if (mode == 'version') {

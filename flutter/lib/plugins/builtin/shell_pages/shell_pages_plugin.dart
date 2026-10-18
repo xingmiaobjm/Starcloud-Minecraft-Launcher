@@ -11,6 +11,7 @@ import '../../../kernel/contribution_registry.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import '../../../shell/pages/multiplayer_page.dart';
+import '../../../shell/pages/nova_page.dart';
 import '../../../shell/pages/placeholder_page.dart';
 import '../../../shell/pages/saves_page.dart';
 import '../../../shell/pages/session_logs_page.dart';
@@ -37,7 +38,8 @@ const List<_PageSpec> _pages = [
   _PageSpec('saves', '存档', FluentIcons.save, '跨版本世界列表：备份、删除、跨版本复制启动。', 3),
   _PageSpec('multiplayer', '联机', FluentIcons.people, '陶瓦联机与第三方联机 SDK：建房、进房、状态与日志。', 4),
   _PageSpec('running', '运行状态', FluentIcons.speed_high, '本局运行态：CPU/内存曲线、日志尾、多开切换。', 5),
-  // 6 账户 / 7 插件 / 8 Nova 由各自插件贡献。
+  // 6 账户 / 7 插件由各自插件贡献。
+  _PageSpec('nova', 'Nova', FluentIcons.chat, 'AI 助手：诊断、找资源、联机指引。', 8),
   _PageSpec('logs', '启动器日志', FluentIcons.history, '启动器日志与每局游戏日志切换查看。', 9,
       footer: true),
 ];
@@ -69,6 +71,7 @@ class ShellPagesPlugin implements Plugin {
           'versions' => const VersionListPage(),
           'saves' => const SavesPage(),
           'multiplayer' => const MultiplayerPage(),
+          'nova' => const NovaPage(),
           'running' =>
             SessionLogsPage(title: page.title, showSessionInfo: true),
           'logs' => SessionLogsPage(title: page.title),

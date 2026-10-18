@@ -33,10 +33,16 @@ public sealed partial class NovaToolRegistry
     /// <summary>全部注册工具（顺序即发给 LLM 的顺序：先只读，后写操作）</summary>
     public IReadOnlyList<NovaTool> Tools { get; }
 
-    public NovaToolRegistry(NovaToolContext context)
+    /// <param name="readOnlyOnly">
+    /// 只注册只读工具（跨端最小实现用：没有 UI 确认清单执行入口时，避免模型提出
+    /// 无法落地的写操作）。默认 false，与 Windows 端行为一致。
+    /// </param>
+    public NovaToolRegistry(NovaToolContext context, bool readOnlyOnly = false)
     {
         _c = context;
-        Tools = [.. BuildReadTools(), .. BuildWriteTools()];
+        Tools = readOnlyOnly
+            ? [.. BuildReadTools()]
+            : [.. BuildReadTools(), .. BuildWriteTools()];
     }
 
     public NovaTool? Find(string name) =>

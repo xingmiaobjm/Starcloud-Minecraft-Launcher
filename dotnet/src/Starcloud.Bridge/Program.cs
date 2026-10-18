@@ -39,6 +39,9 @@ public static class Program
     private static SkinLibraryService _skins = null!;
     private static SkinStationService _skinStation = null!;
     private static MultiplayerService _multiplayer = null!;
+    private static NovaService _nova = null!;
+    private static Task? _novaTask;
+    private static readonly object NovaGate = new();
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
     private static Task? _installTask;
@@ -86,6 +89,41 @@ public static class Program
         _multiplayer.Changed += snapshot =>
             Emit(stdout, "multiplayer.changed", MultiplayerPayload(snapshot));
         _multiplayer.StartPolling();
+
+        // Nova：只读工具集（跨端最小实现先打通对话与查询；写操作留给后续确认清单）。
+        var diagnostics = new GameDiagnosticsService(_installer, _manifest);
+        var conflicts = new ModConflictService();
+        var novaPermissions = new NovaPermissionStore();
+        var novaLog = new NovaActionLog();
+        var novaMoments = new NovaMomentsService();
+        var novaInvites = new NovaInviteService(
+            _installer, _manifest, _java, _launcher, _download, AgentJarPath);
+        var translation = new SearchTranslationService(_download);
+        var novaTools = new NovaToolRegistry(new NovaToolContext
+        {
+            Manifest = _manifest,
+            Installer = _installer,
+            Mods = _modrinth,
+            Library = _contentLibrary,
+            Settings = () => _settings,
+            SaveSettings = () => _settings.Save(),
+            Forge = new ForgeInstallerService(_download, _java),
+            Fabric = new FabricService(_download),
+            CurseForge = new CurseForgeService(_download, () => _settings),
+            Diagnostics = diagnostics,
+            Conflicts = conflicts,
+            Java = _java,
+            Launcher = _launcher,
+            Store = _accounts,
+            Saves = _saves,
+            SaveLibrary = _saveLibrary,
+            Multiplayer = _multiplayer,
+            Translation = translation,
+        }, readOnlyOnly: true);
+        _nova = new NovaService(
+            _modrinth, diagnostics, conflicts,
+            novaPermissions, novaLog, novaMoments, novaInvites, _saves,
+            novaTools, null, translation);
 
         Emit(stdout, "bridge.ready", new
         {
@@ -135,6 +173,22 @@ public static class Program
                             continue;
                         }
                         _mpInstallTask = RunMultiplayerInstallAsync(stdout, id);
+                    }
+                    Reply(stdout, id, ok: true, result: new { accepted = true });
+                    continue;
+                }
+
+                // Nova 对话：流式增量走事件，终态走 nova.done / nova.failed。
+                if (method == "nova.chat")
+                {
+                    lock (NovaGate)
+                    {
+                        if (_novaTask is { IsCompleted: false })
+                        {
+                            Reply(stdout, id, ok: false, error: "Nova 正在回复上一条消息");
+                            continue;
+                        }
+                        _novaTask = RunNovaChatAsync(stdout, id, parameters);
                     }
                     Reply(stdout, id, ok: true, result: new { accepted = true });
                     continue;
@@ -823,6 +877,53 @@ public static class Program
 
                 await InstallOneAsync(projectId, null, title, 0);
                 return new { installed, missing };
+            }
+
+            case "nova.config.get":
+            {
+                var profile = _settings.ActiveLlmProfile();
+                return new
+                {
+                    baseUrl = profile?.BaseUrl ?? "",
+                    apiKey = profile?.ApiKey ?? "",
+                    model = profile?.Model ?? "",
+                };
+            }
+
+            case "nova.config.set":
+            {
+                var baseUrl = p.TryGetProperty("baseUrl", out var bu) &&
+                              bu.ValueKind == JsonValueKind.String
+                    ? bu.GetString() ?? ""
+                    : "";
+                var apiKey = p.TryGetProperty("apiKey", out var ak) &&
+                             ak.ValueKind == JsonValueKind.String
+                    ? ak.GetString() ?? ""
+                    : "";
+                var model = p.TryGetProperty("model", out var md) &&
+                            md.ValueKind == JsonValueKind.String
+                    ? md.GetString() ?? ""
+                    : "";
+                if (baseUrl.Length == 0 && apiKey.Length == 0 && model.Length == 0)
+                {
+                    _settings.NovaLlmProfiles.Clear();
+                    _settings.NovaLlmActiveId = null;
+                }
+                else
+                {
+                    var profile = _settings.ActiveLlmProfile()
+                        ?? new NovaLlmProfile { Id = "custom", Name = "自定义模型" };
+                    profile.BaseUrl = baseUrl;
+                    profile.ApiKey = apiKey;
+                    profile.Model = model;
+                    if (string.IsNullOrWhiteSpace(profile.Name))
+                        profile.Name = "自定义模型";
+                    _settings.NovaLlmProfiles.Clear();
+                    _settings.NovaLlmProfiles.Add(profile);
+                    _settings.NovaLlmActiveId = profile.Id;
+                }
+                _settings.Save();
+                return new { baseUrl, apiKey, model };
             }
 
             case "multiplayer.state":
@@ -1564,6 +1665,65 @@ public static class Program
             })
             .OrderBy(x => x.displayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static async Task RunNovaChatAsync(
+        TextWriter stdout, int id, JsonElement parameters)
+    {
+        try
+        {
+            var message = parameters.GetProperty("message").GetString() ?? "";
+            var versionId = parameters.TryGetProperty("versionId", out var vid) &&
+                            vid.ValueKind == JsonValueKind.String
+                ? vid.GetString()
+                : null;
+            if (!string.IsNullOrWhiteSpace(versionId))
+                _nova.SetCurrentInstance(versionId);
+
+            var history = new List<NovaChatTurn>();
+            if (parameters.TryGetProperty("history", out var h) &&
+                h.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in h.EnumerateArray())
+                {
+                    var role = item.TryGetProperty("role", out var r) &&
+                               r.ValueKind == JsonValueKind.String
+                        ? r.GetString() ?? "user"
+                        : "user";
+                    var content = item.TryGetProperty("content", out var c) &&
+                                  c.ValueKind == JsonValueKind.String
+                        ? c.GetString() ?? ""
+                        : "";
+                    if (content.Length > 0) history.Add(new NovaChatTurn(role, content));
+                }
+            }
+
+            var buffer = new StringBuilder();
+            NovaReply? full = null;
+            await foreach (var delta in _nova.ChatStreamAsync(
+                               message, _settings, history,
+                               onFullReply: reply => full = reply,
+                               onToolStarted: tool =>
+                                   Emit(stdout, "nova.tool", new { tool })))
+            {
+                buffer.Append(delta);
+                Emit(stdout, "nova.delta", new { text = delta });
+            }
+
+            var text = string.IsNullOrEmpty(full?.Text) ? buffer.ToString() : full!.Text;
+            Emit(stdout, "nova.done", new
+            {
+                text,
+                fromCloud = full?.FromCloud ?? false,
+                plan = full?.Plan?.Items.Select(i => new { i.Title, i.Detail }),
+            });
+            Reply(stdout, id, ok: true, result: new { ok = true });
+        }
+        catch (Exception e)
+        {
+            Emit(stdout, "nova.failed", new { error = e.Message });
+            Reply(stdout, id, ok: false, error: e.Message);
+        }
     }
 
     /// <summary>联机快照 + 提供方/玩家名/节点地区，一次给全（UI 只渲染）。</summary>

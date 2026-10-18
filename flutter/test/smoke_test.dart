@@ -15,7 +15,7 @@ import 'package:starcloud_launcher/kernel/plugin_host.dart';
 import 'package:starcloud_launcher/kernel/scheduler.dart';
 
 void main() {
-  test('内核启动后导航由插件贡献（顶部 8 + 底部 2，页面 10）', () async {
+  test('内核启动后导航由插件贡献（顶部 9 + 底部 2，页面 11）', () async {
     final dir = await Directory.systemTemp.createTemp('starcloud_smoke');
     final kernel = Kernel(
       paths: KernelPaths.linux(env: {'HOME': dir.path}),
@@ -28,15 +28,16 @@ void main() {
 
     final nav = kernel.contributions.navItems();
     final footer = kernel.contributions.footerNavItems();
-    expect(nav.length, 8, reason: '顶部 8 项（首页/版本/下载/存档/联机/运行状态/账户/插件）');
+    expect(nav.length, 9, reason: '顶部 9 项（首页/版本/下载/存档/联机/运行状态/Nova/账户/插件）');
     expect(footer.length, 2, reason: '底部 启动器日志 + 设置（均由插件贡献）');
     expect(nav.map((c) => c.id), contains('plugin-manager'));
+    expect(nav.map((c) => c.id), contains('nova'));
     expect(
       kernel.snapshots().every((s) => s.state == PluginState.active),
       isTrue,
     );
     // 页面贡献齐全（惰性工厂，不调用不创建）。
-    expect(kernel.contributions.byKind(ContributionKind.page).length, 10);
+    expect(kernel.contributions.byKind(ContributionKind.page).length, 11);
     expect(kernel.hasEssentialFailure, isFalse);
   });
 }

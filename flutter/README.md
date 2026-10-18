@@ -81,11 +81,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**72 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**73 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
   贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 宿主退出逆序停用 /
-  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·账户详情·联机页渲染交互）
+  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·账户详情·联机页·Nova 页）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -98,7 +98,7 @@ lib/
   ```
 
 - 后端复用 E2E（WSL + BMCLAPI，`dart run tool/bridge_e2e.dart all`）：
-  `starcloud.csharp_core` 激活约 0.4~4s / 登记 11 个契约；1.20.4 安装 3864 个文件
+  `starcloud.csharp_core` 激活约 0.4~4s / 登记 12 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
@@ -127,6 +127,9 @@ lib/
 - 皮肤 E2E（`dart run tool/bridge_e2e.dart skins`）：导入 64×64 PNG → 指定给
   离线账户 → 型号覆盖 slim → 取消 → 删除，库与账户引用均正确清理。启动 E2E
   还会先挂一张本地皮肤，验证回环服务 + `--userProperties` 注入后游戏仍正常启动。
+- Nova E2E（`dart run tool/bridge_e2e.dart nova`）：LLM 配置读写/清除；
+  「诊断 1.20.4」走本地能力路由，流式返回 delta 与 done（无需模型）。
+  Nova 页已接真实实现（流式对话、工具调用提示、自接模型配置）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -144,8 +147,11 @@ lib/
 ### 与 Windows 端的差距（持续收敛中）
 
 - 已对齐：首页 / 下载 / 版本（含详情、内容管理、实例参数、更新与依赖检查）/
-  存档 / 联机 / 运行状态 / 账户（含详情与皮肤）/ 启动器日志 / 设置。
-- 未移植：Nova AI 助手、实验室（deepslate 投影渲染）、插件市场
+  存档 / 联机 / 运行状态 / 账户（含详情与皮肤）/ Nova / 启动器日志 / 设置。
+- Nova 最小形态：流式对话、自接 OpenAI 兼容模型、本地能力路由（诊断/冲突/
+  联机指引）与**只读工具**；写操作确认清单暂不执行（`NovaToolRegistry`
+  的 `readOnlyOnly` 开关，后续补确认清单 UI）。
+- 未移植：实验室（deepslate 投影渲染）、插件市场
   （外部沙箱插件按 spec v3 决策暂缓）。
 
 ### 已知项

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:starcloud_launcher/bootstrap.dart';
 import 'package:starcloud_launcher/contracts/content.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/contracts/nova.dart';
 import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/contracts/skins.dart';
 import 'package:starcloud_launcher/shell/pages/account_detail_page.dart';
@@ -59,7 +60,22 @@ KernelDeps _deps(SkinManager skins, AccountStore accounts) => KernelDeps(
       multiplayer: _FakeMultiplayer(),
       content: _FakeContent(),
       skins: skins,
+      nova: _FakeNova(),
     );
+
+class _FakeNova implements NovaClient {
+  @override
+  Future<NovaConfig> config() async => const NovaConfig();
+  @override
+  Future<NovaConfig> saveConfig(NovaConfig config) async => config;
+  @override
+  Stream<NovaEvent> chat({
+    required String message,
+    List<NovaMessage> history = const [],
+    String? versionId,
+  }) =>
+      const Stream.empty();
+}
 
 class _FakeSkins implements SkinManager {
   final List<String> assigned = [];
