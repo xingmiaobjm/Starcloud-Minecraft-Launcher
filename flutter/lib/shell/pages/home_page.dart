@@ -28,6 +28,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   String? _selectedAccount;
   String? _loadError;
   String? _hint;
+  bool _loadingVersions = true;
 
   KernelDeps get _deps => ref.read(kernelDepsProvider);
 
@@ -49,6 +50,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         _versions = versions;
         _accounts = accounts;
         _loadError = null;
+        _loadingVersions = false;
         if (!versions.any((v) => v.id == _selectedVersion)) {
           // 优先选"最近启动的版本"（C# 在 launch.start 时记录）。
           final preferred = versions.where((v) => v.isDefault);
@@ -63,7 +65,10 @@ class _HomePageState extends ConsumerState<HomePage> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _loadError = '读取已安装版本失败：$e');
+      setState(() {
+        _loadingVersions = false;
+        _loadError = '读取已安装版本失败：$e';
+      });
     }
   }
 
@@ -95,68 +100,16 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final typography = FluentTheme.of(context).typography;
+    final theme = FluentTheme.of(context);
+    final typography = theme.typography;
     final session = ref.watch(gameSessionProvider);
-    final status = session.status ?? _hint;
+
     return ScaffoldPage(
       header: const PageHeader(title: Text('首页')),
       content: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         children: [
-          Card(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('启动', style: typography.subtitle),
-                const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                    child: InfoLabel(
-                      label: '版本',
-                      child: ComboBox<String>(
-                        value: _selectedVersion,
-                        items: [
-                          for (final v in _versions)
-                            ComboBoxItem(value: v.id, child: Text(v.id)),
-                        ],
-                        onChanged: (v) => setState(() => _selectedVersion = v),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: InfoLabel(
-                      label: '账户',
-                      child: ComboBox<String>(
-                        value: _selectedAccount,
-                        items: [
-                          for (final a in _accounts)
-                            ComboBoxItem(value: a.uuid, child: Text(a.name)),
-                        ],
-                        onChanged: (v) => setState(() => _selectedAccount = v),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  FilledButton(
-                    onPressed: session.launching ? null : _launch,
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                      child: Text(
-                          session.launching ? '启动中…' : '启动游戏',
-                          style: typography.bodyStrong),
-                    ),
-                  ),
-                ]),
-                if (status != null) ...[
-                  const SizedBox(height: 10),
-                  Text(status, style: typography.caption),
-                ],
-              ],
-            ),
-          ),
+          _launchCard(theme, typography, session),
           if (_loadError != null) ...[
             const SizedBox(height: 12),
             InfoBar(
@@ -164,38 +117,230 @@ class _HomePageState extends ConsumerState<HomePage> {
               content: Text(_loadError!),
               severity: InfoBarSeverity.error,
               isLong: true,
+              action: Button(onPressed: _reload, child: const Text('重试')),
             ),
           ],
-          if (session.logs.isNotEmpty) ...[
+          if (_versions.isEmpty && !_loadingVersions && _loadError == null) ...[
             const SizedBox(height: 12),
-            Card(
-              padding: const EdgeInsets.all(12),
-              child: SizedBox(
-                height: 260,
-                child: SingleChildScrollView(
-                  reverse: true,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final line in session.logs)
-                        Text(line,
-                            style: typography.caption
-                                ?.copyWith(fontFamily: 'monospace')),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-          if (_versions.isEmpty) ...[
-            const SizedBox(height: 12),
-            const InfoBar(
-              title: Text('还没有已安装的版本'),
-              content: Text('去「下载」页选择一个版本安装；或把已有的 .minecraft 放到设置里指定的目录。'),
+            InfoBar(
+              title: const Text('还没有已安装的版本'),
+              content: const Text('去「下载」页选择一个版本安装；'
+                  '或把已有的 .minecraft 放到设置里指定的目录。'),
               severity: InfoBarSeverity.warning,
               isLong: true,
             ),
           ],
+          if (session.logs.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _logCard(session, typography),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── 启动卡 ──
+
+  Widget _launchCard(
+      FluentThemeData theme, Typography typography, GameSessionState session) {
+    final Color accent = theme.accentColor.normal;
+    return Card(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(FluentIcons.play_solid, color: accent, size: 18),
+            const SizedBox(width: 8),
+            Text('启动游戏', style: typography.subtitle),
+            const Spacer(),
+            Text(
+              '已装 ${_versions.length} 个版本 · ${_accounts.length} 个账户',
+              style: typography.caption,
+            ),
+          ]),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: InfoLabel(
+                label: '游戏版本',
+                child: ComboBox<String>(
+                  value: _selectedVersion,
+                  items: [
+                    for (final v in _versions)
+                      ComboBoxItem(value: v.id, child: Text(v.id)),
+                  ],
+                  onChanged: (v) => setState(() => _selectedVersion = v),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: InfoLabel(
+                label: '游戏账户',
+                child: ComboBox<String>(
+                  value: _selectedAccount,
+                  items: [
+                    for (final a in _accounts)
+                      ComboBoxItem(value: a.uuid, child: Text(a.name)),
+                  ],
+                  onChanged: (v) => setState(() => _selectedAccount = v),
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: _statusLine(session, typography, accent),
+            ),
+            const SizedBox(width: 16),
+            _launchButton(session, typography),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusLine(GameSessionState session, Typography typography,
+      Color accent) {
+    final status = session.status ?? _hint;
+    if (status == null) {
+      return Text('选择版本与账户后即可启动',
+          style: typography.caption?.copyWith(
+              color: FluentTheme.of(context)
+                  .resources
+                  .textFillColorSecondary));
+    }
+    final running = session.pid != null && session.status!.startsWith('游戏运行中');
+    final dotColor = session.launching
+        ? const Color(0xFFE8B31A)
+        : running
+            ? const Color(0xFF3FBF6F)
+            : (session.status!.startsWith('启动失败') ||
+                    session.status!.startsWith('游戏进程异常') ||
+                    session.status!.startsWith('日志流中断'))
+                ? const Color(0xFFE04B4B)
+                : FluentTheme.of(context)
+                    .resources
+                    .textFillColorSecondary;
+    return Row(children: [
+      Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          status,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: typography.body,
+        ),
+      ),
+    ]);
+  }
+
+  Widget _launchButton(GameSessionState session, Typography typography) {
+    final launching = session.launching;
+    final running = session.pid != null;
+    return SizedBox(
+      height: 40,
+      child: FilledButton(
+        onPressed: launching || running ? null : _launch,
+        child: launching
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: ProgressRing(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text('启动中…', style: typography.bodyStrong),
+              ])
+            : Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(FluentIcons.play_solid, size: 14),
+                const SizedBox(width: 8),
+                Text(running ? '游戏运行中' : '启动游戏',
+                    style: typography.bodyStrong),
+              ]),
+      ),
+    );
+  }
+
+  // ── 日志卡 ──
+
+  Widget _logCard(GameSessionState session, Typography typography) {
+    final running = session.pid != null;
+    final dotColor = running ? const Color(0xFF3FBF6F) : const Color(0xFF8A8A8A);
+    return Card(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            child: Row(children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration:
+                    BoxDecoration(color: dotColor, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              Text('运行日志', style: typography.subtitle),
+              const Spacer(),
+              if (session.pid != null)
+                Text('pid ${session.pid}', style: typography.caption),
+              if (session.logs.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                Button(
+                  onPressed: () => ref
+                      .read(gameSessionProvider.notifier)
+                      .clearLogs(),
+                  child: const Text('清空'),
+                ),
+              ],
+            ]),
+          ),
+          Container(
+            height: 1,
+            color: FluentTheme.of(context)
+                .resources
+                .cardStrokeColorDefault,
+          ),
+          Container(
+            height: 300,
+            color: FluentTheme.of(context)
+                .resources
+                .controlFillColorDisabled,
+            child: session.logs.isEmpty
+                ? Center(
+                    child: Text('暂无日志', style: typography.caption),
+                  )
+                : SingleChildScrollView(
+                    reverse: true,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final line in session.logs)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 1),
+                            child: SelectableText(
+                              line,
+                              style: typography.caption?.copyWith(
+                                fontFamily: 'monospace',
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
         ],
       ),
     );
