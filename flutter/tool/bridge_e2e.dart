@@ -201,6 +201,27 @@ Future<void> main(List<String> args) async {
 
       await nova.saveConfig(const NovaConfig());
       stdout.writeln('[nova] config cleared');
+
+      // 写操作确认清单：本地路由生成计划 → 用户确认 → 执行。
+      NovaDone? planDone;
+      await for (final event in nova.chat(
+        message: '帮我调一下优化配置',
+        versionId: version,
+      )) {
+        if (event is NovaDelta) {
+          stdout.writeln('[nova] plan delta: ${event.text}');
+        } else if (event is NovaDone) {
+          planDone = event;
+        }
+      }
+      stdout.writeln('[nova] plan: id=${planDone?.planId} '
+          'title=${planDone?.planTitle} items=${planDone?.plan.length}');
+      if (planDone?.planId != null) {
+        final result = await nova.executePlan(planDone!.planId!);
+        stdout.writeln('[nova] executed: $result');
+        await settings.refresh();
+        stdout.writeln('[nova] memory after plan: ${settings.memoryMb()} MB');
+      }
     }
 
     if (mode == 'version') {

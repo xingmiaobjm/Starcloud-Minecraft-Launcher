@@ -54,6 +54,8 @@ class BridgeNova implements NovaClient {
               controller.add(NovaDone(
                 text: event.params['text'] as String? ?? '',
                 fromCloud: event.params['fromCloud'] == true,
+                planId: event.params['planId'] as String?,
+                planTitle: event.params['planTitle'] as String?,
                 plan: _planFrom(event.params['plan']),
               ));
               unawaited(finish());
@@ -88,6 +90,24 @@ class BridgeNova implements NovaClient {
       },
     );
     return controller.stream;
+  }
+
+  @override
+  Future<String> executePlan(String planId) async {
+    final result = await _bridge.requestWithTimeout(
+      'nova.plan.execute',
+      {'id': planId},
+      const Duration(minutes: 5),
+    );
+    if (result is Map<String, Object?>) {
+      return result['message'] as String? ?? '已执行';
+    }
+    return '已执行';
+  }
+
+  @override
+  Future<void> discardPlan(String planId) async {
+    await _bridge.request('nova.plan.discard', {'id': planId});
   }
 
   static NovaConfig _configFrom(Object? raw) {

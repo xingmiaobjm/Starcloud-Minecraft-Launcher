@@ -75,6 +75,10 @@ class _FakeNova implements NovaClient {
     String? versionId,
   }) =>
       const Stream.empty();
+  @override
+  Future<String> executePlan(String planId) async => '';
+  @override
+  Future<void> discardPlan(String planId) async {}
 }
 
 class _FakeSkins implements SkinManager {

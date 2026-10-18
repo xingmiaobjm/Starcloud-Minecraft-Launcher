@@ -109,6 +109,8 @@ class _NovaPageState extends ConsumerState<NovaPage> {
           if (event.text.isNotEmpty) assistant.text = event.text;
           assistant.streaming = false;
           assistant.plan = event.plan;
+          assistant.planId = event.planId;
+          assistant.planTitle = event.planTitle;
           _busy = false;
           _tool = null;
         });
@@ -141,6 +143,41 @@ class _NovaPageState extends ConsumerState<NovaPage> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  Future<void> _executePlan(_ChatMessage message) async {
+    final planId = message.planId;
+    if (planId == null) return;
+    setState(() {
+      message.planBusy = true;
+      _error = null;
+    });
+    try {
+      final result = await _nova.executePlan(planId);
+      if (!mounted) return;
+      setState(() {
+        message.planResult = result;
+        message.planId = null;
+        message.planBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        message.planBusy = false;
+        message.planResult = '执行失败：$e';
+      });
+    }
+  }
+
+  Future<void> _discardPlan(_ChatMessage message) async {
+    final planId = message.planId;
+    if (planId == null) return;
+    setState(() => message.planId = null);
+    try {
+      await _nova.discardPlan(planId);
+    } catch (_) {
+      // 清单过期时丢弃失败无需打扰用户
+    }
   }
 
   @override
@@ -281,8 +318,8 @@ class _NovaPageState extends ConsumerState<NovaPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('建议操作（只读模式未执行）',
-                        style: typography.caption),
+                    Text(message.planTitle ?? '建议操作',
+                        style: typography.bodyStrong),
                     const SizedBox(height: 4),
                     for (final item in message.plan)
                       Padding(
@@ -290,6 +327,26 @@ class _NovaPageState extends ConsumerState<NovaPage> {
                         child: Text('• ${item.title}：${item.detail}',
                             style: typography.caption),
                       ),
+                    if (message.planResult != null) ...[
+                      const SizedBox(height: 6),
+                      Text(message.planResult!, style: typography.caption),
+                    ] else if (message.planId != null) ...[
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        FilledButton(
+                          onPressed: message.planBusy || _busy
+                              ? null
+                              : () => _executePlan(message),
+                          child: Text(message.planBusy ? '执行中…' : '执行'),
+                        ),
+                        const SizedBox(width: 8),
+                        Button(
+                          onPressed:
+                              message.planBusy ? null : () => _discardPlan(message),
+                          child: const Text('取消'),
+                        ),
+                      ]),
+                    ],
                   ],
                 ),
               ),
@@ -309,6 +366,10 @@ class _ChatMessage {
   bool streaming;
   String? error;
   List<NovaPlanItem> plan = const [];
+  String? planId;
+  String? planTitle;
+  bool planBusy = false;
+  String? planResult;
 }
 
 /// 自接模型配置（OpenAI 兼容端点）。

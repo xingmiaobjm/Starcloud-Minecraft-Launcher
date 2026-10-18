@@ -38,12 +38,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(nova.saved.single.baseUrl, 'http://127.0.0.1:1234/v1');
     expect(nova.saved.single.model, 'local-model');
+
+    // 确认清单：模型给出计划 → 用户点执行 → 返回执行结果。
+    await tester.enterText(find.byType(TextBox), '帮我调一下优化配置');
+    await tester.tap(find.text('发送'));
+    await tester.pumpAndSettle();
+    expect(find.text('配置推荐'), findsOneWidget);
+    expect(find.textContaining('最大内存'), findsOneWidget);
+    await tester.tap(find.text('执行'));
+    await tester.pumpAndSettle();
+    expect(nova.executed, ['p1']);
+    expect(find.text('已执行测试计划'), findsOneWidget);
   });
 }
 
 class _ScriptedNova implements NovaClient {
   NovaConfig _config = const NovaConfig();
   final List<NovaConfig> saved = [];
+  final List<String> executed = [];
 
   @override
   Future<NovaConfig> config() async => _config;
@@ -61,9 +73,30 @@ class _ScriptedNova implements NovaClient {
     List<NovaMessage> history = const [],
     String? versionId,
   }) async* {
+    if (message.contains('优化')) {
+      yield const NovaDelta('推荐配置如下：');
+      yield const NovaDone(
+        text: '推荐配置如下：',
+        planId: 'p1',
+        planTitle: '配置推荐',
+        plan: [
+          NovaPlanItem(title: '最大内存 4096 → 8192 MB', detail: '按物理内存的一半'),
+        ],
+      );
+      return;
+    }
     yield const NovaTool('diagnose_version');
     yield const NovaDelta('体检完成：');
     yield const NovaDelta('一切正常。');
     yield const NovaDone(text: '体检完成：一切正常。');
   }
+
+  @override
+  Future<String> executePlan(String planId) async {
+    executed.add(planId);
+    return '已执行测试计划';
+  }
+
+  @override
+  Future<void> discardPlan(String planId) async {}
 }

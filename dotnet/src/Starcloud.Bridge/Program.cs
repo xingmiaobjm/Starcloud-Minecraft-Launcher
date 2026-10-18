@@ -42,6 +42,7 @@ public static class Program
     private static NovaService _nova = null!;
     private static Task? _novaTask;
     private static readonly object NovaGate = new();
+    private static readonly ConcurrentDictionary<string, NovaPlan> PendingNovaPlans = new();
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
     private static Task? _installTask;
@@ -119,7 +120,7 @@ public static class Program
             SaveLibrary = _saveLibrary,
             Multiplayer = _multiplayer,
             Translation = translation,
-        }, readOnlyOnly: true);
+        }, readOnlyOnly: false);
         _nova = new NovaService(
             _modrinth, diagnostics, conflicts,
             novaPermissions, novaLog, novaMoments, novaInvites, _saves,
@@ -244,7 +245,8 @@ public static class Program
             or "multiplayer.logs" or "multiplayer.nodes"
             or "content.search" or "content.install"
             or "version.checkUpdates" or "version.updateMod" or "version.checkDependencies"
-            or "skins.importUrl" or "skins.station.list" or "skins.station.apply";
+            or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
+            or "nova.plan.execute";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
     private static void StartParentWatchdog()
@@ -924,6 +926,22 @@ public static class Program
                 }
                 _settings.Save();
                 return new { baseUrl, apiKey, model };
+            }
+
+            case "nova.plan.execute":
+            {
+                var planId = p.GetProperty("id").GetString()!;
+                if (!PendingNovaPlans.TryRemove(planId, out var plan))
+                    throw new Exception("确认清单已失效，请重新生成");
+                var message = await plan.ExecuteAsync(CancellationToken.None);
+                return new { ok = true, message };
+            }
+
+            case "nova.plan.discard":
+            {
+                var planId = p.GetProperty("id").GetString()!;
+                PendingNovaPlans.TryRemove(planId, out _);
+                return new { ok = true };
             }
 
             case "multiplayer.state":
@@ -1702,7 +1720,16 @@ public static class Program
             NovaReply? full = null;
             await foreach (var delta in _nova.ChatStreamAsync(
                                message, _settings, history,
-                               onFullReply: reply => full = reply,
+                               onFullReply: reply =>
+                               {
+                                   full = reply;
+                                   if (reply.Plan is { } plan)
+                                   {
+                                       if (PendingNovaPlans.Count > 20)
+                                           PendingNovaPlans.Clear();
+                                       PendingNovaPlans[plan.Id] = plan;
+                                   }
+                               },
                                onToolStarted: tool =>
                                    Emit(stdout, "nova.tool", new { tool })))
             {
@@ -1715,6 +1742,8 @@ public static class Program
             {
                 text,
                 fromCloud = full?.FromCloud ?? false,
+                planId = full?.Plan?.Id,
+                planTitle = full?.Plan?.Title,
                 plan = full?.Plan?.Items.Select(i => new { i.Title, i.Detail }),
             });
             Reply(stdout, id, ok: true, result: new { ok = true });

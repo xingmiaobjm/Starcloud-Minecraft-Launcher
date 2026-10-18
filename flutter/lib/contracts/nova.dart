@@ -45,13 +45,17 @@ class NovaDone extends NovaEvent {
   const NovaDone({
     required this.text,
     this.fromCloud = false,
+    this.planId,
+    this.planTitle,
     this.plan = const [],
   });
 
   final String text;
   final bool fromCloud;
 
-  /// 非空 = 模型给出了需要确认的操作清单（最小实现只展示，不执行）。
+  /// 非空 = 有需要用户确认的操作清单；执行时用这个 id。
+  final String? planId;
+  final String? planTitle;
   final List<NovaPlanItem> plan;
 }
 
@@ -72,4 +76,10 @@ abstract class NovaClient {
     List<NovaMessage> history = const [],
     String? versionId,
   });
+
+  /// 执行确认清单（用户点头后调用）；返回可展示的执行结果。
+  Future<String> executePlan(String planId);
+
+  /// 放弃确认清单。
+  Future<void> discardPlan(String planId);
 }
