@@ -1,0 +1,50 @@
+# electron-builder 打包配置（electron-builder.yml）
+# - linux: deb（apt 安装）与 AppImage（免安装）双格式
+# - bridge-linux-x64 是 C# 宿主；缺失时启动器会给出可执行的构建命令
+appId: com.starcloud.launcher
+productName: Starcloud Launcher
+copyright: Copyright © 2026 Starcloud
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: ../bridge-linux-x64
+    to: bridge-linux-x64
+    filter:
+      - '**/*'
+
+linux:
+  target:
+    - target: deb
+      arch: [x64]
+    - target: AppImage
+      arch: [x64]
+  category: Game
+  icon: build/icon.png
+  synopsis: Starcloud Minecraft Launcher
+  desktop:
+    entry:
+      Name: Starcloud Launcher
+      Categories: Game;
+      MimeType: x-scheme-handler/starcloud;
+
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+
+npmRebuild: false
+buildDependenciesFromSource: false

@@ -1,6 +1,6 @@
 /// 通用 UI 原子：页面骨架、空态、Toast、进度条、加载骨架屏。
 /// 所有页面共用，保证视觉与动效一致。
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Card,
   MessageBar,
@@ -280,6 +280,79 @@ export function injectKeyframes() {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,194,31,0.35); }
   50%      { box-shadow: 0 0 0 6px rgba(255,194,31,0); }
 }
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50%      { transform: scale(1.05); opacity: 1; }
+}
 `
   document.head.appendChild(style)
+}
+
+/** 暗色滚动条 + 键盘焦点可见（Fluent 默认滚动条在暗色下偏亮）。 */
+export function injectGlobalStyle() {
+  if (document.getElementById('starcloud-global')) return
+  const style = document.createElement('style')
+  style.id = 'starcloud-global'
+  style.textContent = `
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.14);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); background-clip: content-box; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
+button:focus-visible, [role='button']:focus-visible {
+  outline: 2px solid rgba(255,194,31,0.75);
+  outline-offset: 2px;
+}
+`
+  document.head.appendChild(style)
+}
+
+/** 页面级错误边界：某个页渲染炸了不至于白屏。 */
+export class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; label: string },
+  { error?: Error }
+> {
+  constructor(props: { children: React.ReactNode; label: string }) {
+    super(props)
+    this.state = {}
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render(): React.ReactNode {
+    if (this.state.error !== undefined) {
+      return (
+        <div style={{ padding: '40px', textAlign: 'center' }}>
+          <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
+            {this.props.label} 页面出错了
+          </div>
+          <div style={{ opacity: 0.7, fontSize: '12px', marginBottom: '16px' }}>
+            {String(this.state.error)}
+          </div>
+          <button
+            onClick={() => this.setState({ error: undefined })}
+            style={{
+              background: brandYellow,
+              color: '#1b1b1b',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '8px 18px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            重试
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }

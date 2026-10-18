@@ -24,7 +24,7 @@ import {
   SettingsRegular
 } from '@fluentui/react-icons'
 import { brandYellow, motion } from './theme'
-import { PageFade, injectKeyframes } from './ui'
+import { ErrorBoundary, PageFade, injectGlobalStyle, injectKeyframes } from './ui'
 import HomePage from './pages/Home'
 import VersionsPage from './pages/Versions'
 import DownloadPage from './pages/Download'
@@ -159,11 +159,50 @@ export default function App() {
 
   useEffect(() => {
     injectKeyframes()
+    injectGlobalStyle()
     void window.bridge.appVersion().then(setVersion).catch(() => setVersion(''))
+  }, [])
+
+  // Ctrl+1..9 / Ctrl+0 快速切页；Ctrl+R 刷新当前页数据由页面自行处理
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.ctrlKey && !e.metaKey) return
+      const order: PageKey[] = [
+        'home', 'versions', 'download', 'saves', 'multiplayer',
+        'lab', 'running', 'accounts', 'plugins', 'nova'
+      ]
+      if (e.key >= '1' && e.key <= '9') {
+        const target = order[Number(e.key) - 1]
+        if (target !== undefined) {
+          e.preventDefault()
+          setPage(target)
+        }
+      } else if (e.key === '0') {
+        e.preventDefault()
+        setPage('settings')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const top = useMemo(() => NAV.filter((n) => !n.footer), [])
   const footer = useMemo(() => NAV.filter((n) => n.footer), [])
+
+  const PAGE_LABEL: Record<PageKey, string> = {
+    home: '首页',
+    versions: '版本',
+    download: '下载',
+    saves: '存档',
+    multiplayer: '联机',
+    lab: '实验室',
+    running: '运行状态',
+    accounts: '账户',
+    plugins: '插件',
+    nova: 'Nova',
+    logs: '启动器日志',
+    settings: '设置'
+  }
 
   const renderPage = () => {
     switch (page) {
@@ -215,7 +254,7 @@ export default function App() {
         onMouseLeave={() => setHovered(null)}
       >
         <span style={{ display: 'flex', fontSize: '16px' }}>{entry.icon}</span>
-        {entry.label}
+        <span style={{ flex: 1, textAlign: 'left' }}>{entry.label}</span>
         {entry.key === 'running' && session.pid !== undefined && (
           <Badge appearance="filled" color="success" size="tiny" />
         )}
@@ -241,7 +280,9 @@ export default function App() {
         <div className={styles.navList}>{footer.map(item)}</div>
       </nav>
       <main className={styles.content}>
-        <PageFade keyId={page}>{renderPage()}</PageFade>
+        <ErrorBoundary key={page} label={PAGE_LABEL[page]}>
+          <PageFade keyId={page}>{renderPage()}</PageFade>
+        </ErrorBoundary>
       </main>
     </div>
   )

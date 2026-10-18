@@ -128,3 +128,8 @@ electron/dist/
 /src-tauri/target/
 /web/
 *.csproj.bak
+
+# electron 打包产物（可随时重建）
+electron/release/
+electron/out/
+electron/build/icon.png

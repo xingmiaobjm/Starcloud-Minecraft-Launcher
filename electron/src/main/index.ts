@@ -104,14 +104,18 @@ function createWindow(): void {
     height: 900,
     minWidth: 1100,
     minHeight: 720,
+    show: false,
     backgroundColor: '#1b1b1b',
     title: 'Starcloud Launcher',
+    icon: path.join(__dirname, '../../build/icon.png'),
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   })
+  mainWindow.once('ready-to-show', () => mainWindow?.show())
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) mainWindow.loadURL(devUrl)
   else mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
