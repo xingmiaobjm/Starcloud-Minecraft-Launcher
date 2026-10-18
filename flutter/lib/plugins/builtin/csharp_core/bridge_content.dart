@@ -21,6 +21,111 @@ class BridgeContentManager implements ContentManager {
   }
 
   @override
+  Future<VersionSettings> settings(String versionId) async {
+    final result = await _bridge.request(
+      'version.settings',
+      {'versionId': versionId},
+    );
+    return _settingsFrom(result);
+  }
+
+  @override
+  Future<VersionSettings> saveSettings(
+    String versionId,
+    Map<String, Object?> patch,
+  ) async {
+    final result = await _bridge.request(
+      'version.saveSettings',
+      {'versionId': versionId, ...patch},
+    );
+    return _settingsFrom(result);
+  }
+
+  @override
+  Future<List<ContentUpdate>> checkUpdates(String versionId) async {
+    final result = await _bridge.requestWithTimeout(
+      'version.checkUpdates',
+      {'versionId': versionId},
+      const Duration(minutes: 5),
+    );
+    if (result is! Map<String, Object?>) return const [];
+    final list = result['updates'];
+    if (list is! List<Object?>) return const [];
+    final out = <ContentUpdate>[];
+    for (final item in list) {
+      if (item is! Map<String, Object?>) continue;
+      final fileName = item['fileName'] as String?;
+      if (fileName == null || fileName.isEmpty) continue;
+      out.add(ContentUpdate(
+        fileName: fileName,
+        currentVersion: item['currentVersion'] as String? ?? '',
+        latestVersion: item['latestVersion'] as String? ?? '',
+        latestFileName: item['latestFileName'] as String? ?? fileName,
+        latestUrl: item['latestUrl'] as String?,
+      ));
+    }
+    return out;
+  }
+
+  @override
+  Future<String> updateMod(String versionId, String fileName) async {
+    final result = await _bridge.requestWithTimeout(
+      'version.updateMod',
+      {'versionId': versionId, 'fileName': fileName},
+      const Duration(minutes: 5),
+    );
+    if (result is Map<String, Object?>) {
+      return result['fileName'] as String? ?? fileName;
+    }
+    return fileName;
+  }
+
+  @override
+  Future<DependencyReport> checkDependencies(String versionId) async {
+    final result = await _bridge.requestWithTimeout(
+      'version.checkDependencies',
+      {'versionId': versionId},
+      const Duration(minutes: 5),
+    );
+    if (result is! Map<String, Object?>) return const DependencyReport();
+    final missing = <MissingDependencyInfo>[];
+    final missingRaw = result['missing'];
+    if (missingRaw is List<Object?>) {
+      for (final item in missingRaw) {
+        if (item is! Map<String, Object?>) continue;
+        final projectId = item['projectId'] as String?;
+        if (projectId == null || projectId.isEmpty) continue;
+        missing.add(MissingDependencyInfo(
+          projectId: projectId,
+          title: item['title'] as String? ?? projectId,
+          versionId: item['versionId'] as String?,
+          fileName: item['fileName'] as String?,
+        ));
+      }
+    }
+    final optionalRaw = result['optional'];
+    final incompatibleRaw = result['incompatible'];
+    return DependencyReport(
+      missing: missing,
+      optional: optionalRaw is List<Object?>
+          ? [
+              for (final item in optionalRaw)
+                if (item is Map<String, Object?> &&
+                    item['projectId'] is String)
+                  item['projectId'] as String,
+            ]
+          : const [],
+      incompatible: incompatibleRaw is List<Object?>
+          ? incompatibleRaw.whereType<String>().toList()
+          : const [],
+      truncated: result['truncated'] == true,
+      checkedMods: (result['checkedMods'] as num?)?.toInt() ?? 0,
+      resolvedMods: (result['resolvedMods'] as num?)?.toInt() ?? 0,
+      inspectedVersions: (result['inspectedVersions'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
   Future<List<ContentFile>> toggle(
     String versionId,
     ContentKind kind,
@@ -133,6 +238,42 @@ class BridgeContentManager implements ContentManager {
       await sub.cancel();
     }
   }
+
+  static VersionSettings _settingsFrom(Object? raw) {
+    final map = raw is Map<String, Object?> ? raw : const <String, Object?>{};
+    final eff = map['effective'] is Map<String, Object?>
+        ? map['effective'] as Map<String, Object?>
+        : const <String, Object?>{};
+    return VersionSettings(
+      versionId: map['versionId'] as String? ?? '',
+      isolation: map['isolation'] as String?,
+      memoryMode: map['memoryMode'] as String? ?? 'global',
+      memoryMinMb: (map['memoryMinMb'] as num?)?.toInt(),
+      memoryMaxMb: (map['memoryMaxMb'] as num?)?.toInt(),
+      javaMode: map['javaMode'] as String? ?? 'global',
+      javaPath: map['javaPath'] as String?,
+      windowMode: map['windowMode'] as String? ?? 'global',
+      windowWidth: (map['windowWidth'] as num?)?.toInt(),
+      windowHeight: (map['windowHeight'] as num?)?.toInt(),
+      fullscreen: map['fullscreen'] as bool?,
+      serverAddress: map['serverAddress'] as String?,
+      extraJvmArgs: _stringList(map['extraJvmArgs']),
+      extraGameArgs: _stringList(map['extraGameArgs']),
+      effective: EffectiveInstanceSettings(
+        gameRoot: eff['gameRoot'] as String? ?? '',
+        isolated: eff['isolated'] == true,
+        minMem: (eff['minMem'] as num?)?.toInt() ?? 0,
+        maxMem: (eff['maxMem'] as num?)?.toInt() ?? 0,
+        java: eff['java'] as String?,
+        windowW: (eff['windowW'] as num?)?.toInt(),
+        windowH: (eff['windowH'] as num?)?.toInt(),
+        fullscreen: eff['fullscreen'] as bool?,
+      ),
+    );
+  }
+
+  static List<String> _stringList(Object? raw) =>
+      raw is List<Object?> ? raw.whereType<String>().toList() : const [];
 
   static VersionContent _contentFrom(Object? raw) {
     final map = raw is Map<String, Object?> ? raw : const <String, Object?>{};

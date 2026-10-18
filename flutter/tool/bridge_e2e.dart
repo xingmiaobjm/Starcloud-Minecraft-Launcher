@@ -170,6 +170,97 @@ Future<void> main(List<String> args) async {
           '${store.accounts().map((a) => a.name).join(', ')}');
     }
 
+    if (mode == 'version') {
+      final content = BridgeContentManager(bridge);
+      var settings = await content.settings(version);
+      stdout.writeln('[ver] initial isolation=${settings.isolation} '
+          'mem=${settings.memoryMode} eff=${settings.effective.minMem}-'
+          '${settings.effective.maxMem}');
+
+      settings = await content.saveSettings(version, {
+        'isolation': 'shared',
+        'memoryMode': 'manual',
+        'memoryMinMb': 1024,
+        'memoryMaxMb': 6144,
+        'windowMode': 'manual',
+        'windowWidth': 1280,
+        'windowHeight': 720,
+      });
+      stdout.writeln('[ver] saved isolation=${settings.isolation} '
+          'mem=${settings.memoryMode} ${settings.memoryMinMb}-${settings.memoryMaxMb} '
+          'window=${settings.windowWidth}x${settings.windowHeight} '
+          'eff=${settings.effective.minMem}-${settings.effective.maxMem} '
+          'root=${settings.effective.gameRoot}');
+
+      // 恢复跟随全局，避免影响后续启动 E2E。
+      await content.saveSettings(version, {
+        'isolation': null,
+        'memoryMode': 'global',
+        'memoryMinMb': null,
+        'memoryMaxMb': null,
+        'javaMode': 'global',
+        'javaPath': null,
+        'windowMode': 'global',
+        'windowWidth': null,
+        'windowHeight': null,
+        'fullscreen': null,
+      });
+
+      final updates = await content.checkUpdates(version);
+      stdout.writeln('[ver] updates: ${updates.length}');
+      var deps = await content.checkDependencies(version);
+      stdout.writeln('[ver] deps: missing=${deps.missing.length} '
+          'incompatible=${deps.incompatible.length}');
+
+      // 装一个真实模组（Fabric API），验证依赖报告，然后清理。
+      final result = await content.install(
+        kind: ContentKind.mod,
+        projectId: 'P7dR8mSH',
+        title: 'Fabric API',
+        targetVersionId: version,
+      );
+      stdout.writeln('[ver] installed mod: '
+          '${result.installed.map((i) => i.fileName).join(', ')} '
+          'missing=${result.missing.length}');
+      deps = await content.checkDependencies(version);
+      stdout.writeln('[ver] deps after install: '
+          'missing=${deps.missing.map((m) => m.title).join(', ')} '
+          'incompatible=${deps.incompatible.join(', ')}');
+      for (final installed in result.installed) {
+        await content.delete(version, ContentKind.mod, installed.fileName);
+      }
+      stdout.writeln('[ver] cleanup done');
+
+      // 依赖报告：装 Sodium Extra（会自动带上 Sodium），再删掉 Sodium，
+      // 检查器应报告缺失的必需依赖。
+      final extra = await content.install(
+        kind: ContentKind.mod,
+        projectId: 'PtjYWJkn',
+        title: 'Sodium Extra',
+        targetVersionId: version,
+      );
+      stdout.writeln('[ver] sodium extra: '
+          '${extra.installed.map((i) => '${i.title}/${i.fileName}').join(', ')}');
+      for (final installed in extra.installed) {
+        if (installed.projectId == 'AANobbMI') {
+          await content.delete(version, ContentKind.mod, installed.fileName);
+        }
+      }
+      deps = await content.checkDependencies(version);
+      stdout.writeln('[ver] deps after removing Sodium: '
+          'missing=${deps.missing.map((m) => m.title).join(', ')} '
+          'checked=${deps.checkedMods} resolved=${deps.resolvedMods} '
+          'inspected=${deps.inspectedVersions}');
+      for (final installed in extra.installed) {
+        try {
+          await content.delete(version, ContentKind.mod, installed.fileName);
+        } catch (_) {
+          // 已在上一步删除的 Sodium 忽略
+        }
+      }
+      stdout.writeln('[ver] dependency test cleanup done');
+    }
+
     if (mode == 'skins') {
       final store = BridgeAccountStore(bridge);
       await store.refresh();

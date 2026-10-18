@@ -122,7 +122,13 @@ public sealed class ModrinthService
         foreach (var chunk in sha1s.Chunk(100))
         {
             ct.ThrowIfCancellationRequested();
-            var body = JsonSerializer.Serialize(new { hashes = chunk, algorithm = "sha1" });
+            // Modrinth 的哈希是小写十六进制；本地 Convert.ToHexString 给的是大写，
+            // 直接发会被当成未知文件（version_files 返回空表）。
+            var body = JsonSerializer.Serialize(new
+            {
+                hashes = chunk.Select(h => h.ToLowerInvariant()).ToArray(),
+                algorithm = "sha1",
+            });
             var json = await _downloader.PostJsonAsync($"{ApiBase}/version_files", body, ct);
             var map = JsonSerializer.Deserialize<Dictionary<string, ModrinthVersion>>(json);
             if (map is null) continue;

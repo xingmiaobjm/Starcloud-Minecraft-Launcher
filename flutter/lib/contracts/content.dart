@@ -133,8 +133,151 @@ class ContentInstallResult {
   final List<MissingContent> missing;
 }
 
+/// 实例层叠后的生效值（只读展示）。
+class EffectiveInstanceSettings {
+  const EffectiveInstanceSettings({
+    required this.gameRoot,
+    required this.isolated,
+    required this.minMem,
+    required this.maxMem,
+    this.java,
+    this.windowW,
+    this.windowH,
+    this.fullscreen,
+  });
+
+  final String gameRoot;
+  final bool isolated;
+  final int minMem;
+  final int maxMem;
+  final String? java;
+  final int? windowW;
+  final int? windowH;
+  final bool? fullscreen;
+}
+
+/// 版本实例设置（档案原值；null/global 表示跟随全局）。
+class VersionSettings {
+  const VersionSettings({
+    required this.versionId,
+    this.isolation,
+    this.memoryMode = 'global',
+    this.memoryMinMb,
+    this.memoryMaxMb,
+    this.javaMode = 'global',
+    this.javaPath,
+    this.windowMode = 'global',
+    this.windowWidth,
+    this.windowHeight,
+    this.fullscreen,
+    this.serverAddress,
+    this.extraJvmArgs = const [],
+    this.extraGameArgs = const [],
+    required this.effective,
+  });
+
+  final String versionId;
+
+  /// null / shared / isolated
+  final String? isolation;
+
+  /// global / manual / auto
+  final String memoryMode;
+  final int? memoryMinMb;
+  final int? memoryMaxMb;
+
+  /// global / manual / auto
+  final String javaMode;
+  final String? javaPath;
+
+  /// global / manual / auto
+  final String windowMode;
+  final int? windowWidth;
+  final int? windowHeight;
+  final bool? fullscreen;
+  final String? serverAddress;
+  final List<String> extraJvmArgs;
+  final List<String> extraGameArgs;
+  final EffectiveInstanceSettings effective;
+}
+
+class ContentUpdate {
+  const ContentUpdate({
+    required this.fileName,
+    required this.currentVersion,
+    required this.latestVersion,
+    required this.latestFileName,
+    this.latestUrl,
+  });
+
+  final String fileName;
+  final String currentVersion;
+  final String latestVersion;
+  final String latestFileName;
+  final String? latestUrl;
+}
+
+class MissingDependencyInfo {
+  const MissingDependencyInfo({
+    required this.projectId,
+    required this.title,
+    this.versionId,
+    this.fileName,
+  });
+
+  final String projectId;
+  final String title;
+  final String? versionId;
+  final String? fileName;
+}
+
+class DependencyReport {
+  const DependencyReport({
+    this.missing = const [],
+    this.optional = const [],
+    this.incompatible = const [],
+    this.truncated = false,
+    this.checkedMods = 0,
+    this.resolvedMods = 0,
+    this.inspectedVersions = 0,
+  });
+
+  final List<MissingDependencyInfo> missing;
+
+  /// 可选依赖的项目 id（只做提示）。
+  final List<String> optional;
+
+  /// 已安装但不兼容的模组标题。
+  final List<String> incompatible;
+  final bool truncated;
+
+  /// 诊断：检查的 jar 数 / 成功识别身份的模组数 / 实际读到依赖清单的版本数。
+  final int checkedMods;
+  final int resolvedMods;
+  final int inspectedVersions;
+}
+
 abstract class ContentManager {
   Future<VersionContent> detail(String versionId);
+
+  /// 版本实例设置（档案原值 + 生效值）。
+  Future<VersionSettings> settings(String versionId);
+
+  /// 保存实例设置（patch 里只放要改的键；null 表示恢复跟随全局）。
+  Future<VersionSettings> saveSettings(
+    String versionId,
+    Map<String, Object?> patch,
+  );
+
+  /// 检查已装模组的 Modrinth 更新。
+  Future<List<ContentUpdate>> checkUpdates(String versionId);
+
+  /// 更新单个模组，返回新的文件名。
+  Future<String> updateMod(String versionId, String fileName);
+
+  /// 依赖完整性检查（缺失的必需依赖 / 不兼容项）。
+  Future<DependencyReport> checkDependencies(String versionId);
+
 
   /// 启用/停用（`.disabled` 后缀），返回该类别的最新文件列表。
   Future<List<ContentFile>> toggle(

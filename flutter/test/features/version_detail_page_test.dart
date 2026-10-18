@@ -47,6 +47,28 @@ void main() {
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
 
+    // 切回模组，验证更新/依赖/实例设置入口。
+    await tester.tap(find.text('模组'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('检查更新'));
+    await tester.tap(find.text('检查更新'));
+    await tester.pumpAndSettle();
+    expect(find.text('所有模组都是最新版本'), findsOneWidget);
+
+    await tester.tap(find.text('检查依赖'));
+    await tester.pumpAndSettle();
+    expect(find.text('依赖完整'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('实例设置'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('实例设置 · 1.20.4'), findsOneWidget);
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(content.savedPatches, hasLength(1));
+    expect(content.savedPatches.single['memoryMode'], 'global');
+
     await tester.tap(find.byIcon(FluentIcons.back));
     await tester.pumpAndSettle();
     expect(backed, isTrue);
@@ -92,6 +114,32 @@ class _FakeSkins implements SkinManager {
 }
 
 class _FakeContent implements ContentManager {
+  @override
+  Future<VersionSettings> settings(String versionId) async => VersionSettings(
+        versionId: versionId,
+        effective: const EffectiveInstanceSettings(
+          gameRoot: '/mc',
+          isolated: true,
+          minMem: 512,
+          maxMem: 4096,
+        ),
+      );
+  @override
+  Future<VersionSettings> saveSettings(
+    String versionId,
+    Map<String, Object?> patch,
+  ) async {
+    savedPatches.add(patch);
+    return settings(versionId);
+  }
+  @override
+  Future<List<ContentUpdate>> checkUpdates(String versionId) async => const [];
+  @override
+  Future<String> updateMod(String versionId, String fileName) async => fileName;
+  @override
+  Future<DependencyReport> checkDependencies(String versionId) async =>
+      const DependencyReport();
+
   List<ContentFile> mods = const [
     ContentFile(
       fileName: 'sodium.jar',
@@ -109,6 +157,7 @@ class _FakeContent implements ContentManager {
     ),
   ];
   final List<String> toggled = [];
+  final List<Map<String, Object?>> savedPatches = [];
 
   @override
   Future<VersionContent> detail(String versionId) async => VersionContent(

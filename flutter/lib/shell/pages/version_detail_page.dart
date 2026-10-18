@@ -163,6 +163,90 @@ class _VersionDetailPageState extends ConsumerState<VersionDetailPage> {
     }
   }
 
+  Future<void> _openSettings() async {
+    if (_content == null) return;
+    try {
+      final settings = await _manager.settings(widget.version.id);
+      if (!mounted) return;
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (context) => _InstanceSettingsDialog(
+          versionId: widget.version.id,
+          initial: settings,
+        ),
+      );
+      if (saved == true && mounted) {
+        setState(() => _notice = '实例设置已保存');
+        await _load();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '$e');
+    }
+  }
+
+  Future<void> _checkUpdates() async {
+    setState(() {
+      _busyFile = '__updates__';
+      _error = null;
+      _notice = null;
+    });
+    try {
+      final updates = await _manager.checkUpdates(widget.version.id);
+      if (!mounted) return;
+      if (updates.isEmpty) {
+        setState(() => _notice = '所有模组都是最新版本');
+        return;
+      }
+      final changed = await showDialog<bool>(
+        context: context,
+        builder: (context) => _UpdatesDialog(
+          versionId: widget.version.id,
+          updates: updates,
+          manager: _manager,
+        ),
+      );
+      if (changed == true && mounted) {
+        setState(() => _notice = '模组已更新');
+        await _load();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '检查更新失败：$e');
+    } finally {
+      if (mounted) setState(() => _busyFile = null);
+    }
+  }
+
+  Future<void> _checkDependencies() async {
+    setState(() {
+      _busyFile = '__deps__';
+      _error = null;
+      _notice = null;
+    });
+    try {
+      final report = await _manager.checkDependencies(widget.version.id);
+      if (!mounted) return;
+      final changed = await showDialog<bool>(
+        context: context,
+        builder: (context) => _DependencyDialog(
+          versionId: widget.version.id,
+          report: report,
+          manager: _manager,
+        ),
+      );
+      if (changed == true && mounted) {
+        setState(() => _notice = '缺失依赖已安装');
+        await _load();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '依赖检查失败：$e');
+    } finally {
+      if (mounted) setState(() => _busyFile = null);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
@@ -185,6 +269,11 @@ class _VersionDetailPageState extends ConsumerState<VersionDetailPage> {
         commandBar: CommandBar(
           mainAxisAlignment: MainAxisAlignment.end,
           primaryItems: [
+            CommandBarButton(
+              icon: const Icon(FluentIcons.settings),
+              label: const Text('实例设置'),
+              onPressed: content == null ? null : _openSettings,
+            ),
             CommandBarButton(
               icon: const Icon(FluentIcons.folder_open),
               label: const Text('打开目录'),
@@ -267,6 +356,19 @@ class _VersionDetailPageState extends ConsumerState<VersionDetailPage> {
                   ),
                 ],
               ),
+              if (_kind == ContentKind.mod) ...[
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  Button(
+                    onPressed: _busyFile != null ? null : _checkUpdates,
+                    child: const Text('检查更新'),
+                  ),
+                  Button(
+                    onPressed: _busyFile != null ? null : _checkDependencies,
+                    child: const Text('检查依赖'),
+                  ),
+                ]),
+              ],
               const SizedBox(height: 12),
               Expanded(child: _fileList(content, typography)),
             ],
@@ -557,6 +659,509 @@ class _ContentSearchDialogState extends ConsumerState<_ContentSearchDialog> {
           onPressed: () => Navigator.pop(context, _installed),
           child: Text(_installed ? '完成' : '关闭'),
         ),
+      ],
+    );
+  }
+}
+
+/// 实例参数编辑：隔离三态 + 内存/Java/窗口档位。
+class _InstanceSettingsDialog extends ConsumerStatefulWidget {
+  const _InstanceSettingsDialog({
+    required this.versionId,
+    required this.initial,
+  });
+
+  final String versionId;
+  final VersionSettings initial;
+
+  @override
+  ConsumerState<_InstanceSettingsDialog> createState() =>
+      _InstanceSettingsDialogState();
+}
+
+class _InstanceSettingsDialogState
+    extends ConsumerState<_InstanceSettingsDialog> {
+  late String _isolation = widget.initial.isolation ?? 'global';
+  late String _memoryMode = widget.initial.memoryMode;
+  late final _min = TextEditingController(
+      text: '${widget.initial.memoryMinMb ?? widget.initial.effective.minMem}');
+  late final _max = TextEditingController(
+      text: '${widget.initial.memoryMaxMb ?? widget.initial.effective.maxMem}');
+  late String _javaMode = widget.initial.javaMode;
+  late final _javaPath =
+      TextEditingController(text: widget.initial.javaPath ?? '');
+  late String _windowMode = widget.initial.windowMode;
+  late final _width = TextEditingController(
+      text: '${widget.initial.windowWidth ?? widget.initial.effective.windowW ?? 854}');
+  late final _height = TextEditingController(
+      text: '${widget.initial.windowHeight ?? widget.initial.effective.windowH ?? 480}');
+  late bool _fullscreen =
+      widget.initial.fullscreen ?? widget.initial.effective.fullscreen ?? false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _min.dispose();
+    _max.dispose();
+    _javaPath.dispose();
+    _width.dispose();
+    _height.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(kernelDepsProvider).content.saveSettings(
+        widget.versionId,
+        {
+          'isolation': _isolation == 'global' ? null : _isolation,
+          'memoryMode': _memoryMode,
+          'memoryMinMb':
+              _memoryMode == 'manual' ? int.tryParse(_min.text.trim()) : null,
+          'memoryMaxMb':
+              _memoryMode == 'manual' ? int.tryParse(_max.text.trim()) : null,
+          'javaMode': _javaMode,
+          'javaPath': _javaMode == 'manual' ? _javaPath.text.trim() : null,
+          'windowMode': _windowMode,
+          'windowWidth':
+              _windowMode == 'manual' ? int.tryParse(_width.text.trim()) : null,
+          'windowHeight': _windowMode == 'manual'
+              ? int.tryParse(_height.text.trim())
+              : null,
+          'fullscreen': _windowMode == 'manual' ? _fullscreen : null,
+        },
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = FluentTheme.of(context).typography;
+    final eff = widget.initial.effective;
+    return ContentDialog(
+      title: Text('实例设置 · ${widget.versionId}'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InfoLabel(
+                label: '版本隔离',
+                child: ComboBox<String>(
+                  value: _isolation,
+                  items: const [
+                    ComboBoxItem(value: 'global', child: Text('跟随全局')),
+                    ComboBoxItem(value: 'shared', child: Text('共享 .minecraft')),
+                    ComboBoxItem(value: 'isolated', child: Text('独立版本目录')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _isolation = v ?? 'global'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              InfoLabel(
+                label: '内存档位',
+                child: ComboBox<String>(
+                  value: _memoryMode,
+                  items: const [
+                    ComboBoxItem(value: 'global', child: Text('跟随全局')),
+                    ComboBoxItem(value: 'manual', child: Text('自定义')),
+                    ComboBoxItem(value: 'auto', child: Text('自动推荐')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _memoryMode = v ?? 'global'),
+                ),
+              ),
+              if (_memoryMode == 'manual')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(children: [
+                    Expanded(
+                      child: InfoLabel(
+                        label: '最小内存（MB）',
+                        child: TextBox(controller: _min),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InfoLabel(
+                        label: '最大内存（MB）',
+                        child: TextBox(controller: _max),
+                      ),
+                    ),
+                  ]),
+                ),
+              const SizedBox(height: 12),
+              InfoLabel(
+                label: 'Java 档位',
+                child: ComboBox<String>(
+                  value: _javaMode,
+                  items: const [
+                    ComboBoxItem(value: 'global', child: Text('跟随全局')),
+                    ComboBoxItem(value: 'manual', child: Text('自定义路径')),
+                    ComboBoxItem(value: 'auto', child: Text('按版本 JSON 推荐')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _javaMode = v ?? 'global'),
+                ),
+              ),
+              if (_javaMode == 'manual')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextBox(
+                    controller: _javaPath,
+                    placeholder: 'java 可执行文件绝对路径',
+                  ),
+                ),
+              const SizedBox(height: 12),
+              InfoLabel(
+                label: '窗口档位',
+                child: ComboBox<String>(
+                  value: _windowMode,
+                  items: const [
+                    ComboBoxItem(value: 'global', child: Text('跟随全局')),
+                    ComboBoxItem(value: 'manual', child: Text('自定义')),
+                    ComboBoxItem(value: 'auto', child: Text('854×480 窗口化')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _windowMode = v ?? 'global'),
+                ),
+              ),
+              if (_windowMode == 'manual')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(children: [
+                    Expanded(
+                      child: InfoLabel(
+                        label: '宽',
+                        child: TextBox(controller: _width),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InfoLabel(
+                        label: '高',
+                        child: TextBox(controller: _height),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Row(children: [
+                      Checkbox(
+                        checked: _fullscreen,
+                        onChanged: _busy
+                            ? null
+                            : (v) => setState(() => _fullscreen = v ?? false),
+                      ),
+                      const Text('全屏'),
+                    ]),
+                  ]),
+                ),
+              const SizedBox(height: 12),
+              Text(
+                '当前生效：内存 ${eff.minMem}–${eff.maxMem} MB'
+                ' · Java ${eff.java ?? '自动探测'}'
+                ' · 窗口 ${eff.windowW ?? 854}×${eff.windowH ?? 480}'
+                '${eff.fullscreen == true ? '（全屏）' : ''}',
+                style: typography.caption,
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                InfoBar(
+                  title: const Text('保存失败'),
+                  content: Text(_error!),
+                  severity: InfoBarSeverity.error,
+                  isLong: true,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        Button(
+          onPressed: _busy ? null : () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _save,
+          child: Text(_busy ? '保存中…' : '保存'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 模组更新列表。
+class _UpdatesDialog extends ConsumerStatefulWidget {
+  const _UpdatesDialog({
+    required this.versionId,
+    required this.updates,
+    required this.manager,
+  });
+
+  final String versionId;
+  final List<ContentUpdate> updates;
+  final ContentManager manager;
+
+  @override
+  ConsumerState<_UpdatesDialog> createState() => _UpdatesDialogState();
+}
+
+class _UpdatesDialogState extends ConsumerState<_UpdatesDialog> {
+  final Set<String> _done = {};
+  String? _busy;
+  String? _error;
+
+  Future<void> _update(ContentUpdate update) async {
+    setState(() {
+      _busy = update.fileName;
+      _error = null;
+    });
+    try {
+      await widget.manager.updateMod(widget.versionId, update.fileName);
+      if (!mounted) return;
+      setState(() => _done.add(update.fileName));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '${update.fileName}：$e');
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _updateAll() async {
+    for (final update in widget.updates) {
+      if (_done.contains(update.fileName)) continue;
+      await _update(update);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = FluentTheme.of(context).typography;
+    return ContentDialog(
+      title: Text('模组更新（${widget.updates.length}）'),
+      content: SizedBox(
+        width: 640,
+        height: 420,
+        child: Column(
+          children: [
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: InfoBar(
+                  title: const Text('更新失败'),
+                  content: Text(_error!),
+                  severity: InfoBarSeverity.error,
+                  isLong: true,
+                ),
+              ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: widget.updates.length,
+                itemBuilder: (context, index) {
+                  final update = widget.updates[index];
+                  final done = _done.contains(update.fileName);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Card(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      child: Row(children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(update.fileName,
+                                  style: typography.bodyStrong),
+                              Text(
+                                '${update.currentVersion} → ${update.latestVersion}',
+                                style: typography.caption,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Button(
+                          onPressed: done || _busy != null
+                              ? null
+                              : () => _update(update),
+                          child: Text(
+                            done
+                                ? '已更新'
+                                : (_busy == update.fileName ? '更新中…' : '更新'),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        Button(
+          onPressed: _busy != null
+              ? null
+              : () => Navigator.pop(context, _done.isNotEmpty),
+          child: const Text('关闭'),
+        ),
+        FilledButton(
+          onPressed: _busy != null || _done.length == widget.updates.length
+              ? null
+              : _updateAll,
+          child: const Text('全部更新'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 依赖完整性报告 + 一键安装缺失依赖。
+class _DependencyDialog extends ConsumerStatefulWidget {
+  const _DependencyDialog({
+    required this.versionId,
+    required this.report,
+    required this.manager,
+  });
+
+  final String versionId;
+  final DependencyReport report;
+  final ContentManager manager;
+
+  @override
+  ConsumerState<_DependencyDialog> createState() => _DependencyDialogState();
+}
+
+class _DependencyDialogState extends ConsumerState<_DependencyDialog> {
+  bool _busy = false;
+  bool _installed = false;
+  String? _stage;
+  String? _error;
+
+  Future<void> _installMissing() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      for (final dependency in widget.report.missing) {
+        if (!mounted) return;
+        setState(() => _stage = '安装 ${dependency.title}…');
+        await widget.manager.install(
+          kind: ContentKind.mod,
+          projectId: dependency.projectId,
+          title: dependency.title,
+          targetVersionId: widget.versionId,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _installed = true;
+        _stage = '已安装 ${widget.report.missing.length} 个依赖';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = FluentTheme.of(context).typography;
+    final report = widget.report;
+    final clean = report.missing.isEmpty && report.incompatible.isEmpty;
+    return ContentDialog(
+      title: const Text('依赖检查'),
+      content: SizedBox(
+        width: 640,
+        height: 420,
+        child: ListView(children: [
+          if (clean)
+            const InfoBar(
+              title: Text('依赖完整'),
+              content: Text('没有缺失的必需依赖，也没有已安装的不兼容模组。'),
+              severity: InfoBarSeverity.success,
+              isLong: true,
+            ),
+          if (report.missing.isNotEmpty) ...[
+            Text('缺失的必需依赖（${report.missing.length}）',
+                style: typography.subtitle),
+            const SizedBox(height: 8),
+            for (final dependency in report.missing)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Card(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text(dependency.title, style: typography.body),
+                ),
+              ),
+          ],
+          if (report.incompatible.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            InfoBar(
+              title: const Text('已安装但不兼容'),
+              content: Text(report.incompatible.join('、')),
+              severity: InfoBarSeverity.error,
+              isLong: true,
+            ),
+          ],
+          if (report.optional.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('可选依赖 ${report.optional.length} 个（未安装不影响启动）',
+                style: typography.caption),
+          ],
+          if (report.truncated) ...[
+            const SizedBox(height: 8),
+            Text('模组数量超过 200，只检查了前 200 个。',
+                style: typography.caption),
+          ],
+          if (_stage != null) ...[
+            const SizedBox(height: 8),
+            Text(_stage!, style: typography.caption),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            InfoBar(
+              title: const Text('安装失败'),
+              content: Text(_error!),
+              severity: InfoBarSeverity.error,
+              isLong: true,
+            ),
+          ],
+        ]),
+      ),
+      actions: [
+        Button(
+          onPressed: _busy ? null : () => Navigator.pop(context, _installed),
+          child: const Text('关闭'),
+        ),
+        if (report.missing.isNotEmpty)
+          FilledButton(
+            onPressed: _busy ? null : _installMissing,
+            child: Text(_busy ? '安装中…' : '安装缺失依赖'),
+          ),
       ],
     );
   }

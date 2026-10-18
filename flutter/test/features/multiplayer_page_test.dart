@@ -85,6 +85,30 @@ class _FakeSkins implements SkinManager {
 
 class _FakeContent implements ContentManager {
   @override
+  Future<VersionSettings> settings(String versionId) async => VersionSettings(
+        versionId: versionId,
+        effective: const EffectiveInstanceSettings(
+          gameRoot: '/mc',
+          isolated: true,
+          minMem: 512,
+          maxMem: 4096,
+        ),
+      );
+  @override
+  Future<VersionSettings> saveSettings(
+    String versionId,
+    Map<String, Object?> patch,
+  ) =>
+      settings(versionId);
+  @override
+  Future<List<ContentUpdate>> checkUpdates(String versionId) async => const [];
+  @override
+  Future<String> updateMod(String versionId, String fileName) async => fileName;
+  @override
+  Future<DependencyReport> checkDependencies(String versionId) async =>
+      const DependencyReport();
+
+  @override
   Future<VersionContent> detail(String versionId) async => VersionContent(
         versionId: versionId,
         gameRoot: '/mc',
