@@ -24,7 +24,7 @@ function bridgeCandidates(): string[] {
   return candidates.map((p) => path.normalize(p))
 }
 
-function startBridge(): ChildProcessWithoutTStreams {
+function startBridge(): ChildProcessWithoutNullStreams {
   const dll = bridgeCandidates().find((p) => fs.existsSync(p))
   if (!dll) {
     throw new Error(
@@ -73,6 +73,7 @@ function startBridge(): ChildProcessWithoutTStreams {
     for (const [, p] of pending) p.reject(new Error(`桥接进程退出（${code}）`))
     pending.clear()
   })
+  console.log('[bridge] started:', dll)
   return proc
 }
 

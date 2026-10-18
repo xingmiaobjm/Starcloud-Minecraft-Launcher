@@ -1,21 +1,27 @@
 import { useEffect, useState } from 'react'
 import {
+  Avatar,
   Button,
   Card,
+  Dropdown,
+  MessageBar,
+  Option,
   Text,
   makeStyles,
-  Dropdown,
-  Option,
-  Avatar,
   mergeClasses
 } from '@fluentui/react-components'
 import {
-  PlayRegular,
+  ArrowSyncRegular,
   DeleteRegular,
-  RefreshRegular
+  PlayRegular
 } from '@fluentui/react-icons'
 import { request, onBridgeEvent } from './bridge'
-import type { GameAccount, InstalledVersion } from './bridge'
+import type {
+  AccountList,
+  GameAccount,
+  InstalledVersion,
+  LaunchSession
+} from './bridge'
 
 interface SessionState {
   pid?: number
@@ -42,8 +48,7 @@ const useStyles = makeStyles({
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    minHeight: 0,
-    padding: '0'
+    minHeight: 0
   },
   cardHeader: {
     display: 'flex',
@@ -69,9 +74,6 @@ const useStyles = makeStyles({
     backgroundColor: 'rgba(255,194,31,0.14)',
     border: '1.2px solid #FFC21F'
   },
-  versionRowHover: {
-    backgroundColor: 'rgba(255,255,255,0.05)'
-  },
   versionIcon: {
     width: '36px',
     height: '36px',
@@ -79,7 +81,7 @@ const useStyles = makeStyles({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: 700,
+    fontWeight: 'bold',
     fontSize: '15px',
     flexShrink: 0
   },
@@ -109,8 +111,7 @@ const useStyles = makeStyles({
   logCard: {
     height: '220px',
     display: 'flex',
-    flexDirection: 'column',
-    padding: '0'
+    flexDirection: 'column'
   },
   logHeader: {
     display: 'flex',
@@ -125,7 +126,7 @@ const useStyles = makeStyles({
     fontFamily: 'monospace',
     fontSize: '11px',
     lineHeight: '1.45'
-  },
+  }
 })
 
 function tagFor(id: string): { label: string; color: string } {
@@ -202,10 +203,7 @@ export default function App() {
     onBridgeEvent((event, params) => {
       if (event === 'game.output') {
         const line = String(params.line ?? '')
-        setSession((s) => ({
-          ...s,
-          logs: [...s.logs, line].slice(-500)
-        }))
+        setSession((s) => ({ ...s, logs: [...s.logs, line].slice(-500) }))
       } else if (event === 'game.exited') {
         const code = Number(params.code ?? -1)
         setSession((s) => ({
@@ -217,40 +215,44 @@ export default function App() {
     })
   }, [])
 
-  const selectedAccount =
+  const currentAccount =
     accounts.find((a) => a.uuid === selectedAccount) ?? accounts[0]
+  const launchingNow = session.status === '启动中…'
+  const runningNow = session.pid !== undefined && session.pid > 0
 
   async function launch(): Promise<void> {
-    if (!selectedVersion || !selectedAccount) return
-    const account = accounts.find((a) => a.uuid === selectedAccount)
-    if (!account) return
+    if (!selectedVersion || !currentAccount) return
     setSession({ logs: [], status: '启动中…' })
     try {
-      const session = await request<LaunchSession>('launch.start', {
+      const launched = await request<LaunchSession>('launch.start', {
         versionId: selectedVersion,
-        playerName: account.name,
-        accountUuid: account.uuid
+        playerName: currentAccount.name,
+        accountUuid: currentAccount.uuid
       })
-      setSession({ pid: session.pid, logs: [], status: `游戏运行中（pid ${session.pid}）` })
+      setSession({
+        pid: launched.pid,
+        logs: [],
+        status: `游戏运行中（pid ${launched.pid}）`
+      })
     } catch (e) {
       setSession({ logs: [], status: `启动失败：${String(e)}` })
     }
   }
 
-  const tag = selectedVersion ? tagFor(selectedVersion) : null
-
   return (
     <div className={styles.root}>
       {error !== '' && (
         <Card>
-          <Text>出错了：{error}</Text>
+          <MessageBar intent="error">
+            <Text>出错了：{error}</Text>
+          </MessageBar>
         </Card>
       )}
       <div className={styles.columns}>
         {/* 左：已安装版本 */}
         <Card className={styles.versionsCard}>
           <div className={styles.cardHeader}>
-            <Text size={500} weight={600}>
+            <Text size={400} weight="semibold">
               已安装版本
             </Text>
             <Text size={200} style={{ opacity: 0.6 }}>
@@ -259,7 +261,7 @@ export default function App() {
             <div style={{ flex: 1 }} />
             <Button
               appearance="subtle"
-              icon={<RefreshRegular />}
+              icon={<ArrowSyncRegular />}
               onClick={() => window.location.reload()}
             />
           </div>
@@ -279,11 +281,6 @@ export default function App() {
                     styles.versionRow,
                     selected && styles.versionRowSelected
                   )}
-                  style={
-                    !selected
-                      ? { backgroundColor: 'transparent' }
-                      : undefined
-                  }
                   onClick={() => setSelectedVersion(version.id)}
                 >
                   <div
@@ -296,7 +293,7 @@ export default function App() {
                     {version.id[0]?.toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text weight={600} size={300}>
+                    <Text size={300} weight="semibold">
                       {version.id}
                     </Text>
                   </div>
@@ -316,12 +313,17 @@ export default function App() {
 
         {/* 右：账户 / 启动 */}
         <Card className={styles.accountCard}>
-          <Text size={400} weight={600}>
+          <Text size={400} weight="semibold">
             游戏账户
           </Text>
           <Dropdown
-            value={selectedAccountName(selectedAccount, accounts)}
-            onOptionSelect={(_, data) => setSelectedAccount(String(data.optionValue))}
+            value={
+              accounts.find((a) => a.uuid === selectedAccount)?.name ??
+              '未选择账户'
+            }
+            onOptionSelect={(_, data) =>
+              setSelectedAccount(String(data.optionValue))
+            }
           >
             {accounts.map((account) => (
               <Option key={account.uuid} value={account.uuid} text={account.name}>
@@ -335,15 +337,21 @@ export default function App() {
             </Text>
           )}
           <div className={styles.avatarBlock}>
-            <Avatar size={84} name={selectedAccountName(selectedAccount, accounts)} />
-            <Text size={400} weight={600}>
-              {selectedAccountName(selectedAccount, accounts) || '未选择账户'}
+            <Avatar
+              size={96}
+              name={currentAccount?.name ?? '未选择账户'}
+              color="brand"
+            />
+            <Text size={400} weight="semibold">
+              {currentAccount?.name ?? '未选择账户'}
             </Text>
-            {selectedVersion && tag && (
-              <Text size={200} style={{ opacity: 0.6 }}>
-                {selectedVersion} · {tag.label}
-              </Text>
-            )}
+            <Text size={200} style={{ opacity: 0.6 }}>
+              {currentAccount == null
+                ? '去「账户」页添加离线账户'
+                : currentAccount.type === 'offline'
+                  ? '离线账户'
+                  : currentAccount.type}
+            </Text>
           </div>
           {session.status !== '' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -352,11 +360,12 @@ export default function App() {
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  backgroundColor: session.pid
+                  backgroundColor: runningNow
                     ? '#3FBF6F'
-                    : session.status.startsWith('启动失败')
-                      ? '#E04B4B'
-                      : '#E8B31A'
+                    : launchingNow
+                      ? '#E8B31A'
+                      : '#8A8A8A',
+                  flexShrink: 0
                 }}
               />
               <Text size={200} style={{ opacity: 0.8 }}>
@@ -370,8 +379,7 @@ export default function App() {
             onClick={() => void launch()}
             style={{
               opacity: launchingNow || runningNow ? 0.5 : 1,
-              cursor:
-                launchingNow || runningNow ? 'default' : 'pointer'
+              cursor: launchingNow || runningNow ? 'default' : 'pointer'
             }}
           >
             <div
@@ -384,7 +392,8 @@ export default function App() {
                 fontWeight: 700
               }}
             >
-              <PlayRegular /> {launchingNow ? '启动中…' : runningNow ? '游戏运行中' : '启动游戏'}
+              <PlayRegular />{' '}
+              {launchingNow ? '启动中…' : runningNow ? '游戏运行中' : '启动游戏'}
             </div>
             {!launchingNow && selectedVersion && (
               <div style={{ fontSize: '11px', opacity: 0.75 }}>
@@ -400,18 +409,17 @@ export default function App() {
           <div className={styles.logHeader}>
             <div
               style={{
-                width: '8px',
-                height: '8px',
+                width: 8,
+                height: 8,
                 borderRadius: '50%',
-                backgroundColor: session.pid ? '#3FBF6F' : '#8A8A8A',
-                flexShrink: 0
+                backgroundColor: runningNow ? '#3FBF6F' : '#8A8A8A'
               }}
             />
-            <Text size={300} weight={600}>
+            <Text size={300} weight="semibold">
               运行日志
             </Text>
             <div style={{ flex: 1 }} />
-            {session.pid && (
+            {runningNow && (
               <Text size={200} style={{ opacity: 0.6 }}>
                 pid {session.pid}
               </Text>
@@ -431,15 +439,4 @@ export default function App() {
       )}
     </div>
   )
-}
-
-function launching(session: SessionState): boolean {
-  return session.status === '启动中…'
-}
-
-function selectedAccountName(
-  uuid: string | undefined,
-  accounts: GameAccount[]
-): string {
-  return accounts.find((a) => a.uuid === uuid)?.name ?? '未选择账户'
 }
