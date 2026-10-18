@@ -27,6 +27,13 @@ class InstalledVersion {
     required this.directory,
     required this.isModded,
     this.modLoader,
+    this.sizeBytes = 0,
+    this.jsonPath,
+    this.jarExists = true,
+    this.lastPlayedAt,
+    this.isDefault = false,
+    this.isolated = true,
+    this.inheritsFrom,
   });
 
   final String id;
@@ -37,6 +44,25 @@ class InstalledVersion {
   /// 按 id 前缀推断的展示标签（fabric/forge/neoforge/quilt → true）。
   final bool isModded;
   final String? modLoader;
+
+  /// 客户端 jar 大小（共享 libraries/assets 不计入）。
+  final int sizeBytes;
+  final String? jsonPath;
+
+  /// 客户端 jar 是否存在（加载器实例可能靠父版本的 jar 启动）。
+  final bool jarExists;
+
+  /// 最近一次游玩时间（ISO-8601；null = 从未记录）。
+  final String? lastPlayedAt;
+
+  /// 是否是"最近启动的版本"。
+  final bool isDefault;
+
+  /// 是否启用版本隔离（隔离时存档/mods 在版本目录内）。
+  final bool isolated;
+
+  /// 加载器实例继承的原版版本。
+  final String? inheritsFrom;
 }
 
 /// 安装进度（阶段 + 可选比例）。
@@ -56,6 +82,15 @@ abstract class MinecraftCatalog {
 
   /// 本地已安装版本（读 `<gameDir>/versions/*/<id>.json`）。
   Future<List<InstalledVersion>> installedVersions();
+
+  /// 删除一个本地版本目录（不清理共享 libraries/assets）。
+  Future<void> deleteVersion(String versionId);
+
+  /// 在系统文件管理器里打开版本目录。
+  Future<void> openVersionFolder(String versionId);
+
+  /// 设置"最近启动的版本"（null = 清除）。
+  Future<void> setDefaultVersion(String? versionId);
 }
 
 abstract class MinecraftInstaller {

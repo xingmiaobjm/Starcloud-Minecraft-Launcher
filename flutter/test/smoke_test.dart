@@ -102,6 +102,12 @@ class _FakeCatalog implements MinecraftCatalog {
   Future<List<RemoteVersion>> remoteVersions() async => const [];
   @override
   Future<List<InstalledVersion>> installedVersions() async => const [];
+  @override
+  Future<void> deleteVersion(String versionId) async {}
+  @override
+  Future<void> openVersionFolder(String versionId) async {}
+  @override
+  Future<void> setDefaultVersion(String? versionId) async {}
 }
 
 class _FakeInstaller implements MinecraftInstaller {

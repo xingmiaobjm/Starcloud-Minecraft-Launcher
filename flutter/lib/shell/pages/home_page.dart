@@ -50,7 +50,11 @@ class _HomePageState extends ConsumerState<HomePage> {
         _accounts = accounts;
         _loadError = null;
         if (!versions.any((v) => v.id == _selectedVersion)) {
-          _selectedVersion = versions.isNotEmpty ? versions.first.id : null;
+          // 优先选"最近启动的版本"（C# 在 launch.start 时记录）。
+          final preferred = versions.where((v) => v.isDefault);
+          _selectedVersion = versions.isNotEmpty
+              ? (preferred.isNotEmpty ? preferred.first.id : versions.first.id)
+              : null;
         }
         if (!accounts.any((a) => a.uuid == _selectedAccount)) {
           _selectedAccount = current?.uuid ??

@@ -101,6 +101,9 @@ lib/
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
+- 版本管理 E2E（`dart run tool/bridge_e2e.dart versions`）：列表返回目录/大小/
+  jar 存在性/默认/隔离/`inheritsFrom`；删除被依赖的父版本被拒绝；临时版本
+  清理后列表与默认版本均正确。版本页已接真实实现（打开目录 / 设为默认 / 删除）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 

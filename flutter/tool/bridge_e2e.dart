@@ -13,6 +13,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -53,6 +54,47 @@ Future<void> main(List<String> args) async {
     await settings.setDownloadSource(DownloadSource.bmclapi);
     stdout.writeln('[e2e] settings: gameDir=${settings.gameDir()} '
         'memory=${settings.memoryMb()} source=${settings.downloadSource().name}');
+
+    if (mode == 'versions') {
+      // 造两个临时版本验证删除保护：parent 被 child 的 inheritsFrom 依赖。
+      final root = p.join(gameDir, 'versions');
+      void makeVersion(String id, {String? inheritsFrom}) {
+        final dir = Directory(p.join(root, id))..createSync(recursive: true);
+        File(p.join(dir.path, '$id.json')).writeAsStringSync(jsonEncode({
+          'id': id,
+          'type': 'release',
+          'inheritsFrom': ?inheritsFrom,
+        }));
+        File(p.join(dir.path, '$id.jar')).writeAsBytesSync(List.filled(4096, 0));
+      }
+
+      makeVersion('__e2e_parent__');
+      makeVersion('__e2e_child__', inheritsFrom: '__e2e_parent__');
+
+      final before = await catalog.installedVersions();
+      for (final v in before) {
+        stdout.writeln('[ver] ${v.id} size=${v.sizeBytes} jar=${v.jarExists} '
+            'default=${v.isDefault} isolated=${v.isolated} '
+            'inherits=${v.inheritsFrom} dir=${v.directory}');
+      }
+      try {
+        await catalog.deleteVersion('__e2e_parent__');
+        stdout.writeln('[e2e] ERROR: 父版本被依赖时删除未被拒绝');
+      } catch (e) {
+        stdout.writeln('[e2e] delete parent refused as expected: $e');
+      }
+      await catalog.deleteVersion('__e2e_child__');
+      await catalog.deleteVersion('__e2e_parent__');
+      await catalog.setDefaultVersion('1.20.4');
+      final after = await catalog.installedVersions();
+      stdout.writeln('[e2e] after cleanup: '
+          '${after.map((v) => v.id).join(', ')}');
+      stdout.writeln('[e2e] default now: '
+          '${after.where((v) => v.isDefault).map((v) => v.id).join(', ')}');
+      if (Directory(p.join(root, '__e2e_parent__')).existsSync()) {
+        throw StateError('临时版本目录未删除');
+      }
+    }
 
     if (mode == 'download') {
       final engine = BridgeDownloadEngine(bridge);

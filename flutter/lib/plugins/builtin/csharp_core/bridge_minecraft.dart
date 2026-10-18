@@ -64,12 +64,37 @@ class BridgeCatalog implements MinecraftCatalog {
       final kind = _classify(id);
       versions.add(InstalledVersion(
         id: id,
-        directory: p.join(versionsRoot, id),
+        // 目录以 C# 返回为准：外部改了设置时，Dart 缓存的 gameDir 可能已过期。
+        directory: item['directory'] as String? ?? p.join(versionsRoot, id),
         isModded: kind.modded,
         modLoader: kind.loader,
+        sizeBytes: (item['sizeBytes'] as num?)?.toInt() ?? 0,
+        jsonPath: item['jsonPath'] as String?,
+        jarExists: item['jarExists'] == true,
+        lastPlayedAt: item['lastPlayedAt'] as String?,
+        isDefault: item['isDefault'] == true,
+        isolated: item['isolated'] != false,
+        inheritsFrom: item['inheritsFrom'] as String?,
       ));
     }
     return versions;
+  }
+
+  @override
+  Future<void> deleteVersion(String versionId) async {
+    await _bridge.request('versions.delete', {'versionId': versionId});
+  }
+
+  @override
+  Future<void> openVersionFolder(String versionId) async {
+    await _bridge.request('versions.openFolder', {'versionId': versionId});
+  }
+
+  @override
+  Future<void> setDefaultVersion(String? versionId) async {
+    await _bridge.request('versions.setDefault', {
+      'versionId': ?versionId,
+    });
   }
 }
 

@@ -1,7 +1,8 @@
-/// 内置插件：暂未插件化的占位页（版本/存档/联机/运行状态/Nova/日志）。
+/// 内置插件：暂未插件化的占位页（存档/联机）与已接真实实现的版本/运行状态/日志页。
 ///
-/// 首页/下载/账户/设置已经由各自的功能插件提供（真实实现）；这里保留的页面
-/// 会在后续迭代里逐个插件化。壳**始终零硬编码**——导航只来自贡献点表。
+/// 首页/下载/账户/设置已经由各自的功能插件提供；版本页读 C# 核心的
+/// `catalog.installed` 并支持删除/打开目录/设为默认；运行状态与日志页读
+/// 应用级会话状态。壳**始终零硬编码**——导航只来自贡献点表。
 library;
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -11,6 +12,7 @@ import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import '../../../shell/pages/placeholder_page.dart';
 import '../../../shell/pages/session_logs_page.dart';
+import '../../../shell/pages/version_list_page.dart';
 
 /// 页面定义：id / 标题 / 图标 / 说明（占位页正文）。
 class _PageSpec {
@@ -62,6 +64,7 @@ class ShellPagesPlugin implements Plugin {
         title: page.title,
         order: page.order,
         view: (_) => switch (page.id) {
+          'versions' => const VersionListPage(),
           'running' =>
             SessionLogsPage(title: page.title, showSessionInfo: true),
           'logs' => SessionLogsPage(title: page.title),
@@ -93,6 +96,6 @@ PluginDescriptor shellPagesDescriptor() => PluginDescriptor.create(
       activation: PluginActivation.eager,
       essential: false, // 只是占位页集：缺失时其它插件照样工作
       permissions: const ['ui.contribute'],
-      description: '版本/存档/联机/运行状态/日志 的占位页（后续逐个插件化）',
+      description: '版本/运行状态/日志（真实实现）+ 存档/联机（占位）',
       author: 'Starcloud',
     );

@@ -198,12 +198,107 @@ public static class Program
             }
 
             case "catalog.installed":
+            {
+                var instances = new InstanceSettingsStore(_settings.DotMinecraft);
                 return new
                 {
                     installed = _manifest
                         .ListInstalled(_settings.DotMinecraft)
-                        .Select(i => new { i.Id, i.SizeBytes }),
+                        .Select(i => DescribeInstalled(i, instances)),
                 };
+            }
+
+            case "versions.delete":
+            {
+                var versionId = p.GetProperty("versionId").GetString()!;
+                if (!InstanceLayout.IsValidVersionId(versionId))
+                    throw new Exception("非法版本 id");
+                if (_installTask is { IsCompleted: false })
+                    throw new Exception("安装进行中，暂不能删除版本");
+                if (Sessions.Values.Any(s => s.VersionId == versionId && !s.HasExited))
+                    throw new Exception("该版本正在运行，请先关闭游戏");
+
+                var versionsRoot = Path.Combine(_settings.DotMinecraft, "versions");
+                var dir = Path.Combine(versionsRoot, versionId);
+                if (!Directory.Exists(dir))
+                    throw new Exception($"版本目录不存在：{versionId}");
+
+                // 被其它版本的 inheritsFrom 依赖 → 拒绝：删掉父版本会让加载器实例无法启动。
+                foreach (var sub in Directory.EnumerateDirectories(versionsRoot))
+                {
+                    var otherId = Path.GetFileName(sub);
+                    if (otherId == versionId) continue;
+                    var json = Path.Combine(sub, otherId + ".json");
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(File.ReadAllText(json));
+                        if (doc.RootElement.TryGetProperty("inheritsFrom", out var inh) &&
+                            inh.ValueKind == JsonValueKind.String &&
+                            inh.GetString() == versionId)
+                            throw new Exception($"版本 {otherId} 依赖该版本（inheritsFrom），不能删除");
+                    }
+                    catch (JsonException) { /* 坏 JSON 不阻塞删除 */ }
+                    catch (IOException) { /* 读不到就跳过 */ }
+                }
+
+                long freed = 0;
+                try
+                {
+                    freed = new DirectoryInfo(dir)
+                        .EnumerateFiles("*", SearchOption.AllDirectories)
+                        .Sum(f => f.Length);
+                }
+                catch { /* 统计失败不影响删除 */ }
+
+                Directory.Delete(dir, recursive: true);
+                var wasDefault = _settings.LastVersion == versionId;
+                if (wasDefault)
+                {
+                    _settings.LastVersion = null;
+                    _settings.Save();
+                }
+                return new { deleted = true, freedBytes = freed, wasDefault };
+            }
+
+            case "versions.openFolder":
+            {
+                var versionId = p.GetProperty("versionId").GetString()!;
+                if (!InstanceLayout.IsValidVersionId(versionId))
+                    throw new Exception("非法版本 id");
+                var dir = Path.Combine(_settings.DotMinecraft, "versions", versionId);
+                if (!Directory.Exists(dir))
+                    throw new Exception($"版本目录不存在：{versionId}");
+                if (OperatingSystem.IsWindows())
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"")
+                    {
+                        UseShellExecute = true,
+                    });
+                }
+                else if (OperatingSystem.IsMacOS())
+                {
+                    Process.Start(new ProcessStartInfo("open", $"\"{dir}\""));
+                }
+                else
+                {
+                    Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\""));
+                }
+                return new { ok = true, path = dir };
+            }
+
+            case "versions.setDefault":
+            {
+                var versionId = p.TryGetProperty("versionId", out var v) &&
+                                v.ValueKind == JsonValueKind.String
+                    ? v.GetString()
+                    : null;
+                if (!string.IsNullOrEmpty(versionId) &&
+                    !Directory.Exists(Path.Combine(_settings.DotMinecraft, "versions", versionId)))
+                    throw new Exception($"版本目录不存在：{versionId}");
+                _settings.LastVersion = string.IsNullOrEmpty(versionId) ? null : versionId;
+                _settings.Save();
+                return new { ok = true, lastVersion = _settings.LastVersion };
+            }
 
             case "java.list":
             {
@@ -358,6 +453,16 @@ public static class Program
                 }
                 session.Exited += RaiseExited;
                 if (session.HasExited) RaiseExited(session.ExitCode);
+
+                // 记住"最近启动的版本"（版本页/首页的默认项），并刷新实例游玩时间。
+                _settings.LastVersion = versionId;
+                _settings.Save();
+                try
+                {
+                    new InstanceSettingsStore(_settings.DotMinecraft).TouchPlayed(versionId);
+                }
+                catch { /* 档案写失败不影响启动 */ }
+
                 return new { sessionId, pid = session.Pid, logFile = session.LogFile };
             }
 
@@ -415,6 +520,49 @@ public static class Program
         maxMemoryMb = _settings.DefaultMaxMemoryMb,
         downloadSource = _settings.DownloadSource,
     };
+
+    /// <summary>版本列表条目：目录/JSON/jar/依赖/默认/隔离状态一次给全，UI 不再自己猜。</summary>
+    private static object DescribeInstalled(
+        InstalledVersionInfo info, InstanceSettingsStore instances)
+    {
+        var dir = Path.Combine(_settings.DotMinecraft, "versions", info.Id);
+        var json = Path.Combine(dir, info.Id + ".json");
+        string? inheritsFrom = null;
+        var jarExists = false;
+        try
+        {
+            if (File.Exists(json))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(json));
+                if (doc.RootElement.TryGetProperty("inheritsFrom", out var inh) &&
+                    inh.ValueKind == JsonValueKind.String)
+                    inheritsFrom = inh.GetString();
+            }
+            // 与 GameLauncher.ResolveClientJar 的回退口径一致：同名 jar 或目录内唯一客户端 jar。
+            jarExists = File.Exists(Path.Combine(dir, info.Id + ".jar")) ||
+                Directory.EnumerateFiles(dir, "*.jar").Any(f =>
+                    !f.Contains("-sources", StringComparison.OrdinalIgnoreCase) &&
+                    !f.Contains("-javadoc", StringComparison.OrdinalIgnoreCase) &&
+                    !f.Contains("-dev", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            // 单个版本读失败不影响整个列表
+        }
+
+        return new
+        {
+            info.Id,
+            sizeBytes = info.SizeBytes,
+            directory = dir,
+            jsonPath = json,
+            jarExists,
+            inheritsFrom,
+            lastPlayedAt = instances.Get(info.Id).LastPlayedAt?.ToString("O"),
+            isDefault = _settings.LastVersion == info.Id,
+            isolated = _settings.VersionIsolated,
+        };
+    }
 
     // ── 输出 ─────────────────────────────────────────────────────────────────
 
