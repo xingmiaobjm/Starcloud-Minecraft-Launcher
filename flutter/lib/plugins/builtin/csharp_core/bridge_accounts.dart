@@ -33,6 +33,8 @@ class BridgeAccountStore implements AccountStore {
         serverName: item['serverName'] as String?,
         serverAlias: item['serverAlias'] as String?,
         hasSession: item['hasSession'] == true,
+        skinId: item['skinId'] as String?,
+        skinModel: item['skinModel'] as String?,
       ));
     }
     _accounts = accounts;

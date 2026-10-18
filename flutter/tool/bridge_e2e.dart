@@ -30,6 +30,7 @@ import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_multiplayer.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_saves.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_settings.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_skins.dart';
 
 Future<void> main(List<String> args) async {
   final mode = args.isEmpty ? 'all' : args.first;
@@ -169,6 +170,50 @@ Future<void> main(List<String> args) async {
           '${store.accounts().map((a) => a.name).join(', ')}');
     }
 
+    if (mode == 'skins') {
+      final store = BridgeAccountStore(bridge);
+      await store.refresh();
+      await store.addOffline('SkinUser');
+      await store.refresh();
+      final account =
+          store.accounts().firstWhere((a) => a.name == 'SkinUser');
+      final skins = BridgeSkinManager(bridge, store);
+
+      final png = p.join(
+        Directory.current.path,
+        '..',
+        'android',
+        'src',
+        'Starcloud.Launcher.Phone',
+        'Assets',
+        'Skins',
+        'default',
+        'steve.png',
+      );
+      final entry = await skins.importPath(png, name: 'E2E Steve');
+      stdout.writeln('[skin] imported ${entry.name} '
+          '${entry.width}x${entry.height} model=${entry.model}');
+
+      await skins.assignToAccount(account.uuid, entry.id);
+      final assigned = store.accounts().firstWhere((a) => a.uuid == account.uuid);
+      stdout.writeln('[skin] assigned skinId=${assigned.skinId} '
+          'model=${assigned.skinModel}');
+
+      await skins.assignToAccount(account.uuid, entry.id, model: 'slim');
+      final overridden = store.accounts().firstWhere((a) => a.uuid == account.uuid);
+      stdout.writeln('[skin] override model=${overridden.skinModel}');
+
+      await skins.assignToAccount(account.uuid, null);
+      final cleared = store.accounts().firstWhere((a) => a.uuid == account.uuid);
+      stdout.writeln('[skin] cleared skinId=${cleared.skinId}');
+
+      await skins.delete(entry.id);
+      stdout.writeln('[skin] library size after delete: '
+          '${(await skins.list()).length}');
+      await store.remove(account.uuid);
+      await store.refresh();
+    }
+
     if (mode == 'content') {
       final content = BridgeContentManager(bridge);
       var detail = await content.detail(version);
@@ -304,6 +349,22 @@ Future<void> main(List<String> args) async {
       await store.addOffline('StarcloudE2E');
       final account =
           store.accounts().firstWhere((a) => a.name == 'StarcloudE2E');
+      // 本地皮肤注入：回环服务 + --userProperties；启动后确认游戏仍能正常起来。
+      final skins = BridgeSkinManager(bridge, store);
+      final skinPath = p.join(
+        Directory.current.path,
+        '..',
+        'android',
+        'src',
+        'Starcloud.Launcher.Phone',
+        'Assets',
+        'Skins',
+        'default',
+        'steve.png',
+      );
+      final skin = await skins.importPath(skinPath, name: 'E2E Launch Skin');
+      await skins.assignToAccount(account.uuid, skin.id);
+      stdout.writeln('[e2e] local skin assigned: ${skin.name}');
       final session = await launcher.launch(
         versionId: version,
         playerName: account.name,
@@ -333,6 +394,7 @@ Future<void> main(List<String> args) async {
       });
       await sub.cancel();
       stdout.writeln('[e2e] game exit=$code');
+      await skins.delete(skin.id);
     }
   } finally {
     await bridge.dispose();

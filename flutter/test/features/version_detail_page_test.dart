@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:starcloud_launcher/bootstrap.dart';
 import 'package:starcloud_launcher/contracts/content.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/contracts/skins.dart';
 import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/shell/pages/version_detail_page.dart';
 
@@ -62,7 +63,33 @@ KernelDeps _deps(ContentManager content) => KernelDeps(
       auth: _FakeAuth(),
       multiplayer: _FakeMultiplayer(),
       content: content,
+      skins: _FakeSkins(),
     );
+
+class _FakeSkins implements SkinManager {
+  @override
+  Future<List<SkinEntry>> list() async => const [];
+  @override
+  Future<SkinEntry> importPath(String path, {String? name}) async =>
+      throw UnimplementedError();
+  @override
+  Future<SkinEntry> importUrl(String url, {String? name}) async =>
+      throw UnimplementedError();
+  @override
+  Future<SkinEntry> rename(String id, String name) async =>
+      throw UnimplementedError();
+  @override
+  Future<SkinEntry> setModel(String id, String model) async =>
+      throw UnimplementedError();
+  @override
+  Future<void> delete(String id) async {}
+  @override
+  Future<void> assignToAccount(String uuid, String? skinId, {String? model}) async {}
+  @override
+  Future<List<StationSkin>> stationList(String accountUuid) async => const [];
+  @override
+  Future<String> stationApply(String accountUuid, String skinId) async => '';
+}
 
 class _FakeContent implements ContentManager {
   List<ContentFile> mods = const [

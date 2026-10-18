@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../bootstrap.dart';
 import '../../../contracts/minecraft.dart';
+import 'account_detail_page.dart';
 
 class AccountsPage extends ConsumerStatefulWidget {
   const AccountsPage({super.key});
@@ -22,6 +23,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   List<GameAccount> _accounts = const [];
   String? _current;
   String? _message;
+
+  /// 非空时整页显示账户详情（页内导航）。
+  GameAccount? _detail;
 
   @override
   void initState() {
@@ -87,6 +91,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final detail = _detail;
+    if (detail != null) {
+      return AccountDetailPage(
+        account: detail,
+        onBack: () => setState(() => _detail = null),
+      );
+    }
     final typography = FluentTheme.of(context).typography;
     return ScaffoldPage(
       header: PageHeader(
@@ -185,6 +196,11 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
             ),
           ),
           const SizedBox(width: 12),
+          FilledButton(
+            onPressed: () => setState(() => _detail = account),
+            child: const Text('详情'),
+          ),
+          const SizedBox(width: 8),
           Button(
             onPressed: isCurrent
                 ? null

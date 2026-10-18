@@ -193,6 +193,8 @@ class GameAccount {
     this.serverName,
     this.serverAlias,
     this.hasSession = false,
+    this.skinId,
+    this.skinModel,
   });
 
   /// 离线账户：UUID = `md5("OfflinePlayer:<name>")` 置版本 3（Minecraft 官方算法）。
@@ -206,6 +208,12 @@ class GameAccount {
 
   /// 本次进程内是否持有可用凭证（token 不落盘，重启后需重新登录）。
   final bool hasSession;
+
+  /// 账户选用的本地皮肤库条目 id（null = 未指定）。
+  final String? skinId;
+
+  /// 账户级型号覆盖：auto / classic / slim（null = 跟随皮肤条目）。
+  final String? skinModel;
 }
 
 abstract class AccountStore {

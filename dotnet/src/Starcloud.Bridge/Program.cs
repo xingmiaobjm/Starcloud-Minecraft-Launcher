@@ -35,6 +35,8 @@ public static class Program
     private static SaveLibraryService _saveLibrary = null!;
     private static ModrinthService _modrinth = null!;
     private static ContentLibraryService _contentLibrary = null!;
+    private static SkinLibraryService _skins = null!;
+    private static SkinStationService _skinStation = null!;
     private static MultiplayerService _multiplayer = null!;
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
     private static int _nextSessionId;
@@ -71,6 +73,10 @@ public static class Program
         _modrinth = new ModrinthService(_download);
         _contentLibrary = new ContentLibraryService(
             _download, _modrinth, _manifest, () => _settings);
+        _skins = new SkinLibraryService();
+        _skinStation = new SkinStationService();
+        // 离线/微软账户的本地皮肤通过回环 HTTP 服务 + --userProperties 注入游戏。
+        OfflineSkins.Configure(_accounts, _skins);
         _multiplayer = new MultiplayerService(
             _download,
             () => _settings,
@@ -181,7 +187,8 @@ public static class Program
         method is "download.file" or "download.text" or "java.list" or "launch.start"
             or "multiplayer.host" or "multiplayer.join" or "multiplayer.stop"
             or "multiplayer.logs" or "multiplayer.nodes"
-            or "content.search" or "content.install";
+            or "content.search" or "content.install"
+            or "skins.importUrl" or "skins.station.list" or "skins.station.apply";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
     private static void StartParentWatchdog()
@@ -642,17 +649,7 @@ public static class Program
             case "accounts.list":
                 return new
                 {
-                    accounts = _accounts.Accounts.Select(a => new
-                    {
-                        a.Uuid,
-                        name = a.Username,
-                        a.Type,
-                        isDefault = a.IsDefault,
-                        a.ServerName,
-                        a.ServerAlias,
-                        // 凭证只在内存：登录过期后 hasSession=false，UI 可提示重新登录。
-                        hasSession = _accounts.GetSession(a.Uuid) is not null,
-                    }),
+                    accounts = _accounts.Accounts.Select(AccountPayload),
                     current = _accounts.Default?.Uuid,
                 };
 
@@ -676,6 +673,117 @@ public static class Program
                 var uuid = p.GetProperty("uuid").GetString()!;
                 _accounts.Remove(uuid);
                 return new { ok = true };
+            }
+
+            case "accounts.setSkin":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                string? skinId = p.TryGetProperty("skinId", out var sid) &&
+                                 sid.ValueKind == JsonValueKind.String
+                    ? sid.GetString()
+                    : null;
+                string? model = p.TryGetProperty("model", out var md) &&
+                                md.ValueKind == JsonValueKind.String
+                    ? md.GetString()
+                    : null;
+                var account = _accounts.SetSkin(uuid, skinId, model)
+                    ?? throw new Exception($"账户不存在：{uuid}");
+                return new { account = AccountPayload(account) };
+            }
+
+            case "skins.list":
+                return new { skins = _skins.List().Select(SkinPayload) };
+
+            case "skins.importPath":
+            {
+                var path = p.GetProperty("path").GetString()!;
+                string? name = p.TryGetProperty("name", out var nm) &&
+                               nm.ValueKind == JsonValueKind.String
+                    ? nm.GetString()
+                    : null;
+                var (entry, error) = _skins.ImportPath(path, name);
+                if (entry is null) throw new Exception(error ?? "导入失败");
+                return new { skin = SkinPayload(entry) };
+            }
+
+            case "skins.importUrl":
+            {
+                var url = p.GetProperty("url").GetString()!;
+                string? name = p.TryGetProperty("name", out var nm) &&
+                               nm.ValueKind == JsonValueKind.String
+                    ? nm.GetString()
+                    : null;
+                var (entry, error) = await _skins.ImportUrlAsync(url, name, _download);
+                if (entry is null) throw new Exception(error ?? "导入失败");
+                return new { skin = SkinPayload(entry) };
+            }
+
+            case "skins.rename":
+            {
+                var id = p.GetProperty("id").GetString()!;
+                var name = p.GetProperty("name").GetString()!;
+                var (ok, error) = _skins.Rename(id, name);
+                if (!ok) throw new Exception(error ?? "重命名失败");
+                return new { skin = SkinPayload(_skins.Find(id)!) };
+            }
+
+            case "skins.setModel":
+            {
+                var id = p.GetProperty("id").GetString()!;
+                var model = SkinModels.Normalize(p.GetProperty("model").GetString());
+                if (!_skins.SetModel(id, model))
+                    throw new Exception("皮肤不存在或型号非法");
+                return new { skin = SkinPayload(_skins.Find(id)!) };
+            }
+
+            case "skins.delete":
+            {
+                var id = p.GetProperty("id").GetString()!;
+                if (!_skins.Delete(id)) throw new Exception("皮肤不存在");
+                // 账户上指向这张皮肤的引用一并清掉（与 Windows 端一致）。
+                _accounts.ClearSkinReference(id);
+                return new { ok = true };
+            }
+
+            case "skins.station.list":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                if (string.IsNullOrEmpty(account.ServerBase))
+                    throw new Exception("该账户没有认证服务器地址");
+                var token = _accounts.GetSession(uuid)?.AccessToken
+                    ?? throw new Exception("第三方账户登录已过期，请重新登录");
+                var list = await _skinStation.ListAsync(account.ServerBase, token);
+                return new
+                {
+                    skins = list.Select(s => new
+                    {
+                        s.Id,
+                        s.Name,
+                        s.Model,
+                        s.Url,
+                        s.Slim,
+                    }),
+                };
+            }
+
+            case "skins.station.apply":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var skinId = p.GetProperty("skinId").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                if (string.IsNullOrEmpty(account.ServerBase))
+                    throw new Exception("该账户没有认证服务器地址");
+                var token = _accounts.GetSession(uuid)?.AccessToken
+                    ?? throw new Exception("第三方账户登录已过期，请重新登录");
+                var list = await _skinStation.ListAsync(account.ServerBase, token);
+                var skin = list.FirstOrDefault(s => s.Id == skinId)
+                    ?? throw new Exception("皮肤站衣柜里没有这张皮肤");
+                var message = await _skinStation.ApplyAsync(
+                    account.ServerBase, token, skin);
+                return new { message };
             }
 
             case "auth.microsoft.start":
@@ -894,7 +1002,9 @@ public static class Program
                     PreLaunchCommand: eff.PreCmd,
                     PostLaunchCommand: eff.PostCmd,
                     AgentJarPath: agentJar,
-                    AgentBase: agentBase);
+                    AgentBase: agentBase,
+                    // 本地皮肤：启动器起 127.0.0.1 回环服务托管 PNG，经 userProperties 注入。
+                    PlayerSkinUrl: OfflineSkins.UrlFor(account.Uuid));
 
                 var session = await _launcher.LaunchVersionAsync(
                     _settings.DotMinecraft, versionId, options);
@@ -1046,6 +1156,34 @@ public static class Program
             Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\""));
         }
     }
+
+    private static object AccountPayload(StoredAccount account) => new
+    {
+        account.Uuid,
+        name = account.Username,
+        account.Type,
+        isDefault = account.IsDefault,
+        account.ServerName,
+        account.ServerAlias,
+        account.SkinId,
+        account.SkinModel,
+        // 凭证只在内存：登录过期后 hasSession=false，UI 可提示重新登录。
+        hasSession = _accounts.GetSession(account.Uuid) is not null,
+    };
+
+    private static object SkinPayload(SkinEntry entry) => new
+    {
+        entry.Id,
+        entry.Name,
+        entry.Model,
+        entry.FileName,
+        path = _skins.PathOf(entry),
+        entry.Source,
+        entry.SourceUrl,
+        entry.Width,
+        entry.Height,
+        addedAt = entry.AddedAt.ToString("O"),
+    };
 
     /// <summary>版本内容上下文：实例根、隔离、MC 版本、加载器（mods/资源包/光影共用）。</summary>
     private static (string GameRoot, bool Isolated, string McVersion,

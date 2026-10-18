@@ -17,6 +17,7 @@ import '../../../contracts/content.dart';
 import '../../../contracts/download_engine.dart';
 import '../../../contracts/minecraft.dart';
 import '../../../contracts/multiplayer.dart';
+import '../../../contracts/skins.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
 import 'bridge_accounts.dart';
@@ -26,6 +27,7 @@ import 'bridge_minecraft.dart';
 import 'bridge_multiplayer.dart';
 import 'bridge_saves.dart';
 import 'bridge_settings.dart';
+import 'bridge_skins.dart';
 
 /// 解析桥接宿主路径：环境变量 → 安装布局 → 仓库开发布局。
 String resolveBridgeHost({Map<String, String>? environment}) {
@@ -113,6 +115,7 @@ class CSharpCorePlugin implements Plugin {
     ctx.services.add<AccountAuth>(BridgeAccountAuth(bridge, accounts));
     ctx.services.add<MultiplayerControl>(multiplayer);
     ctx.services.add<ContentManager>(BridgeContentManager(bridge));
+    ctx.services.add<SkinManager>(BridgeSkinManager(bridge, accounts));
     ctx.log('C# 核心就绪（${p.basename(bridge.dllPath)}，'
         'gameDir=${settings.gameDir()}）');
   }
@@ -145,6 +148,7 @@ PluginDescriptor csharpCoreDescriptor() => PluginDescriptor.create(
         AccountAuth,
         MultiplayerControl,
         ContentManager,
+        SkinManager,
       ],
       permissions: const [
         'net.http',

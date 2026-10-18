@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'contracts/content.dart';
 import 'contracts/minecraft.dart';
 import 'contracts/multiplayer.dart';
+import 'contracts/skins.dart';
 import 'kernel/paths.dart';
 import 'kernel/plugin_host.dart';
 import 'kernel/scheduler.dart';
@@ -38,6 +39,7 @@ class KernelDeps {
     required this.auth,
     required this.multiplayer,
     required this.content,
+    required this.skins,
   });
 
   final MinecraftCatalog catalog;
@@ -49,6 +51,7 @@ class KernelDeps {
   final AccountAuth auth;
   final MultiplayerControl multiplayer;
   final ContentManager content;
+  final SkinManager skins;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -63,6 +66,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     auth: services.get<AccountAuth>(),
     multiplayer: services.get<MultiplayerControl>(),
     content: services.get<ContentManager>(),
+    skins: services.get<SkinManager>(),
   );
 });
 
