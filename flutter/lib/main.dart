@@ -4,7 +4,7 @@
 /// 完整的导航（不会先闪一下空窗口）。
 library;
 
-import 'dart:io' show Platform, ProcessSignal, exit;
+import 'dart:io' show Platform, ProcessSignal, exit, stdout;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/widgets.dart'
@@ -37,6 +37,8 @@ Future<void> main() async {
     for (final signal in [ProcessSignal.sigterm, ProcessSignal.sigint]) {
       signal.watch().listen((_) async {
         await shutdown();
+        // exit() 不保证刷新 stdout：先把收尾日志写出去，便于取证。
+        await stdout.flush();
         exit(0);
       });
     }
