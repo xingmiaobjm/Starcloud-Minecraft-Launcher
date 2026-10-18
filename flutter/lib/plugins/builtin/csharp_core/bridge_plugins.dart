@@ -55,6 +55,130 @@ class BridgePluginStore implements PluginStore {
     await _bridge.request('plugins.openFolder', {'id': id});
   }
 
+  @override
+  Future<List<PluginPanel>> panels(String id) async {
+    final result = await _bridge.requestWithTimeout(
+      'plugins.panels',
+      {'id': id},
+      const Duration(seconds: 60),
+    );
+    if (result is! Map<String, Object?>) return const [];
+    final panels = result['panels'];
+    if (panels is! List<Object?>) return const [];
+    final out = <PluginPanel>[];
+    for (final item in panels) {
+      if (item is! Map<String, Object?>) continue;
+      final panelId = item['id'] as String?;
+      if (panelId == null || panelId.isEmpty) continue;
+      out.add(PluginPanel(
+        id: panelId,
+        title: item['title'] as String? ?? panelId,
+        declarative: item['declarative'] == true,
+        entry: item['entry'] as String? ?? '',
+      ));
+    }
+    return out;
+  }
+
+  @override
+  Future<PluginViewData> view(String id, String panelId) async {
+    final result = await _bridge.requestWithTimeout(
+      'plugins.view',
+      {'id': id, 'panelId': panelId},
+      const Duration(seconds: 60),
+    );
+    if (result is! Map<String, Object?>) {
+      return const PluginViewData(errors: ['桥接未返回视图']);
+    }
+    final errors = result['errors'];
+    final bindings = <String, Object?>{};
+    final rawBindings = result['bindings'];
+    if (rawBindings is Map<String, Object?>) {
+      for (final entry in rawBindings.entries) {
+        bindings[entry.key] = entry.value;
+      }
+    }
+    return PluginViewData(
+      node: _nodeFrom(result['view']),
+      errors: errors is List<Object?> ? errors.whereType<String>().toList() : const [],
+      bindings: bindings,
+    );
+  }
+
+  @override
+  Future<String?> invoke(String id, String api, Object? args) async {
+    final result = await _bridge.requestWithTimeout(
+      'plugins.invoke',
+      {'id': id, 'api': api, 'args': args ?? const <Object?>[]},
+      const Duration(minutes: 2),
+    );
+    if (result is Map<String, Object?>) {
+      if (result['ok'] == true) return result['result'] as String?;
+      throw StateError(result['error'] as String? ?? '动作执行失败');
+    }
+    return null;
+  }
+
+  static PluginViewNode? _nodeFrom(Object? raw) {
+    if (raw is! Map<String, Object?>) return null;
+    final type = raw['type'] as String?;
+    if (type == null || type.isEmpty) return null;
+    final valueRaw = raw['value'];
+    var value = const PluginViewValue('');
+    if (valueRaw is Map<String, Object?>) {
+      value = PluginViewValue(
+        valueRaw['text'] as String? ?? '',
+        _bindingFrom(valueRaw['bind']),
+      );
+    }
+    final actionRaw = raw['action'];
+    final children = <PluginViewNode>[];
+    final childrenRaw = raw['children'];
+    if (childrenRaw is List<Object?>) {
+      for (final child in childrenRaw) {
+        final node = _nodeFrom(child);
+        if (node != null) children.add(node);
+      }
+    }
+    return PluginViewNode(
+      type: type,
+      value: value,
+      itemsBind: _bindingFrom(raw['itemsBind']),
+      bind: _bindingFrom(raw['bind']),
+      itemView: raw['itemView'] as String? ?? '',
+      style: raw['style'] as String? ?? '',
+      direction: raw['direction'] as String? ?? 'column',
+      kind: raw['kind'] as String? ?? 'normal',
+      placeholder: raw['placeholder'] as String? ?? '',
+      source: raw['source'] as String? ?? '',
+      href: raw['href'] as String? ?? '',
+      language: raw['language'] as String? ?? '',
+      wrap: raw['wrap'] != false,
+      multiline: raw['multiline'] == true,
+      spacing: (raw['spacing'] as num?)?.toDouble() ?? 0,
+      height: (raw['height'] as num?)?.toDouble() ?? 0,
+      progress: (raw['progress'] as num?)?.toDouble() ?? 0,
+      options: _strings(raw['options']),
+      columns: _strings(raw['columns']),
+      action: actionRaw is Map<String, Object?>
+          ? PluginViewAction(
+              api: actionRaw['api'] as String? ?? '',
+              argsJson: actionRaw['argsJson'] as String? ?? '[]',
+              handler: actionRaw['handler'] as String? ?? '',
+            )
+          : null,
+      children: children,
+    );
+  }
+
+  static PluginViewBinding? _bindingFrom(Object? raw) {
+    if (raw is! Map<String, Object?>) return null;
+    final scope = raw['scope'] as String?;
+    final key = raw['key'] as String?;
+    if (scope == null || key == null || scope.isEmpty) return null;
+    return PluginViewBinding(scope: scope, key: key);
+  }
+
   static ExternalPlugin? _pluginFrom(Object? raw) {
     if (raw is! Map<String, Object?>) return null;
     final id = raw['id'] as String?;
@@ -79,6 +203,8 @@ class BridgePluginStore implements PluginStore {
       license: raw['license'] as String?,
       keywords: _strings(raw['keywords']),
       api2: raw['api2'] == true,
+      loaded: raw['loaded'] == true,
+      panelCount: (raw['panelCount'] as num?)?.toInt() ?? 0,
     );
   }
 

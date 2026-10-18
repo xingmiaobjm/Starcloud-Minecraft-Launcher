@@ -39,7 +39,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.actions, contains('install:/tmp/e2e.mclplug'));
     expect(find.textContaining('E2E Plugin'), findsWidgets);
-    expect(find.text('[ui.contribute]'), findsOneWidget);
+    expect(find.text('[launcher:ui_panel]'), findsOneWidget);
 
     await tester.tap(find.text('启用'));
     await tester.pumpAndSettle();
@@ -48,6 +48,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.actions, contains('setEnabled:e2e.plugin:true:true'));
     expect(find.text('[已启用]'), findsOneWidget);
+
+    // 声明式视图：文本 + storage 绑定。
+    await tester.tap(find.text('打开视图'));
+    await tester.pumpAndSettle();
+    expect(find.text('E2E 面板'), findsWidgets);
+    expect(find.text('world'), findsOneWidget);
+    final viewDialog = find.byType(ContentDialog);
+    await tester.tap(
+        find.descendant(of: viewDialog, matching: find.text('关闭')));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('卸载'));
     await tester.pumpAndSettle();
@@ -73,10 +83,11 @@ class _FakeStore implements PluginStore {
         apiVersion: '1.0',
         author: 'E2E',
         description: '测试插件',
-        permissions: const ['ui.contribute'],
+        permissions: const ['launcher:ui_panel'],
         enabled: _enabled,
         disclaimerAccepted: _accepted,
         dir: '/tmp/e2e.plugin',
+        panelCount: 1,
       );
 
   @override
@@ -110,5 +121,38 @@ class _FakeStore implements PluginStore {
   @override
   Future<void> openFolder(String id) async {
     actions.add('open:$id');
+  }
+
+  @override
+  Future<List<PluginPanel>> panels(String id) async =>
+      const [PluginPanel(id: 'main', title: 'E2E 面板', declarative: true)];
+
+  @override
+  Future<PluginViewData> view(String id, String panelId) async =>
+      const PluginViewData(
+        node: PluginViewNode(
+          type: 'stack',
+          children: [
+            PluginViewNode(
+              type: 'text',
+              value: PluginViewValue('E2E 面板'),
+              style: 'title',
+            ),
+            PluginViewNode(
+              type: 'text',
+              value: PluginViewValue(
+                '',
+                PluginViewBinding(scope: 'storage', key: 'hello'),
+              ),
+            ),
+          ],
+        ),
+        bindings: {'storage.hello': 'world'},
+      );
+
+  @override
+  Future<String?> invoke(String id, String api, Object? args) async {
+    actions.add('invoke:$id:$api');
+    return 'ok';
   }
 }

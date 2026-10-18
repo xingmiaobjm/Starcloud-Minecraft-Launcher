@@ -136,9 +136,10 @@ lib/
   （63×5×19、768 个 TNT）→ 解析 → 尺寸/方块数/种类统计正确。
   实验室页已接真实实现（路径加载、方块统计、等距 3D 预览、生成示例）。
 - 外部插件 E2E（`dart run tool/bridge_e2e.dart plugins`）：打包一个最小
-  `.mclplug` → 安装（清单/权限校验）→ 未确认免责声明时拒绝启用 →
-  确认后启用（状态与 Windows 共享 `plugin-state.json`）→ 卸载。
-  插件页已接真实实现（安装/启停/卸载/权限与依赖展示）。
+  `.mclplug`（manifest + main.js + 声明式面板）→ 安装 → 未确认免责声明时拒绝启用
+  → 确认后启用（JS 运行时加载）→ 列出面板 → 解析视图（storage 绑定）→
+  `storage.set` 动作 → 重新读取绑定为 `world` → 卸载。
+  插件页已接真实实现（安装/启停/卸载/权限与依赖展示/声明式视图渲染）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -163,10 +164,11 @@ lib/
 - 实验室：支持 .litematic / 结构 .nbt 的解析、方块统计、等距 3D 预览与世吞模板
   生成；预览按方块 id 着色，**不使用 deepslate 的纹理/模型渲染**（Windows 端的
   完整纹理渲染尚未移植）。
-- 插件市场：已支持 `.mclplug` 安装/卸载、启用状态（与 Windows 共享
-  `plugin-state.json`）、第三方免责确认、依赖闸门、权限/依赖展示；
-  **外部插件运行时视图（JS/Python + WebView）尚未在 Linux 启动**，这部分仍由
-  Windows 宿主提供。
+- 插件市场：`.mclplug` 安装/卸载、启用状态（与 Windows 共享
+  `plugin-state.json`）、第三方免责确认、依赖闸门、权限/依赖展示已对齐；
+  **JS / Python / 纯声明式运行时已在本进程启动**，声明式视图（v2 §7）在 Flutter
+  侧原生渲染并支持 storage 绑定与动作调用。
+  **1.x HTML 面板与 `ui:html` 仍需要 WebView 宿主**（暂不支持）。
 
 ### 已知项
 

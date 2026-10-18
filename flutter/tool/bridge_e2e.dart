@@ -184,13 +184,41 @@ Future<void> main(List<String> args) async {
         'apiVersion': '1.0',
         'author': 'E2E',
         'description': 'bridge e2e plugin',
-        'permissions': ['launcher:ui_panel'],
+        'permissions': ['launcher:ui_panel', 'launcher:storage'],
         'compatibility': {'minLauncherVersion': '0.1.0'},
+        'contributes': {
+          'panels': [
+            {'id': 'main', 'title': 'E2E Panel', 'view': 'views/main.json'},
+          ],
+        },
+      };
+      final view = {
+        'type': 'stack',
+        'direction': 'column',
+        'spacing': 8,
+        'children': [
+          {'type': 'text', 'value': 'E2E Panel', 'style': 'title'},
+          {
+            'type': 'text',
+            'value': {'bind': 'storage.hello'},
+          },
+          {
+            'type': 'button',
+            'label': 'Write hello',
+            'action': {
+              'api': 'storage.set',
+              'args': ['hello', 'world'],
+            },
+          },
+        ],
       };
       final archive = Archive();
       final manifestBytes = utf8.encode(jsonEncode(manifest));
       archive.addFile(
           ArchiveFile('manifest.json', manifestBytes.length, manifestBytes));
+      final viewBytes = utf8.encode(jsonEncode(view));
+      archive.addFile(
+          ArchiveFile('views/main.json', viewBytes.length, viewBytes));
       final entryBytes = utf8.encode('// e2e plugin entry');
       archive.addFile(
           ArchiveFile('main.js', entryBytes.length, entryBytes));
@@ -213,8 +241,25 @@ Future<void> main(List<String> args) async {
       await store.setEnabled(installed.id, true, acceptDisclaimer: true);
       var listed = await store.list();
       stdout.writeln('[plugin] enabled=${listed.single.enabled} '
-          'disclaimer=${listed.single.disclaimerAccepted}');
+          'disclaimer=${listed.single.disclaimerAccepted} '
+          'loaded=${listed.single.loaded}');
 
+      final panels = await store.panels(installed.id);
+      stdout.writeln('[plugin] panels: '
+          '${panels.map((panel) => '${panel.id}/${panel.title}').join(', ')}');
+      if (panels.isEmpty) throw StateError('声明式面板未注册');
+      var viewData = await store.view(installed.id, panels.first.id);
+      stdout.writeln('[plugin] view node=${viewData.node?.type} '
+          'errors=${viewData.errors.length} '
+          'bindings=${viewData.bindings}');
+      final result =
+          await store.invoke(installed.id, 'storage.set', ['hello', 'world']);
+      stdout.writeln('[plugin] invoke storage.set -> $result');
+      viewData = await store.view(installed.id, panels.first.id);
+      stdout.writeln('[plugin] storage.hello='
+          '${viewData.bindings['storage.hello']}');
+
+      await store.setEnabled(installed.id, false);
       await store.uninstall(installed.id);
       listed = await store.list();
       stdout.writeln('[plugin] after uninstall: ${listed.length}');

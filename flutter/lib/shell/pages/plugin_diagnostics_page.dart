@@ -13,6 +13,7 @@ import '../../bootstrap.dart';
 import '../../contracts/plugins.dart';
 import '../../kernel/descriptor.dart';
 import '../../kernel/plugin_host.dart';
+import 'plugin_view.dart';
 
 class PluginDiagnosticsPage extends ConsumerStatefulWidget {
   const PluginDiagnosticsPage({super.key});
@@ -170,6 +171,58 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
     }
   }
 
+  Future<void> _openView(ExternalPlugin plugin) async {
+    setState(() {
+      _externalError = null;
+      _externalNotice = null;
+    });
+    try {
+      final panels = await _store.panels(plugin.id);
+      if (!mounted) return;
+      if (panels.isEmpty) {
+        setState(() => _externalError = '插件没有声明式面板');
+        return;
+      }
+      if (!panels.first.declarative) {
+        setState(() =>
+            _externalError = '该面板是 HTML 视图，需要 WebView 宿主（暂不支持）');
+        return;
+      }
+      final data = await _store.view(plugin.id, panels.first.id);
+      if (!mounted) return;
+      final node = data.node;
+      if (node == null) {
+        setState(() =>
+            _externalError = '视图解析失败：${data.errors.join('；')}');
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) => ContentDialog(
+          title: Text(panels.first.title),
+          content: SizedBox(
+            width: 760,
+            height: 560,
+            child: PluginViewRenderer(
+              node: node,
+              bindings: data.bindings,
+              onInvoke: (api, args) => _store.invoke(plugin.id, api, args),
+            ),
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _externalError = '$e');
+    }
+  }
+
   Future<void> _run(Future<String?> Function() action, String label) async {
     final reason = await action();
     if (!mounted) return;
@@ -227,8 +280,8 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
                 const SizedBox(height: 6),
                 Text(
                   '安装 .mclplug、启停与卸载；权限/依赖按清单展示。'
-                  '启用状态与 Windows 端共享 plugin-state.json；'
-                  '插件运行时视图（WebView）由 Windows 宿主提供。',
+                  'JS / Python / 纯声明式运行时已在本进程启动，声明式视图直接渲染；'
+                  '1.x HTML 面板需要 WebView 宿主（暂不支持）。',
                   style: typography.caption,
                 ),
                 const SizedBox(height: 10),
@@ -361,6 +414,12 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
                 onPressed: () => _toggle(plugin, !plugin.enabled),
                 child: Text(plugin.enabled ? '停用' : '启用'),
               ),
+              if (plugin.panelCount > 0)
+                Button(
+                  onPressed:
+                      plugin.enabled ? () => _openView(plugin) : null,
+                  child: const Text('打开视图'),
+                ),
               Button(
                 onPressed: () => _uninstall(plugin),
                 child: const Text('卸载'),

@@ -110,6 +110,13 @@ class _FakePlugins implements PluginStore {
   }) async {}
   @override
   Future<void> openFolder(String id) async {}
+  @override
+  Future<List<PluginPanel>> panels(String id) async => const [];
+  @override
+  Future<PluginViewData> view(String id, String panelId) async =>
+      const PluginViewData();
+  @override
+  Future<String?> invoke(String id, String api, Object? args) async => null;
 }
 
 class _FakeLab implements LabService {

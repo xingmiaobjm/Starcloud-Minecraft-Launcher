@@ -43,6 +43,7 @@ public static class Program
     private static SkinStationService _skinStation = null!;
     private static MultiplayerService _multiplayer = null!;
     private static NovaService _nova = null!;
+    private static PluginHost _pluginHost = null!;
     private static Task? _novaTask;
     private static readonly object NovaGate = new();
     private static readonly ConcurrentDictionary<string, NovaPlan> PendingNovaPlans = new();
@@ -128,6 +129,24 @@ public static class Program
             _modrinth, diagnostics, conflicts,
             novaPermissions, novaLog, novaMoments, novaInvites, _saves,
             novaTools, null, translation);
+
+        // v2 插件运行时：JS（Jint）/ Python（python3 子进程）/ 纯声明式（Noop）。
+        _pluginHost = new PluginHost(
+            LauncherVersion,
+            LauncherPaths.PluginLogsDir,
+            PluginSdkPath(),
+            new PluginHostServices
+            {
+                Settings = () => _settings,
+                SaveSettings = () => _settings.Save(),
+                Manifest = _manifest,
+                Installer = _installer,
+                Download = _download,
+                Accounts = _accounts,
+                Tasks = TaskCenterService.Instance,
+                Tools = novaTools,
+                Bridge = new BridgePluginHostBridge(),
+            });
 
         Emit(stdout, "bridge.ready", new
         {
@@ -250,7 +269,8 @@ public static class Program
             or "version.checkUpdates" or "version.updateMod" or "version.checkDependencies"
             or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
             or "nova.plan.execute"
-            or "lab.load" or "lab.worldEater";
+            or "lab.load" or "lab.worldEater"
+            or "plugins.invoke";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
     private static void StartParentWatchdog()
@@ -523,6 +543,12 @@ public static class Program
                         other => other == id || IsPluginEnabled(other));
                     var reason = PluginDependencyResolver.BlockReason(resolution, id);
                     if (reason is not null) throw new Exception(reason);
+                    // 真正启动运行时（JS/Python/声明式）；失败则不落启用状态。
+                    EnsurePluginStarted(id, allowDisabled: true);
+                }
+                else
+                {
+                    _pluginHost.Stop(id);
                 }
                 SetPluginState(id, s =>
                 {
@@ -533,9 +559,95 @@ public static class Program
                 {
                     ok = true,
                     enabled,
-                    // 外部插件运行时（JS/Python + WebView 视图）尚未在 Linux 端启动；
-                    // 这里只持久化启用状态，供 Windows 端/后续沙箱宿主复用。
-                    runtimeStarted = false,
+                    runtimeStarted = enabled && _pluginHost.IsLoaded(id),
+                };
+            }
+
+            case "plugins.panels":
+            {
+                var id = SafePluginId(p.GetProperty("id").GetString()!);
+                EnsurePluginStarted(id);
+                return new
+                {
+                    panels = _pluginHost.Panels
+                        .Where(panel => panel.PluginId == id)
+                        .Select(panel => new
+                        {
+                            id = panel.PanelId,
+                            title = panel.Title,
+                            declarative = panel.Declarative,
+                            entry = panel.EntryPath,
+                        }),
+                };
+            }
+
+            case "plugins.view":
+            {
+                var id = SafePluginId(p.GetProperty("id").GetString()!);
+                var panelId = p.GetProperty("panelId").GetString()!;
+                EnsurePluginStarted(id);
+                var panel = _pluginHost.Panels.FirstOrDefault(panel =>
+                    panel.PluginId == id && panel.PanelId == panelId)
+                    ?? throw new Exception($"面板不存在：{panelId}");
+                if (!PluginViewParser.TryParseFile(
+                        panel.EntryPath, out var root, out var errors) || root is null)
+                {
+                    return new
+                    {
+                        ok = false,
+                        errors,
+                        view = (object?)null,
+                        bindings = new Dictionary<string, object?>(),
+                    };
+                }
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                CollectBindings(root, keys);
+                var bindings = new Dictionary<string, object?>(StringComparer.Ordinal);
+                foreach (var key in keys)
+                {
+                    var parts = key.Split('.', 2);
+                    if (parts.Length != 2 || parts[0] != "storage") continue;
+                    var result = _pluginHost.InvokeAction(
+                        id, "storage.get",
+                        JsonSerializer.Serialize(new object?[] { parts[1] }));
+                    if (!result.Ok || result.ResultJson is null)
+                    {
+                        bindings[key] = null;
+                        continue;
+                    }
+                    try
+                    {
+                        bindings[key] = JsonSerializer.Deserialize<JsonElement>(
+                            result.ResultJson);
+                    }
+                    catch
+                    {
+                        bindings[key] = result.ResultJson;
+                    }
+                }
+                return new
+                {
+                    ok = true,
+                    errors = Array.Empty<string>(),
+                    view = root,
+                    bindings,
+                };
+            }
+
+            case "plugins.invoke":
+            {
+                var id = SafePluginId(p.GetProperty("id").GetString()!);
+                var api = p.GetProperty("api").GetString()!;
+                var args = p.TryGetProperty("args", out var argsElement)
+                    ? argsElement.GetRawText()
+                    : "[]";
+                EnsurePluginStarted(id);
+                var result = _pluginHost.InvokeAction(id, api, args);
+                return new
+                {
+                    ok = result.Ok,
+                    result = result.ResultJson,
+                    error = result.Error,
                 };
             }
 
@@ -1851,6 +1963,8 @@ public static class Program
             official,
             enabled = entry?.Enabled ?? false,
             disclaimerAccepted = entry?.DisclaimerAccepted ?? false,
+            loaded = _pluginHost.IsLoaded(manifest.Id),
+            panelCount = manifest.Contributes?.Panels?.Length ?? 0,
             dir,
             dependencies = manifest.Dependencies,
             conflicts = manifest.Conflicts,
@@ -1978,6 +2092,85 @@ public static class Program
                     Directory.Delete(staging, recursive: true);
             }
             catch { /* 清理失败忽略 */ }
+        }
+    }
+
+    private static void EnsurePluginStarted(string id, bool allowDisabled = false)
+    {
+        if (!allowDisabled && !IsPluginEnabled(id))
+            throw new Exception("插件未启用，请先启用（第三方插件需要免责确认）");
+        if (_pluginHost.IsLoaded(id)) return;
+        var installed = ScanPlugins();
+        var target = installed.FirstOrDefault(x => x.Manifest.Id == id);
+        if (target.Manifest is null) throw new Exception($"插件未安装：{id}");
+        var error = _pluginHost.Start(target.Manifest, target.Dir);
+        if (error is not null) throw new Exception(error.Message);
+    }
+
+    /// <summary>插件宿主 SDK（Python 需要 starcloud_host.py；JS 由 Jint 注入）。</summary>
+    private static string PluginSdkPath()
+    {
+        var env = Environment.GetEnvironmentVariable("STARCLOUD_PLUGIN_SDK");
+        if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return env;
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "pluginsdk"),
+            Path.Combine(AppContext.BaseDirectory, "..", "dotnet", "src", "Starcloud.App",
+                "Assets", "pluginsdk"),
+        };
+        return candidates.Select(Path.GetFullPath).FirstOrDefault(Directory.Exists) ?? "";
+    }
+
+    private static void CollectBindings(PluginViewNode node, HashSet<string> keys)
+    {
+        if (node.Value.Bind is { } valueBind)
+            keys.Add($"{valueBind.Scope}.{valueBind.Key}");
+        if (node.Bind is { } bind)
+            keys.Add($"{bind.Scope}.{bind.Key}");
+        if (node.ItemsBind is { } itemsBind)
+            keys.Add($"{itemsBind.Scope}.{itemsBind.Key}");
+        foreach (var child in node.Children) CollectBindings(child, keys);
+    }
+
+    /// <summary>只有 App 宿主才有的 UI 能力：桥接进程没有窗口，确认/剪贴板按“不可用”处理。</summary>
+    private sealed class BridgePluginHostBridge : IPluginHostBridge
+    {
+        public bool? Confirm(string title, string message) => null;
+
+        public bool? ShowInfo(string title, string message) => null;
+
+        public void OpenPage(string page)
+        {
+            // 无 UI 页面栈；插件调用只作为提示忽略。
+        }
+
+        public string OpenUrl(string url) => OpenExternal(url);
+
+        public string OpenPath(string path) => OpenExternal(path);
+
+        public string? ClipboardText() => null;
+
+        public void SetClipboardText(string text)
+        {
+            // 无剪贴板访问
+        }
+
+        private static string OpenExternal(string target)
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                    Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+                else if (OperatingSystem.IsMacOS())
+                    Process.Start(new ProcessStartInfo("open", $"\"{target}\""));
+                else
+                    Process.Start(new ProcessStartInfo("xdg-open", $"\"{target}\""));
+                return "已打开";
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
         }
     }
 
