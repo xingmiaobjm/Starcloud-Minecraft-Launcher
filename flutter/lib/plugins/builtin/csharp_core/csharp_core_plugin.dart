@@ -17,6 +17,7 @@ import '../../../contracts/download_engine.dart';
 import '../../../contracts/minecraft.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
+import 'bridge_accounts.dart';
 import 'bridge_download.dart';
 import 'bridge_minecraft.dart';
 import 'bridge_saves.dart';
@@ -92,13 +93,17 @@ class CSharpCorePlugin implements Plugin {
     await settings.refresh();
     final download = BridgeDownloadEngine(bridge);
     _download = download;
+    final accounts = BridgeAccountStore(bridge);
+    await accounts.refresh();
 
     ctx.services.add<LauncherSettings>(settings);
     ctx.services.add<DownloadEngine>(download);
     ctx.services.add<MinecraftCatalog>(BridgeCatalog(bridge, settings));
     ctx.services.add<MinecraftInstaller>(BridgeInstaller(bridge));
-    ctx.services.add<GameLauncher>(BridgeLauncher(bridge, settings));
+    ctx.services.add<GameLauncher>(BridgeLauncher(bridge));
     ctx.services.add<SaveCatalog>(BridgeSaveCatalog(bridge));
+    ctx.services.add<AccountStore>(accounts);
+    ctx.services.add<AccountAuth>(BridgeAccountAuth(bridge, accounts));
     ctx.log('C# 核心就绪（${p.basename(bridge.dllPath)}，'
         'gameDir=${settings.gameDir()}）');
   }
@@ -125,6 +130,8 @@ PluginDescriptor csharpCoreDescriptor() => PluginDescriptor.create(
         MinecraftInstaller,
         GameLauncher,
         SaveCatalog,
+        AccountStore,
+        AccountAuth,
       ],
       permissions: const [
         'net.http',

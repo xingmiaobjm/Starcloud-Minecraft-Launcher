@@ -132,10 +132,11 @@ abstract class GameLauncher {
   /// 探测 Java：设置指定路径 → JAVA_HOME → PATH → /usr/lib/jvm 扫描。
   Future<JavaRuntime?> detectJava();
 
-  /// 启动一个已安装版本（离线账户）。
+  /// 启动一个已安装版本。
   Future<GameSession> launch({
     required String versionId,
     required String playerName,
+    String? accountUuid,
   });
 }
 
@@ -182,19 +183,29 @@ abstract class SaveCatalog {
 
 // ── 账户（基座期只支持离线；微软设备码登录后续迭代）─────────────────────────
 
-enum AccountKind { offline }
+enum AccountKind { offline, microsoft, external }
 
 class GameAccount {
   const GameAccount({
     required this.uuid,
     required this.name,
     required this.kind,
+    this.serverName,
+    this.serverAlias,
+    this.hasSession = false,
   });
 
   /// 离线账户：UUID = `md5("OfflinePlayer:<name>")` 置版本 3（Minecraft 官方算法）。
   final String uuid;
   final String name;
   final AccountKind kind;
+
+  /// 第三方（Yggdrasil）账户的服务器展示名 / 原始地址。
+  final String? serverName;
+  final String? serverAlias;
+
+  /// 本次进程内是否持有可用凭证（token 不落盘，重启后需重新登录）。
+  final bool hasSession;
 }
 
 abstract class AccountStore {
@@ -208,6 +219,38 @@ abstract class AccountStore {
   Future<void> setCurrent(String uuid);
 
   Future<void> remove(String uuid);
+}
+
+/// 微软设备码登录。
+class MicrosoftDeviceCode {
+  const MicrosoftDeviceCode({
+    required this.userCode,
+    required this.deviceCode,
+    required this.verificationUri,
+    required this.interval,
+  });
+
+  final String userCode;
+  final String deviceCode;
+  final String verificationUri;
+
+  /// 轮询间隔（秒）。
+  final int interval;
+}
+
+abstract class AccountAuth {
+  Future<MicrosoftDeviceCode> startMicrosoftLogin();
+
+  /// 单次轮询：true = 登录成功（账户已写入存储），false = 仍在等待授权。
+  /// 失败抛异常（消息可直接展示给用户）。
+  Future<bool> pollMicrosoftLogin(MicrosoftDeviceCode code);
+
+  /// 第三方（Yggdrasil）账密登录；成功后账户已写入存储。
+  Future<void> loginExternal({
+    required String url,
+    required String username,
+    required String password,
+  });
 }
 
 // ── 设置 ─────────────────────────────────────────────────────────────────────

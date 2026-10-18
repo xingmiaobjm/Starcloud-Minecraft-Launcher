@@ -14,9 +14,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'bootstrap.dart';
 import 'shell/app.dart';
 
-/// 退出钩子必须持有引用：监听器注册在 binding 上，但显式保留便于排查。
-AppLifecycleListener? _lifecycle;
-
+/// 退出钩子由 binding 持有（AppLifecycleListener 构造时注册为 observer），
+/// 这里不保存引用；手动 dispose 会在框架收尾后触发 "used after being disposed"。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final kernel = await bootstrapKernel();
@@ -26,7 +25,7 @@ Future<void> main() async {
   }
 
   // 窗口关闭 / 系统退出请求：先按逆序停用插件（csharp_core 会回收桥接进程）。
-  _lifecycle = AppLifecycleListener(
+  AppLifecycleListener(
     onExitRequested: () async {
       await shutdown();
       return AppExitResponse.exit;
@@ -37,7 +36,6 @@ Future<void> main() async {
   if (!Platform.isWindows) {
     for (final signal in [ProcessSignal.sigterm, ProcessSignal.sigint]) {
       signal.watch().listen((_) async {
-        _lifecycle?.dispose();
         await shutdown();
         exit(0);
       });

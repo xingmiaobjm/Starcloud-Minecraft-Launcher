@@ -178,10 +178,9 @@ class BridgeInstaller implements MinecraftInstaller {
 }
 
 class BridgeLauncher implements GameLauncher {
-  BridgeLauncher(this._bridge, this._settings);
+  BridgeLauncher(this._bridge);
 
   final CoreBridge _bridge;
-  final BridgeLauncherSettings _settings;
 
   @override
   Future<JavaRuntime?> detectJava() async {
@@ -213,6 +212,7 @@ class BridgeLauncher implements GameLauncher {
   Future<GameSession> launch({
     required String versionId,
     required String playerName,
+    String? accountUuid,
   }) async {
     // 单订阅控制器会在首个 listener 之前缓冲事件：启动早期的日志（最需要
     // 的崩溃日志）不会因为调用方还没拿到 session 而丢失。
@@ -252,7 +252,7 @@ class BridgeLauncher implements GameLauncher {
         {
           'versionId': versionId,
           'playerName': playerName,
-          'maxMemoryMb': _settings.memoryMb(),
+          'accountUuid': ?accountUuid,
         },
         const Duration(seconds: 60),
       );

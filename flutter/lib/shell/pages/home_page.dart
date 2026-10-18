@@ -89,6 +89,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           launcher: _deps.launcher,
           versionId: version,
           playerName: account.name,
+          accountUuid: account.uuid,
         ));
   }
 

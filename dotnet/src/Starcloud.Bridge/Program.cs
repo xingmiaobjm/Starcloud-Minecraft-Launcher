@@ -26,6 +26,10 @@ public static class Program
     private static JavaService _java = null!;
     private static GameLauncher _launcher = null!;
     private static AccountStore _accounts = null!;
+    private static MicrosoftAuthService _msAuth = null!;
+    private static YggdrasilService _yggdrasil = null!;
+    private static readonly ConcurrentDictionary<string, MicrosoftAuthService.DeviceCodeInfo>
+        PendingDeviceCodes = new();
     private static SaveService _saves = null!;
     private static SaveLibraryService _saveLibrary = null!;
     private static readonly ConcurrentDictionary<int, GameSession> Sessions = new();
@@ -55,6 +59,8 @@ public static class Program
         _java = new JavaService(_download);
         _launcher = new GameLauncher(_installer, _java);
         _accounts = AccountStore.Load();
+        _msAuth = new MicrosoftAuthService();
+        _yggdrasil = new YggdrasilService();
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
 
@@ -370,8 +376,12 @@ public static class Program
                         name = a.Username,
                         a.Type,
                         isDefault = a.IsDefault,
+                        a.ServerName,
+                        a.ServerAlias,
+                        // 凭证只在内存：登录过期后 hasSession=false，UI 可提示重新登录。
+                        hasSession = _accounts.GetSession(a.Uuid) is not null,
                     }),
-                    current = _accounts.Accounts.FirstOrDefault(a => a.IsDefault)?.Uuid,
+                    current = _accounts.Default?.Uuid,
                 };
 
             case "accounts.addOffline":
@@ -383,11 +393,86 @@ public static class Program
 
             case "accounts.setCurrent":
             {
-                // 默认账户用 IsDefault 标记（与 Windows 版一致）。
+                // 首选按类型各记一个（Core 语义）：换离线首选不会清掉正版首选。
                 var uuid = p.GetProperty("uuid").GetString()!;
-                foreach (var a in _accounts.Accounts)
-                    a.IsDefault = a.Uuid == uuid;
+                _accounts.SetDefault(uuid);
                 return new { ok = true };
+            }
+
+            case "accounts.remove":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                _accounts.Remove(uuid);
+                return new { ok = true };
+            }
+
+            case "auth.microsoft.start":
+            {
+                var code = await _msAuth.StartDeviceCodeAsync();
+                PendingDeviceCodes[code.DeviceCode] = code;
+                return new
+                {
+                    userCode = code.UserCode,
+                    deviceCode = code.DeviceCode,
+                    verificationUri = code.VerificationUri,
+                    interval = code.Interval,
+                };
+            }
+
+            case "auth.microsoft.poll":
+            {
+                var deviceCode = p.GetProperty("deviceCode").GetString()!;
+                if (!PendingDeviceCodes.TryGetValue(deviceCode, out var code))
+                    throw new Exception("设备码已失效，请重新开始登录");
+                var (state, message, result) = await _msAuth.PollAsync(code);
+                if (state == "pending") return new { state, message };
+                PendingDeviceCodes.TryRemove(deviceCode, out _);
+                if (state == "error" || result is null)
+                    throw new Exception(message);
+                var account = _accounts.AddOrUpdateMicrosoft(result.Uuid, result.Username);
+                _accounts.SetSession(result.Uuid,
+                    new AccountSession(result.AccessToken, result.RefreshToken, result.Xuid));
+                return new
+                {
+                    state = "success",
+                    account = new
+                    {
+                        uuid = account.Uuid,
+                        name = account.Username,
+                        type = account.Type,
+                    },
+                };
+            }
+
+            case "auth.yggdrasil.login":
+            {
+                var serverUrl = p.GetProperty("url").GetString()!;
+                var username = p.GetProperty("username").GetString()!;
+                var password = p.GetProperty("password").GetString()!;
+                var server = await _yggdrasil.ResolveServerAsync(serverUrl);
+                // clientToken 是设备标识（非鉴权 token）：同服务器同用户复用，否则新生成。
+                var existing = _accounts.Accounts.FirstOrDefault(a =>
+                    a.Type == "external" && a.Username == username &&
+                    (a.ServerBase == server.Base || a.ServerAlias == serverUrl));
+                var clientToken = string.IsNullOrEmpty(existing?.ClientToken)
+                    ? Guid.NewGuid().ToString()
+                    : AsUuid(existing!.ClientToken!);
+                var result = await _yggdrasil.AuthenticateAsync(
+                    server.Base, username, password, clientToken);
+                var account = _accounts.AddOrUpdateExternal(
+                    result.ProfileId, result.ProfileName, server.Base, serverUrl, server.ServerName);
+                _accounts.SetSession(result.ProfileId, new AccountSession(result.AccessToken));
+                return new
+                {
+                    state = "success",
+                    account = new
+                    {
+                        uuid = account.Uuid,
+                        name = account.Username,
+                        type = account.Type,
+                        serverName = account.ServerName,
+                    },
+                };
             }
 
             case "download.text":
@@ -460,28 +545,84 @@ public static class Program
             case "launch.start":
             {
                 var versionId = p.GetProperty("versionId").GetString()!;
-                var playerName = p.GetProperty("playerName").GetString()!;
-                var maxMemory = p.TryGetProperty("maxMemoryMb", out var mm) && mm.TryGetInt32(out var m2)
-                    ? m2
-                    : _settings.DefaultMaxMemoryMb;
-                // 离线账户：C# 侧官方算法（md5 OfflinePlayer:name v3），与 Windows 端一致。
-                _accounts.AddOrUpdateOffline(playerName);
-                var uuid = AccountStore.OfflineUuid(playerName);
+                var playerName = p.TryGetProperty("playerName", out var pn) &&
+                                 pn.ValueKind == JsonValueKind.String
+                    ? pn.GetString() ?? ""
+                    : "";
+                var accountUuid = p.TryGetProperty("accountUuid", out var au) &&
+                                  au.ValueKind == JsonValueKind.String
+                    ? au.GetString()
+                    : null;
+
+                // 账户解析：显式 uuid → 默认账户 → 按玩家名补一个离线身份。
+                StoredAccount? account = null;
+                if (!string.IsNullOrEmpty(accountUuid))
+                    account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == accountUuid);
+                account ??= _accounts.Default;
+                if (account is null && !string.IsNullOrWhiteSpace(playerName))
+                    account = _accounts.AddOrUpdateOffline(playerName);
+                if (account is null)
+                    throw new Exception("没有可用的游戏账户，请先在账户页添加");
+
+                // 与 Windows 端同一套实例层叠：隔离三态、内存/Java/窗口覆盖。
+                var dotMc = _settings.DotMinecraft;
+                var profile = new InstanceSettingsStore(dotMc).Get(versionId);
+                var isolated = InstanceLayout.IsIsolated(profile, _settings);
+                var gameRoot = InstanceLayout.GameRoot(dotMc, versionId, isolated);
+                var eff = InstanceLayout.Resolve(
+                    dotMc, versionId, profile, _settings, MemoryAdvisor.Probe(gameRoot));
+
+                LaunchCredentials credentials;
+                string? agentJar = null;
+                string? agentBase = null;
+                switch (account.Type)
+                {
+                    case "microsoft":
+                    {
+                        var msSession = _accounts.GetSession(account.Uuid)
+                            ?? throw new Exception("微软账户的登录已过期，请在账户页重新登录");
+                        credentials = new LaunchCredentials(
+                            account.Uuid, msSession.AccessToken, "msa", msSession.Xuid);
+                        break;
+                    }
+                    case "external":
+                    {
+                        var extSession = _accounts.GetSession(account.Uuid)
+                            ?? throw new Exception("第三方账户的登录已过期，请在账户页重新登录");
+                        agentJar = AgentJarPath()
+                            ?? throw new Exception("缺少 authlib-injector，无法启动第三方账户");
+                        agentBase = account.ServerBase
+                            ?? throw new Exception("第三方账户缺少认证服务器地址");
+                        credentials = new LaunchCredentials(
+                            account.Uuid, extSession.AccessToken, "legacy");
+                        break;
+                    }
+                    default:
+                        credentials = new LaunchCredentials(account.Uuid, "0", "legacy");
+                        break;
+                }
+
                 var options = new LaunchOptions(
                     VersionId: versionId,
-                    PlayerName: playerName,
-                    // 与 Windows 端共用 version_isolated 语义：关闭隔离时
-                    // 存档/mods 落在 .minecraft 根，而不是 versions/<id>。
-                    GameDir: _settings.VersionIsolated
-                        ? Path.Combine(_settings.DotMinecraft, "versions", versionId)
-                        : _settings.DotMinecraft,
-                    SharedDir: _settings.DotMinecraft,
-                    MinMemoryMb: 512,
-                    MaxMemoryMb: maxMemory,
-                    JavaExecutable: _settings.JavaExecutable,
-                    ExtraJvmArgs: new List<string>(),
-                    UseBuiltinJvmArgs: true,
-                    Credentials: new LaunchCredentials(uuid, "0", "legacy"));
+                    PlayerName: account.Username,
+                    GameDir: eff.GameRoot,
+                    SharedDir: dotMc,
+                    MinMemoryMb: eff.MinMem,
+                    MaxMemoryMb: eff.MaxMem,
+                    JavaExecutable: eff.Java,
+                    ExtraJvmArgs: eff.ExtraJvmArgs,
+                    UseBuiltinJvmArgs: _settings.UseBuiltinJvmArgs,
+                    Credentials: credentials,
+                    Language: eff.Language,
+                    LanguageOverride: eff.LanguageOverride,
+                    WindowWidth: eff.WindowW,
+                    WindowHeight: eff.WindowH,
+                    Fullscreen: eff.Fullscreen,
+                    EnvVars: eff.EnvVars,
+                    PreLaunchCommand: eff.PreCmd,
+                    PostLaunchCommand: eff.PostCmd,
+                    AgentJarPath: agentJar,
+                    AgentBase: agentBase);
 
                 var session = await _launcher.LaunchVersionAsync(
                     _settings.DotMinecraft, versionId, options);
@@ -567,6 +708,29 @@ public static class Program
         maxMemoryMb = _settings.DefaultMaxMemoryMb,
         downloadSource = _settings.DownloadSource,
     };
+
+    /// <summary>clientToken 规范是 UUID；老数据可能是不带连字符的 32 位十六进制。</summary>
+    private static string AsUuid(string token)
+    {
+        var hex = token.Replace("-", "");
+        if (hex.Length != 32 || !hex.All(Uri.IsHexDigit)) return token;
+        return $"{hex[..8]}-{hex[8..12]}-{hex[12..16]}-{hex[16..20]}-{hex[20..]}";
+    }
+
+    /// <summary>authlib-injector（第三方账户启动必需）：环境变量 → 发布目录 → 仓库资产。</summary>
+    private static string? AgentJarPath()
+    {
+        var env = Environment.GetEnvironmentVariable("STARCLOUD_AGENT_JAR");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return env;
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "authlib-injector",
+                "authlib-injector-1.2.8.jar"),
+            Path.Combine(AppContext.BaseDirectory, "..", "dotnet", "src", "Starcloud.App",
+                "Assets", "authlib-injector", "authlib-injector-1.2.8.jar"),
+        };
+        return candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
+    }
 
     /// <summary>校验存档操作目标：根目录必须在游戏目录内，目录名不得含路径符号。</summary>
     private static (string Root, string Folder) SaveTarget(JsonElement p)

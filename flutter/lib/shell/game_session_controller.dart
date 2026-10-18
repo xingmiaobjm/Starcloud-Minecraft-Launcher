@@ -68,6 +68,7 @@ class GameSessionController extends Notifier<GameSessionState> {
     required GameLauncher launcher,
     required String versionId,
     required String playerName,
+    String? accountUuid,
   }) async {
     if (state.launching || _session != null) {
       state = state.copyWith(
@@ -84,6 +85,7 @@ class GameSessionController extends Notifier<GameSessionState> {
       final session = await launcher.launch(
         versionId: versionId,
         playerName: playerName,
+        accountUuid: accountUuid,
       );
       if (_disposed) return;
       _session = session;

@@ -63,7 +63,22 @@ KernelDeps _deps(MinecraftCatalog catalog) => KernelDeps(
       accounts: _FakeAccounts(),
       settings: _FakeSettings(),
       saves: _FakeSaves(),
+      auth: _FakeAuth(),
     );
+
+class _FakeAuth implements AccountAuth {
+  @override
+  Future<MicrosoftDeviceCode> startMicrosoftLogin() async =>
+      throw UnimplementedError();
+  @override
+  Future<bool> pollMicrosoftLogin(MicrosoftDeviceCode code) async => false;
+  @override
+  Future<void> loginExternal({
+    required String url,
+    required String username,
+    required String password,
+  }) async {}
+}
 
 class _FakeSaves implements SaveCatalog {
   @override
@@ -117,6 +132,7 @@ class _FakeLauncher implements GameLauncher {
   Future<GameSession> launch({
     required String versionId,
     required String playerName,
+    String? accountUuid,
   }) async =>
       throw UnimplementedError();
 }

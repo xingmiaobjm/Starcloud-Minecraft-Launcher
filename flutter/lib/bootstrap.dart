@@ -12,7 +12,6 @@ import 'kernel/paths.dart';
 import 'kernel/plugin_host.dart';
 import 'kernel/scheduler.dart';
 import 'plugins/builtin/accounts/accounts_page_plugin.dart';
-import 'plugins/builtin/accounts/accounts_plugin.dart';
 import 'plugins/builtin/csharp_core/csharp_core_plugin.dart';
 import 'plugins/builtin/download_page/download_page_plugin.dart';
 import 'plugins/builtin/home/home_plugin.dart';
@@ -34,6 +33,7 @@ class KernelDeps {
     required this.accounts,
     required this.settings,
     required this.saves,
+    required this.auth,
   });
 
   final MinecraftCatalog catalog;
@@ -42,6 +42,7 @@ class KernelDeps {
   final AccountStore accounts;
   final LauncherSettings settings;
   final SaveCatalog saves;
+  final AccountAuth auth;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -53,6 +54,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     accounts: services.get<AccountStore>(),
     settings: services.get<LauncherSettings>(),
     saves: services.get<SaveCatalog>(),
+    auth: services.get<AccountAuth>(),
   );
 });
 
@@ -72,7 +74,6 @@ void registerBuiltinPlugins(
       () => CSharpCorePlugin(dataRoot: root),
     );
   }
-  kernel.registerPlugin(accountsDescriptor(), AccountsPlugin.new);
   kernel.registerPlugin(homeDescriptor(), HomePlugin.new);
   kernel.registerPlugin(downloadPageDescriptor(), DownloadPagePlugin.new);
   kernel.registerPlugin(accountsPageDescriptor(), AccountsPagePlugin.new);

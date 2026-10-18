@@ -22,6 +22,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:starcloud_launcher/bridge/core_bridge.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_accounts.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_download.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_saves.dart';
@@ -49,7 +50,7 @@ Future<void> main(List<String> args) async {
   final settings = BridgeLauncherSettings(bridge);
   final catalog = BridgeCatalog(bridge, settings);
   final installer = BridgeInstaller(bridge);
-  final launcher = BridgeLauncher(bridge, settings);
+  final launcher = BridgeLauncher(bridge);
 
   try {
     await settings.refresh();
@@ -142,6 +143,29 @@ Future<void> main(List<String> args) async {
       }
     }
 
+    if (mode == 'accounts') {
+      final store = BridgeAccountStore(bridge);
+      await store.refresh();
+      await store.addOffline('E2EUser1');
+      await store.refresh();
+      final account =
+          store.accounts().firstWhere((a) => a.name == 'E2EUser1');
+      await store.setCurrent(account.uuid);
+      stdout.writeln('[acc] accounts: ${store.accounts().map((a) => '${a.name}/${a.kind.name}').join(', ')}');
+      stdout.writeln('[acc] current: ${store.current()?.name}');
+
+      // 微软设备码：只验证能拿到 code，不等待用户授权。
+      final auth = BridgeAccountAuth(bridge, store);
+      final code = await auth.startMicrosoftLogin();
+      stdout.writeln('[acc] ms userCode=${code.userCode} '
+          'uri=${code.verificationUri} interval=${code.interval}');
+
+      await store.remove(account.uuid);
+      await store.refresh();
+      stdout.writeln('[acc] after remove: '
+          '${store.accounts().map((a) => a.name).join(', ')}');
+    }
+
     if (mode == 'download') {
       final engine = BridgeDownloadEngine(bridge);
       final seen = <String>[];
@@ -195,9 +219,16 @@ Future<void> main(List<String> args) async {
       if (!installed.any((v) => v.id == version)) {
         throw StateError('未安装 $version，先跑 install');
       }
+      // 显式带账户 uuid：走 C# 的凭证解析（离线 → legacy 占位令牌）。
+      final store = BridgeAccountStore(bridge);
+      await store.refresh();
+      await store.addOffline('StarcloudE2E');
+      final account =
+          store.accounts().firstWhere((a) => a.name == 'StarcloudE2E');
       final session = await launcher.launch(
         versionId: version,
-        playerName: 'StarcloudE2E',
+        playerName: account.name,
+        accountUuid: account.uuid,
       );
       stdout.writeln('[e2e] launched pid=${session.pid}');
       final lines = <String>[];
@@ -214,8 +245,8 @@ Future<void> main(List<String> args) async {
       }).catchError((Object e) {
         if (!done.isCompleted) done.complete(-1);
       }));
-      // 无头环境里不跑完整游戏：观察到渲染线程/退出标记或 45s 后结束。
-      final code = await done.future.timeout(const Duration(seconds: 45),
+      // 无头环境里不跑完整游戏：观察到退出或 90s 后结束（冷启动可能较慢）。
+      final code = await done.future.timeout(const Duration(seconds: 90),
           onTimeout: () {
         stdout.writeln('[e2e] timeout waiting for exit; killing java');
         Process.runSync('pkill', ['-f', 'net.minecraft.client.main.Main']);

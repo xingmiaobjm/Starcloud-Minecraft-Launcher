@@ -1,0 +1,195 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:starcloud_launcher/bootstrap.dart';
+import 'package:starcloud_launcher/contracts/minecraft.dart';
+import 'package:starcloud_launcher/shell/pages/accounts_page.dart';
+
+/// 账户页：三类身份的展示 + 离线添加 + 移除确认。
+void main() {
+  testWidgets('账户列表与离线添加', (tester) async {
+    final store = _FakeStore([
+      const GameAccount(
+        uuid: 'u-offline',
+        name: 'Steve',
+        kind: AccountKind.offline,
+        hasSession: true,
+      ),
+      const GameAccount(
+        uuid: 'u-ms',
+        name: 'Alex',
+        kind: AccountKind.microsoft,
+        hasSession: false,
+      ),
+    ], currentUuid: 'u-offline');
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [kernelDepsProvider.overrideWithValue(_deps(store))],
+      child: const FluentApp(home: AccountsPage()),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Steve'), findsOneWidget);
+    expect(find.text('Alex'), findsOneWidget);
+    expect(find.text('[微软正版]'), findsOneWidget);
+    expect(find.text('[凭证已过期]'), findsOneWidget);
+    expect(find.text('[当前]'), findsOneWidget);
+
+    await tester.tap(find.text('添加账户'));
+    await tester.pumpAndSettle();
+    final dialog = find.byType(ContentDialog);
+    expect(dialog, findsOneWidget);
+
+    await tester.enterText(find.byType(TextBox), 'TestUser');
+    await tester.tap(find.descendant(of: dialog, matching: find.text('添加')));
+    await tester.pumpAndSettle();
+
+    expect(store.added, ['TestUser']);
+    expect(find.text('TestUser'), findsOneWidget);
+    expect(find.byType(ContentDialog), findsNothing);
+
+    await tester.tap(find.text('移除').first);
+    await tester.pumpAndSettle();
+    final confirm = find.byType(ContentDialog);
+    expect(confirm, findsOneWidget);
+    await tester.tap(find.descendant(of: confirm, matching: find.text('取消')));
+    await tester.pumpAndSettle();
+    expect(store.removed, isEmpty);
+  });
+}
+
+KernelDeps _deps(AccountStore accounts) => KernelDeps(
+      catalog: _FakeCatalog(),
+      installer: _FakeInstaller(),
+      launcher: _FakeLauncher(),
+      accounts: accounts,
+      settings: _FakeSettings(),
+      saves: _FakeSaves(),
+      auth: _FakeAuth(),
+    );
+
+class _FakeStore implements AccountStore {
+  _FakeStore(List<GameAccount> accounts, {String? currentUuid})
+      : _accounts = [...accounts],
+        _current = currentUuid;
+
+  final List<GameAccount> _accounts;
+  String? _current;
+  final List<String> added = [];
+  final List<String> removed = [];
+
+  @override
+  List<GameAccount> accounts() => List.unmodifiable(_accounts);
+
+  @override
+  GameAccount? current() {
+    for (final account in _accounts) {
+      if (account.uuid == _current) return account;
+    }
+    return _accounts.isEmpty ? null : _accounts.first;
+  }
+
+  @override
+  Future<void> addOffline(String name) async {
+    added.add(name);
+    final uuid = 'u-$name';
+    _accounts.add(GameAccount(
+      uuid: uuid,
+      name: name,
+      kind: AccountKind.offline,
+      hasSession: true,
+    ));
+    _current = uuid;
+  }
+
+  @override
+  Future<void> setCurrent(String uuid) async => _current = uuid;
+
+  @override
+  Future<void> remove(String uuid) async {
+    removed.add(uuid);
+    _accounts.removeWhere((a) => a.uuid == uuid);
+    if (_current == uuid) _current = null;
+  }
+}
+
+class _FakeAuth implements AccountAuth {
+  @override
+  Future<MicrosoftDeviceCode> startMicrosoftLogin() async =>
+      throw UnimplementedError();
+  @override
+  Future<bool> pollMicrosoftLogin(MicrosoftDeviceCode code) async => false;
+  @override
+  Future<void> loginExternal({
+    required String url,
+    required String username,
+    required String password,
+  }) async {}
+}
+
+class _FakeCatalog implements MinecraftCatalog {
+  @override
+  Future<List<RemoteVersion>> remoteVersions() async => const [];
+  @override
+  Future<List<InstalledVersion>> installedVersions() async => const [];
+  @override
+  Future<void> deleteVersion(String versionId) async {}
+  @override
+  Future<void> openVersionFolder(String versionId) async {}
+  @override
+  Future<void> setDefaultVersion(String? versionId) async {}
+}
+
+class _FakeInstaller implements MinecraftInstaller {
+  @override
+  Future<void> install(
+    String versionId, {
+    void Function(InstallProgress progress)? onProgress,
+  }) async {}
+}
+
+class _FakeLauncher implements GameLauncher {
+  @override
+  Future<JavaRuntime?> detectJava() async => null;
+  @override
+  Future<GameSession> launch({
+    required String versionId,
+    required String playerName,
+    String? accountUuid,
+  }) async =>
+      throw UnimplementedError();
+}
+
+class _FakeSaves implements SaveCatalog {
+  @override
+  Future<List<SaveInfo>> listSaves() async => const [];
+  @override
+  Future<void> openSaveFolder(SaveInfo save) async {}
+  @override
+  Future<String> backupSave(SaveInfo save) async => '';
+  @override
+  Future<void> deleteSave(SaveInfo save) async {}
+}
+
+class _FakeSettings implements LauncherSettings {
+  @override
+  String gameDir() => '/mc';
+  @override
+  Future<void> setGameDir(String path) async {}
+  @override
+  String javaPath() => '';
+  @override
+  Future<void> setJavaPath(String path) async {}
+  @override
+  int memoryMb() => 4096;
+  @override
+  Future<void> setMemoryMb(int mb) async {}
+  @override
+  DownloadSource downloadSource() => DownloadSource.auto;
+  @override
+  Future<void> setDownloadSource(DownloadSource source) async {}
+  @override
+  void addListener(void Function() listener) {}
+  @override
+  void removeListener(void Function() listener) {}
+}

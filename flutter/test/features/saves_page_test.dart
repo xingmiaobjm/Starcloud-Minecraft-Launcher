@@ -64,7 +64,22 @@ KernelDeps _deps(SaveCatalog saves) => KernelDeps(
       accounts: _FakeAccounts(),
       settings: _FakeSettings(),
       saves: saves,
+      auth: _FakeAuth(),
     );
+
+class _FakeAuth implements AccountAuth {
+  @override
+  Future<MicrosoftDeviceCode> startMicrosoftLogin() async =>
+      throw UnimplementedError();
+  @override
+  Future<bool> pollMicrosoftLogin(MicrosoftDeviceCode code) async => false;
+  @override
+  Future<void> loginExternal({
+    required String url,
+    required String username,
+    required String password,
+  }) async {}
+}
 
 class _FakeSaves implements SaveCatalog {
   _FakeSaves(this._saves);
@@ -116,6 +131,7 @@ class _FakeLauncher implements GameLauncher {
   Future<GameSession> launch({
     required String versionId,
     required String playerName,
+    String? accountUuid,
   }) async =>
       throw UnimplementedError();
 }

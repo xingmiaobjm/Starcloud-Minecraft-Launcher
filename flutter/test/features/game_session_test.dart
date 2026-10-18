@@ -99,6 +99,7 @@ class _FakeLauncher implements GameLauncher {
   Future<GameSession> launch({
     required String versionId,
     required String playerName,
+    String? accountUuid,
   }) async {
     launches++;
     if (error != null) throw error!;

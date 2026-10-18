@@ -40,7 +40,7 @@ PluginDescriptor accountsPageDescriptor() => PluginDescriptor.create(
       version: '1.0.0',
       apiVersion: '3.0',
       kind: PluginKind.feature,
-      requires: const [AccountStore],
+      requires: const [AccountStore, AccountAuth],
       permissions: const ['ui.contribute'],
       description: '游戏账户列表与管理界面',
       author: 'Starcloud',

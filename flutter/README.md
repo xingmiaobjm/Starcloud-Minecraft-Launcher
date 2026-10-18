@@ -39,8 +39,9 @@ flutter analyze
 └────────────┼─────────────────────────────────────────────────┘
              ▼
    dotnet/src/Starcloud.Bridge（net8.0，复用 Starcloud.Core）
-   DownloadService / ManifestService / InstallerService /
-   JavaService / GameLauncher / AccountStore / LauncherSettings
+   DownloadService / ManifestService / InstallerService / JavaService /
+   GameLauncher / SaveLibraryService / AccountStore / MicrosoftAuthService /
+   YggdrasilService / LauncherSettings
 ```
 
 - 下载、版本清单、依赖合并、natives、assets、Java 探测、启动参数、
@@ -80,11 +81,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**74 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**69 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
-  贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 离线账户持久化 /
-  宿主退出逆序停用 / 游戏会话状态与防双开 / 版本页与存档页渲染交互）
+  贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 宿主退出逆序停用 /
+  游戏会话状态与防双开 / 版本页·存档页·账户页渲染交互）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -97,10 +98,15 @@ lib/
   ```
 
 - 后端复用 E2E（WSL + BMCLAPI，`dart run tool/bridge_e2e.dart all`）：
-  `starcloud.csharp_core` 激活 460ms / 登记 6 个契约；1.20.4 安装 3864 个文件
+  `starcloud.csharp_core` 激活约 0.4~4s / 登记 8 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
+- 账户 E2E（`dart run tool/bridge_e2e.dart accounts`）：离线账户增/选/删成功；
+  微软设备码真实返回 `userCode` 与 `https://www.microsoft.com/link`；启动时按
+  `accountUuid` 解析凭证（离线走 legacy 占位令牌）。第三方账户启动需要
+  `authlib-injector`（默认从仓库 `Starcloud.App/Assets` 读取，可用
+  `STARCLOUD_AGENT_JAR` 覆盖）。
 - 版本管理 E2E（`dart run tool/bridge_e2e.dart versions`）：列表返回目录/大小/
   jar 存在性/默认/隔离/`inheritsFrom`；删除被依赖的父版本被拒绝；临时版本
   清理后列表与默认版本均正确。版本页已接真实实现（打开目录 / 设为默认 / 删除）。

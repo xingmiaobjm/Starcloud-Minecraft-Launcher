@@ -52,6 +52,8 @@ PluginDescriptor _fakeCoreDescriptor() => PluginDescriptor.create(
         MinecraftCatalog,
         MinecraftInstaller,
         GameLauncher,
+        AccountStore,
+        AccountAuth,
       ],
     );
 
@@ -63,6 +65,8 @@ class _FakeCorePlugin implements Plugin {
     ctx.services.add<MinecraftCatalog>(_FakeCatalog());
     ctx.services.add<MinecraftInstaller>(_FakeInstaller());
     ctx.services.add<GameLauncher>(_FakeLauncher());
+    ctx.services.add<AccountStore>(_FakeAccounts());
+    ctx.services.add<AccountAuth>(_FakeAuth());
   }
 
   @override
@@ -125,6 +129,34 @@ class _FakeLauncher implements GameLauncher {
   Future<GameSession> launch({
     required String versionId,
     required String playerName,
+    String? accountUuid,
   }) async =>
       throw UnimplementedError();
+}
+
+class _FakeAccounts implements AccountStore {
+  @override
+  List<GameAccount> accounts() => const [];
+  @override
+  GameAccount? current() => null;
+  @override
+  Future<void> addOffline(String name) async {}
+  @override
+  Future<void> remove(String uuid) async {}
+  @override
+  Future<void> setCurrent(String uuid) async {}
+}
+
+class _FakeAuth implements AccountAuth {
+  @override
+  Future<MicrosoftDeviceCode> startMicrosoftLogin() async =>
+      throw UnimplementedError();
+  @override
+  Future<bool> pollMicrosoftLogin(MicrosoftDeviceCode code) async => false;
+  @override
+  Future<void> loginExternal({
+    required String url,
+    required String username,
+    required String password,
+  }) async {}
 }
