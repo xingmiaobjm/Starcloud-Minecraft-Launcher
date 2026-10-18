@@ -21,7 +21,7 @@ import {
 } from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { ExternalPlugin, PluginList } from '../bridge'
-import { brandYellow, motion } from '../theme'
+import { brandYellow, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -30,7 +30,7 @@ const useStyles = makeStyles({
   chip: {
     fontSize: '11px',
     padding: '1px 7px',
-    borderRadius: '9px',
+    borderRadius: `${radius.control}px`,
     background: 'rgba(255,255,255,0.07)',
     color: 'rgba(255,255,255,0.75)'
   }
@@ -169,7 +169,7 @@ export default function PluginsPage() {
           <Card
             key={p.id}
             className={styles.card}
-            style={{ animation: `slideUp ${motion.normal}ms ${motion.easeOut} both`, animationDelay: `${index * 24}ms` }}
+            style={{ animation: `slideUp ${motion.normal}ms ${motion.easeOut} both`, animationDelay: `${index * motion.stagger}ms` }}
           >
             <div className={styles.row}>
               <PuzzleCubeRegular style={{ fontSize: '22px', color: p.enabled ? brandYellow : '#8A8A8A' }} />

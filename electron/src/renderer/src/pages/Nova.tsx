@@ -33,7 +33,7 @@ import {
 } from '@fluentui/react-icons'
 import { onBridgeEvent, request } from '../bridge'
 import type { NovaConfig, NovaPlanItem } from '../bridge'
-import { brandYellow, brandYellowHover, motion } from '../theme'
+import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -64,7 +64,7 @@ const useStyles = makeStyles({
   bubbleUser: {
     maxWidth: '68%',
     padding: '10px 14px',
-    borderRadius: '12px',
+    borderRadius: `${radius.card}px`,
     borderBottomRightRadius: '4px',
     background: brandYellow,
     color: '#1b1b1b',
@@ -78,7 +78,7 @@ const useStyles = makeStyles({
   bubbleAi: {
     maxWidth: '76%',
     padding: '12px 15px',
-    borderRadius: '12px',
+    borderRadius: `${radius.card}px`,
     borderBottomLeftRadius: '4px',
     background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -113,7 +113,7 @@ const useStyles = makeStyles({
   // 确认清单卡片：只展示，不执行
   planCard: {
     marginTop: '10px',
-    borderRadius: '8px',
+    borderRadius: `${radius.card}px`,
     border: `1.2px solid rgba(255,194,31,0.35)`,
     background: 'rgba(255,194,31,0.06)',
     overflow: 'hidden'
@@ -417,7 +417,7 @@ export default function NovaPage() {
                 key={m.id}
                 className={[styles.msgRow, m.role === 'user' ? styles.msgRowUser : styles.msgRowAi]
                   .join(' ')}
-                style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
+                style={{ animationDelay: `${Math.min(index, 8) * motion.stagger}ms` }}
               >
                 {m.role === 'user' ? (
                   <div className={styles.bubbleUser}>{m.content}</div>
@@ -477,7 +477,7 @@ export default function NovaPage() {
                             ]
                               .filter(Boolean)
                               .join(' ')}
-                            style={{ animationDelay: `${planIndex * 24}ms` }}
+                            style={{ animationDelay: `${planIndex * motion.stagger}ms` }}
                           >
                             <div className={styles.planBullet} />
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -523,7 +523,7 @@ export default function NovaPage() {
               style={{
                 height: '38px',
                 padding: '0 18px',
-                borderRadius: '8px',
+                borderRadius: `${radius.control}px`,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',

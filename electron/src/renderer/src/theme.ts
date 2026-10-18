@@ -34,8 +34,8 @@ export const motion = {
   easeExit: 'cubic-bezier(0.7, 0, 1, 0.5)',
   easeControl: 'cubic-bezier(0.16, 1, 0.3, 1)',
   easeFade: 'cubic-bezier(0.33, 0, 0.67, 1)',
-  // 兼容旧别名
-  fast: 100,
+  // 兼容旧别名 —— 值与 Win 端实际取值一致（hover→hoverIn、明暗渐变→Fade）
+  fast: 300,
   normal: 375,
   slow: 375,
   ease: 'cubic-bezier(0.33, 0, 0.67, 1)',

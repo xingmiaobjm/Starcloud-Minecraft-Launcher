@@ -21,7 +21,7 @@ import {
 } from '@fluentui/react-icons'
 import { onBridgeEvent, request } from '../bridge'
 import type { RemoteVersion, VersionCatalog } from '../bridge'
-import { brandYellow, motion } from '../theme'
+import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -49,7 +49,7 @@ const useStyles = makeStyles({
     gap: '12px',
     padding: '9px 12px',
     margin: '0 4px',
-    borderRadius: '6px',
+    borderRadius: `${radius.row}px`,
     border: '1.2px solid transparent',
     transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}`,
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
@@ -63,7 +63,7 @@ const useStyles = makeStyles({
   versionIcon: {
     width: '34px',
     height: '34px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -74,20 +74,20 @@ const useStyles = makeStyles({
   installButton: {
     height: '30px',
     minWidth: '92px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: 'none',
     background: brandYellow,
     color: '#1b1b1b',
     fontWeight: 600,
     cursor: 'pointer',
     transition: `background ${motion.fast}ms ${motion.ease}, opacity ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: '#FFD35C' }
+    ':hover': { background: brandYellowHover }
   },
   installButtonBusy: { opacity: 0.55, cursor: 'default' },
   installedButton: {
     height: '30px',
     minWidth: '92px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: '1px solid rgba(63,191,111,0.5)',
     background: 'rgba(63,191,111,0.12)',
     color: '#7BD9A0',
@@ -297,7 +297,7 @@ export default function DownloadPage() {
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                style={{ animationDelay: `${index * 24}ms` }}
+                style={{ animationDelay: `${index * motion.stagger}ms` }}
                 onMouseEnter={() => setHovered(version.id)}
                 onMouseLeave={() => setHovered(null)}
               >

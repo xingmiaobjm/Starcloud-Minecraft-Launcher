@@ -46,7 +46,7 @@ const useStyles = makeStyles({
     overflow: 'hidden'
   },
   nav: {
-    width: '224px',
+    width: '232px',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
@@ -76,8 +76,12 @@ const useStyles = makeStyles({
   navList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
-    flex: 1
+    gap: '2px'
+  },
+  navSeparator: {
+    height: '1px',
+    background: 'rgba(255,255,255,0.08)',
+    margin: '8px 10px'
   },
   navItem: {
     display: 'flex',
@@ -186,7 +190,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const top = useMemo(() => NAV.filter((n) => !n.footer), [])
+  // 与 Win 端一致：游戏 → 分隔线 → 个人与扩展；设置/日志固定在底部
+  const game = useMemo(
+    () => NAV.filter((n) => ['home', 'versions', 'download', 'saves'].includes(n.key)),
+    []
+  )
+  const extra = useMemo(
+    () => NAV.filter((n) => !n.footer && !['home', 'versions', 'download', 'saves'].includes(n.key)),
+    []
+  )
   const footer = useMemo(() => NAV.filter((n) => n.footer), [])
 
   const PAGE_LABEL: Record<PageKey, string> = {
@@ -276,7 +288,10 @@ export default function App() {
             </Text>
           </div>
         </div>
-        <div className={styles.navList}>{top.map(item)}</div>
+        <div className={styles.navList}>{game.map(item)}</div>
+        <div className={styles.navSeparator} />
+        <div className={styles.navList}>{extra.map(item)}</div>
+        <div style={{ flex: 1 }} />
         <div className={styles.navList}>{footer.map(item)}</div>
       </nav>
       <main className={styles.content}>

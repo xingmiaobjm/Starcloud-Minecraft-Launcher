@@ -23,7 +23,7 @@ import {
 } from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { AccountList, GameAccount } from '../bridge'
-import { brandYellow, motion } from '../theme'
+import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -33,7 +33,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: '14px',
     padding: '14px 16px',
-    borderRadius: '10px',
+    borderRadius: `${radius.card}px`,
     border: '1.2px solid transparent',
     transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}`,
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
@@ -64,7 +64,7 @@ const useStyles = makeStyles({
   },
   primaryButton: {
     height: '32px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: 'none',
     background: brandYellow,
     color: '#1b1b1b',
@@ -72,12 +72,12 @@ const useStyles = makeStyles({
     cursor: 'pointer',
     padding: '0 14px',
     transition: `background ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: '#FFD35C' }
+    ':hover': { background: brandYellowHover }
   },
   primaryButtonBusy: { opacity: 0.55, cursor: 'default' },
   dangerButton: {
     height: '32px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: '1px solid rgba(224,75,75,0.45)',
     background: 'transparent',
     color: '#FF9A9A',
@@ -231,7 +231,7 @@ export default function AccountsPage() {
                 <Card
                   key={account.uuid}
                   className={[styles.card, isCurrent ? styles.cardCurrent : ''].filter(Boolean).join(' ')}
-                  style={{ animationDelay: `${index * 24}ms` }}
+                  style={{ animationDelay: `${index * motion.stagger}ms` }}
                 >
                   <Avatar
                     size={48}

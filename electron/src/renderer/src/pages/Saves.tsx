@@ -21,7 +21,7 @@ import {
 } from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { SaveInfo, SaveList } from '../bridge'
-import { brandYellow, motion } from '../theme'
+import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -36,7 +36,7 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     gap: '10px',
     padding: '14px',
-    borderRadius: '10px',
+    borderRadius: `${radius.card}px`,
     border: '1.2px solid transparent',
     transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}`,
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
@@ -49,7 +49,7 @@ const useStyles = makeStyles({
   icon: {
     width: '32px',
     height: '32px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -87,7 +87,7 @@ const useStyles = makeStyles({
   },
   primaryButton: {
     height: '30px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: 'none',
     background: brandYellow,
     color: '#1b1b1b',
@@ -95,11 +95,11 @@ const useStyles = makeStyles({
     cursor: 'pointer',
     padding: '0 12px',
     transition: `background ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: '#FFD35C' }
+    ':hover': { background: brandYellowHover }
   },
   linkButton: {
     height: '30px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: '1px solid rgba(255,255,255,0.14)',
     background: 'transparent',
     color: 'inherit',
@@ -113,7 +113,7 @@ const useStyles = makeStyles({
   },
   dangerButton: {
     height: '30px',
-    borderRadius: '6px',
+    borderRadius: `${radius.control}px`,
     border: '1px solid rgba(224,75,75,0.45)',
     background: 'transparent',
     color: '#FF9A9A',
@@ -258,7 +258,7 @@ export default function SavesPage() {
               <Card
                 key={`${save.gameRoot}::${save.folderName}`}
                 className={styles.card}
-                style={{ animationDelay: `${index * 24}ms` }}
+                style={{ animationDelay: `${index * motion.stagger}ms` }}
               >
                 <div className={styles.head}>
                   <div className={styles.icon} style={{ background: 'rgba(255,194,31,0.12)' }}>
@@ -268,7 +268,7 @@ export default function SavesPage() {
                         alt=""
                         width={32}
                         height={32}
-                        style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }}
+                        style={{ width: '32px', height: '32px', borderRadius: `${radius.control}px`, objectFit: 'cover' }}
                       />
                     ) : (
                       <HardDriveRegular />

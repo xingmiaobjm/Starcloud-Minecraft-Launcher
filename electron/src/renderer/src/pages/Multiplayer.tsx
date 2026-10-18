@@ -38,7 +38,7 @@ import type {
   MultiplayerProviderInfo,
   MultiplayerSnapshot
 } from '../bridge'
-import { brandYellow, brandYellowHover, motion } from '../theme'
+import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -66,7 +66,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: '10px',
     padding: '12px 14px',
-    borderRadius: '8px',
+    borderRadius: `${radius.card}px`,
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.07)',
     animation: `fadeIn ${motion.normal}ms ${motion.ease} both`
@@ -84,7 +84,7 @@ const useStyles = makeStyles({
   },
   metaCell: {
     padding: '9px 11px',
-    borderRadius: '7px',
+    borderRadius: `${radius.card}px`,
     background: 'rgba(255,255,255,0.035)',
     border: '1px solid rgba(255,255,255,0.06)'
   },
@@ -94,7 +94,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: '10px',
     padding: '12px 14px',
-    borderRadius: '8px',
+    borderRadius: `${radius.card}px`,
     border: `1.2px dashed ${brandYellow}`,
     background: 'rgba(255,194,31,0.08)'
   },
@@ -114,7 +114,7 @@ const useStyles = makeStyles({
     gap: '10px',
     padding: '7px 10px',
     margin: '0 4px',
-    borderRadius: '6px',
+    borderRadius: `${radius.row}px`,
     background: 'rgba(255,255,255,0.035)',
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
     transition: `background ${motion.fast}ms ${motion.ease}`
@@ -132,7 +132,7 @@ const useStyles = makeStyles({
     gap: '10px',
     padding: '9px 10px',
     margin: '0 4px',
-    borderRadius: '7px',
+    borderRadius: `${radius.row}px`,
     cursor: 'pointer',
     border: '1.2px solid transparent',
     transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}`,
@@ -537,7 +537,7 @@ export default function MultiplayerPage() {
                       <div
                         key={`${name}-${index}`}
                         className={styles.playerRow}
-                        style={{ animationDelay: `${index * 24}ms` }}
+                        style={{ animationDelay: `${index * motion.stagger}ms` }}
                       >
                         <div className={styles.playerDot} />
                         <Text size={200} truncate>
@@ -587,7 +587,7 @@ export default function MultiplayerPage() {
                       className={[styles.primaryButton, styles.primaryGlow].join(' ')}
                       style={{
                         height: '40px',
-                        borderRadius: '8px',
+                        borderRadius: `${radius.control}px`,
                         cursor: installing ? 'default' : 'pointer',
                         opacity: installing ? 0.6 : 1
                       }}
@@ -671,7 +671,7 @@ export default function MultiplayerPage() {
                       .join(' ')}
                     style={{
                       height: '40px',
-                      borderRadius: '8px',
+                      borderRadius: `${radius.control}px`,
                       cursor: canPlay ? 'pointer' : 'default',
                       opacity: canPlay ? 1 : 0.45
                     }}
@@ -744,7 +744,7 @@ export default function MultiplayerPage() {
                           className={[styles.providerRow, active ? styles.providerActive : '']
                             .filter(Boolean)
                             .join(' ')}
-                          style={{ animationDelay: `${index * 24}ms` }}
+                          style={{ animationDelay: `${index * motion.stagger}ms` }}
                           onClick={() => {
                             if (!active) void run('multiplayer.selectProvider', { id: p.id })
                           }}

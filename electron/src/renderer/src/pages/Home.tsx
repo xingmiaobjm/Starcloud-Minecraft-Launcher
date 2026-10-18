@@ -44,7 +44,7 @@ const useStyles = makeStyles({
     borderRadius: `${radius.row}px`,
     cursor: 'pointer',
     border: '1.2px solid transparent',
-    transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}`,
+    transition: `background ${motion.hoverIn}ms ${motion.easeFade}, border-color ${motion.hoverIn}ms ${motion.easeFade}, transform ${motion.hoverIn}ms ${motion.easeFade}`,
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
   },
   versionRowSelected: {
@@ -88,7 +88,7 @@ const useStyles = makeStyles({
     fontSize: '15px',
     fontWeight: 700,
     cursor: 'pointer',
-    transition: `background ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}, box-shadow ${motion.fast}ms ${motion.ease}`,
+    transition: `background ${motion.hoverIn}ms ${motion.easeFade}, transform ${motion.hoverIn}ms ${motion.easeFade}, box-shadow ${motion.hoverIn}ms ${motion.easeFade}`,
     ':hover': { background: '#FFD35C' },
     ':active': { transform: 'scale(0.985)' }
   },

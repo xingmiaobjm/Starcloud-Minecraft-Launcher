@@ -24,7 +24,7 @@ import {
 } from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { ProjectionPreview } from '../bridge'
-import { brandYellow, brandYellowHover, motion } from '../theme'
+import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 const useStyles = makeStyles({
@@ -54,7 +54,7 @@ const useStyles = makeStyles({
   },
   statCell: {
     padding: '10px 12px',
-    borderRadius: '7px',
+    borderRadius: `${radius.card}px`,
     background: 'rgba(255,255,255,0.035)',
     border: '1px solid rgba(255,255,255,0.06)',
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
@@ -65,7 +65,7 @@ const useStyles = makeStyles({
   canvasBox: {
     position: 'relative',
     height: '420px',
-    borderRadius: '8px',
+    borderRadius: `${radius.card}px`,
     overflow: 'hidden',
     background:
       'radial-gradient(120% 100% at 50% 0%, #232323 0%, #151515 70%, #101010 100%)',
@@ -88,7 +88,7 @@ const useStyles = makeStyles({
     pointerEvents: 'none' as const,
     background: 'rgba(0,0,0,0.35)',
     padding: '3px 8px',
-    borderRadius: '4px'
+    borderRadius: `${radius.control}px`
   },
   blockRow: {
     display: 'flex',
@@ -96,7 +96,7 @@ const useStyles = makeStyles({
     gap: '10px',
     padding: '7px 10px',
     margin: '0 4px',
-    borderRadius: '6px',
+    borderRadius: `${radius.row}px`,
     background: 'rgba(255,255,255,0.035)',
     animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
     transition: `background ${motion.fast}ms ${motion.ease}`
@@ -105,7 +105,7 @@ const useStyles = makeStyles({
   swatch: {
     width: '18px',
     height: '18px',
-    borderRadius: '4px',
+    borderRadius: `${radius.control}px`,
     flexShrink: 0,
     border: '1px solid rgba(255,255,255,0.22)'
   },
@@ -379,7 +379,7 @@ export default function LabPage() {
             style={{
               height: '32px',
               padding: '0 18px',
-              borderRadius: '6px',
+              borderRadius: `${radius.control}px`,
               cursor: loading ? 'default' : 'pointer',
               opacity: loading ? 0.6 : 1
             }}
@@ -442,7 +442,7 @@ export default function LabPage() {
                   <div
                     key={cell.label}
                     className={styles.statCell}
-                    style={{ animationDelay: `${index * 24}ms` }}
+                    style={{ animationDelay: `${index * motion.stagger}ms` }}
                   >
                     <Text size={100} style={{ opacity: 0.55, display: 'block' }}>
                       {cell.label}
@@ -529,7 +529,7 @@ export default function LabPage() {
                     <div
                       key={s.id}
                       className={styles.blockRow}
-                      style={{ animationDelay: `${index * 24}ms` }}
+                      style={{ animationDelay: `${index * motion.stagger}ms` }}
                     >
                       <div
                         className={styles.swatch}
