@@ -1,442 +1,248 @@
-import { useEffect, useState } from 'react'
+/// 应用壳：左侧导航 + 右侧内容区 + 页面过渡动画。
+/// 导航结构与 Windows 端一致（首页/版本/下载/存档/联机/实验室/运行状态/账户/插件/Nova）。
+import { useEffect, useMemo, useState } from 'react'
 import {
   Avatar,
-  Button,
+  Badge,
   Card,
-  Dropdown,
-  MessageBar,
-  Option,
   Text,
-  makeStyles,
-  mergeClasses
+  Tooltip,
+  makeStyles
 } from '@fluentui/react-components'
 import {
+  ArrowDownloadRegular,
   ArrowSyncRegular,
-  DeleteRegular,
-  PlayRegular
+  BeakerRegular,
+  ChatRegular,
+  ClipboardTaskListLtrRegular,
+  GamesRegular,
+  HomeRegular,
+  PeopleTeamRegular,
+  PersonRegular,
+  PlayRegular,
+  PuzzleCubeRegular,
+  SettingsRegular
 } from '@fluentui/react-icons'
-import { request, onBridgeEvent } from './bridge'
-import type {
-  AccountList,
-  GameAccount,
-  InstalledVersion,
-  LaunchSession
-} from './bridge'
-
-interface SessionState {
-  pid?: number
-  logs: string[]
-  status: string
-}
+import { brandYellow, motion } from './theme'
+import { PageFade, injectKeyframes } from './ui'
+import HomePage from './pages/Home'
+import VersionsPage from './pages/Versions'
+import DownloadPage from './pages/Download'
+import SavesPage from './pages/Saves'
+import MultiplayerPage from './pages/Multiplayer'
+import LabPage from './pages/Lab'
+import RunningPage from './pages/Running'
+import AccountsPage from './pages/Accounts'
+import PluginsPage from './pages/Plugins'
+import NovaPage from './pages/Nova'
+import SettingsPage from './pages/Settings'
+import LogsPage from './pages/Logs'
+import { useGameSession } from './state/session'
 
 const useStyles = makeStyles({
-  root: {
+  shell: {
+    display: 'flex',
+    height: '100vh',
+    overflow: 'hidden'
+  },
+  nav: {
+    width: '224px',
+    flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    height: '100%',
-    padding: '8px 24px 20px',
-    gap: '12px',
-    boxSizing: 'border-box'
+    background: 'rgba(255,255,255,0.025)',
+    borderRight: '1px solid rgba(255,255,255,0.07)',
+    padding: '10px 8px'
   },
-  columns: {
+  brand: {
     display: 'flex',
-    flex: 1,
-    minHeight: 0,
-    gap: '16px'
+    alignItems: 'center',
+    gap: '10px',
+    padding: '10px 10px 14px'
   },
-  versionsCard: {
-    flex: 1,
+  brandMark: {
+    width: '30px',
+    height: '30px',
+    borderRadius: '8px',
+    background: brandYellow,
+    color: '#1b1b1b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 800,
+    fontSize: '15px',
+    boxShadow: `0 0 14px rgba(255,194,31,0.25)`
+  },
+  navList: {
     display: 'flex',
     flexDirection: 'column',
-    minHeight: 0
+    gap: '2px',
+    flex: 1
   },
-  cardHeader: {
+  navItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    padding: '12px 16px 10px'
-  },
-  versionList: {
-    flex: 1,
-    overflowY: 'auto',
-    minHeight: 0
-  },
-  versionRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '8px 12px',
+    gap: '10px',
+    padding: '9px 10px',
     borderRadius: '6px',
     cursor: 'pointer',
-    border: '1.2px solid transparent'
-  },
-  versionRowSelected: {
-    backgroundColor: 'rgba(255,194,31,0.14)',
-    border: '1.2px solid #FFC21F'
-  },
-  versionIcon: {
-    width: '36px',
-    height: '36px',
-    borderRadius: '6px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 'bold',
-    fontSize: '15px',
-    flexShrink: 0
-  },
-  accountCard: {
-    width: '360px',
-    display: 'flex',
-    flexDirection: 'column',
-    padding: '16px',
-    gap: '12px'
-  },
-  avatarBlock: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px'
-  },
-  launchButton: {
-    height: '56px',
+    color: 'rgba(255,255,255,0.82)',
+    transition: `background ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}`,
+    border: 'none',
+    background: 'transparent',
+    textAlign: 'left',
     width: '100%',
-    backgroundColor: '#FFC21F',
-    color: '#1b1b1b',
-    borderRadius: '8px',
-    ':hover': { backgroundColor: '#ffd35c' }
+    fontSize: '13px'
   },
-  logCard: {
-    height: '220px',
+  navItemActive: {
+    background: 'rgba(255,194,31,0.14)',
+    color: brandYellow,
+    fontWeight: 600
+  },
+  navItemHover: {
+    background: 'rgba(255,255,255,0.06)'
+  },
+  navItemActiveHover: {
+    background: 'rgba(255,194,31,0.2)'
+  },
+  content: {
+    flex: 1,
+    minWidth: 0,
+    padding: '18px 22px 0',
     display: 'flex',
     flexDirection: 'column'
-  },
-  logHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '10px 16px'
-  },
-  logBody: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '8px 14px',
-    fontFamily: 'monospace',
-    fontSize: '11px',
-    lineHeight: '1.45'
   }
 })
 
-function tagFor(id: string): { label: string; color: string } {
-  const lower = id.toLowerCase()
-  if (lower.includes('neoforge')) return { label: 'NeoForge', color: '#E8905A' }
-  if (lower.includes('fabric')) return { label: 'Fabric', color: '#B08A4F' }
-  if (lower.includes('quilt')) return { label: 'Quilt', color: '#9A8ABF' }
-  if (lower.includes('forge')) return { label: 'Forge', color: '#5A5A66' }
-  if (/^\d+w\d+[a-z]/.test(lower) || lower.includes('-rc') || lower.includes('-pre'))
-    return { label: '快照版', color: '#8A6FD8' }
-  return { label: '正式版', color: '#6FA852' }
+export type PageKey =
+  | 'home'
+  | 'versions'
+  | 'download'
+  | 'saves'
+  | 'multiplayer'
+  | 'lab'
+  | 'running'
+  | 'accounts'
+  | 'plugins'
+  | 'nova'
+  | 'logs'
+  | 'settings'
+
+interface NavEntry {
+  key: PageKey
+  label: string
+  icon: React.ReactElement
+  footer?: boolean
 }
 
-function formatTime(iso?: string): string {
-  if (!iso) return '从未启动'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '从未启动'
-  const two = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`
-}
+const NAV: NavEntry[] = [
+  { key: 'home', label: '首页', icon: <HomeRegular /> },
+  { key: 'versions', label: '版本', icon: <ClipboardTaskListLtrRegular /> },
+  { key: 'download', label: '下载', icon: <ArrowDownloadRegular /> },
+  { key: 'saves', label: '存档', icon: <GamesRegular /> },
+  { key: 'multiplayer', label: '联机', icon: <PeopleTeamRegular /> },
+  { key: 'lab', label: '实验室', icon: <BeakerRegular /> },
+  { key: 'running', label: '运行状态', icon: <PlayRegular /> },
+  { key: 'accounts', label: '账户', icon: <PersonRegular /> },
+  { key: 'plugins', label: '插件', icon: <PuzzleCubeRegular /> },
+  { key: 'nova', label: 'Nova', icon: <ChatRegular /> },
+  { key: 'logs', label: '启动器日志', icon: <ArrowSyncRegular />, footer: true },
+  { key: 'settings', label: '设置', icon: <SettingsRegular />, footer: true }
+]
 
 export default function App() {
   const styles = useStyles()
-  const [installed, setInstalled] = useState<InstalledVersion[]>([])
-  const [accounts, setAccounts] = useState<GameAccount[]>([])
-  const [currentUuid, setCurrentUuid] = useState<string | undefined>()
-  const [selectedVersion, setSelectedVersion] = useState<string | undefined>()
-  const [selectedAccount, setSelectedAccount] = useState<string | undefined>()
-  const [error, setError] = useState('')
-  const [session, setSession] = useState<SessionState>({ logs: [], status: '' })
+  const [page, setPage] = useState<PageKey>('home')
+  const [hovered, setHovered] = useState<string | null>(null)
+  const [version, setVersion] = useState('')
+  const session = useGameSession()
 
   useEffect(() => {
-    async function reload(): Promise<void> {
-      try {
-        const catalog = await request<{
-          installed: Array<{
-            id: string
-            sizeBytes: number
-            lastPlayedAt?: string
-            isDefault?: boolean
-          }>
-        }>('catalog.installed')
-        setInstalled(
-          catalog.installed.map((entry) => ({
-            id: entry.id,
-            sizeBytes: entry.sizeBytes,
-            lastPlayedAt: entry.lastPlayedAt,
-            isDefault: entry.isDefault
-          }))
-        )
-        setSelectedVersion((prev) =>
-          prev && catalog.installed.some((v) => v.id === prev)
-            ? prev
-            : (catalog.installed.find((v) => v.isDefault)?.id ??
-              catalog.installed[0]?.id)
-        )
-      } catch (e) {
-        setError(String(e))
-      }
-      try {
-        const list = await request<AccountList>('accounts.list')
-        setAccounts(list.accounts)
-        setCurrentUuid(list.current)
-        setSelectedAccount((prev) =>
-          prev && list.accounts.some((a) => a.uuid === prev)
-            ? prev
-            : (list.current ?? list.accounts[0]?.uuid)
-        )
-      } catch (e) {
-        setError(String(e))
-      }
-    }
-    void reload()
-    onBridgeEvent((event, params) => {
-      if (event === 'game.output') {
-        const line = String(params.line ?? '')
-        setSession((s) => ({ ...s, logs: [...s.logs, line].slice(-500) }))
-      } else if (event === 'game.exited') {
-        const code = Number(params.code ?? -1)
-        setSession((s) => ({
-          ...s,
-          pid: undefined,
-          status: `游戏退出（exit=${code}）`
-        }))
-      }
-    })
+    injectKeyframes()
+    void window.bridge.appVersion().then(setVersion).catch(() => setVersion(''))
   }, [])
 
-  const currentAccount =
-    accounts.find((a) => a.uuid === selectedAccount) ?? accounts[0]
-  const launchingNow = session.status === '启动中…'
-  const runningNow = session.pid !== undefined && session.pid > 0
+  const top = useMemo(() => NAV.filter((n) => !n.footer), [])
+  const footer = useMemo(() => NAV.filter((n) => n.footer), [])
 
-  async function launch(): Promise<void> {
-    if (!selectedVersion || !currentAccount) return
-    setSession({ logs: [], status: '启动中…' })
-    try {
-      const launched = await request<LaunchSession>('launch.start', {
-        versionId: selectedVersion,
-        playerName: currentAccount.name,
-        accountUuid: currentAccount.uuid
-      })
-      setSession({
-        pid: launched.pid,
-        logs: [],
-        status: `游戏运行中（pid ${launched.pid}）`
-      })
-    } catch (e) {
-      setSession({ logs: [], status: `启动失败：${String(e)}` })
+  const renderPage = () => {
+    switch (page) {
+      case 'home':
+        return <HomePage session={session} />
+      case 'versions':
+        return <VersionsPage onOpenVersion={(id) => session.setVersion(id)} />
+      case 'download':
+        return <DownloadPage />
+      case 'saves':
+        return <SavesPage />
+      case 'multiplayer':
+        return <MultiplayerPage />
+      case 'lab':
+        return <LabPage />
+      case 'running':
+        return <RunningPage session={session} />
+      case 'accounts':
+        return <AccountsPage />
+      case 'plugins':
+        return <PluginsPage />
+      case 'nova':
+        return <NovaPage />
+      case 'logs':
+        return <LogsPage />
+      case 'settings':
+        return <SettingsPage />
+      default:
+        return <HomePage session={session} />
     }
   }
 
+  const item = (entry: NavEntry) => {
+    const active = page === entry.key
+    const cls = [
+      styles.navItem,
+      active ? styles.navItemActive : '',
+      hovered === entry.key && !active ? styles.navItemHover : '',
+      active && hovered === entry.key ? styles.navItemActiveHover : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+    return (
+      <button
+        key={entry.key}
+        className={cls}
+        onClick={() => setPage(entry.key)}
+        onMouseEnter={() => setHovered(entry.key)}
+        onMouseLeave={() => setHovered(null)}
+      >
+        <span style={{ display: 'flex', fontSize: '16px' }}>{entry.icon}</span>
+        {entry.label}
+        {entry.key === 'running' && session.pid !== undefined && (
+          <Badge appearance="filled" color="success" size="tiny" />
+        )}
+      </button>
+    )
+  }
+
   return (
-    <div className={styles.root}>
-      {error !== '' && (
-        <Card>
-          <MessageBar intent="error">
-            <Text>出错了：{error}</Text>
-          </MessageBar>
-        </Card>
-      )}
-      <div className={styles.columns}>
-        {/* 左：已安装版本 */}
-        <Card className={styles.versionsCard}>
-          <div className={styles.cardHeader}>
-            <Text size={400} weight="semibold">
-              已安装版本
+    <div className={styles.shell}>
+      <nav className={styles.nav}>
+        <div className={styles.brand}>
+          <div className={styles.brandMark}>S</div>
+          <div style={{ minWidth: 0 }}>
+            <Text weight="bold" size={300} style={{ display: 'block' }}>
+              Starcloud
             </Text>
-            <Text size={200} style={{ opacity: 0.6 }}>
-              ({installed.length})
-            </Text>
-            <div style={{ flex: 1 }} />
-            <Button
-              appearance="subtle"
-              icon={<ArrowSyncRegular />}
-              onClick={() => window.location.reload()}
-            />
-          </div>
-          <div className={styles.versionList}>
-            {installed.length === 0 && (
-              <div style={{ padding: '20px', textAlign: 'center', opacity: 0.7 }}>
-                还没有已安装的版本 —— 去「下载」页安装
-              </div>
-            )}
-            {installed.map((version) => {
-              const selected = version.id === selectedVersion
-              const info = tagFor(version.id)
-              return (
-                <div
-                  key={version.id}
-                  className={mergeClasses(
-                    styles.versionRow,
-                    selected && styles.versionRowSelected
-                  )}
-                  onClick={() => setSelectedVersion(version.id)}
-                >
-                  <div
-                    className={styles.versionIcon}
-                    style={{
-                      backgroundColor: `${info.color}33`,
-                      border: `1px solid ${info.color}`
-                    }}
-                  >
-                    {version.id[0]?.toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text size={300} weight="semibold">
-                      {version.id}
-                    </Text>
-                  </div>
-                  <Text size={200} style={{ opacity: 0.6 }}>
-                    {info.label}
-                  </Text>
-                  <div style={{ width: '92px', textAlign: 'right' }}>
-                    <Text size={200} style={{ opacity: 0.6 }}>
-                      {formatTime(version.lastPlayedAt)}
-                    </Text>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </Card>
-
-        {/* 右：账户 / 启动 */}
-        <Card className={styles.accountCard}>
-          <Text size={400} weight="semibold">
-            游戏账户
-          </Text>
-          <Dropdown
-            value={
-              accounts.find((a) => a.uuid === selectedAccount)?.name ??
-              '未选择账户'
-            }
-            onOptionSelect={(_, data) =>
-              setSelectedAccount(String(data.optionValue))
-            }
-          >
-            {accounts.map((account) => (
-              <Option key={account.uuid} value={account.uuid} text={account.name}>
-                {account.name}（{account.type}）
-              </Option>
-            ))}
-          </Dropdown>
-          {accounts.length === 0 && (
-            <Text size={200} style={{ opacity: 0.6 }}>
-              还没有账户 —— 去「账户」页添加离线账户
-            </Text>
-          )}
-          <div className={styles.avatarBlock}>
-            <Avatar
-              size={96}
-              name={currentAccount?.name ?? '未选择账户'}
-              color="brand"
-            />
-            <Text size={400} weight="semibold">
-              {currentAccount?.name ?? '未选择账户'}
-            </Text>
-            <Text size={200} style={{ opacity: 0.6 }}>
-              {currentAccount == null
-                ? '去「账户」页添加离线账户'
-                : currentAccount.type === 'offline'
-                  ? '离线账户'
-                  : currentAccount.type}
+            <Text size={100} style={{ opacity: 0.55 }}>
+              {version ? `v${version}` : 'Linux'}
             </Text>
           </div>
-          {session.status !== '' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: runningNow
-                    ? '#3FBF6F'
-                    : launchingNow
-                      ? '#E8B31A'
-                      : '#8A8A8A',
-                  flexShrink: 0
-                }}
-              />
-              <Text size={200} style={{ opacity: 0.8 }}>
-                {session.status}
-              </Text>
-            </div>
-          )}
-          <button
-            className={styles.launchButton}
-            disabled={launchingNow || runningNow}
-            onClick={() => void launch()}
-            style={{
-              opacity: launchingNow || runningNow ? 0.5 : 1,
-              cursor: launchingNow || runningNow ? 'default' : 'pointer'
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                fontSize: '15px',
-                fontWeight: 700
-              }}
-            >
-              <PlayRegular />{' '}
-              {launchingNow ? '启动中…' : runningNow ? '游戏运行中' : '启动游戏'}
-            </div>
-            {!launchingNow && selectedVersion && (
-              <div style={{ fontSize: '11px', opacity: 0.75 }}>
-                {selectedVersion}
-              </div>
-            )}
-          </button>
-        </Card>
-      </div>
-
-      {session.logs.length > 0 && (
-        <Card className={styles.logCard}>
-          <div className={styles.logHeader}>
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                backgroundColor: runningNow ? '#3FBF6F' : '#8A8A8A'
-              }}
-            />
-            <Text size={300} weight="semibold">
-              运行日志
-            </Text>
-            <div style={{ flex: 1 }} />
-            {runningNow && (
-              <Text size={200} style={{ opacity: 0.6 }}>
-                pid {session.pid}
-              </Text>
-            )}
-            <Button
-              appearance="subtle"
-              icon={<DeleteRegular />}
-              onClick={() => setSession((s) => ({ ...s, logs: [] }))}
-            />
-          </div>
-          <div className={styles.logBody}>
-            {session.logs.map((line, index) => (
-              <div key={index}>{line}</div>
-            ))}
-          </div>
-        </Card>
-      )}
+        </div>
+        <div className={styles.navList}>{top.map(item)}</div>
+        <div className={styles.navList}>{footer.map(item)}</div>
+      </nav>
+      <main className={styles.content}>
+        <PageFade keyId={page}>{renderPage()}</PageFade>
+      </main>
     </div>
   )
 }

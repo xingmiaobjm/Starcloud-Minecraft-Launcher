@@ -14,6 +14,12 @@ let eventBuffer: Array<{ event: string; params: Record<string, unknown> }> = []
 
 const LAUNCHER_VERSION = '0.3.4'
 
+// WSL 里以 root 运行时 Chromium 沙箱不可用（容器/WSLg 环境），显式关闭。
+if (process.env.ELECTRON_DISABLE_SANDBOX === '1') {
+  app.commandLine.appendSwitch('no-sandbox')
+  app.commandLine.appendSwitch('disable-gpu-sandbox')
+}
+
 function bridgeCandidates(): string[] {
   const env = process.env.STARCLOUD_BRIDGE_DLL
   const candidates: string[] = []
