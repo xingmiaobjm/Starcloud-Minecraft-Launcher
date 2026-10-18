@@ -312,6 +312,69 @@ button:focus-visible, [role='button']:focus-visible {
   document.head.appendChild(style)
 }
 
+/**
+ * 跟手光斑（Win 端 HoverShadowBehavior 的 Web 版）：
+ * 径向渐变跟光标移动；淡入 300ms / 淡出 450ms（移出卡片立刻灭）。
+ * 光斑圆角与载体一致（Win 端用 TemplateBinding 读同一个 CornerRadius）。
+ */
+export function PointerGlow(props: {
+  radius?: number
+  children: React.ReactNode
+  style?: React.CSSProperties
+  className?: string
+  onClick?: () => void
+}) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const glowRef = useRef<HTMLDivElement>(null)
+  const [active, setActive] = useState(false)
+
+  const move = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const host = hostRef.current
+    const glow = glowRef.current
+    if (host === null || glow === null) return
+    const rect = host.getBoundingClientRect()
+    const x = ((e.clientX - rect.left) / rect.width) * 100
+    const y = ((e.clientY - rect.top) / rect.height) * 100
+    glow.style.background =
+      `radial-gradient(circle at ${x}% ${y}%, rgba(0,0,0,0.16) 0%, rgba(0,0,0,0.11) 18%, ` +
+      `rgba(0,0,0,0.09) 40%, rgba(0,0,0,0.05) 62%, rgba(0,0,0,0.02) 82%, rgba(0,0,0,0) 100%)`
+    glow.style.transform = 'translateY(-1px)'
+  }
+
+  const leave = (): void => {
+    const glow = glowRef.current
+    if (glow !== null) glow.style.transform = 'translateY(0.8px)'
+    setActive(false)
+  }
+
+  return (
+    <div
+      ref={hostRef}
+      className={props.className}
+      style={{ position: 'relative', overflow: 'hidden', ...props.style }}
+      onMouseMove={move}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={leave}
+      onClick={props.onClick}
+    >
+      <div
+        ref={glowRef}
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          opacity: active ? 1 : 0,
+          borderRadius: props.radius ?? 8,
+          transition: `opacity ${active ? motion.hoverIn : motion.hoverOut}ms ${motion.easeFade}, transform ${motion.hoverIn}ms ${motion.easeFade}`,
+          transform: 'translateY(0.8px)'
+        }}
+      />
+      <div style={{ position: 'relative', zIndex: 1 }}>{props.children}</div>
+    </div>
+  )
+}
+
 /** 页面级错误边界：某个页渲染炸了不至于白屏。 */
 export class ErrorBoundary extends React.Component<
   { children: React.ReactNode; label: string },

@@ -16,8 +16,8 @@ import {
 } from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { AccountList, GameAccount, InstalledVersion } from '../bridge'
-import { brandYellow, motion } from '../theme'
-import { EmptyState } from '../ui'
+import { brandYellow, motion, radius } from '../theme'
+import { EmptyState, PointerGlow } from '../ui'
 import type { GameSessionApi } from '../state/session'
 
 const useStyles = makeStyles({
@@ -41,7 +41,7 @@ const useStyles = makeStyles({
     gap: '12px',
     padding: '8px 12px',
     margin: '0 8px',
-    borderRadius: '6px',
+    borderRadius: `${radius.row}px`,
     cursor: 'pointer',
     border: '1.2px solid transparent',
     transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}`,
@@ -55,13 +55,13 @@ const useStyles = makeStyles({
   versionIcon: {
     width: '36px',
     height: '36px',
-    borderRadius: '6px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontWeight: 'bold',
     fontSize: '15px',
-    flexShrink: 0
+    flexShrink: 0,
+    borderRadius: `${radius.control}px`
   },
   accountCard: {
     width: '360px',
@@ -81,7 +81,7 @@ const useStyles = makeStyles({
   launchButton: {
     height: '58px',
     width: '100%',
-    borderRadius: '10px',
+    borderRadius: `${radius.overlay}px`,
     border: 'none',
     background: brandYellow,
     color: '#1b1b1b',

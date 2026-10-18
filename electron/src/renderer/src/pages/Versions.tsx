@@ -15,8 +15,10 @@ import {
 import { FolderOpenRegular, PlayRegular, DeleteRegular } from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { InstalledVersion } from '../bridge'
-import { brandYellow, motion } from '../theme'
-import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
+import { brandYellow } from '../theme'
+import { EmptyState, PageShell, PointerGlow, SkeletonList, useToasts } from '../ui'
+import { motion, radius } from '../theme'
+import VersionDetailPage from './VersionDetail'
 
 const useStyles = makeStyles({
   card: { padding: '0', marginBottom: '8px', animation: `slideUp ${motion.normal}ms ${motion.easeOut} both` },
@@ -60,13 +62,14 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function VersionsPage(props: { onOpenVersion?: (id: string) => void }) {
+export default function VersionsPage() {
   const styles = useStyles()
   const { push, host } = useToasts()
   const [items, setItems] = useState<InstalledVersion[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<InstalledVersion | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
 
   async function reload(): Promise<void> {
     setLoading(true)
@@ -122,6 +125,10 @@ export default function VersionsPage(props: { onOpenVersion?: (id: string) => vo
     }
   }
 
+  if (openId !== null) {
+    return <VersionDetailPage versionId={openId} onBack={() => setOpenId(null)} />
+  }
+
   return (
     <PageShell title="版本" subtitle="管理本机已安装的 Minecraft 版本">
       {loading ? (
@@ -133,12 +140,13 @@ export default function VersionsPage(props: { onOpenVersion?: (id: string) => vo
           const info = tagFor(v.id)
           const busyThis = busy === v.id
           return (
-            <Card
+            <PointerGlow
               key={v.id}
-              className={styles.card}
-              style={{ animationDelay: `${index * 24}ms` }}
+              radius={radius.row}
+              style={{ animation: `slideUp ${motion.enter}ms ${motion.easeEnter} both`, animationDelay: `${index * motion.stagger}ms` }}
+              onClick={() => setOpenId(v.id)}
             >
-              <div className={styles.row}>
+              <div className={styles.row} style={{ cursor: 'pointer' }}>
                 <div
                   className={styles.icon}
                   style={{ background: `${info.color}2b`, border: `1px solid ${info.color}`, color: info.color }}
@@ -166,14 +174,20 @@ export default function VersionsPage(props: { onOpenVersion?: (id: string) => vo
                   appearance="subtle"
                   icon={<FolderOpenRegular />}
                   disabled={busy !== null}
-                  onClick={() => void openFolder(v)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void openFolder(v)
+                  }}
                 >
                   打开目录
                 </Button>
                 <Button
                   appearance="subtle"
                   disabled={busy !== null || v.isDefault === true}
-                  onClick={() => void setDefault(v)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void setDefault(v)
+                  }}
                 >
                   设为默认
                 </Button>
@@ -182,7 +196,10 @@ export default function VersionsPage(props: { onOpenVersion?: (id: string) => vo
                   icon={<DeleteRegular />}
                   disabled={busy !== null}
                   style={{ color: '#FF9A9A' }}
-                  onClick={() => setConfirm(v)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConfirm(v)
+                  }}
                 >
                   删除
                 </Button>
@@ -192,7 +209,7 @@ export default function VersionsPage(props: { onOpenVersion?: (id: string) => vo
                   <div style={{ height: '2px', background: brandYellow, animation: 'pulse 1s infinite' }} />
                 </div>
               )}
-            </Card>
+            </PointerGlow>
           )
         })
       )}

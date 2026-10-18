@@ -23,7 +23,7 @@ import {
   PuzzleCubeRegular,
   SettingsRegular
 } from '@fluentui/react-icons'
-import { brandYellow, motion } from './theme'
+import { brandYellow, motion, radius } from './theme'
 import { ErrorBoundary, PageFade, injectGlobalStyle, injectKeyframes } from './ui'
 import HomePage from './pages/Home'
 import VersionsPage from './pages/Versions'
@@ -63,7 +63,7 @@ const useStyles = makeStyles({
   brandMark: {
     width: '30px',
     height: '30px',
-    borderRadius: '8px',
+    borderRadius: `${radius.control}px`,
     background: brandYellow,
     color: '#1b1b1b',
     display: 'flex',
@@ -84,10 +84,10 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: '10px',
     padding: '9px 10px',
-    borderRadius: '6px',
+    borderRadius: `${radius.row}px`,
     cursor: 'pointer',
     color: 'rgba(255,255,255,0.82)',
-    transition: `background ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}`,
+    transition: `background ${motion.hoverIn}ms ${motion.easeFade}, transform ${motion.hoverIn}ms ${motion.easeFade}`,
     border: 'none',
     background: 'transparent',
     textAlign: 'left',
@@ -209,7 +209,7 @@ export default function App() {
       case 'home':
         return <HomePage session={session} />
       case 'versions':
-        return <VersionsPage onOpenVersion={(id) => session.setVersion(id)} />
+        return <VersionsPage />
       case 'download':
         return <DownloadPage />
       case 'saves':
