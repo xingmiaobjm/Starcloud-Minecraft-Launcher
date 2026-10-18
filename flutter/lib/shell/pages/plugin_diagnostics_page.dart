@@ -13,6 +13,7 @@ import '../../bootstrap.dart';
 import '../../contracts/plugins.dart';
 import '../../kernel/descriptor.dart';
 import '../../kernel/plugin_host.dart';
+import '../webview_host.dart';
 import 'plugin_view.dart';
 
 class PluginDiagnosticsPage extends ConsumerStatefulWidget {
@@ -183,12 +184,32 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
         setState(() => _externalError = '插件没有声明式面板');
         return;
       }
-      if (!panels.first.declarative) {
-        setState(() =>
-            _externalError = '该面板是 HTML 视图，需要 WebView 宿主（暂不支持）');
+      // 声明式面板原生渲染；HTML 面板交给嵌入式 CEF（相对资源按 file:// 解析）。
+      final declarative = panels.where((panel) => panel.declarative).toList();
+      if (declarative.isEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => ContentDialog(
+            title: Text(panels.first.title),
+            content: SizedBox(
+              width: 760,
+              height: 560,
+              child: WebViewHost(
+                url: Uri.file(panels.first.entry).toString(),
+                onConsole: (message) => debugPrint('[plugin/webview] $message'),
+              ),
+            ),
+            actions: [
+              Button(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
+        );
         return;
       }
-      final data = await _store.view(plugin.id, panels.first.id);
+      final data = await _store.view(plugin.id, declarative.first.id);
       if (!mounted) return;
       final node = data.node;
       if (node == null) {
@@ -199,7 +220,7 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
       await showDialog<void>(
         context: context,
         builder: (context) => ContentDialog(
-          title: Text(panels.first.title),
+          title: Text(declarative.first.title),
           content: SizedBox(
             width: 760,
             height: 560,

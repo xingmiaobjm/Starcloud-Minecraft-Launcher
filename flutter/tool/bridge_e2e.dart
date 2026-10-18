@@ -189,6 +189,7 @@ Future<void> main(List<String> args) async {
         'contributes': {
           'panels': [
             {'id': 'main', 'title': 'E2E Panel', 'view': 'views/main.json'},
+            {'id': 'html', 'title': 'HTML Panel', 'view': 'views/panel.html'},
           ],
         },
       };
@@ -212,6 +213,7 @@ Future<void> main(List<String> args) async {
           },
         ],
       };
+      final panelHtml = '<!doctype html><html><body><h1>HTML Panel</h1></body></html>';
       final archive = Archive();
       final manifestBytes = utf8.encode(jsonEncode(manifest));
       archive.addFile(
@@ -219,6 +221,9 @@ Future<void> main(List<String> args) async {
       final viewBytes = utf8.encode(jsonEncode(view));
       archive.addFile(
           ArchiveFile('views/main.json', viewBytes.length, viewBytes));
+      final panelHtmlBytes = utf8.encode(panelHtml);
+      archive.addFile(ArchiveFile(
+          'views/panel.html', panelHtmlBytes.length, panelHtmlBytes));
       final entryBytes = utf8.encode('// e2e plugin entry');
       archive.addFile(
           ArchiveFile('main.js', entryBytes.length, entryBytes));
@@ -246,7 +251,8 @@ Future<void> main(List<String> args) async {
 
       final panels = await store.panels(installed.id);
       stdout.writeln('[plugin] panels: '
-          '${panels.map((panel) => '${panel.id}/${panel.title}').join(', ')}');
+          '${panels.map((panel) => '${panel.id}/${panel.title}'
+              '/declarative=${panel.declarative}').join(', ')}');
       if (panels.isEmpty) throw StateError('声明式面板未注册');
       var viewData = await store.view(installed.id, panels.first.id);
       stdout.writeln('[plugin] view node=${viewData.node?.type} '

@@ -13,11 +13,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bootstrap.dart';
 import 'shell/app.dart';
+import 'shell/webview_self_test.dart';
 
 /// 退出钩子由 binding 持有（AppLifecycleListener 构造时注册为 observer），
 /// 这里不保存引用；手动 dispose 会在框架收尾后触发 "used after being disposed"。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 无头/半无头自检：验证 CEF 嵌入渲染（STARCLOUD_WEBVIEW_SELFTEST=1）。
+  if (Platform.environment['STARCLOUD_WEBVIEW_SELFTEST'] == '1') {
+    await runWebviewSelfTest();
+    return;
+  }
+
   final kernel = await bootstrapKernel();
 
   Future<void> shutdown() async {

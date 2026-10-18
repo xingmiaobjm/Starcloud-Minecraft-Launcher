@@ -136,10 +136,11 @@ lib/
   （63×5×19、768 个 TNT）→ 解析 → 尺寸/方块数/种类统计正确。
   实验室页已接真实实现（路径加载、方块统计、等距 3D 预览、生成示例）。
 - 外部插件 E2E（`dart run tool/bridge_e2e.dart plugins`）：打包一个最小
-  `.mclplug`（manifest + main.js + 声明式面板）→ 安装 → 未确认免责声明时拒绝启用
-  → 确认后启用（JS 运行时加载）→ 列出面板 → 解析视图（storage 绑定）→
-  `storage.set` 动作 → 重新读取绑定为 `world` → 卸载。
-  插件页已接真实实现（安装/启停/卸载/权限与依赖展示/声明式视图渲染）。
+  `.mclplug`（manifest + main.js + 声明式面板 + HTML 面板）→ 安装 → 未确认
+  免责声明时拒绝启用 → 确认后启用（JS 运行时加载）→ 列出两个面板
+  （声明式 + HTML）→ 解析视图（storage 绑定）→ `storage.set` 动作 →
+  重新读取绑定为 `world` → 卸载。插件页已接真实实现（安装/启停/卸载/
+  权限与依赖展示/声明式视图渲染/HTML 面板 CEF 渲染）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -167,8 +168,23 @@ lib/
 - 插件市场：`.mclplug` 安装/卸载、启用状态（与 Windows 共享
   `plugin-state.json`）、第三方免责确认、依赖闸门、权限/依赖展示已对齐；
   **JS / Python / 纯声明式运行时已在本进程启动**，声明式视图（v2 §7）在 Flutter
-  侧原生渲染并支持 storage 绑定与动作调用。
-  **1.x HTML 面板与 `ui:html` 仍需要 WebView 宿主**（暂不支持）。
+  侧原生渲染并支持 storage 绑定与动作调用；1.x HTML 面板经 CEF 渲染。
+  剩余：插件 HTML 内的 host_call JS 桥（ctx.* 能力）。
+- 实验室：解析/统计/等距预览/世吞模板已对齐；deepslate 纹理渲染的 CEF 宿主
+  已就绪（`Starcloud.App/Assets/Lab/` 页面可复用），数据注入与相机控制待接。
+
+### WebView 宿主（CEF，2026-10-18 接入）
+
+- 引入 `webview_cef`：Linux 上 CEF 离屏渲染到 Flutter 纹理（嵌入 widget，非独立窗口）。
+- 首次构建会从 cef-builds.spotifycdn.com 下载 CEF 149（prebuilt ~630MB，解压约 3GB
+  到插件 `third/cef/`），耗时数分钟；运行依赖 libnss3/libnspr4/libfontconfig1/libasound2。
+- 自检（实测通过）：
+  `STARCLOUD_WEBVIEW_SELFTEST=1 ./build/linux/x64/debug/bundle/starcloud_launcher`
+  → 加载本地 HTML → `WEBVIEW_SELFTEST_OK CEF OK`。
+- 已接入：1.x HTML 插件面板（file:// 渲染，console 转发到调试日志）；
+  声明式视图仍走原生渲染。待接入：实验室 deepslate 页面（宿主已就绪）。
+- 已知：CEF 事件在非平台线程回调（插件层告警，不影响功能）；未装 xclip 时
+  CEF 内粘贴不可用。
 
 ### 已知项
 

@@ -28,6 +28,10 @@ dependencies:
   # natives jar 解压（LWJGL 的 linux natives）。
   archive: ^4.0.7
 
+  # 嵌入式 WebView（Linux 用 CEF 离屏渲染到 Flutter 纹理）：
+  # 服务 1.x HTML 插件面板与实验室 deepslate（WebGL）渲染。
+  webview_cef: ^0.6.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
