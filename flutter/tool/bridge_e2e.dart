@@ -19,6 +19,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:starcloud_launcher/bridge/core_bridge.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
@@ -31,6 +32,7 @@ import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_lab.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_minecraft.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_multiplayer.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_nova.dart';
+import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_plugins.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_saves.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_settings.dart';
 import 'package:starcloud_launcher/plugins/builtin/csharp_core/bridge_skins.dart';
@@ -171,6 +173,52 @@ Future<void> main(List<String> args) async {
       await store.refresh();
       stdout.writeln('[acc] after remove: '
           '${store.accounts().map((a) => a.name).join(', ')}');
+    }
+
+    if (mode == 'plugins') {
+      final store = BridgePluginStore(bridge);
+      final manifest = {
+        'id': 'e2e.plugin',
+        'name': 'E2E Plugin',
+        'version': '1.0.0',
+        'apiVersion': '1.0',
+        'author': 'E2E',
+        'description': 'bridge e2e plugin',
+        'permissions': ['launcher:ui_panel'],
+        'compatibility': {'minLauncherVersion': '0.1.0'},
+      };
+      final archive = Archive();
+      final manifestBytes = utf8.encode(jsonEncode(manifest));
+      archive.addFile(
+          ArchiveFile('manifest.json', manifestBytes.length, manifestBytes));
+      final entryBytes = utf8.encode('// e2e plugin entry');
+      archive.addFile(
+          ArchiveFile('main.js', entryBytes.length, entryBytes));
+      final zip = ZipEncoder().encode(archive);
+      final mclplug = p.join(dataDir, 'e2e.plugin.mclplug');
+      File(mclplug).writeAsBytesSync(zip);
+
+      stdout.writeln('[plugin] before: ${(await store.list()).length}');
+      final installed = await store.install(mclplug);
+      stdout.writeln('[plugin] installed ${installed.id} ${installed.version} '
+          'official=${installed.official} permissions=${installed.permissions}');
+
+      try {
+        await store.setEnabled(installed.id, true);
+        stdout.writeln('[plugin] ERROR: 未确认免责声明却启用成功');
+      } catch (e) {
+        stdout.writeln('[plugin] disclaimer refused as expected: $e');
+      }
+
+      await store.setEnabled(installed.id, true, acceptDisclaimer: true);
+      var listed = await store.list();
+      stdout.writeln('[plugin] enabled=${listed.single.enabled} '
+          'disclaimer=${listed.single.disclaimerAccepted}');
+
+      await store.uninstall(installed.id);
+      listed = await store.list();
+      stdout.writeln('[plugin] after uninstall: ${listed.length}');
+      File(mclplug).deleteSync();
     }
 
     if (mode == 'lab') {

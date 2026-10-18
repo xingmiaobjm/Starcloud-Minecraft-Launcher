@@ -19,6 +19,7 @@ import '../../../contracts/lab.dart';
 import '../../../contracts/minecraft.dart';
 import '../../../contracts/multiplayer.dart';
 import '../../../contracts/nova.dart';
+import '../../../contracts/plugins.dart';
 import '../../../contracts/skins.dart';
 import '../../../kernel/descriptor.dart';
 import '../../../kernel/plugin_context.dart';
@@ -29,6 +30,7 @@ import 'bridge_lab.dart';
 import 'bridge_minecraft.dart';
 import 'bridge_multiplayer.dart';
 import 'bridge_nova.dart';
+import 'bridge_plugins.dart';
 import 'bridge_saves.dart';
 import 'bridge_settings.dart';
 import 'bridge_skins.dart';
@@ -122,6 +124,7 @@ class CSharpCorePlugin implements Plugin {
     ctx.services.add<SkinManager>(BridgeSkinManager(bridge, accounts));
     ctx.services.add<NovaClient>(BridgeNova(bridge));
     ctx.services.add<LabService>(BridgeLab(bridge));
+    ctx.services.add<PluginStore>(BridgePluginStore(bridge));
     ctx.log('C# 核心就绪（${p.basename(bridge.dllPath)}，'
         'gameDir=${settings.gameDir()}）');
   }
@@ -157,6 +160,7 @@ PluginDescriptor csharpCoreDescriptor() => PluginDescriptor.create(
         SkinManager,
         NovaClient,
         LabService,
+        PluginStore,
       ],
       permissions: const [
         'net.http',

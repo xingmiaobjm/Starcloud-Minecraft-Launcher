@@ -81,11 +81,11 @@ lib/
 ### 基座验收（2026-10-18 实测）
 
 - `flutter analyze`：**No issues found**
-- `flutter test`：**74 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
+- `flutter test`：**75 用例全绿**（覆盖规范 §13 可离线验证的全部条目：
   描述符校验 / 注册表语义 / 生命周期与激活次序 / 循环依赖 / 懒激活 /
   requires·depends 自动处理与反向级联 / essential / conflicts / 事件总线隔离 /
   贡献点增删与懒创建 / 三根路径 / 配置原子写与损坏容忍 / 宿主退出逆序停用 /
-  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·账户详情·联机页·Nova 页·实验室页）
+  游戏会话状态与防双开 / 版本页·版本详情·存档页·账户页·账户详情·联机页·Nova 页·实验室页·插件页）
 - WSLg `flutter build linux --debug` + 运行：窗口弹出，11 个导航项由
   `starcloud.shell_pages`（10 项）与 `starcloud.plugin_manager`（1 项）两个内置
   插件贡献；诊断页显示两者 Active。截图：[`docs/images/flutter-base-linux.png`](../docs/images/flutter-base-linux.png)
@@ -98,7 +98,7 @@ lib/
   ```
 
 - 后端复用 E2E（WSL + BMCLAPI，`dart run tool/bridge_e2e.dart all`）：
-  `starcloud.csharp_core` 激活约 0.4~4s / 登记 13 个契约；1.20.4 安装 3864 个文件
+  `starcloud.csharp_core` 激活约 0.4~4s / 登记 14 个契约；1.20.4 安装 3864 个文件
   （.minecraft 约 716MB，natives 7 个 .so 已解压）；Java 17 探测成功；启动后
   日志出现 `Setting user: StarcloudE2E` 与 `Backend library: LWJGL 3.3.2`。
   单文件下载实测 24,445,539 字节、39 条进度事件，末条 `done=true` 且落盘大小一致。
@@ -135,6 +135,10 @@ lib/
 - 实验室 E2E（`dart run tool/bridge_e2e.dart lab`）：生成世吞模板
   （63×5×19、768 个 TNT）→ 解析 → 尺寸/方块数/种类统计正确。
   实验室页已接真实实现（路径加载、方块统计、等距 3D 预览、生成示例）。
+- 外部插件 E2E（`dart run tool/bridge_e2e.dart plugins`）：打包一个最小
+  `.mclplug` → 安装（清单/权限校验）→ 未确认免责声明时拒绝启用 →
+  确认后启用（状态与 Windows 共享 `plugin-state.json`）→ 卸载。
+  插件页已接真实实现（安装/启停/卸载/权限与依赖展示）。
 - 退出回收（SIGTERM 实测）：`内核已停止（逆序停用 8 个插件）`，随后
   `starcloud.csharp_core` 的 shutdown 杀掉桥接进程；无残留 `dotnet` 进程。
 
@@ -159,7 +163,10 @@ lib/
 - 实验室：支持 .litematic / 结构 .nbt 的解析、方块统计、等距 3D 预览与世吞模板
   生成；预览按方块 id 着色，**不使用 deepslate 的纹理/模型渲染**（Windows 端的
   完整纹理渲染尚未移植）。
-- 未移植：插件市场（外部沙箱插件按 spec v3 决策暂缓）。
+- 插件市场：已支持 `.mclplug` 安装/卸载、启用状态（与 Windows 共享
+  `plugin-state.json`）、第三方免责确认、依赖闸门、权限/依赖展示；
+  **外部插件运行时视图（JS/Python + WebView）尚未在 Linux 启动**，这部分仍由
+  Windows 宿主提供。
 
 ### 已知项
 

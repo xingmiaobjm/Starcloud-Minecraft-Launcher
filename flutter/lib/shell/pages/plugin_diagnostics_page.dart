@@ -4,10 +4,13 @@
 /// 会一起消失。页面直接读内核快照，并演示启停/重试 API。
 library;
 
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../bootstrap.dart';
+import '../../contracts/plugins.dart';
 import '../../kernel/descriptor.dart';
 import '../../kernel/plugin_host.dart';
 
@@ -22,16 +25,149 @@ class PluginDiagnosticsPage extends ConsumerStatefulWidget {
 class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
   List<PluginSnapshot> _snapshots = const [];
   String? _lastAction;
+  List<ExternalPlugin> _external = const [];
+  bool _loadingExternal = true;
+  String? _externalError;
+  String? _externalNotice;
+  final _installPath = TextEditingController();
+
+  PluginStore get _store => ref.read(kernelDepsProvider).plugins;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    unawaited(_loadExternal());
+  }
+
+  @override
+  void dispose() {
+    _installPath.dispose();
+    super.dispose();
   }
 
   void _refresh() {
     if (!mounted) return;
     setState(() => _snapshots = ref.read(kernelProvider).snapshots());
+  }
+
+  Future<void> _loadExternal() async {
+    try {
+      final list = await _store.list();
+      if (!mounted) return;
+      setState(() {
+        _external = list;
+        _loadingExternal = false;
+        _externalError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingExternal = false;
+        _externalError = '$e';
+      });
+    }
+  }
+
+  Future<void> _install() async {
+    final path = _installPath.text.trim();
+    if (path.isEmpty) return;
+    setState(() {
+      _externalError = null;
+      _externalNotice = null;
+    });
+    try {
+      final plugin = await _store.install(path);
+      if (!mounted) return;
+      _installPath.clear();
+      setState(() => _externalNotice = '已安装 ${plugin.name} ${plugin.version}');
+      await _loadExternal();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _externalError = '安装失败：$e');
+    }
+  }
+
+  Future<void> _toggle(ExternalPlugin plugin, bool enabled) async {
+    setState(() {
+      _externalError = null;
+      _externalNotice = null;
+    });
+    try {
+      if (enabled && !plugin.official && !plugin.disclaimerAccepted) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (context) => ContentDialog(
+            title: const Text('启用第三方插件？'),
+            content: const Text(
+              '插件由第三方独立开发，启动器不对其内容与合法性负责。\n\n'
+              'Linux 端当前只管理插件包与启用状态；插件运行时视图（WebView）'
+              '由 Windows 宿主提供。',
+            ),
+            actions: [
+              Button(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('确认并启用'),
+              ),
+            ],
+          ),
+        );
+        if (accepted != true || !mounted) return;
+        await _store.setEnabled(plugin.id, true, acceptDisclaimer: true);
+      } else {
+        await _store.setEnabled(plugin.id, enabled);
+      }
+      if (!mounted) return;
+      setState(() =>
+          _externalNotice = enabled ? '已启用 ${plugin.name}' : '已停用 ${plugin.name}');
+      await _loadExternal();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _externalError = '$e');
+    }
+  }
+
+  Future<void> _uninstall(ExternalPlugin plugin) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text('卸载 ${plugin.name}？'),
+        content: const Text('插件目录与启用状态会被删除，不可恢复。'),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('卸载'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _store.uninstall(plugin.id);
+      if (!mounted) return;
+      setState(() => _externalNotice = '已卸载 ${plugin.name}');
+      await _loadExternal();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _externalError = '$e');
+    }
+  }
+
+  Future<void> _openFolder(ExternalPlugin plugin) async {
+    try {
+      await _store.openFolder(plugin.id);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _externalError = '$e');
+    }
   }
 
   Future<void> _run(Future<String?> Function() action, String label) async {
@@ -71,7 +207,10 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
             CommandBarButton(
               icon: const Icon(FluentIcons.refresh),
               label: const Text('刷新'),
-              onPressed: _refresh,
+              onPressed: () {
+                _refresh();
+                unawaited(_loadExternal());
+              },
             ),
           ],
         ),
@@ -79,6 +218,70 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
       content: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         children: [
+          Card(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('外部插件（v2 沙箱）', style: typography.subtitle),
+                const SizedBox(height: 6),
+                Text(
+                  '安装 .mclplug、启停与卸载；权限/依赖按清单展示。'
+                  '启用状态与 Windows 端共享 plugin-state.json；'
+                  '插件运行时视图（WebView）由 Windows 宿主提供。',
+                  style: typography.caption,
+                ),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(
+                    child: TextBox(
+                      controller: _installPath,
+                      placeholder: '.mclplug 安装包绝对路径',
+                      onSubmitted: (_) => _install(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _install,
+                    child: const Text('安装'),
+                  ),
+                ]),
+                if (_externalError != null) ...[
+                  const SizedBox(height: 8),
+                  InfoBar(
+                    title: const Text('操作失败'),
+                    content: Text(_externalError!),
+                    severity: InfoBarSeverity.error,
+                    isLong: true,
+                    onClose: () => setState(() => _externalError = null),
+                  ),
+                ],
+                if (_externalNotice != null) ...[
+                  const SizedBox(height: 8),
+                  InfoBar(
+                    title: Text(_externalNotice!),
+                    severity: InfoBarSeverity.success,
+                    isLong: true,
+                    onClose: () => setState(() => _externalNotice = null),
+                  ),
+                ],
+                if (_loadingExternal)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: ProgressRing()),
+                  )
+                else if (_external.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text('还没有安装外部插件。'),
+                  )
+                else
+                  for (final plugin in _external)
+                    _externalCard(plugin, typography),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Card(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -103,6 +306,72 @@ class _PluginDiagnosticsPageState extends ConsumerState<PluginDiagnosticsPage> {
           const SizedBox(height: 12),
           for (final s in _snapshots) _pluginCard(s, kernel),
         ],
+      ),
+    );
+  }
+
+  Widget _externalCard(ExternalPlugin plugin, Typography typography) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Card(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('${plugin.name} ${plugin.version}',
+                    style: typography.bodyStrong),
+                Text('[${plugin.id}]', style: typography.caption),
+                Text(plugin.official ? '[官方]' : '[未验证]',
+                    style: typography.caption),
+                Text(plugin.enabled ? '[已启用]' : '[已停用]',
+                    style: typography.caption),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(plugin.description, style: typography.body),
+            Text(
+              '作者 ${plugin.author} · api ${plugin.apiVersion}'
+              '${plugin.runtime != null ? ' · ${plugin.runtime}' : ''}',
+              style: typography.caption,
+            ),
+            if (plugin.permissions.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final permission in plugin.permissions)
+                    Text('[$permission]', style: typography.caption),
+                ],
+              ),
+            ],
+            if (plugin.dependencies.isNotEmpty)
+              Text(
+                '依赖：${plugin.dependencies.entries.map((e) => '${e.key} ${e.value}').join('、')}',
+                style: typography.caption,
+              ),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              FilledButton(
+                onPressed: () => _toggle(plugin, !plugin.enabled),
+                child: Text(plugin.enabled ? '停用' : '启用'),
+              ),
+              Button(
+                onPressed: () => _uninstall(plugin),
+                child: const Text('卸载'),
+              ),
+              Button(
+                onPressed: () => _openFolder(plugin),
+                child: const Text('打开目录'),
+              ),
+            ]),
+          ],
+        ),
       ),
     );
   }

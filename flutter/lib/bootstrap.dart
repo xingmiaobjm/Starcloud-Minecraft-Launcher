@@ -12,6 +12,7 @@ import 'contracts/lab.dart';
 import 'contracts/minecraft.dart';
 import 'contracts/multiplayer.dart';
 import 'contracts/nova.dart';
+import 'contracts/plugins.dart';
 import 'contracts/skins.dart';
 import 'kernel/paths.dart';
 import 'kernel/plugin_host.dart';
@@ -44,6 +45,7 @@ class KernelDeps {
     required this.skins,
     required this.nova,
     required this.lab,
+    required this.plugins,
   });
 
   final MinecraftCatalog catalog;
@@ -58,6 +60,7 @@ class KernelDeps {
   final SkinManager skins;
   final NovaClient nova;
   final LabService lab;
+  final PluginStore plugins;
 }
 
 final kernelDepsProvider = Provider<KernelDeps>((ref) {
@@ -75,6 +78,7 @@ final kernelDepsProvider = Provider<KernelDeps>((ref) {
     skins: services.get<SkinManager>(),
     nova: services.get<NovaClient>(),
     lab: services.get<LabService>(),
+    plugins: services.get<PluginStore>(),
   );
 });
 

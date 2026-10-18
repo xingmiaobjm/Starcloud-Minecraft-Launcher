@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Starcloud.Core;
 using Starcloud.Core.Models;
+using Starcloud.Core.Plugins;
 using Starcloud.Core.Services;
 using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
@@ -453,6 +455,97 @@ public static class Program
                 catch { /* 统计失败不影响删除 */ }
                 _saves.Delete(root, folder);
                 return new { ok = true, freedBytes = freed };
+            }
+
+            case "plugins.list":
+            {
+                var state = LoadPluginState();
+                var installed = ScanPlugins();
+                return new
+                {
+                    plugins = installed.Select(p =>
+                        PluginPayload(p.Manifest, p.Dir, p.Official, state)),
+                    pageTipShown = state.PageTipShown,
+                };
+            }
+
+            case "plugins.install":
+            {
+                var path = p.GetProperty("path").GetString()!;
+                var (plugin, errors) = InstallPlugin(path);
+                if (plugin is null)
+                    throw new Exception(string.Join("；", errors));
+                var state = LoadPluginState();
+                return new
+                {
+                    plugin = PluginPayload(plugin.Value.Manifest, plugin.Value.Dir,
+                        plugin.Value.Official, state),
+                };
+            }
+
+            case "plugins.uninstall":
+            {
+                var id = SafePluginId(p.GetProperty("id").GetString()!);
+                var dir = Path.Combine(LauncherPaths.PluginUnpackedDir, id);
+                if (Directory.Exists(dir))
+                {
+                    try { Directory.Delete(dir, recursive: true); }
+                    catch (Exception e)
+                    {
+                        throw new Exception($"卸载失败：{e.Message}");
+                    }
+                }
+                SetPluginState(id, _ => { }, remove: true);
+                return new { ok = true };
+            }
+
+            case "plugins.setEnabled":
+            {
+                var id = SafePluginId(p.GetProperty("id").GetString()!);
+                var enabled = p.GetProperty("enabled").GetBoolean();
+                var acceptDisclaimer = p.TryGetProperty("acceptDisclaimer", out var ad) &&
+                                       ad.ValueKind == JsonValueKind.True;
+                var installed = ScanPlugins();
+                var target = installed.FirstOrDefault(x => x.Manifest.Id == id);
+                if (target.Manifest is null)
+                    throw new Exception($"插件未安装：{id}");
+                var current = LoadPluginState().Plugins.TryGetValue(id, out var entry)
+                    ? entry
+                    : null;
+                if (enabled)
+                {
+                    if (!target.Official && !acceptDisclaimer &&
+                        (current?.DisclaimerAccepted ?? false) == false)
+                        throw new Exception("第三方插件需要先确认免责声明");
+                    // 依赖闸门：把本插件视为待启用，缺依赖/依赖未启用/版本不满足即拒绝。
+                    var resolution = PluginDependencyResolver.Resolve(
+                        installed.Select(x => x.Manifest),
+                        other => other == id || IsPluginEnabled(other));
+                    var reason = PluginDependencyResolver.BlockReason(resolution, id);
+                    if (reason is not null) throw new Exception(reason);
+                }
+                SetPluginState(id, s =>
+                {
+                    s.Enabled = enabled;
+                    if (acceptDisclaimer) s.DisclaimerAccepted = true;
+                });
+                return new
+                {
+                    ok = true,
+                    enabled,
+                    // 外部插件运行时（JS/Python + WebView 视图）尚未在 Linux 端启动；
+                    // 这里只持久化启用状态，供 Windows 端/后续沙箱宿主复用。
+                    runtimeStarted = false,
+                };
+            }
+
+            case "plugins.openFolder":
+            {
+                var id = SafePluginId(p.GetProperty("id").GetString()!);
+                var dir = Path.Combine(LauncherPaths.PluginUnpackedDir, id);
+                if (!Directory.Exists(dir)) throw new Exception($"插件目录不存在：{id}");
+                OpenFolder(dir);
+                return new { ok = true, path = dir };
             }
 
             case "lab.load":
@@ -1626,6 +1719,267 @@ public static class Program
         p.TryGetProperty(key, out var value) && value.TryGetInt32(out var number)
             ? number
             : fallback;
+
+    // ── 外部插件（v2 沙箱）：清单/权限/安装/启停状态 ─────────────────────────
+
+    /// <summary>与 Windows 端一致的启动器版本（manifest 兼容性校验用）。</summary>
+    private const string LauncherVersion = "0.3.4";
+
+    private static readonly object PluginGate = new();
+
+    private static readonly JsonSerializerOptions PluginStateJsonOpts = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    private sealed class PluginStateFile
+    {
+        [JsonPropertyName("plugins")]
+        public Dictionary<string, PluginEntryState> Plugins { get; set; } = new();
+
+        [JsonPropertyName("pageTipShown")]
+        public bool PageTipShown { get; set; }
+    }
+
+    private sealed class PluginEntryState
+    {
+        [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+        [JsonPropertyName("disclaimerAccepted")] public bool DisclaimerAccepted { get; set; }
+        [JsonPropertyName("version")] public string Version { get; set; } = "";
+        [JsonPropertyName("panelTipShown")] public bool PanelTipShown { get; set; }
+    }
+
+    private static PluginStateFile LoadPluginState()
+    {
+        try
+        {
+            if (File.Exists(LauncherPaths.PluginStateFile))
+                return JsonSerializer.Deserialize<PluginStateFile>(
+                    File.ReadAllText(LauncherPaths.PluginStateFile),
+                    PluginStateJsonOpts) ?? new PluginStateFile();
+        }
+        catch
+        {
+            // 损坏按全新状态处理（与 Windows 端一致）
+        }
+        return new PluginStateFile();
+    }
+
+    private static void SavePluginState(PluginStateFile state)
+    {
+        Directory.CreateDirectory(LauncherPaths.PluginsDir);
+        var tmp = LauncherPaths.PluginStateFile + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(state, PluginStateJsonOpts));
+        File.Move(tmp, LauncherPaths.PluginStateFile, overwrite: true);
+    }
+
+    private static void SetPluginState(
+        string id, Action<PluginEntryState> mutate, bool remove = false)
+    {
+        lock (PluginGate)
+        {
+            var state = LoadPluginState();
+            if (remove)
+            {
+                state.Plugins.Remove(id);
+            }
+            else
+            {
+                if (!state.Plugins.TryGetValue(id, out var entry))
+                    state.Plugins[id] = entry = new PluginEntryState();
+                mutate(entry);
+            }
+            SavePluginState(state);
+        }
+    }
+
+    private static bool IsPluginEnabled(string id) =>
+        LoadPluginState().Plugins.TryGetValue(id, out var entry) && entry.Enabled;
+
+    private static string SafePluginId(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || id is "." or ".." ||
+            id.IndexOfAny(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) >= 0)
+            throw new Exception("非法插件 id");
+        return id;
+    }
+
+    private static List<(PluginManifest Manifest, string Dir, bool Official)> ScanPlugins()
+    {
+        var root = LauncherPaths.PluginUnpackedDir;
+        var result = new List<(PluginManifest, string, bool)>();
+        if (!Directory.Exists(root)) return result;
+        foreach (var dir in Directory.GetDirectories(root))
+        {
+            var manifestPath = Path.Combine(dir, "manifest.json");
+            if (!File.Exists(manifestPath)) continue;
+            var manifest = PluginManifest.ParseFile(manifestPath);
+            if (manifest is null || manifest.Validate(LauncherVersion).Count > 0) continue;
+            result.Add((manifest, dir, IsOfficialPlugin(manifest, dir, manifestPath)));
+        }
+        return result
+            .OrderBy(p => p.Item1.Name, StringComparer.CurrentCulture)
+            .ToList();
+    }
+
+    private static bool IsOfficialPlugin(
+        PluginManifest manifest, string dir, string manifestPath)
+    {
+        if (!manifest.IsApi2) return manifest.VerifyOfficialSignature(manifestPath);
+        var integrity = PluginIntegrity.ParseFile(
+            Path.Combine(dir, PluginIntegrity.FileName));
+        if (integrity is null || integrity.VerifyFiles(dir).Count > 0) return false;
+        return integrity.Verify(out _) == PluginTrustState.Verified;
+    }
+
+    private static object PluginPayload(
+        PluginManifest manifest, string dir, bool official, PluginStateFile state)
+    {
+        state.Plugins.TryGetValue(manifest.Id, out var entry);
+        return new
+        {
+            id = manifest.Id,
+            name = manifest.Name,
+            version = manifest.Version,
+            apiVersion = manifest.ApiVersion,
+            author = manifest.Author,
+            description = manifest.Description,
+            permissions = manifest.Permissions,
+            optionalPermissions = manifest.OptionalPermissions,
+            runtime = manifest.Runtime,
+            official,
+            enabled = entry?.Enabled ?? false,
+            disclaimerAccepted = entry?.DisclaimerAccepted ?? false,
+            dir,
+            dependencies = manifest.Dependencies,
+            conflicts = manifest.Conflicts,
+            homepage = manifest.Homepage,
+            license = manifest.License,
+            keywords = manifest.Keywords,
+            api2 = manifest.IsApi2,
+        };
+    }
+
+    /// <summary>
+    /// 安装 .mclplug（zip）：防穿越 → 解压到 staging → 校验 manifest/integrity →
+    /// 原子替换 unpacked/&lt;id&gt;/。与 Windows 端 PluginService 同一套规则；
+    /// 区别是不启动运行时（Linux 端暂无 v2 视图宿主）。
+    /// </summary>
+    private static ((PluginManifest Manifest, string Dir, bool Official)? Plugin,
+        List<string> Errors) InstallPlugin(string mclplugPath)
+    {
+        var errors = new List<string>();
+        if (!File.Exists(mclplugPath))
+        {
+            errors.Add($"安装包不存在：{mclplugPath}");
+            return (null, errors);
+        }
+        Directory.CreateDirectory(LauncherPaths.PluginPacksDir);
+        Directory.CreateDirectory(LauncherPaths.PluginUnpackedDir);
+
+        var archivePath = Path.Combine(
+            LauncherPaths.PluginPacksDir,
+            $"{Path.GetFileNameWithoutExtension(mclplugPath)}-{DateTime.Now:yyyyMMdd-HHmmss}.zip");
+        try { File.Copy(mclplugPath, archivePath, overwrite: true); }
+        catch { /* 归档失败不阻塞安装 */ }
+
+        var staging = Path.Combine(
+            LauncherPaths.PluginUnpackedDir,
+            ".staging-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            using (var archive = ZipFile.OpenRead(mclplugPath))
+            {
+                foreach (var entry in archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.FullName)) continue;
+                    var norm = entry.FullName.Replace('\\', '/');
+                    if (Path.IsPathRooted(norm) || norm.Split('/').Contains(".."))
+                    {
+                        errors.Add($"zip 条目路径非法：{entry.FullName}");
+                        return (null, errors);
+                    }
+                }
+                if (!archive.Entries.Any(e =>
+                        e.FullName.Equals("manifest.json", StringComparison.OrdinalIgnoreCase)))
+                {
+                    errors.Add("包内缺少 manifest.json（拒绝加载）");
+                    return (null, errors);
+                }
+                archive.ExtractToDirectory(staging);
+            }
+
+            var manifestPath = Path.Combine(staging, "manifest.json");
+            var manifest = PluginManifest.ParseFile(manifestPath);
+            if (manifest is null)
+            {
+                errors.Add("manifest.json 解析失败");
+                return (null, errors);
+            }
+            errors = manifest.Validate(LauncherVersion);
+            if (errors.Count > 0) return (null, errors);
+
+            if (manifest.IsApi2)
+            {
+                var integrity = PluginIntegrity.ParseFile(
+                    Path.Combine(staging, PluginIntegrity.FileName));
+                if (integrity is null)
+                {
+                    errors.Add($"2.0 插件包缺少 {PluginIntegrity.FileName}（整包摘要与签名）");
+                    return (null, errors);
+                }
+                if (!string.Equals(integrity.Id, manifest.Id, StringComparison.Ordinal) ||
+                    !string.Equals(integrity.Version, manifest.Version, StringComparison.Ordinal))
+                {
+                    errors.Add("integrity.json 的 id/version 与 manifest 不一致");
+                    return (null, errors);
+                }
+                var mismatches = integrity.VerifyFiles(staging);
+                if (mismatches.Count > 0)
+                {
+                    errors.AddRange(mismatches);
+                    return (null, errors);
+                }
+                if (integrity.Verify(out var detail) == PluginTrustState.Invalid)
+                {
+                    errors.Add($"插件签名无效（拒绝安装）：{detail}");
+                    return (null, errors);
+                }
+            }
+
+            var target = Path.Combine(LauncherPaths.PluginUnpackedDir, manifest.Id);
+            if (Directory.Exists(target))
+            {
+                var trash = target + ".old-" + Guid.NewGuid().ToString("N")[..8];
+                Directory.Move(target, trash);
+                try { Directory.Delete(trash, recursive: true); }
+                catch { /* 旧目录删除失败不阻塞新装 */ }
+            }
+            Directory.Move(staging, target);
+            staging = target;
+
+            SetPluginState(manifest.Id, s => s.Version = manifest.Version);
+            var installed = (manifest, target,
+                IsOfficialPlugin(manifest, target,
+                    Path.Combine(target, "manifest.json")));
+            return (installed, errors);
+        }
+        catch (Exception e)
+        {
+            errors.Add($"安装失败：{e.Message}");
+            return (null, errors);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(staging) && staging.Contains(".staging-"))
+                    Directory.Delete(staging, recursive: true);
+            }
+            catch { /* 清理失败忽略 */ }
+        }
+    }
 
     /// <summary>版本实例设置：档案原值 + 层叠后的生效值。</summary>
     private static object VersionSettingsPayload(string versionId)

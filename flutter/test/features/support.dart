@@ -7,6 +7,7 @@ import 'package:starcloud_launcher/contracts/lab.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/contracts/nova.dart';
+import 'package:starcloud_launcher/contracts/plugins.dart';
 import 'package:starcloud_launcher/contracts/skins.dart';
 
 KernelDeps fakeDeps({
@@ -22,6 +23,7 @@ KernelDeps fakeDeps({
   SkinManager? skins,
   NovaClient? nova,
   LabService? lab,
+  PluginStore? plugins,
 }) =>
     KernelDeps(
       catalog: catalog ?? FakeCatalog(),
@@ -36,6 +38,7 @@ KernelDeps fakeDeps({
       skins: skins ?? FakeSkins(),
       nova: nova ?? FakeNova(),
       lab: lab ?? FakeLab(),
+      plugins: plugins ?? FakePluginStore(),
     );
 
 class FakeCatalog implements MinecraftCatalog {
@@ -295,4 +298,22 @@ class FakeLab implements LabService {
     int offset = 2,
   }) async =>
       '/tmp/lab.litematic';
+}
+
+class FakePluginStore implements PluginStore {
+  @override
+  Future<List<ExternalPlugin>> list() async => const [];
+  @override
+  Future<ExternalPlugin> install(String path) async =>
+      throw UnimplementedError();
+  @override
+  Future<void> uninstall(String id) async {}
+  @override
+  Future<void> setEnabled(
+    String id,
+    bool enabled, {
+    bool acceptDisclaimer = false,
+  }) async {}
+  @override
+  Future<void> openFolder(String id) async {}
 }

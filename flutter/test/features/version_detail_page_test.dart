@@ -6,6 +6,7 @@ import 'package:starcloud_launcher/contracts/content.dart';
 import 'package:starcloud_launcher/contracts/lab.dart';
 import 'package:starcloud_launcher/contracts/minecraft.dart';
 import 'package:starcloud_launcher/contracts/nova.dart';
+import 'package:starcloud_launcher/contracts/plugins.dart';
 import 'package:starcloud_launcher/contracts/skins.dart';
 import 'package:starcloud_launcher/contracts/multiplayer.dart';
 import 'package:starcloud_launcher/shell/pages/version_detail_page.dart';
@@ -90,7 +91,26 @@ KernelDeps _deps(ContentManager content) => KernelDeps(
       skins: _FakeSkins(),
       nova: _FakeNova(),
       lab: _FakeLab(),
+      plugins: _FakePlugins(),
     );
+
+class _FakePlugins implements PluginStore {
+  @override
+  Future<List<ExternalPlugin>> list() async => const [];
+  @override
+  Future<ExternalPlugin> install(String path) async =>
+      throw UnimplementedError();
+  @override
+  Future<void> uninstall(String id) async {}
+  @override
+  Future<void> setEnabled(
+    String id,
+    bool enabled, {
+    bool acceptDisclaimer = false,
+  }) async {}
+  @override
+  Future<void> openFolder(String id) async {}
+}
 
 class _FakeLab implements LabService {
   @override
