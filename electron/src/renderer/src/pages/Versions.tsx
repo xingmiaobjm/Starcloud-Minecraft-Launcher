@@ -1,50 +1,11 @@
 /// 版本页：已安装版本列表（打开目录 / 设为默认 / 删除）。
+/// 视觉全部走 winui.css 的纯 CSS 类，不依赖 Fluent 组件。
 import { useEffect, useState } from 'react'
-import {
-  Button,
-  Card,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
-import { FolderOpenRegular, PlayRegular, DeleteRegular } from '@fluentui/react-icons'
+import type { CSSProperties } from 'react'
 import { request } from '../bridge'
 import type { InstalledVersion } from '../bridge'
-import { brandYellow } from '../theme'
-import { EmptyState, PageShell, PointerGlow, SkeletonList, useToasts } from '../ui'
-import { motion, radius } from '../theme'
+import { EmptyState, Modal, PageShell, SkeletonList, useToasts } from '../ui'
 import VersionDetailPage from './VersionDetail'
-
-const useStyles = makeStyles({
-  card: { padding: '0', marginBottom: '8px', animation: `slideUp ${motion.normal}ms ${motion.easeOut} both` },
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    padding: '12px 16px'
-  },
-  icon: {
-    width: '38px',
-    height: '38px',
-    borderRadius: '6px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 'bold'
-  },
-  chip: {
-    fontSize: '11px',
-    padding: '1px 7px',
-    borderRadius: '9px',
-    background: 'rgba(255,255,255,0.07)',
-    color: 'rgba(255,255,255,0.75)'
-  }
-})
 
 function tagFor(id: string): { label: string; color: string } {
   const lower = id.toLowerCase()
@@ -63,7 +24,6 @@ function fmtSize(bytes: number): string {
 }
 
 export default function VersionsPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
   const [items, setItems] = useState<InstalledVersion[]>([])
   const [loading, setLoading] = useState(true)
@@ -130,122 +90,126 @@ export default function VersionsPage() {
   }
 
   return (
-    <PageShell title="版本" subtitle="管理本机已安装的 Minecraft 版本">
-      {loading ? (
-        <SkeletonList rows={6} />
-      ) : items.length === 0 ? (
-        <EmptyState title="还没有已安装的版本" hint="去「下载」页安装一个版本。" />
-      ) : (
-        items.map((v, index) => {
-          const info = tagFor(v.id)
-          const busyThis = busy === v.id
-          return (
-            <PointerGlow
-              key={v.id}
-              radius={radius.row}
-              style={{ animation: `slideUp ${motion.enter}ms ${motion.easeEnter} both`, animationDelay: `${index * motion.stagger}ms` }}
-              onClick={() => setOpenId(v.id)}
-            >
-              <div className={styles.row} style={{ cursor: 'pointer' }}>
+    <>
+      <PageShell title="版本" subtitle="管理本机已安装的 Minecraft 版本">
+        {loading ? (
+          <SkeletonList rows={6} />
+        ) : items.length === 0 ? (
+          <EmptyState title="还没有已安装的版本" hint="去「下载」页安装一个版本。" />
+        ) : (
+          items.map((v, index) => {
+            const info = tagFor(v.id)
+            const busyThis = busy === v.id
+            return (
+              <div
+                key={v.id}
+                className="row glow"
+                style={
+                  {
+                    animationDelay: `${index * 39}ms`,
+                    '--glow': `radial-gradient(420px circle at 50% 0%, color-mix(in srgb, ${info.color} 20%, transparent), transparent 65%)`
+                  } as CSSProperties
+                }
+                onClick={() => setOpenId(v.id)}
+              >
                 <div
-                  className={styles.icon}
+                  className="icon32"
                   style={{ background: `${info.color}2b`, border: `1px solid ${info.color}`, color: info.color }}
                 >
                   {v.id[0]?.toUpperCase()}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Text size={300} weight="semibold" truncate>
-                      {v.id}
-                    </Text>
-                    <span className={styles.chip}>{info.label}</span>
-                    {v.isDefault && <span className={styles.chip} style={{ color: brandYellow }}>默认</span>}
-                    {v.isolated && <span className={styles.chip}>隔离</span>}
-                    {v.inheritsFrom && <span className={styles.chip}>继承 {v.inheritsFrom}</span>}
-                    {v.jarExists === false && (
-                      <span className={styles.chip} style={{ color: '#FF9A9A' }}>缺少 jar</span>
-                    )}
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <span className="t-strong truncate">{v.id}</span>
+                    <span className="chip">{info.label}</span>
+                    {v.isDefault && <span className="chip chip-accent">默认</span>}
+                    {v.isolated && <span className="chip">隔离</span>}
+                    {v.inheritsFrom && <span className="chip">继承 {v.inheritsFrom}</span>}
+                    {v.jarExists === false && <span className="chip chip-danger">缺少 jar</span>}
                   </div>
-                  <Text size={200} style={{ opacity: 0.6 }}>
+                  <span className="t-meta truncate">
                     {fmtSize(v.sizeBytes)} · {v.directory ?? ''}
-                  </Text>
+                  </span>
                 </div>
-                <Button
-                  appearance="subtle"
-                  icon={<FolderOpenRegular />}
+                <button
+                  className="btn btn-subtle"
                   disabled={busy !== null}
                   onClick={(e) => {
                     e.stopPropagation()
                     void openFolder(v)
                   }}
                 >
-                  打开目录
-                </Button>
-                <Button
-                  appearance="subtle"
+                  ▤ 打开目录
+                </button>
+                <button
+                  className="btn btn-subtle"
                   disabled={busy !== null || v.isDefault === true}
                   onClick={(e) => {
                     e.stopPropagation()
                     void setDefault(v)
                   }}
                 >
-                  设为默认
-                </Button>
-                <Button
-                  appearance="subtle"
-                  icon={<DeleteRegular />}
+                  ★ 设为默认
+                </button>
+                <button
+                  className="btn btn-subtle btn-danger"
                   disabled={busy !== null}
-                  style={{ color: '#FF9A9A' }}
                   onClick={(e) => {
                     e.stopPropagation()
                     setConfirm(v)
                   }}
                 >
-                  删除
-                </Button>
+                  ✕ 删除
+                </button>
               </div>
-              {busyThis && (
-                <div style={{ padding: '0 16px 10px' }}>
-                  <div style={{ height: '2px', background: brandYellow, animation: 'pulse 1s infinite' }} />
-                </div>
-              )}
-            </PointerGlow>
-          )
-        })
-      )}
-      <Dialog
+            )
+          })
+        )}
+        {items.some((v) => busy === v.id) && (
+          <div
+            style={{
+              height: 2,
+              marginTop: 10,
+              borderRadius: 2,
+              background: 'var(--accent)',
+              animation: 'pulse 1s infinite'
+            }}
+          />
+        )}
+      </PageShell>
+
+      {/* 删除是破坏性操作，必须二次确认。 */}
+      <Modal
         open={confirm !== null}
-        onOpenChange={(_e, data) => !data.open && setConfirm(null)}
-        modalType="alert"
+        title={`删除 ${confirm?.id ?? ''}？`}
+        onClose={() => setConfirm(null)}
+        width={480}
+        footer={
+          <>
+            <button className="btn" onClick={() => setConfirm(null)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              onClick={() => {
+                const target = confirm
+                setConfirm(null)
+                if (target) void remove(target)
+              }}
+            >
+              删除
+            </button>
+          </>
+        }
       >
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>删除 {confirm?.id}？</DialogTitle>
-            <DialogContent>
-              {confirm?.isolated
-                ? '该版本启用了隔离：版本目录里的存档、模组、配置会一起删除，且不可恢复。'
-                : '只删除版本目录；共享的 libraries/assets 与 .minecraft 根下的存档不受影响。'}
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setConfirm(null)}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                style={{ background: '#B42318' }}
-                onClick={() => {
-                  const target = confirm
-                  setConfirm(null)
-                  if (target) void remove(target)
-                }}
-              >
-                删除
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+        <div className="t-body">
+          {confirm?.isolated
+            ? '该版本启用了隔离：版本目录里的存档、模组、配置会一起删除，且不可恢复。'
+            : '只删除版本目录；共享的 libraries/assets 与 .minecraft 根下的存档不受影响。'}
+        </div>
+      </Modal>
       {host}
-    </PageShell>
+    </>
   )
 }

@@ -5,118 +5,9 @@
 /// 按 (x+y+z) 深度排序后由远及近绘制，后画的自然盖住先画的，颜色由 block id 哈希成 HSL。
 /// 视图变换（缩放/平移）存在 useRef 里，滚轮与拖拽只改 ref 并触发重绘，不进 React 状态。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  Button,
-  Card,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
-import {
-  ArrowSyncRegular,
-  CubeRegular,
-  DocumentAddRegular,
-  ErrorCircleRegular,
-  WarningRegular
-} from '@fluentui/react-icons'
 import { request } from '../bridge'
 import type { ProjectionPreview } from '../bridge'
-import { brandYellow, brandYellowHover, motion, radius } from '../theme'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
-
-const useStyles = makeStyles({
-  toolbar: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: '12px',
-    flexWrap: 'wrap',
-    padding: '14px 16px'
-  },
-  pathField: { flex: 1, minWidth: '280px' },
-  cardHeaderStyle: { display: 'flex', alignItems: 'center', gap: '10px' },
-  primaryButton: {
-    background: brandYellow,
-    color: '#1b1b1b',
-    fontWeight: 700,
-    border: 'none',
-    transition: `background ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}, box-shadow ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: brandYellowHover, color: '#1b1b1b' },
-    ':active': { transform: 'scale(0.985)' }
-  },
-  primaryGlow: { boxShadow: `0 0 0 0 rgba(255,194,31,0.45)` },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-    gap: '8px'
-  },
-  statCell: {
-    padding: '10px 12px',
-    borderRadius: `${radius.card}px`,
-    background: 'rgba(255,255,255,0.035)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
-  },
-  previewCard: { display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 16px' },
-  previewHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
-  // 画布容器固定 420px：预览高度跟内容无关，切换文件时布局不跳
-  canvasBox: {
-    position: 'relative',
-    height: '420px',
-    borderRadius: `${radius.card}px`,
-    overflow: 'hidden',
-    background:
-      'radial-gradient(120% 100% at 50% 0%, #232323 0%, #151515 70%, #101010 100%)',
-    border: '1px solid rgba(255,255,255,0.08)'
-  },
-  canvas: {
-    display: 'block',
-    width: '100%',
-    height: '100%',
-    cursor: 'grab',
-    touchAction: 'none'
-  },
-  canvasDragging: { cursor: 'grabbing' },
-  previewHint: {
-    position: 'absolute',
-    right: '10px',
-    bottom: '10px',
-    fontSize: '11px',
-    opacity: 0.5,
-    pointerEvents: 'none' as const,
-    background: 'rgba(0,0,0,0.35)',
-    padding: '3px 8px',
-    borderRadius: `${radius.control}px`
-  },
-  blockRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '7px 10px',
-    margin: '0 4px',
-    borderRadius: `${radius.row}px`,
-    background: 'rgba(255,255,255,0.035)',
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
-    transition: `background ${motion.fast}ms ${motion.ease}`
-  },
-  // 色块：和画布里该方块的颜色一致，所见即所得
-  swatch: {
-    width: '18px',
-    height: '18px',
-    borderRadius: `${radius.control}px`,
-    flexShrink: 0,
-    border: '1px solid rgba(255,255,255,0.22)'
-  },
-  bar: {
-    height: '4px',
-    borderRadius: '2px',
-    background: 'rgba(255,255,255,0.08)',
-    overflow: 'hidden',
-    marginTop: '4px'
-  }
-})
 
 /** 统计列表最多展示这么多条（桥接侧本身也只给 60 条）。 */
 const MAX_STATS_ROWS = 30
@@ -155,7 +46,6 @@ interface Voxel {
 }
 
 export default function LabPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
 
   const [path, setPath] = useState('')
@@ -342,92 +232,96 @@ export default function LabPage() {
         title="实验室"
         subtitle="投影工坊：解析 .litematic 并画等距体素预览；世吞生成器：直接产出分层 TNT 模板。"
         actions={
-          <Button
-            appearance="subtle"
-            icon={<ArrowSyncRegular />}
+          <button
+            className="btn btn-subtle"
+            title="重新加载"
             onClick={() => {
               if (path.trim().length > 0) void load()
             }}
-          />
+          >
+            ↻
+          </button>
         }
       >
         {loading && <SkeletonList rows={3} />}
 
         {error !== '' && (
-          <MessageBar intent="error" style={{ marginBottom: '12px' }}>
-            <ErrorCircleRegular />
-            <MessageBarBody>{error}</MessageBarBody>
-          </MessageBar>
+          <div className="info info-danger" style={{ marginBottom: 12 }}>
+            <span aria-hidden style={{ fontSize: 16 }}>✕</span>
+            <div className="info-body" style={{ fontSize: 12 }}>
+              {error}
+            </div>
+          </div>
         )}
 
         {/* ── 工具条 ── */}
-        <Card className={styles.toolbar} style={{ marginBottom: '14px' }}>
-          <div className={styles.pathField}>
-            <Field label="投影文件路径" size="small">
-              <Input
-                value={path}
-                placeholder="/home/user/.minecraft/schematics/build.litematic"
-                onChange={(_, data) => setPath(data.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void load()
-                }}
-              />
-            </Field>
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 12,
+            flexWrap: 'wrap',
+            padding: '14px 16px',
+            marginBottom: 14
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+              投影文件路径
+            </div>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              value={path}
+              placeholder="/home/user/.minecraft/schematics/build.litematic"
+              onChange={(e) => setPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void load()
+              }}
+            />
           </div>
           <button
-            className={[styles.primaryButton, styles.primaryGlow].join(' ')}
-            style={{
-              height: '32px',
-              padding: '0 18px',
-              borderRadius: `${radius.control}px`,
-              cursor: loading ? 'default' : 'pointer',
-              opacity: loading ? 0.6 : 1
-            }}
+            className="btn btn-primary"
             disabled={loading}
             onClick={() => void load()}
           >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px'
-              }}
-            >
-              <ArrowSyncRegular />
-              {loading ? '解析中…' : '加载预览'}
-            </div>
+            ↻ {loading ? '解析中…' : '加载预览'}
           </button>
-          <Button
-            appearance="outline"
-            icon={<DocumentAddRegular />}
+          <button
+            className="btn"
             disabled={generating}
             onClick={() => void generateWorldEater()}
           >
-            {generating ? '生成中…' : '生成世吞模板'}
-          </Button>
-        </Card>
+            ▤ {generating ? '生成中…' : '生成世吞模板'}
+          </button>
+        </div>
 
         {preview != null && preview.unsupported != null && preview.unsupported.length > 0 && (
-          <MessageBar intent="warning" style={{ marginBottom: '14px' }}>
-            <WarningRegular />
-            <MessageBarBody>不支持的投影格式：{preview.unsupported}</MessageBarBody>
-          </MessageBar>
+          <div className="info info-warning" style={{ marginBottom: 14 }}>
+            <span aria-hidden style={{ fontSize: 16 }}>⚠</span>
+            <div className="info-body t-body">
+              不支持的投影格式：{preview.unsupported}
+            </div>
+          </div>
         )}
 
         {preview != null && (
           <>
             {/* ── 统计卡 ── */}
-            <Card style={{ marginBottom: '14px', padding: '14px 16px' }}>
-              <div className={styles.cardHeaderStyle}>
-                <Text size={300} weight="semibold">
-                  投影统计
-                </Text>
-                <Text size={200} style={{ opacity: 0.6, minWidth: 0 }} truncate>
-                  {preview.path}
-                </Text>
+            <div className="card" style={{ marginBottom: 14, padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="t-strong">投影统计</span>
+                <span className="t-cap truncate">{preview.path}</span>
               </div>
-              <div className={styles.statsGrid} style={{ marginTop: '10px' }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: 8,
+                  marginTop: 10
+                }}
+              >
                 {[
                   { label: '尺寸 X', value: `${preview.sizeX}` },
                   { label: '尺寸 Y', value: `${preview.sizeY}` },
@@ -441,46 +335,65 @@ export default function LabPage() {
                 ].map((cell, index) => (
                   <div
                     key={cell.label}
-                    className={styles.statCell}
-                    style={{ animationDelay: `${index * motion.stagger}ms` }}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 'var(--r-card)',
+                      background: 'var(--surface-subtle)',
+                      border: '1px solid var(--stroke-subtle)',
+                      animation: `rowIn var(--t-enter) var(--e-enter) both`,
+                      animationDelay: `${index * 39}ms`
+                    }}
                   >
-                    <Text size={100} style={{ opacity: 0.55, display: 'block' }}>
+                    <div className="t-meta" style={{ display: 'block' }}>
                       {cell.label}
-                    </Text>
-                    <Text size={400} weight="semibold">
-                      {cell.value}
-                    </Text>
+                    </div>
+                    <div className="t-strong">{cell.value}</div>
                   </div>
                 ))}
               </div>
               {(preview.truncated || preview.previewTruncated) && (
-                <Text
-                  size={100}
-                  style={{ opacity: 0.6, display: 'block', marginTop: '8px' }}
-                >
+                <div className="t-meta" style={{ display: 'block', marginTop: 8 }}>
                   {preview.truncated
                     ? '文件方块数超出解析上限，统计与预览均基于已读取的部分。'
                     : ''}
                   {preview.previewTruncated
                     ? '预览已按步长降采样，仅绘制部分方块（不是完整模型）。'
                     : ''}
-                </Text>
+                </div>
               )}
-            </Card>
+            </div>
 
             {/* ── 3D 预览卡 ── */}
-            <Card className={styles.previewCard} style={{ marginBottom: '14px' }}>
-              <div className={styles.previewHeader}>
-                <CubeRegular />
-                <Text size={300} weight="semibold">
-                  等距预览
-                </Text>
+            <div
+              className="card"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                padding: '14px 16px',
+                marginBottom: 14
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>◫</span>
+                <span className="t-strong">等距预览</span>
                 <div style={{ flex: 1 }} />
-                <Button appearance="subtle" size="small" onClick={resetView}>
-                  复位视图
-                </Button>
+                <button className="btn btn-subtle" onClick={resetView}>
+                  ↻ 复位视图
+                </button>
               </div>
-              <div className={styles.canvasBox}>
+              {/* 画布容器固定 420px：预览高度跟内容无关，切换文件时布局不跳 */}
+              <div
+                style={{
+                  position: 'relative',
+                  height: 420,
+                  borderRadius: 'var(--r-card)',
+                  overflow: 'hidden',
+                  background:
+                    'radial-gradient(120% 100% at 50% 0%, var(--surface-mica-a) 0%, var(--surface-window) 100%)',
+                  border: '1px solid var(--stroke-subtle)'
+                }}
+              >
                 {voxels.length === 0 ? (
                   <EmptyState
                     title="没有可预览的方块"
@@ -490,92 +403,124 @@ export default function LabPage() {
                   <>
                     <canvas
                       ref={canvasRef}
-                      className={[styles.canvas, dragging ? styles.canvasDragging : '']
-                        .filter(Boolean)
-                        .join(' ')}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        height: '100%',
+                        cursor: dragging ? 'grabbing' : 'grab',
+                        touchAction: 'none'
+                      }}
                       onWheel={onWheel}
                       onPointerDown={onPointerDown}
                       onPointerMove={onPointerMove}
                       onPointerUp={onPointerUp}
                       onPointerCancel={onPointerUp}
                     />
-                    <div className={styles.previewHint}>滚轮缩放 · 左键拖拽平移</div>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        right: 10,
+                        bottom: 10,
+                        fontSize: 11,
+                        opacity: 0.5,
+                        pointerEvents: 'none',
+                        background: 'var(--surface-layer)',
+                        padding: '3px 8px',
+                        borderRadius: 'var(--r-control)'
+                      }}
+                    >
+                      滚轮缩放 · 左键拖拽平移
+                    </div>
                   </>
                 )}
               </div>
-            </Card>
+            </div>
 
             {/* ── 方块统计列表 ── */}
-            <Card style={{ padding: '14px 16px' }}>
-              <div className={styles.cardHeaderStyle}>
-                <Text size={300} weight="semibold">
-                  方块种类
-                </Text>
-                <Text size={200} style={{ opacity: 0.6 }}>
-                  ({stats.length})
-                </Text>
+            <div className="card" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="t-strong">方块种类</span>
+                <span className="t-cap">({stats.length})</span>
                 <div style={{ flex: 1 }} />
                 {preview.stats.length > MAX_STATS_ROWS && (
-                  <Text size={100} style={{ opacity: 0.55 }}>
-                    仅显示前 {MAX_STATS_ROWS} 条
-                  </Text>
+                  <span className="t-meta">仅显示前 {MAX_STATS_ROWS} 条</span>
                 )}
               </div>
-              <div style={{ marginTop: '8px' }}>
+              <div style={{ marginTop: 8 }}>
                 {stats.length === 0 ? (
                   <EmptyState title="没有方块数据" hint="换一个投影文件再试试。" />
                 ) : (
                   stats.map((s, index) => (
                     <div
                       key={s.id}
-                      className={styles.blockRow}
-                      style={{ animationDelay: `${index * motion.stagger}ms` }}
+                      className="row row-static"
+                      style={{
+                        padding: '7px 10px',
+                        margin: '0 4px',
+                        animationDelay: `${index * 39}ms`
+                      }}
                     >
+                      {/* 色块：和画布里该方块的颜色一致，所见即所得 */}
                       <div
-                        className={styles.swatch}
-                        style={{ background: blockColor(s.id) }}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 'var(--r-control)',
+                          flexShrink: 0,
+                          border: '1px solid var(--stroke-strong)',
+                          background: blockColor(s.id)
+                        }}
                       />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <Text size={200} truncate>
-                          {s.id}
-                        </Text>
-                        <div className={styles.bar}>
+                        <div className="t-body truncate">{s.id}</div>
+                        <div
+                          style={{
+                            height: 4,
+                            borderRadius: 2,
+                            background: 'var(--surface-hover)',
+                            overflow: 'hidden',
+                            marginTop: 4
+                          }}
+                        >
                           <div
                             style={{
                               width: `${(s.count / maxCount) * 100}%`,
                               height: '100%',
                               background: blockColor(s.id),
-                              transition: `width ${motion.slow}ms ${motion.easeOut}`
+                              transition: 'width 450ms cubic-bezier(0.1,0.9,0.2,1)'
                             }}
                           />
                         </div>
                       </div>
-                      <Text size={200} style={{ opacity: 0.75, minWidth: '72px', textAlign: 'right' }}>
+                      <span
+                        className="t-body"
+                        style={{ opacity: 0.75, minWidth: 72, textAlign: 'right' }}
+                      >
                         {s.count}
-                      </Text>
+                      </span>
                     </div>
                   ))
                 )}
               </div>
-            </Card>
+            </div>
           </>
         )}
 
         {!loading && preview == null && (
-          <Card>
+          <div className="card">
             <EmptyState
               title="还没有载入投影"
               hint="填一个 .litematic 的绝对路径点「加载预览」，或直接生成一份世吞模板试手气。"
               action={
-                <Button icon={<DocumentAddRegular />} onClick={() => void generateWorldEater()}>
-                  生成世吞模板
-                </Button>
+                <button className="btn" onClick={() => void generateWorldEater()}>
+                  ▤ 生成世吞模板
+                </button>
               }
             />
-          </Card>
+          </div>
         )}
+        {host}
       </PageShell>
-      {host}
     </>
   )
 }

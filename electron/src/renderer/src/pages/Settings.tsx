@@ -1,29 +1,21 @@
 /// 设置页：游戏目录 / Java / 内存 / 下载源。
+/// 视觉全部走 winui.css 的纯 CSS 类，不依赖 Fluent 组件。
 import { useEffect, useState } from 'react'
-import {
-  Button,
-  Card,
-  Dropdown,
-  Field,
-  Option,
-  Slider,
-  Input,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
 import { request } from '../bridge'
 import type { SettingsSnapshot } from '../bridge'
-import { brandYellow } from '../theme'
-import { PageShell, useToasts } from '../ui'
+import { LoadingCard, PageShell, Segmented, useToasts } from '../ui'
 
-const useStyles = makeStyles({
-  section: { padding: '18px 20px', marginBottom: '12px' },
-  row: { display: 'flex', alignItems: 'center', gap: '16px', marginTop: '12px' },
-  field: { flex: 1 }
-})
+const MEM_MIN = 1024
+const MEM_MAX = 16384
+const MEM_STEP = 512
+
+const SOURCE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'auto', label: '自动（多源竞速）' },
+  { value: 'official', label: '官方（piston-meta）' },
+  { value: 'bmclapi', label: 'BMCLAPI 镜像' }
+]
 
 export default function SettingsPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
   const [loading, setLoading] = useState(true)
   const [gameDir, setGameDir] = useState('')
@@ -95,84 +87,121 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <PageShell title="设置" subtitle="启动器全局配置">
-        <Text>加载中…</Text>
+        <LoadingCard />
         {host}
       </PageShell>
     )
   }
 
+  const memPct = ((memory - MEM_MIN) / (MEM_MAX - MEM_MIN)) * 100
+
   return (
-    <PageShell
-      title="设置"
-      subtitle="启动器全局配置（与 Windows 端共享同一份 launcher.settings.json）"
-      actions={
-        <Button
-          appearance="primary"
-          style={{ background: brandYellow, color: '#1b1b1b' }}
-          disabled={saving}
-          onClick={() => void save()}
-        >
-          {saving ? '保存中…' : '保存全部'}
-        </Button>
-      }
-    >
-      <Card className={styles.section}>
-        <Text size={300} weight="semibold">
-          游戏
-        </Text>
-        <div className={styles.row}>
-          <Field label="游戏目录（.minecraft）" className={styles.field}>
-            <Input value={gameDir} onChange={(_e, data) => setGameDir(data.value)} />
-          </Field>
+    <>
+      <PageShell
+        title="设置"
+        subtitle="启动器全局配置（与 Windows 端共享同一份 launcher.settings.json）"
+        actions={
+          <button className="btn btn-primary" disabled={saving} onClick={() => void save()}>
+            {saving ? '保存中…' : '保存全部'}
+          </button>
+        }
+      >
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>游戏</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginTop: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div className="t-cap" style={{ marginBottom: 4 }}>
+                游戏目录（.minecraft）
+              </div>
+              <input
+                className="input"
+                style={{ width: '100%' }}
+                value={gameDir}
+                onChange={(e) => setGameDir(e.target.value)}
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginTop: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div className="t-cap" style={{ marginBottom: 4 }}>
+                游戏最大堆（MB）
+              </div>
+              <input
+                type="range"
+                min={MEM_MIN}
+                max={MEM_MAX}
+                step={MEM_STEP}
+                value={memory}
+                onChange={(e) => setMemory(Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: 'var(--accent)',
+                  background: `linear-gradient(to right, var(--accent) ${memPct}%, var(--surface-hover) ${memPct}%)`,
+                  height: 4,
+                  borderRadius: 2,
+                  appearance: 'none',
+                  outline: 'none'
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginTop: 4
+                }}
+              >
+                <span className="t-meta">{MEM_MIN} MB</span>
+                <span className="t-meta">{MEM_MAX} MB</span>
+              </div>
+            </div>
+            <span className="t-strong" style={{ minWidth: 90 }}>
+              {memory} MB
+            </span>
+          </div>
         </div>
-        <div className={styles.row}>
-          <Field label="游戏最大堆（MB）" className={styles.field}>
-            <Slider
-              min={1024}
-              max={16384}
-              step={512}
-              value={memory}
-              onChange={(_e, data) => setMemory(data.value)}
-            />
-          </Field>
-          <Text weight="semibold" style={{ minWidth: '90px' }}>
-            {memory} MB
-          </Text>
-        </div>
-      </Card>
 
-      <Card className={styles.section}>
-        <Text size={300} weight="semibold">
-          Java
-        </Text>
-        <div className={styles.row}>
-          <Field label="Java 可执行文件路径（留空 = 自动探测）" className={styles.field}>
-            <Input value={javaPath} onChange={(_e, data) => setJavaPath(data.value)} />
-          </Field>
-          <Button onClick={() => void probeJava()}>探测</Button>
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Java</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginTop: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div className="t-cap" style={{ marginBottom: 4 }}>
+                Java 可执行文件路径（留空 = 自动探测）
+              </div>
+              <input
+                className="input"
+                style={{ width: '100%' }}
+                value={javaPath}
+                onChange={(e) => setJavaPath(e.target.value)}
+              />
+            </div>
+            <button className="btn" onClick={() => void probeJava()}>
+              探测
+            </button>
+          </div>
+          {javaInfo !== '' && (
+            <div className="t-body" style={{ marginTop: 8 }}>
+              {javaInfo}
+            </div>
+          )}
         </div>
-        {javaInfo !== '' && (
-          <Text size={200} style={{ opacity: 0.75, marginTop: '8px' }}>
-            {javaInfo}
-          </Text>
-        )}
-      </Card>
 
-      <Card className={styles.section}>
-        <Text size={300} weight="semibold">
-          下载
-        </Text>
-        <div className={styles.row}>
-          <Field label="下载源" className={styles.field}>
-            <Dropdown value={source} selectedOptions={[source]} onOptionSelect={(_e, data) => setSource(String(data.optionValue))}>
-              <Option value="auto">自动（多源竞速）</Option>
-              <Option value="official">官方（piston-meta）</Option>
-              <Option value="bmclapi">BMCLAPI 镜像</Option>
-            </Dropdown>
-          </Field>
+        <div className="card">
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>下载</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginTop: 12 }}>
+            <div style={{ flex: 1, maxWidth: 360 }}>
+              <div className="t-cap" style={{ marginBottom: 4 }}>
+                下载源
+              </div>
+              <Segmented
+                value={source}
+                options={SOURCE_OPTIONS}
+                onChange={setSource}
+              />
+            </div>
+          </div>
         </div>
-      </Card>
+      </PageShell>
       {host}
-    </PageShell>
+    </>
   )
 }

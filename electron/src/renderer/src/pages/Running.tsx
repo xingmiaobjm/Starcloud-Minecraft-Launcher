@@ -1,72 +1,63 @@
 /// 运行状态：当前会话状态 + 实时日志。
-import { Card, Button, Text, makeStyles } from '@fluentui/react-components'
-import { DeleteRegular } from '@fluentui/react-icons'
-import { motion } from '../theme'
 import { EmptyState } from '../ui'
 import type { GameSessionApi } from '../state/session'
 
-const useStyles = makeStyles({
-  statusCard: { padding: '18px 20px', marginBottom: '12px' },
-  logCard: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 },
-  logBody: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '10px 14px',
-    fontFamily: 'Consolas, Menlo, monospace',
-    fontSize: '11.5px',
-    lineHeight: '1.5',
-    whiteSpace: 'pre-wrap'
-  },
-  dot: { width: '9px', height: '9px', borderRadius: '50%' }
-})
-
 export default function RunningPage(props: { session: GameSessionApi }) {
-  const styles = useStyles()
   const session = props.session
   const running = session.pid !== undefined && session.pid > 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <Card className={styles.statusCard}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="card" style={{ padding: '18px 20px', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
-            className={styles.dot}
+            className="dot"
             style={{
-              background: running ? '#3FBF6F' : '#8A8A8A',
+              background: running ? 'var(--success)' : 'var(--text-tertiary)',
               animation: running ? 'pulse 1.6s infinite' : undefined
             }}
           />
-          <div style={{ flex: 1 }}>
-            <Text size={400} weight="semibold">
-              {session.status || '当前没有运行中的游戏'}
-            </Text>
-            <Text size={200} style={{ opacity: 0.6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="t-strong truncate">{session.status || '当前没有运行中的游戏'}</div>
+            <div className="t-cap truncate">
               {running ? `进程 pid ${session.pid}` : '在首页选择版本与账户后启动游戏'}
-            </Text>
+            </div>
           </div>
           {session.logs.length > 0 && (
-            <Button appearance="subtle" icon={<DeleteRegular />} onClick={session.clearLogs}>
-              清空日志
-            </Button>
+            <button className="btn btn-subtle" onClick={session.clearLogs}>
+              ✕ 清空日志
+            </button>
           )}
         </div>
-      </Card>
-      <Card className={styles.logCard}>
+      </div>
+      <div
+        className="card card-flush"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      >
+        <div className="card-head">
+          <div
+            className="dot"
+            style={{
+              background: running ? 'var(--accent)' : 'var(--surface-hover)',
+              animation: running ? 'pulse 1.6s infinite' : undefined
+            }}
+          />
+          <span className="card-title">实时日志</span>
+          <div style={{ flex: 1 }} />
+          <span className="chip">{session.logs.length} 行</span>
+        </div>
         {session.logs.length === 0 ? (
           <EmptyState title="暂无日志" hint="游戏启动后，这里会实时显示输出。" />
         ) : (
-          <div className={styles.logBody}>
+          <div className="log">
             {session.logs.map((line, index) => (
-              <div
-                key={index}
-                style={{ animation: `fadeIn ${motion.fast}ms ${motion.ease} both` }}
-              >
+              <div key={index} style={{ animation: 'fadeIn 150ms ease both' }}>
                 {line}
               </div>
             ))}
           </div>
         )}
-      </Card>
+      </div>
     </div>
   )
 }

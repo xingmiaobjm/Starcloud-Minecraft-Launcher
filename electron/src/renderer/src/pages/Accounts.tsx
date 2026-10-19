@@ -1,96 +1,11 @@
 /// 账户页：列出本地账户、切换当前账户、添加离线账户、移除账户。
-/// 移除账户是破坏性操作，必须走 Dialog 二次确认。
+/// 移除账户是破坏性操作，必须走 Modal 二次确认。
+/// 视觉全部走 winui.css 的纯 CSS 类，不依赖 Fluent 组件。
 import { useCallback, useEffect, useState } from 'react'
-import {
-  Avatar,
-  Button,
-  Card,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogSurface,
-  DialogTitle,
-  Field,
-  Input,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
-import {
-  CheckmarkCircleRegular,
-  ErrorCircleRegular,
-  PersonAddRegular,
-  PersonDeleteRegular
-} from '@fluentui/react-icons'
+import type { CSSProperties } from 'react'
 import { request } from '../bridge'
 import type { AccountList, GameAccount } from '../bridge'
-import { brandYellow, brandYellowHover, motion, radius } from '../theme'
-import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
-
-const useStyles = makeStyles({
-  list: { display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '4px' },
-  card: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    padding: '14px 16px',
-    borderRadius: `${radius.card}px`,
-    border: '1.2px solid transparent',
-    transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}`,
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
-    ':hover': { backgroundColor: 'rgba(255,255,255,0.055)' }
-  },
-  cardCurrent: {
-    backgroundColor: 'rgba(255,194,31,0.1)',
-    border: `1.2px solid ${brandYellow}`
-  },
-  nameBlock: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' },
-  tags: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-  tag: {
-    fontSize: '11px',
-    padding: '2px 8px',
-    borderRadius: '999px',
-    border: '1px solid rgba(255,255,255,0.16)',
-    background: 'rgba(255,255,255,0.05)',
-    whiteSpace: 'nowrap'
-  },
-  currentTag: {
-    fontSize: '11px',
-    padding: '2px 8px',
-    borderRadius: '999px',
-    border: `1px solid ${brandYellow}`,
-    background: 'rgba(255,194,31,0.14)',
-    color: brandYellow,
-    whiteSpace: 'nowrap'
-  },
-  primaryButton: {
-    height: '32px',
-    borderRadius: `${radius.control}px`,
-    border: 'none',
-    background: brandYellow,
-    color: '#1b1b1b',
-    fontWeight: 600,
-    cursor: 'pointer',
-    padding: '0 14px',
-    transition: `background ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: brandYellowHover }
-  },
-  primaryButtonBusy: { opacity: 0.55, cursor: 'default' },
-  dangerButton: {
-    height: '32px',
-    borderRadius: `${radius.control}px`,
-    border: '1px solid rgba(224,75,75,0.45)',
-    background: 'transparent',
-    color: '#FF9A9A',
-    cursor: 'pointer',
-    padding: '0 12px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    transition: `background ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: 'rgba(224,75,75,0.16)' }
-  },
-  sessionState: { display: 'flex', alignItems: 'center', gap: '6px' }
-})
+import { EmptyState, Modal, PageShell, SkeletonList, useToasts } from '../ui'
 
 /** 离线账户的玩家名规则：3-16 位字母/数字/下划线，与正版一致。 */
 const NAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/
@@ -105,7 +20,6 @@ function typeColor(account: GameAccount): string {
 }
 
 export default function AccountsPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
   const [accounts, setAccounts] = useState<GameAccount[]>([])
   const [current, setCurrent] = useState<string | undefined>(undefined)
@@ -198,83 +112,84 @@ export default function AccountsPage() {
             : ''
         }`}
         actions={
-          <button className={styles.primaryButton} onClick={() => setAddOpen(true)}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <PersonAddRegular />
-              添加离线账户
-            </span>
+          <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
+            ☺ 添加离线账户
           </button>
         }
       >
-        {loading && <SkeletonList rows={3} />}
+        {loading && <SkeletonList rows={3} avatar />}
         {!loading && accounts.length === 0 && (
           <EmptyState
             title="还没有账户"
             hint="点右上角「添加离线账户」创建一个 3-16 位字母数字玩家名即可开始游戏。"
             action={
-              <Button appearance="primary" icon={<PersonAddRegular />} onClick={() => setAddOpen(true)}>
-                添加离线账户
-              </Button>
+              <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
+                ☺ 添加离线账户
+              </button>
             }
           />
         )}
 
         {!loading && accounts.length > 0 && (
-          <div className={styles.list}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
             {accounts.map((account, index) => {
               const isCurrent = account.uuid === current || account.isDefault
               const online = account.type !== 'offline'
               // 正版/联机账户没有有效会话即视为凭证过期，需要重新登录。
               const expired = online && account.hasSession !== true
               const busy = switching !== null
+              const statusColor = online ? (expired ? 'var(--warning)' : 'var(--success)') : 'var(--text-tertiary)'
               return (
-                <Card
+                <div
                   key={account.uuid}
-                  className={[styles.card, isCurrent ? styles.cardCurrent : ''].filter(Boolean).join(' ')}
-                  style={{ animationDelay: `${index * motion.stagger}ms` }}
+                  className={`row glow${isCurrent ? ' row-active' : ''}`}
+                  style={
+                    {
+                      animationDelay: `${index * 39}ms`,
+                      '--glow':
+                        'radial-gradient(420px circle at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%)'
+                    } as CSSProperties
+                  }
                 >
-                  <Avatar
-                    size={48}
-                    name={account.name}
-                    color="brand"
-                    style={expired ? { animation: 'pulse 2.4s infinite' } : undefined}
-                  />
-                  <div className={styles.nameBlock}>
-                    <Text size={300} weight="semibold" truncate>
-                      {account.name}
-                    </Text>
-                    <div className={styles.tags}>
-                      <span
-                        className={styles.tag}
-                        style={{ color: typeColor(account), borderColor: `${typeColor(account)}66` }}
-                      >
+                  <div
+                    className="icon32"
+                    style={{
+                      width: 48,
+                      height: 48,
+                      fontSize: 22,
+                      fontWeight: 600,
+                      background: 'linear-gradient(180deg,#3a2a1a,#241a10)',
+                      color: '#e0a76a',
+                      animation: expired ? 'pulse 2.4s infinite' : undefined
+                    }}
+                  >
+                    {account.name[0]?.toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div className="t-strong truncate">{account.name}</div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                    >
+                      <span className="chip" style={{ color: typeColor(account) }}>
                         {typeLabel(account)}
                       </span>
-                      {isCurrent && <span className={styles.currentTag}>当前账户</span>}
-                      <span className={styles.sessionState}>
-                        {online ? (
-                          expired ? (
-                            <ErrorCircleRegular style={{ color: '#E8B31A', fontSize: '13px' }} />
-                          ) : (
-                            <CheckmarkCircleRegular style={{ color: '#3FBF6F', fontSize: '13px' }} />
-                          )
-                        ) : (
-                          <CheckmarkCircleRegular style={{ color: '#8A8A8A', fontSize: '13px' }} />
-                        )}
-                        <Text size={100} style={{ opacity: 0.6 }}>
+                      {isCurrent && <span className="chip chip-accent">当前账户</span>}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span
+                          style={{ color: statusColor, fontSize: 13 }}
+                          title={!online ? '无需凭证' : expired ? '凭证已过期' : '凭证有效'}
+                        >
+                          {expired ? '!' : '✓'}
+                        </span>
+                        <span className="t-meta">
                           {!online ? '无需凭证' : expired ? '凭证已过期' : '凭证有效'}
-                        </Text>
+                        </span>
                       </span>
                     </div>
                   </div>
                   {!isCurrent && (
                     <button
-                      className={[
-                        styles.primaryButton,
-                        busy ? styles.primaryButtonBusy : ''
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
+                      className="btn btn-primary"
                       disabled={busy}
                       onClick={() => void setCurrentAccount(account)}
                     >
@@ -282,14 +197,13 @@ export default function AccountsPage() {
                     </button>
                   )}
                   <button
-                    className={styles.dangerButton}
+                    className="btn btn-danger"
                     onClick={() => setPendingRemove(account)}
                     aria-label={`移除 ${account.name}`}
                   >
-                    <PersonDeleteRegular />
-                    移除
+                    ✕ 移除
                   </button>
-                </Card>
+                </div>
               )
             })}
           </div>
@@ -297,79 +211,84 @@ export default function AccountsPage() {
       </PageShell>
 
       {/* 添加离线账户 */}
-      <Dialog open={addOpen} onOpenChange={(_e, data) => setAddOpen(data.open)}>
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>添加离线账户</DialogTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <Field
-                label="玩家名"
-                hint="3-16 位字母、数字或下划线"
-                validationState={draftName === '' ? undefined : nameValid ? 'success' : 'error'}
-                validationMessage={draftName !== '' && !nameValid ? '玩家名不合法：需 3-16 位字母、数字或下划线' : undefined}
-              >
-                <Input
-                  value={draftName}
-                  onChange={(_e, data) => setDraftName(data.value)}
-                  placeholder="Steve"
-                  autoFocus
-                  disabled={adding}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && nameValid) void addOffline()
-                  }}
-                />
-              </Field>
-              <Text size={100} style={{ opacity: 0.6 }}>
-                离线账户不需要登录微软账号，凭证永不失效；存档与皮肤由本地玩家名决定。
-              </Text>
+      <Modal
+        open={addOpen}
+        title="添加离线账户"
+        onClose={() => setAddOpen(false)}
+        width={480}
+        footer={
+          <>
+            <button className="btn" onClick={() => setAddOpen(false)} disabled={adding}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => void addOffline()}
+              disabled={!nameValid || adding}
+            >
+              {adding ? '添加中…' : '添加'}
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div className="t-cap" style={{ marginBottom: 4 }}>
+              玩家名
             </div>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setAddOpen(false)} disabled={adding}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                icon={<PersonAddRegular />}
-                onClick={() => void addOffline()}
-                disabled={!nameValid || adding}
-              >
-                {adding ? '添加中…' : '添加'}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              placeholder="Steve"
+              autoFocus
+              disabled={adding}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && nameValid) void addOffline()
+              }}
+            />
+            <div
+              className="t-meta"
+              style={{ marginTop: 4, color: draftName !== '' && !nameValid ? 'var(--danger)' : undefined }}
+            >
+              {draftName !== '' && !nameValid
+                ? '玩家名不合法：需 3-16 位字母、数字或下划线'
+                : '3-16 位字母、数字或下划线'}
+            </div>
+          </div>
+          <div className="t-meta">
+            离线账户不需要登录微软账号，凭证永不失效；存档与皮肤由本地玩家名决定。
+          </div>
+        </div>
+      </Modal>
 
       {/* 移除确认：账户数据不可恢复，必须二次确认。 */}
-      <Dialog
+      <Modal
         open={pendingRemove !== null}
-        onOpenChange={(_e, data) => {
-          if (!data.open) setPendingRemove(null)
-        }}
+        title={`移除账户「${pendingRemove?.name ?? ''}」？`}
+        onClose={() => setPendingRemove(null)}
+        width={480}
+        footer={
+          <>
+            <button className="btn" onClick={() => setPendingRemove(null)} disabled={removing}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              onClick={() => void confirmRemove()}
+              disabled={removing}
+            >
+              ✕ {removing ? '移除中…' : '确认移除'}
+            </button>
+          </>
+        }
       >
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>移除账户「{pendingRemove?.name}」？</DialogTitle>
-            <Text size={200} style={{ opacity: 0.75 }}>
-              只会移除本地的账户记录，不会删除任何存档或版本文件。移除后需要重新添加才能使用该玩家名。
-            </Text>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setPendingRemove(null)} disabled={removing}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                icon={<PersonDeleteRegular />}
-                onClick={() => void confirmRemove()}
-                disabled={removing}
-                style={{ background: '#E04B4B', color: '#ffffff' }}
-              >
-                {removing ? '移除中…' : '确认移除'}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+        <div className="t-body">
+          只会移除本地的账户记录，不会删除任何存档或版本文件。移除后需要重新添加才能使用该玩家名。
+        </div>
+      </Modal>
       {host}
     </>
   )

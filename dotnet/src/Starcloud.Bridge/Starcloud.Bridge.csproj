@@ -20,6 +20,14 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
+    <!--
+      允许在更高的主版本运行时上运行（RollForward=Major）。
+      实测坑：只装了 .NET 10 的机器上，net8.0 程序会直接报
+      "You must install or update .NET to run this application" 并退出，
+      表现为启动器连不上桥接、界面全空。允许向上滚动后，
+      .NET 8 / 9 / 10 任一运行时都能跑，不强制用户装特定版本。
+    -->
+    <RollForward>Major</RollForward>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>

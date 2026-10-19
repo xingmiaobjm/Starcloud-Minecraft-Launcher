@@ -1,101 +1,11 @@
 /// 下载页：拉取官方版本清单、搜索过滤、异步安装（含进度事件流）。
 /// 安装走「先受理 + 事件推进」的模型：request 立即返回 accepted，进度由
 /// install.progress / install.done / install.failed 三个事件驱动。
+/// 视觉全部走 winui.css 的纯 CSS 类，不依赖 Fluent 组件。
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  ProgressBar,
-  Switch,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
-import {
-  ArrowDownloadRegular,
-  ArrowSyncRegular,
-  CheckmarkCircleRegular,
-  SearchRegular
-} from '@fluentui/react-icons'
 import { onBridgeEvent, request } from '../bridge'
 import type { RemoteVersion, VersionCatalog } from '../bridge'
-import { brandYellow, brandYellowHover, motion, radius } from '../theme'
-import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
-
-const useStyles = makeStyles({
-  toolbar: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: '16px',
-    padding: '0 0 12px'
-  },
-  searchBox: { width: '320px' },
-  switchBox: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    paddingBottom: '6px'
-  },
-  summary: {
-    fontSize: '12px',
-    opacity: 0.6,
-    paddingBottom: '7px'
-  },
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '9px 12px',
-    margin: '0 4px',
-    borderRadius: `${radius.row}px`,
-    border: '1.2px solid transparent',
-    transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}`,
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
-  },
-  rowHover: { backgroundColor: 'rgba(255,255,255,0.055)' },
-  rowActive: {
-    backgroundColor: 'rgba(255,194,31,0.1)',
-    border: `1.2px solid ${brandYellow}`
-  },
-  rowDisabled: { opacity: 0.5 },
-  versionIcon: {
-    width: '34px',
-    height: '34px',
-    borderRadius: `${radius.control}px`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 'bold',
-    fontSize: '14px',
-    flexShrink: 0
-  },
-  installButton: {
-    height: '30px',
-    minWidth: '92px',
-    borderRadius: `${radius.control}px`,
-    border: 'none',
-    background: brandYellow,
-    color: '#1b1b1b',
-    fontWeight: 600,
-    cursor: 'pointer',
-    transition: `background ${motion.fast}ms ${motion.ease}, opacity ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: brandYellowHover }
-  },
-  installButtonBusy: { opacity: 0.55, cursor: 'default' },
-  installedButton: {
-    height: '30px',
-    minWidth: '92px',
-    borderRadius: `${radius.control}px`,
-    border: '1px solid rgba(63,191,111,0.5)',
-    background: 'rgba(63,191,111,0.12)',
-    color: '#7BD9A0',
-    fontWeight: 600,
-    cursor: 'default'
-  },
-  rowProgress: { width: '150px', flexShrink: 0 }
-})
+import { EmptyState, PageShell, ProgressBar, SkeletonList, useToasts } from '../ui'
 
 /** 单个安装任务的进度快照。 */
 interface InstallProgress {
@@ -128,13 +38,11 @@ function releaseDate(iso?: string): string {
 }
 
 export default function DownloadPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
   const [catalog, setCatalog] = useState<VersionCatalog>({ remote: [], installed: [] })
   const [loading, setLoading] = useState(true)
   const [keyword, setKeyword] = useState('')
   const [releaseOnly, setReleaseOnly] = useState(true)
-  const [hovered, setHovered] = useState<string | null>(null)
   const [progress, setProgress] = useState<InstallProgress | null>(null)
 
   const installedIds = useMemo(
@@ -193,7 +101,7 @@ export default function DownloadPage() {
 
   async function install(versionId: string): Promise<void> {
     if (busy) return
-    // 先乐观标记，让 InfoBar 立刻有内容，随后由事件流覆盖真实进度。
+    // 先乐观标记，让提示条立刻有内容，随后由事件流覆盖真实进度。
     setProgress({ versionId, stage: '准备中', detail: '', current: 0, total: 0 })
     try {
       await request<{ accepted: boolean }>('install.vanilla', { versionId })
@@ -217,51 +125,61 @@ export default function DownloadPage() {
         title="下载版本"
         subtitle={`官方清单 ${catalog.remote.length} 个版本，已安装 ${catalog.installed.length} 个`}
         actions={
-          <Button
-            appearance="subtle"
-            icon={<ArrowSyncRegular />}
-            onClick={() => void load()}
-            disabled={loading}
-          />
+          <button className="btn btn-subtle" onClick={() => void load()} disabled={loading}>
+            ↻
+          </button>
         }
       >
-        <div className={styles.toolbar}>
-          <Field className={styles.searchBox} label="搜索版本号" size="small">
-            <Input
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, paddingBottom: 12 }}>
+          <div style={{ width: 320 }}>
+            <div className="t-cap" style={{ marginBottom: 4 }}>
+              搜索版本号
+            </div>
+            <input
+              className="input"
+              style={{ width: '100%' }}
               value={keyword}
-              onChange={(_e, data) => setKeyword(data.value)}
-              contentAfter={<SearchRegular />}
+              onChange={(e) => setKeyword(e.target.value)}
               placeholder="例如 1.21"
             />
-          </Field>
-          <div className={styles.switchBox}>
-            <Switch
-              checked={releaseOnly}
-              label="只看正式版"
-              onChange={(_e, data) => setReleaseOnly(data.checked)}
-            />
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
+            <input
+              type="checkbox"
+              checked={releaseOnly}
+              onChange={(e) => setReleaseOnly(e.target.checked)}
+              style={{ accentColor: 'var(--accent)', width: 15, height: 15 }}
+            />
+            <span className="t-body">只看正式版</span>
+          </label>
           <div style={{ flex: 1 }} />
-          <Text className={styles.summary}>
+          <span className="t-cap" style={{ paddingBottom: 7 }}>
             命中 {filtered.length} 条
-          </Text>
+          </span>
         </div>
 
         {progress && (
-          <MessageBar
-            intent="info"
-            style={{ marginBottom: '12px', animation: `fadeIn ${motion.normal}ms ${motion.ease} both` }}
-          >
-            <MessageBarBody>
-              正在安装 {progress.versionId} · {progress.stage}
+          <div className="info info-info" style={{ marginBottom: 12 }}>
+            <span className="spinner" aria-hidden />
+            <div className="info-body">
+              <div className="t-body">
+                正在安装 {progress.versionId} · {progress.stage}
+                {progress.total > 0 && (
+                  <span style={{ opacity: 0.75 }}>
+                    {' '}
+                    {progress.current}/{progress.total}（{progress.detail}）
+                  </span>
+                )}
+              </div>
               {progress.total > 0 && (
-                <span style={{ opacity: 0.75 }}>
-                  {' '}
-                  {progress.current}/{progress.total}（{progress.detail}）
-                </span>
+                <div style={{ marginTop: 8 }}>
+                  <ProgressBar
+                    value={(progress.current / progress.total) * 100}
+                  />
+                </div>
               )}
-            </MessageBarBody>
-          </MessageBar>
+            </div>
+          </div>
         )}
 
         {loading && <SkeletonList rows={7} />}
@@ -274,9 +192,9 @@ export default function DownloadPage() {
                 : '换个关键词，或关掉「只看正式版」再试试。'
             }
             action={
-              <Button appearance="secondary" icon={<ArrowSyncRegular />} onClick={() => void load()}>
-                重新拉取
-              </Button>
+              <button className="btn" onClick={() => void load()}>
+                ↻ 重新拉取
+              </button>
             }
           />
         )}
@@ -286,68 +204,52 @@ export default function DownloadPage() {
             const installed = installedIds.has(version.id)
             const installing = installingId === version.id
             const color = typeColor(version)
+            const dimmed = busy && !installing
             return (
               <div
                 key={version.id}
-                className={[
-                  styles.row,
-                  hovered === version.id && !installing ? styles.rowHover : '',
-                  installing ? styles.rowActive : '',
-                  busy && !installing ? styles.rowDisabled : ''
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={{ animationDelay: `${index * motion.stagger}ms` }}
-                onMouseEnter={() => setHovered(version.id)}
-                onMouseLeave={() => setHovered(null)}
+                className={`row row-static${installing ? ' row-active' : ''}`}
+                style={{ animationDelay: `${index * 39}ms`, opacity: dimmed ? 0.5 : 1 }}
               >
                 <div
-                  className={styles.versionIcon}
-                  style={{ background: `${color}2b`, border: `1px solid ${color}` }}
+                  className="icon32"
+                  style={{ background: `${color}2b`, border: `1px solid ${color}`, color }}
                 >
-                  {installed ? <CheckmarkCircleRegular /> : version.id[0]?.toUpperCase()}
+                  {installed ? '✓' : version.id[0]?.toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text size={300} weight="semibold" truncate>
+                  <span className="t-strong truncate" style={{ display: 'block' }}>
                     {version.id}
-                  </Text>
+                  </span>
                 </div>
-                <Text size={200} style={{ color, width: '52px' }}>
+                <span className="t-meta" style={{ color, width: 52 }}>
                   {typeLabel(version)}
-                </Text>
-                <div style={{ width: '104px', textAlign: 'right' }}>
-                  <Text size={200} style={{ opacity: 0.6 }}>
-                    {releaseDate(version.releaseTime)}
-                  </Text>
-                </div>
+                </span>
+                <span className="t-meta" style={{ width: 104, textAlign: 'right' }}>
+                  {releaseDate(version.releaseTime)}
+                </span>
                 {installing ? (
-                  <div className={styles.rowProgress}>
+                  <div style={{ width: 150, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <ProgressBar
-                      value={progress && progress.total > 0 ? progress.current / progress.total : undefined}
+                      value={
+                        progress && progress.total > 0
+                          ? Math.min(100, (progress.current / progress.total) * 100)
+                          : undefined
+                      }
                     />
                   </div>
-                ) : null}
-                {installed && !installing ? (
-                  <div className={styles.installedButton} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                ) : installed ? (
+                  <span className="chip chip-accent" style={{ minWidth: 92, justifyContent: 'center' }}>
                     已安装
-                  </div>
+                  </span>
                 ) : (
                   <button
-                    className={[
-                      styles.installButton,
-                      busy && !installing ? styles.installButtonBusy : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    disabled={busy && !installing}
+                    className="btn btn-primary"
+                    style={{ minWidth: 92 }}
+                    disabled={dimmed}
                     onClick={() => void install(version.id)}
                   >
-                    <span
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                    >
-                      <ArrowDownloadRegular />
-                      {installing ? '安装中' : '安装'}
-                    </span>
+                    ↓ {installing ? '安装中' : '安装'}
                   </button>
                 )}
               </div>

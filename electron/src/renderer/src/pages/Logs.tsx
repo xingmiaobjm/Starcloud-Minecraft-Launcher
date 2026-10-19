@@ -1,21 +1,8 @@
 /// 启动器日志：显示桥接侧日志（game.output 等事件）与当前会话日志。
 import { useEffect, useRef, useState } from 'react'
-import { Button, Card, Text, makeStyles } from '@fluentui/react-components'
-import { motion } from '../theme'
-import { PageShell, EmptyState } from '../ui'
 
-const useStyles = makeStyles({
-  card: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 },
-  body: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '12px 16px',
-    fontFamily: 'Consolas, Menlo, monospace',
-    fontSize: '11.5px',
-    lineHeight: '1.55',
-    whiteSpace: 'pre-wrap'
-  }
-})
+import { onBridgeEvent } from '../bridge'
+import { PageShell, EmptyState } from '../ui'
 
 interface LogLine {
   id: number
@@ -24,13 +11,12 @@ interface LogLine {
 }
 
 export default function LogsPage() {
-  const styles = useStyles()
   const [lines, setLines] = useState<LogLine[]>([])
   const seq = useRef(1)
 
   useEffect(() => {
     let alive = true
-    void window.bridgeEvents.subscribe((event, params) => {
+    onBridgeEvent((event, params) => {
       if (!alive) return
       if (event === 'game.output') {
         setLines((prev) =>
@@ -58,18 +44,27 @@ export default function LogsPage() {
       title="启动器日志"
       subtitle="桥接事件与游戏输出"
       actions={
-        <Button appearance="subtle" onClick={() => setLines([])}>
-          清空
-        </Button>
+        <button className="btn btn-subtle" onClick={() => setLines([])}>
+          ✕ 清空
+        </button>
       }
     >
-      <Card className={styles.card}>
+      <div
+        className="card card-flush"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      >
+        <div className="card-head">
+          <div className="dot" style={{ background: 'var(--text-tertiary)' }} />
+          <span className="card-title">输出</span>
+          <div style={{ flex: 1 }} />
+          <span className="chip">{merged.length} 行</span>
+        </div>
         {merged.length === 0 ? (
           <EmptyState title="暂无日志" hint="启动游戏后这里会实时滚动输出。" />
         ) : (
-          <div className={styles.body}>
+          <div className="log" style={{ paddingTop: 0 }}>
             {merged.map((line) => (
-              <div key={line.id} style={{ animation: `fadeIn ${motion.fast}ms ${motion.ease} both` }}>
+              <div key={line.id} style={{ animation: 'fadeIn 150ms ease both' }}>
                 {line.time !== '' && (
                   <span style={{ opacity: 0.45 }}>[{line.time}] </span>
                 )}
@@ -78,7 +73,7 @@ export default function LogsPage() {
             ))}
           </div>
         )}
-      </Card>
+      </div>
     </PageShell>
   )
 }

@@ -6,199 +6,12 @@
 /// 核心安装是长任务：调用只回 accepted，进度与终态分别走 `multiplayer.progress`
 /// 和 `multiplayer.install.done` / `multiplayer.install.failed`。
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Card,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Option,
-  ProgressBar,
-  Select,
-  Spinner,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
-import {
-  ArrowSyncRegular,
-  ErrorCircleRegular,
-  PeopleTeamRegular,
-  PlayRegular,
-  StopRegular
-} from '@fluentui/react-icons'
 import { onBridgeEvent, request } from '../bridge'
 import type {
   MultiplayerProviderInfo,
   MultiplayerSnapshot
 } from '../bridge'
-import { brandYellow, brandYellowHover, motion, radius } from '../theme'
-import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
-
-const useStyles = makeStyles({
-  cards: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.85fr)',
-    gap: '14px',
-    alignItems: 'start',
-    '@media (max-width: 1080px)': { gridTemplateColumns: 'minmax(0, 1fr)' }
-  },
-  card: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-    padding: '16px'
-  },
-  cardHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
-  },
-  // 阶段徽标：一点状态色 + 一行字，占位小但一眼可辨
-  phaseRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '12px 14px',
-    borderRadius: `${radius.card}px`,
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.07)',
-    animation: `fadeIn ${motion.normal}ms ${motion.ease} both`
-  },
-  phaseDot: {
-    width: '10px',
-    height: '10px',
-    borderRadius: '50%',
-    flexShrink: 0
-  },
-  metaGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-    gap: '8px'
-  },
-  metaCell: {
-    padding: '9px 11px',
-    borderRadius: `${radius.card}px`,
-    background: 'rgba(255,255,255,0.035)',
-    border: '1px solid rgba(255,255,255,0.06)'
-  },
-  // 邀请码：等宽 + 可选中，比普通文本更像"给人念的码"
-  roomBox: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '12px 14px',
-    borderRadius: `${radius.card}px`,
-    border: `1.2px dashed ${brandYellow}`,
-    background: 'rgba(255,194,31,0.08)'
-  },
-  roomCode: {
-    fontFamily: 'Consolas, Menlo, monospace',
-    fontSize: '20px',
-    fontWeight: 700,
-    letterSpacing: '3px',
-    color: brandYellow,
-    userSelect: 'all' as const,
-    flex: 1,
-    minWidth: 0
-  },
-  playerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '7px 10px',
-    margin: '0 4px',
-    borderRadius: `${radius.row}px`,
-    background: 'rgba(255,255,255,0.035)',
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`,
-    transition: `background ${motion.fast}ms ${motion.ease}`
-  },
-  playerDot: {
-    width: '7px',
-    height: '7px',
-    borderRadius: '50%',
-    background: brandYellow,
-    flexShrink: 0
-  },
-  providerRow: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '10px',
-    padding: '9px 10px',
-    margin: '0 4px',
-    borderRadius: `${radius.row}px`,
-    cursor: 'pointer',
-    border: '1.2px solid transparent',
-    transition: `background ${motion.fast}ms ${motion.ease}, border-color ${motion.fast}ms ${motion.ease}`,
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
-  },
-  providerActive: {
-    background: 'rgba(255,194,31,0.14)',
-    border: `1.2px solid ${brandYellow}`
-  },
-  providerRadio: {
-    width: '15px',
-    height: '15px',
-    borderRadius: '50%',
-    border: '1.6px solid rgba(255,255,255,0.35)',
-    marginTop: '2px',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  providerRadioOn: {
-    borderTopColor: brandYellow,
-    borderRightColor: brandYellow,
-    borderBottomColor: brandYellow,
-    borderLeftColor: brandYellow
-  },
-  providerRadioDot: {
-    width: '7px',
-    height: '7px',
-    borderRadius: '50%',
-    background: brandYellow
-  },
-  logCard: {
-    height: '200px',
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  logHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '10px 16px'
-  },
-  logBody: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '8px 14px',
-    fontFamily: 'Consolas, Menlo, monospace',
-    fontSize: '11.5px',
-    lineHeight: '1.5',
-    whiteSpace: 'pre-wrap'
-  },
-  // 主操作：品牌黄实心，和其它次要按钮拉开层级
-  primaryButton: {
-    background: brandYellow,
-    color: '#1b1b1b',
-    fontWeight: 700,
-    border: 'none',
-    transition: `background ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}, box-shadow ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: brandYellowHover, color: '#1b1b1b' },
-    ':active': { transform: 'scale(0.985)' }
-  },
-  primaryGlow: { boxShadow: `0 0 0 0 rgba(255,194,31,0.45)` },
-  actions: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  dot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 }
-})
+import { EmptyState, Modal, PageShell, ProgressBar, SkeletonList, useToasts } from '../ui'
 
 /** 阶段 key（与桥接 PhaseKey 一一对应）→ 中文文案。 */
 const PHASE_LABEL: Record<string, string> = {
@@ -214,10 +27,10 @@ const PHASE_LABEL: Record<string, string> = {
 
 /** 阶段 → 状态点颜色：就绪绿、进行中黄、异常红、其余灰。 */
 function phaseColor(phase: string): string {
-  if (phase === 'hostReady' || phase === 'guestReady') return '#3FBF6F'
-  if (phase === 'failed') return '#E04B4B'
-  if (phase === 'idle') return '#8A8A8A'
-  return brandYellow
+  if (phase === 'hostReady' || phase === 'guestReady') return 'var(--success)'
+  if (phase === 'failed') return 'var(--danger)'
+  if (phase === 'idle') return 'var(--text-tertiary)'
+  return 'var(--accent)'
 }
 
 /** 状态下那行"下一步要做什么"；没事可做时返回空串（整行不占位）。 */
@@ -267,7 +80,6 @@ function formatSize(bytes: number): string {
 }
 
 export default function MultiplayerPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
 
   const [snapshot, setSnapshot] = useState<MultiplayerSnapshot | undefined>()
@@ -399,123 +211,163 @@ export default function MultiplayerPage() {
 
   return (
     <>
+      {/* 两栏布局：窄窗口降级成单栏（winui.css 里没有这一档，写在页面内） */}
+      <style>{`.mp-cards{grid-template-columns:minmax(0,1fr)}
+@media (min-width:1081px){.mp-cards{grid-template-columns:minmax(0,1.25fr) minmax(320px,0.85fr)}}`}</style>
       <PageShell
         title="联机"
         subtitle="内置陶瓦联机 + 第三方联机 SDK：先装核心，再建房或进房。"
         actions={
-          <Button
-            appearance="subtle"
-            icon={<ArrowSyncRegular />}
+          <button
+            className="btn btn-subtle"
+            title="刷新"
             onClick={() => void reload()}
-          />
+          >
+            ↻
+          </button>
         }
       >
         {loading && <SkeletonList rows={4} />}
 
         {!loading && error !== '' && (
-          <MessageBar intent="error" style={{ marginBottom: '12px' }}>
-            <ErrorCircleRegular />
-            <MessageBarBody>{error}</MessageBarBody>
-          </MessageBar>
+          <div className="info info-danger" style={{ marginBottom: 12 }}>
+            <span aria-hidden style={{ fontSize: 16 }}>✕</span>
+            <div className="info-body" style={{ fontSize: 12 }}>
+              {error}
+            </div>
+          </div>
         )}
 
         {!loading && snapshot == null && (
-          <Card>
+          <div className="card">
             <EmptyState
               title="暂时拿不到联机状态"
               hint="桥接进程可能还没起来，稍等一下再刷新。"
               action={
-                <Button icon={<ArrowSyncRegular />} onClick={() => void reload()}>
-                  重新加载
-                </Button>
+                <button className="btn" onClick={() => void reload()}>
+                  ↻ 重新加载
+                </button>
               }
             />
-          </Card>
+          </div>
         )}
 
         {!loading && snapshot != null && (
           <>
-            <div className={styles.cards}>
-              {/* ── 状态卡 ── */}
-              <Card className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <PeopleTeamRegular />
-                  <Text size={400} weight="semibold">
-                    联机状态
-                  </Text>
+            <div
+              style={{ display: 'grid', gap: 14, alignItems: 'start' }}
+              className="mp-cards"
+            >
+              {/* ── 状态卡 ── */}              <div
+                className="card"
+                style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>⚯</span>
+                  <span className="t-strong">联机状态</span>
                   <div style={{ flex: 1 }} />
-                  {state?.isBusy === true && <Spinner size="tiny" />}
+                  {state?.isBusy === true && <div className="spinner" />}
                 </div>
 
-                <div className={styles.phaseRow}>
+                {/* 阶段徽标：一点状态色 + 一行字，占位小但一眼可辨 */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '12px 14px',
+                    borderRadius: 'var(--r-card)',
+                    background: 'var(--surface-subtle)',
+                    border: '1px solid var(--stroke-subtle)',
+                    animation: 'fadeIn var(--t-enter) var(--e-enter) both'
+                  }}
+                >
                   <div
-                    className={styles.phaseDot}
+                    className="dot"
                     style={{
+                      width: 10,
+                      height: 10,
                       background: phaseColor(phase),
                       animation:
                         state?.isBusy === true ? 'pulse 1.4s infinite' : undefined
                     }}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text size={300} weight="semibold">
-                      {phaseText}
-                    </Text>
-                    {hint !== '' && (
-                      <Text size={200} style={{ opacity: 0.7, display: 'block' }}>
-                        {hint}
-                      </Text>
-                    )}
+                    <div className="t-strong">{phaseText}</div>
+                    {hint !== '' && <div className="t-cap">{hint}</div>}
                   </div>
                 </div>
 
-                <div className={styles.metaGrid}>
-                  <div className={styles.metaCell}>
-                    <Text size={100} style={{ opacity: 0.55, display: 'block' }}>
-                      核心版本
-                    </Text>
-                    <Text size={300} weight="semibold">
-                      {core?.installed ? `v${core.version ?? '未知'}` : '未安装'}
-                    </Text>
-                  </div>
-                  <div className={styles.metaCell}>
-                    <Text size={100} style={{ opacity: 0.55, display: 'block' }}>
-                      核心会话
-                    </Text>
-                    <Text size={300} weight="semibold">
-                      {core?.sessionRunning ? '运行中' : '已停止'}
-                    </Text>
-                  </div>
-                  <div className={styles.metaCell}>
-                    <Text size={100} style={{ opacity: 0.55, display: 'block' }}>
-                      对应地址
-                    </Text>
-                    <Text size={300} weight="semibold" truncate>
-                      {state?.address ?? '—'}
-                    </Text>
-                  </div>
-                  <div className={styles.metaCell}>
-                    <Text size={100} style={{ opacity: 0.55, display: 'block' }}>
-                      难度
-                    </Text>
-                    <Text size={300} weight="semibold">
-                      {state?.difficulty
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                    gap: 8
+                  }}
+                >
+                  {[
+                    {
+                      label: '核心版本',
+                      value: core?.installed ? `v${core.version ?? '未知'}` : '未安装'
+                    },
+                    { label: '核心会话', value: core?.sessionRunning ? '运行中' : '已停止' },
+                    { label: '对应地址', value: state?.address ?? '—' },
+                    {
+                      label: '难度',
+                      value: state?.difficulty
                         ? (DIFFICULTY_LABEL[state.difficulty] ?? '未知')
-                        : '—'}
-                    </Text>
-                  </div>
+                        : '—'
+                    }
+                  ].map((cell) => (
+                    <div
+                      key={cell.label}
+                      style={{
+                        padding: '9px 11px',
+                        borderRadius: 'var(--r-card)',
+                        background: 'var(--surface-subtle)',
+                        border: '1px solid var(--stroke-subtle)',
+                        minWidth: 0
+                      }}
+                    >
+                      <div className="t-meta" style={{ display: 'block' }}>
+                        {cell.label}
+                      </div>
+                      <div className="t-strong truncate">{cell.value}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {phase === 'hostReady' && state?.room && (
-                  <div className={styles.roomBox}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '12px 14px',
+                      borderRadius: 'var(--r-card)',
+                      border: `1.2px dashed var(--accent)`,
+                      background: 'color-mix(in srgb, var(--accent) 8%, transparent)'
+                    }}
+                  >
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size={100} style={{ opacity: 0.6, display: 'block' }}>
+                      <div className="t-meta" style={{ display: 'block' }}>
                         邀请码（发给好友）
-                      </Text>
-                      <div className={styles.roomCode}>{state.room}</div>
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 20,
+                          fontWeight: 700,
+                          letterSpacing: 3,
+                          color: 'var(--accent)',
+                          userSelect: 'all'
+                        }}
+                      >
+                        {state.room}
+                      </div>
                     </div>
-                    <Button
-                      appearance="subtle"
-                      size="small"
+                    <button
+                      className="btn btn-subtle"
                       onClick={() => {
                         void navigator.clipboard
                           ?.writeText(state.room ?? '')
@@ -524,25 +376,30 @@ export default function MultiplayerPage() {
                       }}
                     >
                       复制
-                    </Button>
+                    </button>
                   </div>
                 )}
 
                 {state?.players != null && state.players.length > 0 && (
                   <div>
-                    <Text size={200} style={{ opacity: 0.6, display: 'block', marginBottom: '6px' }}>
+                    <div className="t-cap" style={{ display: 'block', marginBottom: 6 }}>
                       房间成员（{state.players.length}）
-                    </Text>
+                    </div>
                     {state.players.map((name, index) => (
                       <div
                         key={`${name}-${index}`}
-                        className={styles.playerRow}
-                        style={{ animationDelay: `${index * motion.stagger}ms` }}
+                        className="row row-static"
+                        style={{
+                          padding: '7px 10px',
+                          margin: '0 4px',
+                          animationDelay: `${index * 39}ms`
+                        }}
                       >
-                        <div className={styles.playerDot} />
-                        <Text size={200} truncate>
-                          {name}
-                        </Text>
+                        <div
+                          className="dot"
+                          style={{ width: 7, height: 7, background: 'var(--accent)' }}
+                        />
+                        <span className="t-body truncate">{name}</span>
                       </div>
                     ))}
                   </div>
@@ -556,65 +413,51 @@ export default function MultiplayerPage() {
                 )}
 
                 {phase === 'failed' && (
-                  <MessageBar intent="error">
-                    <ErrorCircleRegular />
-                    <MessageBarBody>
+                  <div className="info info-danger">
+                    <span aria-hidden>✕</span>
+                    <div className="info-body t-body">
                       联机异常：{state?.error ?? '未知错误'}
-                    </MessageBarBody>
-                  </MessageBar>
+                    </div>
+                  </div>
                 )}
 
                 {snapshot?.lastError != null && snapshot.lastError.length > 0 && (
-                  <MessageBar intent="warning">
-                    <MessageBarBody>状态查询失败：{snapshot.lastError}</MessageBarBody>
-                  </MessageBar>
+                  <div className="info info-warning">
+                    <span aria-hidden>⚠</span>
+                    <div className="info-body t-body">
+                      状态查询失败：{snapshot.lastError}
+                    </div>
+                  </div>
                 )}
-              </Card>
+              </div>
 
               {/* ── 操作卡 ── */}
-              <Card className={styles.card}>
-                <Text size={400} weight="semibold">
-                  操作
-                </Text>
+              <div
+                className="card"
+                style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}
+              >
+                <span className="t-strong">操作</span>
 
                 {core?.installed !== true && (
                   <>
-                    <Text size={200} style={{ opacity: 0.7 }}>
+                    <div className="t-body" style={{ opacity: 0.7 }}>
                       首次使用需下载陶瓦联机核心（约 8 MB，国内镜像优先）；核心由启动器在首次使用时从
                       官方 Releases 下载，不随安装包分发。
-                    </Text>
+                    </div>
                     <button
-                      className={[styles.primaryButton, styles.primaryGlow].join(' ')}
-                      style={{
-                        height: '40px',
-                        borderRadius: `${radius.control}px`,
-                        cursor: installing ? 'default' : 'pointer',
-                        opacity: installing ? 0.6 : 1
-                      }}
+                      className="btn btn-primary btn-lg"
                       disabled={installing}
                       onClick={() => void installCore()}
                     >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px'
-                        }}
-                      >
-                        <ArrowSyncRegular />
-                        {installing ? '安装中…' : '安装联机核心'}
-                      </div>
+                      ↻ {installing ? '安装中…' : '安装联机核心'}
                     </button>
                     {installing && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <ProgressBar
-                          // value 传 undefined 即不定量进度（这版 Fluent 没有 indeterminate 属性）
                           value={percent}
-                          thickness="large"
-                          style={{ color: brandYellow }}
+                          indeterminate={percent === undefined}
                         />
-                        <Text size={100} style={{ opacity: 0.65 }}>
+                        <div className="t-meta">
                           {progress
                             ? `${progress.stage} · ${formatSize(progress.bytes)}${
                                 progress.total > 0
@@ -622,18 +465,23 @@ export default function MultiplayerPage() {
                                   : ''
                               }`
                             : '正在准备安装…'}
-                        </Text>
+                        </div>
                       </div>
                     )}
                   </>
                 )}
 
-                <Field label="玩家名" size="small">
-                  <Input
+                <div>
+                  <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+                    玩家名
+                  </div>
+                  <input
+                    className="input"
+                    style={{ width: '100%' }}
                     value={nickname}
                     maxLength={24}
                     placeholder="在房间里显示的名字"
-                    onChange={(_, data) => setNickname(data.value)}
+                    onChange={(e) => setNickname(e.target.value)}
                     onBlur={() =>
                       nickname.trim().length > 0 &&
                       void run('multiplayer.setNickname', {
@@ -641,40 +489,31 @@ export default function MultiplayerPage() {
                       })
                     }
                   />
-                </Field>
+                </div>
 
-                <Field label="节点地区" size="small">
-                  <Select
-                    size="small"
+                <div>
+                  <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+                    节点地区
+                  </div>
+                  <select
+                    className="input"
+                    style={{ width: '100%' }}
                     value={snapshot?.nodeRegion ?? 'auto'}
-                    onChange={(_, data) =>
-                      void run('multiplayer.setNodeRegion', {
-                        region: String(data.value)
-                      })
+                    onChange={(e) =>
+                      void run('multiplayer.setNodeRegion', { region: e.target.value })
                     }
                   >
                     {NODE_REGIONS.map((r) => (
-                      <Option key={r.value} value={r.value} text={r.label}>
+                      <option key={r.value} value={r.value}>
                         {r.label}
-                      </Option>
+                      </option>
                     ))}
-                  </Select>
-                </Field>
+                  </select>
+                </div>
 
-                <div className={styles.actions}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <button
-                    className={[
-                      styles.primaryButton,
-                      canPlay ? styles.primaryGlow : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{
-                      height: '40px',
-                      borderRadius: `${radius.control}px`,
-                      cursor: canPlay ? 'pointer' : 'default',
-                      opacity: canPlay ? 1 : 0.45
-                    }}
+                    className="btn btn-primary btn-lg"
                     disabled={!canPlay}
                     onClick={() =>
                       void run(
@@ -684,91 +523,94 @@ export default function MultiplayerPage() {
                       )
                     }
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      <PlayRegular />
-                      创建房间
-                    </div>
+                    ▶ 创建房间
                   </button>
 
-                  <Button
-                    appearance="outline"
-                    icon={<PeopleTeamRegular />}
+                  <button
+                    className="btn"
                     disabled={!canPlay}
                     onClick={() => setJoinOpen(true)}
                   >
-                    加入房间
-                  </Button>
+                    ⚯ 加入房间
+                  </button>
 
-                  <Button
-                    appearance="outline"
-                    icon={<ArrowSyncRegular />}
+                  <button
+                    className="btn"
                     disabled={!canPlay || phase === 'idle'}
                     onClick={() => void run('multiplayer.idle', {}, '已回到空闲。')}
                   >
-                    回到空闲重试
-                  </Button>
+                    ↻ 回到空闲重试
+                  </button>
 
-                  {/* 破坏性操作：先走 Dialog 二次确认再停会话 */}
-                  <Button
-                    appearance="subtle"
-                    icon={<StopRegular />}
-                    style={{ color: '#FF9A9A' }}
+                  {/* 破坏性操作：先走 Modal 二次确认再停会话 */}
+                  <button
+                    className="btn btn-subtle btn-danger"
                     disabled={!hasSession}
                     onClick={() => setConfirmStop(true)}
                   >
-                    停止联机会话
-                  </Button>
+                    ✕ 停止联机会话
+                  </button>
                 </div>
 
                 <div>
-                  <Text size={200} style={{ opacity: 0.6, display: 'block', marginBottom: '4px' }}>
+                  <div className="t-cap" style={{ display: 'block', marginBottom: 4 }}>
                     联机方案
-                  </Text>
+                  </div>
                   {providers.length === 0 ? (
-                    <Text size={200} style={{ opacity: 0.55 }}>
+                    <div className="t-cap" style={{ opacity: 0.55 }}>
                       没有可用的联机方案。
-                    </Text>
+                    </div>
                   ) : (
                     providers.map((p: MultiplayerProviderInfo, index: number) => {
                       const active = p.id === snapshot?.activeId
                       return (
                         <div
                           key={p.id}
-                          className={[styles.providerRow, active ? styles.providerActive : '']
-                            .filter(Boolean)
-                            .join(' ')}
-                          style={{ animationDelay: `${index * motion.stagger}ms` }}
+                          className={`row${active ? ' row-active' : ''}`}
+                          style={{
+                            alignItems: 'flex-start',
+                            padding: '9px 10px',
+                            margin: '0 4px',
+                            animationDelay: `${index * 39}ms`
+                          }}
                           onClick={() => {
                             if (!active) void run('multiplayer.selectProvider', { id: p.id })
                           }}
                         >
                           <div
-                            className={[styles.providerRadio, active ? styles.providerRadioOn : '']
-                              .filter(Boolean)
-                              .join(' ')}
+                            style={{
+                              width: 15,
+                              height: 15,
+                              borderRadius: '50%',
+                              border: `1.6px solid ${
+                                active ? 'var(--accent)' : 'var(--stroke-strong)'
+                              }`,
+                              marginTop: 2,
+                              flexShrink: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
                           >
-                            {active && <div className={styles.providerRadioDot} />}
+                            {active && (
+                              <div
+                                style={{
+                                  width: 7,
+                                  height: 7,
+                                  borderRadius: '50%',
+                                  background: 'var(--accent)'
+                                }}
+                              />
+                            )}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <Text size={200} weight="semibold" truncate>
+                            <div className="t-body truncate" style={{ fontWeight: 600 }}>
                               {/* 第三方方案在名字后缀上署名，一眼看出这条是谁家的 */}
                               {p.displayName}
                               {!p.builtIn ? ` · ${p.vendor}` : ''}
-                            </Text>
+                            </div>
                             {p.description != null && p.description.length > 0 && (
-                              <Text
-                                size={100}
-                                style={{ opacity: 0.6, display: 'block' }}
-                              >
-                                {p.description}
-                              </Text>
+                              <div className="t-meta">{p.description}</div>
                             )}
                           </div>
                         </div>
@@ -776,113 +618,103 @@ export default function MultiplayerPage() {
                     })
                   )}
                 </div>
-              </Card>
+              </div>
             </div>
 
             {/* ── 联机日志：需要时再看，不占首屏 ── */}
-            <Card className={styles.logCard} style={{ marginTop: '14px' }}>
-              <div className={styles.logHeader}>
+            <div
+              className="card card-flush"
+              style={{ height: 200, marginTop: 14, display: 'flex', flexDirection: 'column' }}
+            >
+              <div className="card-head">
                 <div
-                  className={styles.dot}
-                  style={{ background: hasSession ? brandYellow : '#8A8A8A' }}
+                  className="dot"
+                  style={{ background: hasSession ? 'var(--accent)' : 'var(--text-tertiary)' }}
                 />
-                <Text size={300} weight="semibold">
-                  联机日志
-                </Text>
+                <span className="card-title">联机日志</span>
                 <div style={{ flex: 1 }} />
-                <Button
-                  appearance="subtle"
-                  size="small"
-                  icon={<ArrowSyncRegular />}
-                  onClick={() => void loadLogs()}
-                >
-                  刷新
-                </Button>
+                <button className="btn btn-subtle" onClick={() => void loadLogs()}>
+                  ↻ 刷新
+                </button>
               </div>
-              <div className={styles.logBody}>
+              <div className="log" style={{ paddingTop: 0 }}>
                 {logs.length === 0 ? (
                   <span style={{ opacity: 0.5 }}>暂无日志。</span>
                 ) : (
                   logs.map((line, index) => <div key={index}>{line}</div>)
                 )}
               </div>
-            </Card>
+            </div>
           </>
         )}
+        {host}
       </PageShell>
 
       {/* ── 加入房间：邀请码收在弹窗里，点了才出现 ── */}
-      <Dialog
+      <Modal
         open={joinOpen}
-        onOpenChange={(_, data) => setJoinOpen(data.open)}
-        modalType="modal"
+        title="加入房间"
+        width={460}
+        onClose={() => setJoinOpen(false)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setJoinOpen(false)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={joinCode.trim().length === 0 || busy}
+              onClick={joinRoom}
+            >
+              加入
+            </button>
+          </>
+        }
       >
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>加入房间</DialogTitle>
-            <DialogContent>
-              <Field label="邀请码" size="small">
-                <Input
-                  value={joinCode}
-                  placeholder="房主给你的那串邀请码"
-                  onChange={(_, data) => setJoinCode(data.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') joinRoom()
-                  }}
-                />
-              </Field>
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setJoinOpen(false)}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                className={styles.primaryButton}
-                disabled={joinCode.trim().length === 0 || busy}
-                onClick={joinRoom}
-              >
-                加入
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+        <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+          邀请码
+        </div>
+        <input
+          className="input"
+          style={{ width: '100%' }}
+          value={joinCode}
+          placeholder="房主给你的那串邀请码"
+          onChange={(e) => setJoinCode(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') joinRoom()
+          }}
+        />
+      </Modal>
 
       {/* 停止会话会断掉整个房间，属于不可逆操作：必须二次确认 */}
-      <Dialog
+      <Modal
         open={confirmStop}
-        onOpenChange={(_, data) => setConfirmStop(data.open)}
-        modalType="alert"
+        title="停止联机会话？"
+        width={460}
+        onClose={() => setConfirmStop(false)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setConfirmStop(false)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              disabled={busy}
+              onClick={() => {
+                setConfirmStop(false)
+                void run('multiplayer.stop', {}, '已停止联机会话。')
+              }}
+            >
+              确认停止
+            </button>
+          </>
+        }
       >
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>停止联机会话？</DialogTitle>
-            <DialogContent>
-              <Text size={200}>
-                停止后房间会立刻关闭，正在游戏里的其他成员会被踢出。此操作不可撤销。
-              </Text>
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setConfirmStop(false)}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                style={{ background: '#E04B4B', color: '#ffffff', fontWeight: 700 }}
-                disabled={busy}
-                onClick={() => {
-                  setConfirmStop(false)
-                  void run('multiplayer.stop', {}, '已停止联机会话。')
-                }}
-              >
-                确认停止
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
-      {host}
+        <div className="t-body">
+          停止后房间会立刻关闭，正在游戏里的其他成员会被踢出。此操作不可撤销。
+        </div>
+      </Modal>
     </>
   )
 }

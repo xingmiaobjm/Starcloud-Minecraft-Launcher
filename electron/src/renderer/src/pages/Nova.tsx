@@ -5,172 +5,9 @@
 /// `nova.done` 收尾（带最终文本和可选的确认清单 plan[]）、`nova.failed` 报错。
 /// 所以这一页的模型是"先插一条空的 AI 气泡，再靠事件往里灌"。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  Button,
-  Card,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Spinner,
-  Text,
-  Textarea,
-  makeStyles
-} from '@fluentui/react-components'
-import {
-  ChatRegular,
-  DismissRegular,
-  ErrorCircleRegular,
-  SendRegular,
-  SettingsRegular,
-  WrenchRegular
-} from '@fluentui/react-icons'
 import { onBridgeEvent, request } from '../bridge'
 import type { NovaConfig, NovaPlanItem } from '../bridge'
-import { brandYellow, brandYellowHover, motion, radius } from '../theme'
-import { EmptyState, PageShell, useToasts } from '../ui'
-
-const useStyles = makeStyles({
-  // 对话流占满剩余高度，输入条永远贴在底部
-  chatCard: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    minHeight: 0,
-    padding: '0'
-  },
-  chatBody: {
-    flex: 1,
-    minHeight: 0,
-    overflowY: 'auto',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px'
-  },
-  msgRow: {
-    display: 'flex',
-    animation: `slideUp ${motion.normal}ms ${motion.easeOut} both`
-  },
-  msgRowUser: { justifyContent: 'flex-end' },
-  msgRowAi: { justifyContent: 'flex-start' },
-  // 用户气泡：品牌黄实心，右侧
-  bubbleUser: {
-    maxWidth: '68%',
-    padding: '10px 14px',
-    borderRadius: `${radius.card}px`,
-    borderBottomRightRadius: '4px',
-    background: brandYellow,
-    color: '#1b1b1b',
-    fontSize: '13px',
-    lineHeight: '1.6',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    boxShadow: `0 2px 10px rgba(255,194,31,0.18)`
-  },
-  // AI 气泡：暗色卡 + 左侧，形状上就分得开
-  bubbleAi: {
-    maxWidth: '76%',
-    padding: '12px 15px',
-    borderRadius: `${radius.card}px`,
-    borderBottomLeftRadius: '4px',
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    fontSize: '13px',
-    lineHeight: '1.7',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word'
-  },
-  // 流式输出中：整块气泡轻微呼吸，告诉用户"还在写"
-  streaming: { animation: 'pulse 1.5s ease-in-out infinite' },
-  meta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    marginBottom: '5px',
-    fontSize: '10.5px',
-    opacity: 0.55
-  },
-  toolRow: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '3px 9px',
-    borderRadius: '999px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.09)',
-    fontSize: '11px',
-    opacity: 0.85,
-    marginBottom: '6px',
-    animation: `fadeIn ${motion.normal}ms ${motion.ease} both`
-  },
-  // 确认清单卡片：只展示，不执行
-  planCard: {
-    marginTop: '10px',
-    borderRadius: `${radius.card}px`,
-    border: `1.2px solid rgba(255,194,31,0.35)`,
-    background: 'rgba(255,194,31,0.06)',
-    overflow: 'hidden'
-  },
-  planHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '8px 11px',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
-    background: 'rgba(255,194,31,0.08)'
-  },
-  planItem: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '8px',
-    padding: '7px 11px',
-    borderBottom: '1px solid rgba(255,255,255,0.05)',
-    animation: `rowIn ${motion.normal}ms ${motion.easeOut} both`
-  },
-  planItemLast: { borderBottom: 'none' },
-  planBullet: {
-    width: '6px',
-    height: '6px',
-    borderRadius: '2px',
-    background: brandYellow,
-    marginTop: '6px',
-    flexShrink: 0
-  },
-  composer: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: '10px',
-    padding: '12px 14px',
-    borderTop: '1px solid rgba(255,255,255,0.07)'
-  },
-  primaryButton: {
-    background: brandYellow,
-    color: '#1b1b1b',
-    fontWeight: 700,
-    border: 'none',
-    transition: `background ${motion.fast}ms ${motion.ease}, transform ${motion.fast}ms ${motion.ease}, box-shadow ${motion.fast}ms ${motion.ease}`,
-    ':hover': { background: brandYellowHover, color: '#1b1b1b' },
-    ':active': { transform: 'scale(0.985)' }
-  },
-  primaryGlow: { boxShadow: `0 0 0 0 rgba(255,194,31,0.45)` },
-  typingDot: {
-    display: 'inline-block',
-    width: '6px',
-    height: '6px',
-    borderRadius: '50%',
-    background: brandYellow,
-    marginRight: '4px',
-    animation: 'pulse 1.2s infinite'
-  },
-  configRow: { display: 'flex', flexDirection: 'column', gap: '12px' }
-})
+import { EmptyState, Modal, PageShell, useToasts } from '../ui'
 
 type Role = 'user' | 'ai'
 
@@ -192,7 +29,6 @@ interface ChatMessage {
 }
 
 export default function NovaPage() {
-  const styles = useStyles()
   const { push, host } = useToasts()
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -369,45 +205,62 @@ export default function NovaPage() {
         title="Nova"
         subtitle="能读启动器状态、能调用本地工具的助手；没配模型时仍可回答本地能力范围内的问题。"
         actions={
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button
-              appearance="subtle"
-              icon={<SettingsRegular />}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-subtle"
               onClick={() => {
                 setDraft(config)
                 setConfigOpen(true)
               }}
             >
-              模型设置
-            </Button>
-            <Button appearance="subtle" icon={<DismissRegular />} disabled={busy} onClick={clear}>
-              清空
-            </Button>
+              ⚙ 模型设置
+            </button>
+            <button className="btn btn-subtle" disabled={busy} onClick={clear}>
+              ✕ 清空
+            </button>
           </div>
         }
       >
         {!configured && (
-          <MessageBar intent="info" style={{ marginBottom: '12px' }}>
-            <MessageBarBody>
+          <div
+            className="info info-warning"
+            style={{ marginBottom: 12 }}
+          >
+            <span aria-hidden style={{ fontSize: 16 }}>ⓘ</span>
+            <div className="info-body t-body">
               当前未配置模型：本地能力无需模型，可直接提问版本/存档/联机这类问题；
               需要联网推理时点右上角「模型设置」。
-            </MessageBarBody>
-          </MessageBar>
+            </div>
+          </div>
         )}
 
-        <Card className={styles.chatCard} style={{ height: 'calc(100% - 46px)' }}>
-          <div className={styles.chatBody} ref={bodyRef}>
+        <div
+          className="card card-flush"
+          style={{ height: 'calc(100% - 46px)', display: 'flex', flexDirection: 'column' }}
+        >
+          <div
+            ref={bodyRef}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              padding: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+          >
             {messages.length === 0 && (
               <EmptyState
                 title="和 Nova 聊点什么"
                 hint="试试：「有哪些已安装版本」「帮我把 1.20.1 的内存调到 4G」「现在联机是什么状态」。"
                 action={
-                  <Button
-                    icon={<ChatRegular />}
+                  <button
+                    className="btn"
                     onClick={() => setInput('现在联机是什么状态？')}
                   >
-                    来一句
-                  </Button>
+                    ✳ 来一句
+                  </button>
                 }
               />
             )}
@@ -415,32 +268,38 @@ export default function NovaPage() {
             {messages.map((m, index) => (
               <div
                 key={m.id}
-                className={[styles.msgRow, m.role === 'user' ? styles.msgRowUser : styles.msgRowAi]
-                  .join(' ')}
-                style={{ animationDelay: `${Math.min(index, 8) * motion.stagger}ms` }}
+                style={{
+                  display: 'flex',
+                  justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
+                  animation: `slideUp var(--t-enter) var(--e-enter) both`,
+                  animationDelay: `${Math.min(index, 8) * 39}ms`
+                }}
               >
                 {m.role === 'user' ? (
-                  <div className={styles.bubbleUser}>{m.content}</div>
+                  // 用户气泡：品牌黄实心，右侧
+                  <div className="nova-bubble-user">{m.content}</div>
                 ) : (
+                  // AI 气泡：暗色卡 + 左侧，形状上就分得开
                   <div
-                    className={[
-                      styles.bubbleAi,
-                      m.streaming === true ? styles.streaming : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{ borderColor: m.error === true ? 'rgba(224,75,75,0.45)' : undefined }}
+                    className="nova-bubble-ai"
+                    style={{
+                      borderColor: m.error === true ? 'color-mix(in srgb, var(--danger) 45%, transparent)' : undefined,
+                      // 流式输出中：整块气泡轻微呼吸，告诉用户"还在写"
+                      animation:
+                        m.streaming === true
+                          ? 'pulse 1.5s ease-in-out infinite'
+                          : undefined
+                    }}
                   >
-                    <div className={styles.meta}>
+                    <div className="nova-meta">
                       <span>Nova</span>
                       {m.fromCloud === true && <span>· 云端模型</span>}
                       {m.fromCloud === false && m.streaming !== true && <span>· 本地能力</span>}
                     </div>
 
                     {m.tool != null && m.tool.length > 0 && (
-                      <div className={styles.toolRow}>
-                        <WrenchRegular />
-                        正在调用工具：{m.tool}
+                      <div className="nova-tool">
+                        ⚒ 正在调用工具：{m.tool}
                       </div>
                     )}
 
@@ -449,45 +308,55 @@ export default function NovaPage() {
                     ) : (
                       m.streaming === true && (
                         <span>
-                          <span className={styles.typingDot} />
-                          <span className={styles.typingDot} />
-                          <span className={styles.typingDot} />
+                          <span className="nova-typing-dot" />
+                          <span className="nova-typing-dot" />
+                          <span className="nova-typing-dot" />
                         </span>
                       )
                     )}
 
                     {/* 确认清单：只展示，不代用户执行 */}
                     {m.plan != null && m.plan.length > 0 && (
-                      <div className={styles.planCard}>
-                        <div className={styles.planHeader}>
-                          <ClipboardGlyph />
-                          <Text size={200} weight="semibold" truncate>
+                      <div className="nova-plan">
+                        <div className="nova-plan-head">
+                          <span style={{ color: 'var(--accent)' }}>▤</span>
+                          <span className="t-body truncate" style={{ fontWeight: 600 }}>
                             {m.planTitle ?? '建议的执行清单'}
-                          </Text>
-                          <Text size={100} style={{ opacity: 0.6 }}>
-                            {m.plan.length} 项
-                          </Text>
+                          </span>
+                          <span className="t-meta">{m.plan.length} 项</span>
                         </div>
                         {m.plan.map((item, planIndex) => (
                           <div
                             key={`${m.id}-plan-${planIndex}`}
-                            className={[
-                              styles.planItem,
-                              planIndex === m.plan!.length - 1 ? styles.planItemLast : ''
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            style={{ animationDelay: `${planIndex * motion.stagger}ms` }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              padding: '7px 11px',
+                              borderBottom:
+                                planIndex === m.plan!.length - 1
+                                  ? 'none'
+                                  : '1px solid var(--stroke-divider)',
+                              animation: `rowIn var(--t-enter) var(--e-enter) both`,
+                              animationDelay: `${planIndex * 39}ms`
+                            }}
                           >
-                            <div className={styles.planBullet} />
+                            <div
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: 2,
+                                background: 'var(--accent)',
+                                marginTop: 6,
+                                flexShrink: 0
+                              }}
+                            />
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <Text size={200} weight="semibold" style={{ display: 'block' }}>
+                              <div className="t-body" style={{ fontWeight: 600 }}>
                                 {item.title}
-                              </Text>
+                              </div>
                               {item.detail != null && item.detail.length > 0 && (
-                                <Text size={100} style={{ opacity: 0.65, display: 'block' }}>
-                                  {item.detail}
-                                </Text>
+                                <div className="t-meta">{item.detail}</div>
                               )}
                             </div>
                           </div>
@@ -500,12 +369,12 @@ export default function NovaPage() {
             ))}
           </div>
 
-          <div className={styles.composer}>
-            <Textarea
-              style={{ flex: 1, resize: 'none' }}
+          <div className="nova-composer">
+            <textarea
+              className="input nova-textarea"
               value={input}
               placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
-              onChange={(_, data) => setInput(data.value)}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
@@ -514,108 +383,91 @@ export default function NovaPage() {
               }}
             />
             <button
-              className={[
-                styles.primaryButton,
-                input.trim().length > 0 && !busy ? styles.primaryGlow : ''
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              style={{
-                height: '38px',
-                padding: '0 18px',
-                borderRadius: `${radius.control}px`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: input.trim().length > 0 && !busy ? 'pointer' : 'default',
-                opacity: input.trim().length > 0 && !busy ? 1 : 0.45
-              }}
+              className="btn btn-primary"
+              style={{ height: 38, padding: '0 18px' }}
               disabled={input.trim().length === 0 || busy}
               onClick={() => void send()}
             >
-              {busy ? <Spinner size="tiny" /> : <SendRegular />}
+              {busy ? <span className="spinner" /> : '➤'}
               {busy ? '思考中…' : '发送'}
             </button>
           </div>
-        </Card>
+        </div>
+        {host}
       </PageShell>
 
       {/* ── 模型设置 ── */}
-      <Dialog
+      <Modal
         open={configOpen}
-        onOpenChange={(_, data) => setConfigOpen(data.open)}
-        modalType="modal"
+        title="模型设置"
+        width={560}
+        onClose={() => setConfigOpen(false)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setConfigOpen(false)}>
+              取消
+            </button>
+            <button className="btn btn-primary" onClick={() => void saveConfig()}>
+              {!configured && '⚠ '}保存
+            </button>
+          </>
+        }
       >
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>模型设置</DialogTitle>
-            <DialogContent>
-              <div className={styles.configRow}>
-                <Text size={200} style={{ opacity: 0.7 }}>
-                  三项都留空即可清除配置，回到纯本地能力模式。API Key 只保存在本机设置里。
-                </Text>
-                <Field label="Base URL" size="small">
-                  <Input
-                    value={draft.baseUrl}
-                    placeholder="https://api.example.com/v1"
-                    onChange={(_, data) => setDraft({ ...draft, baseUrl: data.value })}
-                  />
-                </Field>
-                <Field label="API Key" size="small">
-                  <Input
-                    type="password"
-                    value={draft.apiKey}
-                    placeholder="sk-..."
-                    onChange={(_, data) => setDraft({ ...draft, apiKey: data.value })}
-                  />
-                </Field>
-                <Field label="模型" size="small">
-                  <Input
-                    value={draft.model}
-                    placeholder="例如 gpt-4o-mini"
-                    onChange={(_, data) => setDraft({ ...draft, model: data.value })}
-                  />
-                </Field>
-              </div>
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setConfigOpen(false)}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                className={styles.primaryButton}
-                icon={configured ? undefined : <ErrorCircleRegular />}
-                onClick={() => void saveConfig()}
-              >
-                保存
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
-      {host}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="t-body" style={{ opacity: 0.7 }}>
+            三项都留空即可清除配置，回到纯本地能力模式。API Key 只保存在本机设置里。
+          </div>
+          <div>
+            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+              Base URL
+            </div>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              value={draft.baseUrl}
+              placeholder="https://api.example.com/v1"
+              onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
+            />
+          </div>
+          <div>
+            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+              API Key
+            </div>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              type="password"
+              value={draft.apiKey}
+              placeholder="sk-..."
+              onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
+            />
+          </div>
+          <div>
+            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
+              模型
+            </div>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              value={draft.model}
+              placeholder="例如 gpt-4o-mini"
+              onChange={(e) => setDraft({ ...draft, model: e.target.value })}
+            />
+          </div>
+        </div>
+      </Modal>
+      {/* 气泡 / 输入条的形状写在 winui.css 之外（对话布局专用），就地声明一次 */}
+      <style>{`
+.nova-bubble-user{max-width:68%;padding:10px 14px;border-radius:var(--r-card);border-bottom-right-radius:4px;background:var(--accent);color:var(--text-on-accent);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 10px rgba(255,194,31,0.18)}
+.nova-bubble-ai{max-width:76%;padding:12px 15px;border-radius:var(--r-card);border-bottom-left-radius:4px;background:var(--surface-card);border:1px solid var(--stroke-subtle);font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.nova-meta{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:10.5px;opacity:0.55}
+.nova-tool{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:var(--r-pill);background:var(--surface-subtle);border:1px solid var(--stroke-default);font-size:11px;opacity:0.85;margin-bottom:6px;animation:fadeIn var(--t-enter) var(--e-enter) both}
+.nova-plan{margin-top:10px;border-radius:var(--r-card);border:1.2px solid color-mix(in srgb, var(--accent) 35%, transparent);background:color-mix(in srgb, var(--accent) 6%, transparent);overflow:hidden}
+.nova-plan-head{display:flex;align-items:center;gap:6px;padding:8px 11px;border-bottom:1px solid var(--stroke-divider);background:color-mix(in srgb, var(--accent) 8%, transparent)}
+.nova-composer{display:flex;align-items:flex-end;gap:10px;padding:12px 14px;border-top:1px solid var(--stroke-divider)}
+.nova-textarea{flex:1;height:auto;min-height:38px;max-height:180px;padding:8px 10px;resize:none;line-height:1.5;font-family:inherit}
+.nova-typing-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:pulse 1.2s infinite}
+`}</style>
     </>
-  )
-}
-
-/** 清单标题左侧的小图标（inline SVG，避免为一个图标再引一个包）。 */
-function ClipboardGlyph() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M6 2.5h4v1.5H6zM4 3.5H3v10h10v-10h-1"
-        stroke={brandYellow}
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M5.5 7.5h5M5.5 10h5"
-        stroke={brandYellow}
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-    </svg>
   )
 }

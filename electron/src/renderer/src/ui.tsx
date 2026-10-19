@@ -1,142 +1,48 @@
-/// 通用 UI 原子：页面骨架、空态、Toast、进度条、加载骨架屏。
-/// 所有页面共用，保证视觉与动效一致。
+/// 共用 UI 原子（纯 CSS 类，无框架依赖）。
+/// 视觉规范见 winui.css 与 DESIGN.md（WinUI 3 令牌）。
 import React, { useEffect, useRef, useState } from 'react'
-import {
-  Card,
-  MessageBar,
-  MessageBarActions,
-  MessageBarBody,
-  ProgressBar,
-  Spinner,
-  Text,
-  makeStyles
-} from '@fluentui/react-components'
-import {
-  CheckmarkCircleRegular,
-  ErrorCircleRegular,
-  InfoRegular
-} from '@fluentui/react-icons'
-import { brandYellow, motion } from './theme'
 
-const useStyles = makeStyles({
-  page: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    minHeight: 0,
-    boxSizing: 'border-box'
-  },
-  pageTitle: {
-    fontSize: '26px',
-    fontWeight: 700,
-    letterSpacing: '0.2px',
-    margin: 0
-  },
-  pageSub: {
-    fontSize: '12px',
-    opacity: 0.6,
-    marginTop: '2px'
-  },
-  scroll: {
-    flex: 1,
-    minHeight: 0,
-    overflowY: 'auto',
-    paddingRight: '4px'
-  },
-  empty: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px',
-    flex: 1,
-    minHeight: '180px',
-    opacity: 0.7
-  },
-  toastHost: {
-    position: 'fixed',
-    right: '20px',
-    bottom: '20px',
-    zIndex: 1000,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    maxWidth: '380px'
-  },
-  skeletonRow: {
-    height: '48px',
-    borderRadius: '6px',
-    marginBottom: '8px'
-  }
-})
+// ── 页面骨架 ────────────────────────────────────────────────────────────────
 
-export function useStyles2() {
-  return useStyles()
-}
-
-/** 页面骨架：标题 + 可滚动内容区。 */
 export function PageShell(props: {
   title: string
   subtitle?: string
   actions?: React.ReactNode
   children: React.ReactNode
-}) {
-  const styles = useStyles()
+}): JSX.Element {
   return (
-    <div className={styles.page}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '16px',
-          padding: '4px 0 12px'
-        }}
-      >
+    <div className="page">
+      <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 className={styles.pageTitle}>{props.title}</h1>
-          {props.subtitle && <div className={styles.pageSub}>{props.subtitle}</div>}
+          <h1 className="page-title">{props.title}</h1>
+          {props.subtitle !== undefined && <div className="page-sub">{props.subtitle}</div>}
         </div>
         {props.actions}
       </div>
-      <div className={styles.scroll}>{props.children}</div>
+      <div className="page-body">{props.children}</div>
     </div>
   )
 }
+
+// ── 状态 ───────────────────────────────────────────────────────────────────
 
 export function EmptyState(props: {
   title: string
   hint?: string
   action?: React.ReactNode
-}) {
-  const styles = useStyles()
+}): JSX.Element {
   return (
-    <div className={styles.empty}>
-      <Text size={400} weight="semibold">
-        {props.title}
-      </Text>
-      {props.hint && (
-        <Text size={200} style={{ opacity: 0.7, textAlign: 'center' }}>
-          {props.hint}
-        </Text>
-      )}
+    <div className="empty">
+      <div className="empty-title">{props.title}</div>
+      {props.hint !== undefined && <div className="empty-hint">{props.hint}</div>}
       {props.action}
     </div>
   )
 }
 
-export function LoadingCard({ label }: { label?: string }) {
-  const styles = useStyles()
-  return (
-    <Card style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-      <Spinner size="tiny" />
-      <Text size={200}>{label ?? '加载中…'}</Text>
-    </Card>
-  )
-}
-
-/** 骨架屏：列表占位，避免加载时布局跳动。 */
-export function SkeletonList({ rows = 5 }: { rows?: number }) {
-  const styles = useStyles()
+/** 骨架屏：与真实行同尺寸，加载时布局不跳。 */
+export function SkeletonList(props: { rows?: number; avatar?: boolean }): JSX.Element {
+  const rows = props.rows ?? 5
   const [visible, setVisible] = useState(0)
   useEffect(() => {
     let i = 0
@@ -150,21 +56,32 @@ export function SkeletonList({ rows = 5 }: { rows?: number }) {
   return (
     <div>
       {Array.from({ length: visible }).map((_, index) => (
-        <div
-          key={index}
-          className={styles.skeletonRow}
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            opacity: 1 - index * 0.12,
-            animation: `fadeIn ${motion.normal}ms ${motion.ease} both`
-          }}
-        />
+        <div key={index} className="skel-row" style={{ opacity: 1 - index * 0.12 }}>
+          {props.avatar === true && <div className="skel-thumb" />}
+          <div className="skel-text" style={{ maxWidth: `${60 - index * 6}%` }} />
+        </div>
       ))}
     </div>
   )
 }
 
-export type ToastKind = 'success' | 'error' | 'info'
+/** 加载卡（部分页面用它占位）。 */
+export function LoadingCard(props: { label?: string }): JSX.Element {
+  return (
+    <div className='card' style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <Spinner />
+      <span className='t-cap'>{props.label ?? '加载中…'}</span>
+    </div>
+  )
+}
+
+export function Spinner(props: { size?: 'sm' | 'lg' }): JSX.Element {
+  return <span className={props.size === 'lg' ? 'spinner spinner-lg' : 'spinner'} />
+}
+
+// ── 提示条（InfoBar 等价） ─────────────────────────────────────────────────
+
+export type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
 export interface ToastItem {
   id: number
@@ -172,210 +89,287 @@ export interface ToastItem {
   text: string
 }
 
-/** 全局 Toast：任何页面调用 push('成功文案')。 */
-export function useToasts() {
+const TOAST_ICON: Record<ToastKind, string> = {
+  success: '✓',
+  error: '✕',
+  info: 'ⓘ',
+  warning: '⚠'
+}
+
+export function InfoBar(props: {
+  kind?: ToastKind
+  title?: string
+  onDismiss?: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className={`info info-${props.kind ?? 'info'}`}>
+      <span aria-hidden>{TOAST_ICON[props.kind ?? 'info']}</span>
+      <div className="info-body">
+        {props.title !== undefined && <div className="info-title">{props.title}</div>}
+        {props.children}
+      </div>
+      {props.onDismiss !== undefined && (
+        <button className="btn btn-subtle btn-sm" onClick={props.onDismiss}>
+          ✕
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** 全局 Toast：页面内 `push('success', '文案')`，根部渲染 `{host}`。 */
+export function useToasts(): {
+  push: (kind: ToastKind, text: string) => void
+  host: JSX.Element
+} {
   const [items, setItems] = useState<ToastItem[]>([])
   const seq = useRef(1)
-  const push = (kind: ToastKind, text: string) => {
+  const push = (kind: ToastKind, text: string): void => {
     const id = seq.current++
     setItems((prev) => [...prev, { id, kind, text }])
     setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), 4200)
   }
-  const host = <ToastHost items={items} onDismiss={(id) => setItems((prev) => prev.filter((t) => t.id !== id))} />
+  const host = (
+    <div className="toast-host">
+      {items.map((item) => (
+        <div key={item.id} className="card toast info info-{item.kind}">
+          <span aria-hidden>{TOAST_ICON[item.kind]}</span>
+          <div className="info-body">{item.text}</div>
+          <button
+            className="btn btn-subtle btn-sm"
+            onClick={() => setItems((prev) => prev.filter((t) => t.id !== item.id))}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  )
   return { push, host }
 }
 
-function ToastHost(props: { items: ToastItem[]; onDismiss: (id: number) => void }) {
-  const styles = useStyles()
-  if (props.items.length === 0) return null
+// ── 控件 ───────────────────────────────────────────────────────────────────
+
+export function Toggle(props: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  disabled?: boolean
+  label?: string
+}): JSX.Element {
   return (
-    <div className={styles.toastHost}>
-      {props.items.map((item) => (
-        <MessageBar
-          key={item.id}
-          intent={item.kind}
-          style={{ animation: `slideUp ${motion.slow}ms ${motion.easeOut} both` }}
+    <button
+      className="toggle"
+      role="switch"
+      aria-checked={props.checked}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onClick={() => props.onChange(!props.checked)}
+    />
+  )
+}
+
+export function Checkbox(props: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  disabled?: boolean
+  label?: string
+}): JSX.Element {
+  return (
+    <button
+      className="check"
+      role="checkbox"
+      aria-checked={props.checked}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onClick={() => props.onChange(!props.checked)}
+    >
+      {props.checked ? '✓' : ''}
+    </button>
+  )
+}
+
+/** 分段控件（滑动指示器）。 */
+export function Segmented<T extends string>(props: {
+  value: T
+  options: Array<{ value: T; label: string }>
+  onChange: (v: T) => void
+  disabled?: boolean
+}): JSX.Element {
+  const n = props.options.length
+  const index = Math.max(
+    0,
+    props.options.findIndex((o) => o.value === props.value)
+  )
+  // 指示器宽 = 1/n 格 - 2px 内边距；位移按"格宽"推进（CSS 用 calc 百分比 + px）
+  const slot = 100 / n
+  return (
+    <div className="seg" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
+      <div
+        className="seg-ind"
+        style={{
+          width: `calc(${slot}% - 2px)`,
+          transform: `translateX(calc(2px + ${index} * ${slot}%))`
+        }}
+      />
+      {props.options.map((o) => (
+        <button
+          key={o.value}
+          className={`seg-item${o.value === props.value ? ' seg-active' : ''}`}
+          disabled={props.disabled}
+          onClick={() => props.onChange(o.value)}
         >
-          {item.kind === 'success' && <CheckmarkCircleRegular />}
-          {item.kind === 'error' && <ErrorCircleRegular />}
-          {item.kind === 'info' && <InfoRegular />}
-          <MessageBarBody>{item.text}</MessageBarBody>
-          <MessageBarActions
-            containerAction={
-              <button
-                onClick={() => props.onDismiss(item.id)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'inherit',
-                  cursor: 'pointer'
-                }}
-              >
-                ✕
-              </button>
-            }
-          />
-        </MessageBar>
+          {o.label}
+        </button>
       ))}
     </div>
   )
 }
 
-/** 顶部细进度条：页面有后台任务时显示。 */
-export function TopProgress({ show }: { show: boolean }) {
-  if (!show) return null
+export function ProgressBar(props: {
+  value?: number
+  indeterminate?: boolean
+}): JSX.Element {
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000 }}>
-      <ProgressBar thickness="medium" style={{ color: brandYellow }} />
+    <div className={`progress${props.indeterminate === true ? ' progress-indeterminate' : ''}`}>
+      {props.value !== undefined && (
+        <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, props.value))}%` }} />
+      )}
     </div>
   )
 }
 
-/** 页面切换动画：淡入 + 上移 6px。 */
-export function PageFade({ children, keyId }: { children: React.ReactNode; keyId: string }) {
-  return (
-    <div
-      key={keyId}
-      style={{
-        height: '100%',
-        minHeight: 0,
-        animation: `pageIn ${motion.slow}ms ${motion.easeOut} both`
-      }}
-    >
-      {children}
-    </div>
-  )
-}
+// ── 右键菜单（MenuFlyout 等价） ────────────────────────────────────────────
 
-/** 全局注入动画关键帧（应用启动时调用一次）。 */
-export function injectKeyframes() {
-  if (document.getElementById('starcloud-keyframes')) return
-  const style = document.createElement('style')
-  style.id = 'starcloud-keyframes'
-  style.textContent = `
-@keyframes pageIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.45; }
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-@keyframes rowIn {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-@keyframes glowPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255,194,31,0.35); }
-  50%      { box-shadow: 0 0 0 6px rgba(255,194,31,0); }
-}
-@keyframes breathe {
-  0%, 100% { transform: scale(1); opacity: 0.9; }
-  50%      { transform: scale(1.05); opacity: 1; }
-}
-`
-  document.head.appendChild(style)
-}
-
-/** 暗色滚动条 + 键盘焦点可见（Fluent 默认滚动条在暗色下偏亮）。 */
-export function injectGlobalStyle() {
-  if (document.getElementById('starcloud-global')) return
-  const style = document.createElement('style')
-  style.id = 'starcloud-global'
-  style.textContent = `
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.14);
-  border-radius: 6px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); background-clip: content-box; }
-* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
-button:focus-visible, [role='button']:focus-visible {
-  outline: 2px solid rgba(255,194,31,0.75);
-  outline-offset: 2px;
-}
-`
-  document.head.appendChild(style)
+export interface MenuEntry {
+  label: string
+  onSelect: () => void
+  danger?: boolean
+  disabled?: boolean
 }
 
 /**
- * 跟手光斑（Win 端 HoverShadowBehavior 的 Web 版）：
- * 径向渐变跟光标移动；淡入 300ms / 淡出 450ms（移出卡片立刻灭）。
- * 光斑圆角与载体一致（Win 端用 TemplateBinding 读同一个 CornerRadius）。
+ * 右键菜单 hook（Win 端 MenuFlyout 等价）。
+ * 用法：const menu = useContextMenu(items)；<div {...menu.bind()}>…</div>
+ * 菜单在视口边缘自动翻转，避免被窗口裁掉（Win 端 Flyout 的 PopupPlacement 行为）。
  */
-export function PointerGlow(props: {
-  radius?: number
+export function useContextMenu(items: MenuEntry[]): {
+  bind: () => {
+    onContextMenu: (e: React.MouseEvent) => void
+    style: React.CSSProperties
+  }
+  close: () => void
+  node: JSX.Element | null
+} {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+
+  useEffect(() => {
+    if (pos === null) return
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current !== null && !ref.current.contains(e.target as Node)) {
+        setPos(null)
+      }
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setPos(null)
+    }
+    const onResize = (): void => setPos(null)
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [pos])
+
+  const width = 200
+  const height = items.length * 32 + 12
+  const flipX = pos !== null && pos.x > window.innerWidth - width - 12
+  const flipY = pos !== null && pos.y > window.innerHeight - height - 12
+
+  const node =
+    pos === null ? null : (
+      <div
+        ref={ref}
+        className="flyout"
+        style={{
+          position: 'fixed',
+          left: flipX ? pos.x - width : pos.x,
+          top: flipY ? pos.y - height : pos.y,
+          width,
+          zIndex: 800,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+          padding: 6
+        }}
+      >
+        {items.map((item) => (
+          <button
+            key={item.label}
+            className={`nav-item${item.danger === true ? ' btn-danger' : ''}`}
+            style={{ height: 32, width: '100%', fontSize: 13 }}
+            disabled={item.disabled === true}
+            onClick={() => {
+              setPos(null)
+              item.onSelect()
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    )
+
+  return {
+    bind: () => ({
+      onContextMenu: (e: React.MouseEvent): void => {
+        e.preventDefault()
+        setPos({ x: e.clientX, y: e.clientY })
+      },
+      style: {}
+    }),
+    close: (): void => setPos(null),
+    node
+  }
+}
+
+// ── 浮层 ───────────────────────────────────────────────────────────────────
+
+/** 对话框（ContentDialog 等价）：遮罩 + 居中卡片，点遮罩关闭。 */
+export function Modal(props: {
+  open: boolean
+  title: string
+  onClose: () => void
   children: React.ReactNode
-  style?: React.CSSProperties
-  className?: string
-  onClick?: () => void
-}) {
-  const hostRef = useRef<HTMLDivElement>(null)
-  const glowRef = useRef<HTMLDivElement>(null)
-  const [active, setActive] = useState(false)
-
-  const move = (e: React.MouseEvent<HTMLDivElement>): void => {
-    const host = hostRef.current
-    const glow = glowRef.current
-    if (host === null || glow === null) return
-    const rect = host.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    glow.style.background =
-      `radial-gradient(circle at ${x}% ${y}%, rgba(0,0,0,0.16) 0%, rgba(0,0,0,0.11) 18%, ` +
-      `rgba(0,0,0,0.09) 40%, rgba(0,0,0,0.05) 62%, rgba(0,0,0,0.02) 82%, rgba(0,0,0,0) 100%)`
-    glow.style.transform = 'translateY(-1px)'
-  }
-
-  const leave = (): void => {
-    const glow = glowRef.current
-    if (glow !== null) glow.style.transform = 'translateY(0.8px)'
-    setActive(false)
-  }
-
+  footer?: React.ReactNode
+  width?: number
+}): JSX.Element | null {
+  if (!props.open) return null
   return (
     <div
-      ref={hostRef}
-      className={props.className}
-      style={{ position: 'relative', overflow: 'hidden', ...props.style }}
-      onMouseMove={move}
-      onMouseEnter={() => setActive(true)}
-      onMouseLeave={leave}
-      onClick={props.onClick}
+      className="scrim"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) props.onClose()
+      }}
     >
-      <div
-        ref={glowRef}
-        aria-hidden
-        style={{
-          position: 'absolute',
-          inset: 0,
-          pointerEvents: 'none',
-          opacity: active ? 1 : 0,
-          borderRadius: props.radius ?? 8,
-          transition: `opacity ${active ? motion.hoverIn : motion.hoverOut}ms ${motion.easeFade}, transform ${motion.hoverIn}ms ${motion.easeFade}`,
-          transform: 'translateY(0.8px)'
-        }}
-      />
-      <div style={{ position: 'relative', zIndex: 1 }}>{props.children}</div>
+      <div className="dialog" style={{ width: props.width ?? 480 }}>
+        <div className="dialog-title">{props.title}</div>
+        <div className="dialog-body">{props.children}</div>
+        {props.footer !== undefined && <div className="dialog-actions">{props.footer}</div>}
+      </div>
     </div>
   )
 }
 
-/** 页面级错误边界：某个页渲染炸了不至于白屏。 */
+// ── 错误边界 ───────────────────────────────────────────────────────────────
+
+/** 页面级错误边界：单页崩溃不白屏。 */
 export class ErrorBoundary extends React.Component<
   { children: React.ReactNode; label: string },
   { error?: Error }
@@ -385,31 +379,19 @@ export class ErrorBoundary extends React.Component<
     this.state = {}
   }
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): { error: Error } {
     return { error }
   }
 
   render(): React.ReactNode {
     if (this.state.error !== undefined) {
       return (
-        <div style={{ padding: '40px', textAlign: 'center' }}>
-          <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
-            {this.props.label} 页面出错了
-          </div>
-          <div style={{ opacity: 0.7, fontSize: '12px', marginBottom: '16px' }}>
-            {String(this.state.error)}
-          </div>
+        <div className="empty" style={{ paddingTop: 60 }}>
+          <div className="empty-title">{this.props.label} 页面出错了</div>
+          <div className="empty-hint">{String(this.state.error)}</div>
           <button
+            className="btn btn-primary"
             onClick={() => this.setState({ error: undefined })}
-            style={{
-              background: brandYellow,
-              color: '#1b1b1b',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '8px 18px',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
           >
             重试
           </button>

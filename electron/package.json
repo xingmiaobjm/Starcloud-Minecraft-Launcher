@@ -10,10 +10,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
     "package": "electron-vite build && electron-builder --config electron-builder.yml --linux",
-    "package:dir": "electron-vite build && electron-builder --config electron-builder.yml --linux --dir"
+    "package:dir": "electron-vite build && electron-builder --config electron-builder.yml --linux --dir",
+    "dev:web": "vite --port 5173 --open"
   },
   "dependencies": {
-    "@fluentui/react-components": "^9.60.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

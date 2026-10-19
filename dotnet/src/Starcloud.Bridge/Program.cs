@@ -11,6 +11,7 @@ using Starcloud.Core.Plugins;
 using Starcloud.Core.Services;
 using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
+using Starcloud.Core.Services.Projection;
 
 namespace Starcloud.Bridge;
 
@@ -42,6 +43,7 @@ public static class Program
     private static SkinLibraryService _skins = null!;
     private static SkinStationService _skinStation = null!;
     private static MultiplayerService _multiplayer = null!;
+    private static ProjectionLibrary _projections = null!;
     private static NovaService _nova = null!;
     private static PluginHost _pluginHost = null!;
     private static Task? _novaTask;
@@ -79,6 +81,7 @@ public static class Program
         _yggdrasil = new YggdrasilService();
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
+        _projections = new ProjectionLibrary(() => _settings);
         _modrinth = new ModrinthService(_download);
         _contentLibrary = new ContentLibraryService(
             _download, _modrinth, _manifest, () => _settings);
@@ -270,6 +273,8 @@ public static class Program
             or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
             or "nova.plan.execute"
             or "lab.load" or "lab.worldEater"
+            or "projections.scan" or "projections.copy" or "projections.move"
+            or "projections.delete"
             or "plugins.invoke";
 
     /// <summary>父进程消失后退出（stdin 管道通常也会 EOF，这里是双保险）。</summary>
@@ -720,6 +725,46 @@ public static class Program
                     $"world-eater-{DateTime.Now:yyyyMMdd-HHmmss}.litematic");
                 var path = WorldEater.GenerateLitematic(options, dest);
                 return new { ok = true, path };
+            }
+
+            case "projections.scan":
+            {
+                var files = _projections.Scan();
+                return new
+                {
+                    files = files.Select(f => new
+                    {
+                        filePath = f.FilePath,
+                        fileName = f.FileName,
+                        sizeBytes = f.SizeBytes,
+                        modifiedAt = f.ModifiedAt.ToString("O"),
+                        versionId = f.VersionId,
+                    }),
+                    versions = _projections.ListVersions(),
+                };
+            }
+
+            case "projections.copy":
+            {
+                var src = LabSafePath(p.GetProperty("filePath").GetString()!);
+                var versionId = LabNullableString(p, "versionId");
+                var dest = _projections.CopyTo(src, versionId);
+                return new { ok = true, path = dest };
+            }
+
+            case "projections.move":
+            {
+                var src = LabSafePath(p.GetProperty("filePath").GetString()!);
+                var versionId = LabNullableString(p, "versionId");
+                var dest = _projections.MoveTo(src, versionId);
+                return new { ok = true, path = dest };
+            }
+
+            case "projections.delete":
+            {
+                var src = LabSafePath(p.GetProperty("filePath").GetString()!);
+                _projections.Delete(src);
+                return new { ok = true };
             }
 
             case "version.settings":
@@ -1821,6 +1866,24 @@ public static class Program
         addedAt = entry.AddedAt.ToString("O"),
     };
 
+    /// <summary>投影文件路径校验：必须真实存在，且落在游戏目录（全局或某实例）之内。</summary>
+    private static string LabSafePath(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            throw new Exception("投影路径不能为空");
+        var full = Path.GetFullPath(filePath);
+        if (!File.Exists(full)) throw new Exception($"投影文件不存在：{filePath}");
+        var dotMc = Path.GetFullPath(_settings.DotMinecraft);
+        if (!full.StartsWith(dotMc + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new Exception("只能管理游戏目录内的投影文件");
+        return full;
+    }
+
+    private static string? LabNullableString(JsonElement p, string key) =>
+        p.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString()
+            : null;
+
     private static string LabStripState(string state)
     {
         var bracket = state.IndexOf('[');
@@ -2458,15 +2521,26 @@ public static class Program
         var dir = Path.Combine(_settings.DotMinecraft, "versions", info.Id);
         var json = Path.Combine(dir, info.Id + ".json");
         string? inheritsFrom = null;
+        string? versionType = null;
+        // 整合包的版本 JSON 常没有 inheritsFrom，加载器信息藏在 libraries 里
+        // （net.neoforged:neoforge:...），所以按 Win 端口径扫描全文。
+        string? jsonText = null;
         var jarExists = false;
         try
         {
             if (File.Exists(json))
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(json));
+                var text = File.ReadAllText(json);
+                jsonText = text;
+                using var doc = JsonDocument.Parse(text);
                 if (doc.RootElement.TryGetProperty("inheritsFrom", out var inh) &&
                     inh.ValueKind == JsonValueKind.String)
                     inheritsFrom = inh.GetString();
+                // 版本类型（release / snapshot / old_beta / old_alpha）：
+                // 壳端据此选图标（草方块 / 紫水晶 / 圆石 / 泥土），与 Win 端口径一致。
+                if (doc.RootElement.TryGetProperty("type", out var tp) &&
+                    tp.ValueKind == JsonValueKind.String)
+                    versionType = tp.GetString();
             }
             // 与 GameLauncher.ResolveClientJar 的回退口径一致：同名 jar 或目录内唯一客户端 jar。
             jarExists = File.Exists(Path.Combine(dir, info.Id + ".jar")) ||
@@ -2488,10 +2562,32 @@ public static class Program
             jsonPath = json,
             jarExists,
             inheritsFrom,
+            loader = DetectLoader(info.Id, inheritsFrom, jsonText),
+            type = versionType ?? InferVersionType(info.Id),
             lastPlayedAt = instances.Get(info.Id).LastPlayedAt?.ToString("O"),
             isDefault = _settings.LastVersion == info.Id,
             isolated = _settings.VersionIsolated,
         };
+    }
+
+    /// <summary>从版本 id 推断加载器（顺序敏感：neoforge 必须先于 forge）。</summary>
+    private static string DetectLoader(string id, string? inheritsFrom, string? jsonText)
+    {
+        var lower = (id + " " + (inheritsFrom ?? "") + " " + (jsonText ?? "")).ToLowerInvariant();
+        if (lower.Contains("neoforge")) return "neoforge";
+        if (lower.Contains("forge")) return "forge";
+        if (lower.Contains("fabric")) return "fabric";
+        if (lower.Contains("quilt")) return "quilt";
+        return "vanilla";
+    }
+
+    /// <summary>版本 JSON 缺 type 时的兜底推断。</summary>
+    private static string InferVersionType(string id)
+    {
+        var lower = id.ToLowerInvariant();
+        if (lower.Contains("-rc") || lower.Contains("-pre") || lower.Contains("-snapshot"))
+            return "snapshot";
+        return "release";
     }
 
     // ── 输出 ─────────────────────────────────────────────────────────────────

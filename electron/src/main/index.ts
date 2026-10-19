@@ -1,8 +1,32 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
-import * as readline from 'readline'
-import * as path from 'path'
-import * as fs from 'fs'
+/// 主进程窗口配置（与渲染层 UI 完全分离）。
+///
+/// ── Linux 平台坑点与规避 ────────────────────────────────────────────────
+/// 1. **透明窗口圆角被 WM 覆盖**：X11 下窗口形状由 WM 决定，`transparent:true`
+///    只影响窗口内部合成，WM 仍会画自己的装饰/背景。规避：窗口本身不透明，
+///    圆角交给渲染层 CSS（`--win-radius` + `overflow:hidden`），
+///    并把背景色设成与界面一致，避免边缘出现异色缝。
+/// 2. **透明窗口首帧闪烁**：Electron 透明窗口在 Wayland/X11 都会先闪一帧
+///    未合成的黑底。规避：`show:false` + `ready-to-show` 再显示，
+///    同时 body 背景与 `backgroundColor` 一致。
+/// 3. **Wayland 下 `-webkit-app-region: drag` 失效**：Electron 的
+///    app-region 拖拽依赖 WM 的 _NET_WM_MOVERESIZE，在 Wayland 下不生效。
+///    规避：优先用 app-region；渲染层另有一套 JS 兜底（见 titlebar.tsx，
+///    Wayland 检测命中时用 IPC 让主进程 setPosition 手动移动窗口）。
+/// 4. **backdrop-filter 开销**：大��围模糊在软件渲染（WSLg/无 GPU）下会掉帧。
+///    规避：材质模糊只铺在窗口装饰层（标题栏 + 侧边轨道），
+///    内容区用纯色分层；并提供 `--no-blur` 降级开关（见 renderer 的 blur 开关）。
+/// 5. **root 用户 / 容器无沙箱**：Chromium 沙箱不可用，需显式 `--no-sandbox`
+///    （由 ELECTRON_DISABLE_SANDBOX=1 环境变量控制）。
+import { app, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
+import { readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import * as readline from 'node:readline'
+import * as path from 'node:path'
+
+const LAUNCHER_VERSION = '0.3.4'
+const isDev = !app.isPackaged
+
+// ── C# 桥接进程 ───────────────────────────────────────────────────────────
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void }
 
@@ -10,15 +34,6 @@ let bridgeProc: ChildProcessWithoutNullStreams | null = null
 let nextId = 1
 const pending = new Map<number, Pending>()
 let mainWindow: BrowserWindow | null = null
-let eventBuffer: Array<{ event: string; params: Record<string, unknown> }> = []
-
-const LAUNCHER_VERSION = '0.3.4'
-
-// WSL 里以 root 运行时 Chromium 沙箱不可用（容器/WSLg 环境），显式关闭。
-if (process.env.ELECTRON_DISABLE_SANDBOX === '1') {
-  app.commandLine.appendSwitch('no-sandbox')
-  app.commandLine.appendSwitch('disable-gpu-sandbox')
-}
 
 function bridgeCandidates(): string[] {
   const env = process.env.STARCLOUD_BRIDGE_DLL
@@ -27,21 +42,22 @@ function bridgeCandidates(): string[] {
   const appPath = app.getAppPath()
   candidates.push(path.join(appPath, '..', 'bridge-linux-x64', 'Starcloud.Bridge.dll'))
   candidates.push(path.join(appPath, 'bridge-linux-x64', 'Starcloud.Bridge.dll'))
+  // 打包态：extraResources 放到 resources/bridge-linux-x64
+  candidates.push(path.join(process.resourcesPath ?? '', 'bridge-linux-x64', 'Starcloud.Bridge.dll'))
   return candidates.map((p) => path.normalize(p))
 }
 
 function startBridge(): ChildProcessWithoutNullStreams {
-  const dll = bridgeCandidates().find((p) => fs.existsSync(p))
+  const dll = bridgeCandidates().find((p) => existsSync(p))
   if (!dll) {
     throw new Error(
-      `找不到 C# 桥接宿主（Starcloud.Bridge.dll）。\n` +
-        `请先在仓库根执行：dotnet publish dotnet/src/Starcloud.Bridge -c Release -r linux-x64 --self-contained false -o bridge-linux-x64`
+      '找不到 C# 桥接宿主（Starcloud.Bridge.dll）。\n' +
+        '开发：dotnet publish dotnet/src/Starcloud.Bridge -c Release -r linux-x64 ' +
+        '--self-contained false -o bridge-linux-x64\n' +
+        '或用 STARCLOUD_BRIDGE_DLL 指定路径。'
     )
   }
-  const proc = spawn('dotnet', [dll], {
-    env: { ...process.env },
-    stdio: ['pipe', 'pipe', 'pipe']
-  })
+  const proc = spawn('dotnet', [dll], { stdio: ['pipe', 'pipe', 'pipe'] })
   const rl = readline.createInterface({ input: proc.stdout })
   rl.on('line', (line) => {
     let msg: {
@@ -58,21 +74,17 @@ function startBridge(): ChildProcessWithoutNullStreams {
       return
     }
     if (msg.event !== undefined) {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('bridge:event', msg.event, msg.params ?? {})
-      }
+      mainWindow?.webContents.send('bridge:event', msg.event, msg.params ?? {})
       return
     }
     if (msg.id === undefined) return
-    const pendingCall = pending.get(msg.id)
-    if (!pendingCall) return
+    const call = pending.get(msg.id)
+    if (!call) return
     pending.delete(msg.id)
-    if (msg.ok) pendingCall.resolve(msg.result)
-    else pendingCall.reject(new Error(msg.error ?? '未知桥接错误'))
+    if (msg.ok) call.resolve(msg.result)
+    else call.reject(new Error(msg.error ?? '未知桥接错误'))
   })
-  proc.stderr.on('data', (data: Buffer) => {
-    console.error('[bridge/stderr]', data.toString().trimEnd())
-  })
+  proc.stderr.on('data', (d: Buffer) => console.error('[bridge/stderr]', d.toString().trimEnd()))
   proc.on('exit', (code) => {
     console.error(`[bridge] 进程退出（${code}）`)
     bridgeProc = null
@@ -83,60 +95,198 @@ function startBridge(): ChildProcessWithoutNullStreams {
   return proc
 }
 
-function bridgeRequest(method: string, params: unknown = {}): Promise<unknown> {
+function bridgeRequest(method: string, params: unknown): Promise<unknown> {
   if (!bridgeProc) throw new Error('桥接进程未运行')
   const id = nextId++
   const payload = JSON.stringify({ id, method, params })
-  return new Promise<unknown>((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     try {
       bridgeProc!.stdin.write(payload + '\n')
     } catch (e) {
       pending.delete(id)
-      reject(e)
+      reject(e as Error)
     }
   })
 }
 
-function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1100,
-    minHeight: 720,
-    show: false,
-    backgroundColor: '#1b1b1b',
+// ── 窗口骨架 ──────────────────────────────────────────────────────────────
+
+function createWindow(): BrowserWindow {
+  // 让内容区背景与窗口背景色一致：透明窗口在部分 WM 下会漏出黑边
+  const background = nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f3f3f3'
+
+  const win = new BrowserWindow({
+    width: 1360,
+    height: 880,
+    minWidth: 1000,
+    minHeight: 640,
+    show: false, // 防首帧闪烁（坑点 2）
+    backgroundColor: background, // 不用 transparent：坑点 1（圆角/边缘异色）
+    autoHideMenuBar: true,
     title: 'Starcloud Launcher',
     icon: path.join(__dirname, '../../build/icon.png'),
-    autoHideMenuBar: true,
+    // frame:false → 自绘标题栏（约束 2/3）；titleBarStyle 在 Linux 上无意义
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   })
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+
   const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (devUrl) mainWindow.loadURL(devUrl)
-  else mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+  if (devUrl) win.loadURL(devUrl)
+  else win.loadFile(path.join(__dirname, '../renderer/index.html'))
+
+  // 坑点 2：内容渲染完再显示，避免透明/未布局时闪一帧
+  win.once('ready-to-show', () => win.show())
+
+  // 截图取证用（本地验收，非产品功能）：渲染完成后抓一帧存盘就退出。
+  // WSLg 下 GPU 进程可能崩溃、ready-to-show 不触发，所以用 did-finish-load 兜底。
+  if (process.env.STARCLOUD_SCREENSHOT) {
+    let done = false
+    // 渲染层报错时打出来：白屏排查靠它（rootChildren=0 就是挂载失败）
+    win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+      console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`)
+    })
+    win.webContents.on('render-process-gone', (_e, details) => {
+      console.error('[renderer] gone', JSON.stringify(details))
+    })
+    const shoot = async (): Promise<void> => {
+      if (done) return
+      done = true
+      const target = process.env.STARCLOUD_SCREENSHOT
+      if (target === undefined) {
+        app.quit()
+        return
+      }
+      try {
+        await new Promise((r) => setTimeout(r, 2500))
+        // 指定页面：按导航项文案点一下再截（逐页取证用）
+        const pageLabel = process.env.STARCLOUD_SCREENSHOT_PAGE
+        if (pageLabel !== undefined && pageLabel !== '') {
+          await win.webContents.executeJavaScript(`
+            (() => {
+              const btn = [...document.querySelectorAll('.nav-item')]
+                .find((b) => (b.getAttribute('data-key') ?? b.getAttribute('data-label')) === ${JSON.stringify(pageLabel)})
+              if (btn) btn.click()
+              return btn !== undefined
+            })()
+          `)
+          await new Promise((r) => setTimeout(r, 2200))
+        }
+        const diag = await win.webContents.executeJavaScript(`
+          JSON.stringify({
+            htmlLen: document.documentElement.outerHTML.length,
+            rootChildren: document.getElementById('root')?.childElementCount ?? -1,
+            bodyBg: getComputedStyle(document.body).backgroundColor,
+            text: (document.getElementById('root')?.innerText ?? '').slice(0, 160),
+            rows: document.querySelectorAll('.row').length,
+            navIcons: document.querySelectorAll('.nav-icon').length
+          })
+        `)
+        console.log('[diag] ' + diag)
+        const img = await win.webContents.capturePage()
+        writeFileSync(target, img.toPNG())
+        console.log('[screenshot] saved ' + target)
+      } catch (e) {
+        console.error('[screenshot] failed', e)
+      }
+      app.quit()
+    }
+    win.webContents.once('did-finish-load', () => void shoot())
+  }
+
+  // 主题跟随系统（约束 2）：nativeTheme 会随系统亮暗切换
+  nativeTheme.on('updated', () => {
+    win.webContents.send('theme:changed', {
+      dark: nativeTheme.shouldUseDarkColors,
+      source: nativeTheme.themeSource
+    })
+  })
+
+  return win
+}
+
+// ── IPC ───────────────────────────────────────────────────────────────────
+
+function registerIpc(): void {
+  ipcMain.handle('bridge:request', (_e, method: string, params: unknown) =>
+    bridgeRequest(method, params)
+  )
+  ipcMain.handle('app:version', () => LAUNCHER_VERSION)
+
+  // 渲染层定好主题后回传窗口底色，避免缩放时露出另一套主题的底
+  ipcMain.on('theme:set-background', (_e, dark: boolean) => {
+    mainWindow?.setBackgroundColor(dark ? '#1c1c1e' : '#f3f3f3')
+  })
+  ipcMain.handle('app:theme', () => ({
+    dark: nativeTheme.shouldUseDarkColors,
+    source: nativeTheme.themeSource
+  }))
+
+  // 标题栏按钮（坑点 3 的 Wayland 兜底也走这里）
+  ipcMain.on('win:action', (_e, action: string) => {
+    const win = mainWindow
+    if (!win) return
+    switch (action) {
+      case 'minimize':
+        win.minimize()
+        break
+      case 'maximize':
+        if (win.isMaximized()) win.unmaximize()
+        else win.maximize()
+        break
+      case 'close':
+        win.close()
+        break
+    }
+  })
+
+  // Wayland 兜底：app-region 拖拽失效时，渲染层用鼠标位移驱动这里手动移动
+  ipcMain.on('win:moveBy', (_e, dx: number, dy: number) => {
+    const win = mainWindow
+    if (!win || win.isMaximized()) return
+    const [x, y] = win.getPosition()
+    win.setPosition(Math.round(x + dx), Math.round(y + dy))
+  })
+
+  // 窗口状态（标题栏最大化/还原图标需要）
+  ipcMain.on('win:state', (e) => {
+    const win = mainWindow
+    e.returnValue = {
+      maximized: win?.isMaximized() ?? false,
+      fullscreen: win?.isFullScreen() ?? false,
+      display: win ? screen.getDisplayNearestPoint(win.getBounds()).id : 0
+    }
+  })
+}
+
+// ── 启动 ──────────────────────────────────────────────────────────────────
+
+if (process.env.ELECTRON_DISABLE_SANDBOX === '1') {
+  // 坑点 5：root / 容器 / WSL 下 Chromium 沙箱不可用
+  app.commandLine.appendSwitch('no-sandbox')
+  app.commandLine.appendSwitch('disable-gpu-sandbox')
+  app.commandLine.appendSwitch('disable-dev-shm-usage')
 }
 
 app.whenReady().then(() => {
+  // 主题跟随系统（约束 2）：显式置 system，避免 GTK/portal 推断差异
+  nativeTheme.themeSource = 'system'
   try {
     bridgeProc = startBridge()
   } catch (e) {
     console.error(String(e))
   }
 
-  ipcMain.handle('bridge:request', (_event, method: string, params: unknown) =>
-    bridgeRequest(method, params)
-  )
-  ipcMain.handle('app:version', () => LAUNCHER_VERSION)
-
-  createWindow()
+  registerIpc()
+  mainWindow = createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
   })
 })
 
