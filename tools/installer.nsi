@@ -45,6 +45,15 @@ SetCompressor /SOLID lzma
 !define MUI_ICON "${APPICON}"
 !define MUI_UNICON "${APPICON}"
 !define MUI_ABORTWARNING
+
+; ── 品牌安装界面（位图由 tools/gen-installer-assets.py 生成） ──
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\installer-assets\welcome.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "${__FILEDIR__}\installer-assets\header.bmp"
+!define MUI_WELCOMEPAGE_TITLE "欢迎安装 Starcloud"
+!define MUI_WELCOMEPAGE_TEXT "本向导将把 Starcloud Minecraft Launcher 安装到你的电脑。$\r$\n这是开发版 ${PRODUCT_VERSION}：安装不需要管理员权限，也不会修改系统设置。"
+!define MUI_FINISHPAGE_TITLE "Starcloud 已就绪"
+!define MUI_FINISHPAGE_TEXT "安装完成，开始菜单里已经放好快捷方式。$\r$\n开发版 ${PRODUCT_VERSION}"
 !define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunApp
@@ -52,6 +61,10 @@ SetCompressor /SOLID lzma
 !define MUI_FINISHPAGE_SHOWREADME
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "创建桌面快捷方式"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
+
+; 安装引导动画：品牌画面淡入 → 停留 → 淡出（NSIS 原生只能是静态帧 + 淡入淡出）。
+; MUI2 自己已经占用了 .onGUIInit，必须走它的挂钩，不能自己再定义同名函数。
+!define MUI_CUSTOMFUNCTION_GUIINIT StarcloudGuiInit
 
 !include MUI2.nsh
 !include FileFunc.nsh
@@ -88,6 +101,16 @@ UninstPage custom un.PageDeleteData un.PageDeleteDataLeave
 Var AppRunningDialogTitle
 Var DeleteAppDataCheckbox
 Var DeleteAppDataState
+
+Function StarcloudGuiInit
+  ; advsplash 在运行期才读图片文件，必须先把位图释放到 $PLUGINSDIR：
+  ; 直接写编译机上的绝对路径只有开发机能看到，装到别人机器上就是白屏。
+  ; 另注意它要求传「不带 .bmp 后缀」的路径，带了会直接返回 -1（错误）。
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\splash.bmp "${__FILEDIR__}\installer-assets\splash.bmp"
+  advsplash::show 1800 400 500 -1 "$PLUGINSDIR\splash"
+  Pop $0
+FunctionEnd
 
 Function .onInit
   ; 产物是 win-x64 自包含，32 位系统直接拒绝而不是装出一堆跑不起来的文件
@@ -142,8 +165,11 @@ Section "Starcloud" SecInstall
   CreateDirectory "$INSTDIR"
 
   SetOutPath "$INSTDIR"
+  DetailPrint "正在部署运行环境（约 220 MB）…"
   ; 整个 publish 目录原样铺开：自包含应用的运行时都在里面，少一个 dll 都起不来
   File /r "${SRCDIR}\*.*"
+
+  DetailPrint "正在登记卸载信息…"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
