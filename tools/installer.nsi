@@ -64,9 +64,15 @@ SetCompressor /SOLID lzma
 
 ; 安装引导动画：品牌画面淡入 → 停留 → 淡出（NSIS 原生只能是静态帧 + 淡入淡出）。
 ; MUI2 自己已经占用了 .onGUIInit，必须走它的挂钩，不能自己再定义同名函数。
+; 这个 define 必须在 !include MUI2.nsh 之前：Interface.nsh 在 include 时就会
+; 用 !ifdef 检查它，放到后面会「编译通过但动画静默消失」。
 !define MUI_CUSTOMFUNCTION_GUIINIT StarcloudGuiInit
 
 !include MUI2.nsh
+; 守卫：如果上面的 define 被挪到 include 之后，这里立刻报错，而不是静默丢动画
+!ifndef MUI_CUSTOMFUNCTION_GUIINIT
+  !error "MUI_CUSTOMFUNCTION_GUIINIT 未在 !include MUI2.nsh 之前定义，启动动画不会显示"
+!endif
 !include FileFunc.nsh
 !include x64.nsh
 
@@ -108,6 +114,14 @@ Function StarcloudGuiInit
   ; 另注意它要求传「不带 .bmp 后缀」的路径，带了会直接返回 -1（错误）。
   InitPluginsDir
   File /oname=$PLUGINSDIR\splash.bmp "${__FILEDIR__}\installer-assets\splash.bmp"
+
+  ; advsplash::show 会一直阻塞到动画结束才返回，所以任何窗口 z 序调整都必须
+  ; 在它之前做完（之后再改，splash 已经销毁，等于无效）。安装包不是前台窗口
+  ; 时 splash 会被浏览器/聊天软件整个盖住，用户一点都看不到，先把向导提上来。
+  ${If} $HWNDPARENT != 0
+    System::Call 'user32::SetForegroundWindow(i $HWNDPARENT)'
+  ${EndIf}
+
   advsplash::show 1800 400 500 -1 "$PLUGINSDIR\splash"
   Pop $0
 FunctionEnd
