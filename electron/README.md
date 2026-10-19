@@ -1,93 +1,114 @@
-# Starcloud Launcher · Linux（Electron + Fluent UI）
+# Starcloud Minecraft Launcher · Linux
 
-Linux 端界面与 Windows 端对齐：**同一套 C# 后端**（`Starcloud.Bridge` 复用 `Starcloud.Core`），
-前端换成 **Electron + React + Fluent UI v9（微软 Web 端 Fluent）**，视觉更接近 WinUI 3。
+Starcloud Minecraft 启动器的 **Linux 端**（Electron + React + TypeScript）。
+界面按 WinUI 3 / Fluent Design 规范实现，运行在 Linux（X11 优先，Wayland 有已知问题）。
 
-```
-electron/src/main        主进程：拉起 C# 桥接进程 + IPC（请求/事件）
-electron/src/preload     contextBridge 安全桥（request / events）
-electron/src/renderer    12 个页面（Fluent UI v9）
-bridge-linux-x64/        C# 桥接宿主（dotnet publish 产物，不入库）
-```
+> 内核（下载 / 安装 / 启动 / 账户 / 联机 / Nova …）在 C# 侧实现，本仓库通过
+> `Starcloud.Bridge` 进程复用，**不重写一份 TS 后端**。
+> 桥接源码在主仓库 [`Starcloud-Minecraft-Launcher`](https://github.com/xingmiaobjm/Starcloud-Minecraft-Launcher) 的 `dotnet/` 下。
 
-## 运行
-
-### 开发
+## 快速开始
 
 ```bash
-# 一次性：WSL 里装 Node（Ubuntu）
-sudo apt-get install -y nodejs npm
+# 1. 安装依赖
+npm install
 
-# 装依赖（国内镜像；CEF/Electron 大文件走 ELECTRON_MIRROR）
-cd ~/dev/starcloud-electron        # 建议放在 Linux 文件系统，别放 /mnt/c（npm install 极慢）
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
+# 2. 取得 C# 桥接（见下方「桥接」）
+./scripts/fetch-bridge.sh
 
-# 先发布 C# 桥接（仓库根，Windows 侧执行一次）
-dotnet publish dotnet/src/Starcloud.Bridge -c Release -r linux-x64 \
-  --self-contained false -o bridge-linux-x64
-
-# 跑起来（WSL 里以 root 运行需要关沙箱）
-DISPLAY=:0 ELECTRON_DISABLE_SANDBOX=1 \
-STARCLOUD_BRIDGE_DLL=$PWD/../bridge-linux-x64/Starcloud.Bridge.dll \
+# 3. 开发（Vite + Electron，热更新）
 npm run dev
+
+# 4. 打包
+npm run package        # deb + AppImage → release/
 ```
 
-### 打包
+开发环境若在 WSL / 容器 / root 下运行，需要：
 
 ```bash
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
-ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
-npm run package
+ELECTRON_DISABLE_SANDBOX=1 npm run dev
 ```
 
-产物：`release/starcloud-launcher-linux_0.1.0_amd64.deb`（apt 安装）与
-`release/Starcloud Launcher-0.1.0.AppImage`（免安装）。C# 桥接随包放在
-`resources/bridge-linux-x64/`，无需单独部署。
+## 桥接（Starcloud.Bridge）
 
-## 页面
+界面本身可独立运行（缺桥接时会显示空列表并报「桥接进程未运行」），
+但要让下载 / 启动生效，需要把 C# 桥接发布到 `bridge-linux-x64/`：
 
-| 页面 | 说明 |
-|---|---|
-| 首页 | 已安装版本列表（点击选中）+ 账户卡 + 黄色启动按钮 + 实时日志 |
-| 版本 | 列表（点击进入详情）/ 打开目录 / 设为默认 / 删除 |
-| 版本详情 | 实例信息、模组·资源包·光影的启停/删除/打开目录、Modrinth 搜索安装、检查更新（单个+全部）、检查依赖（缺失清单+一键安装）、实例参数（隔离三态 + 内存/Java/窗口档位） |
-| 下载 | 远端清单、安装进度（事件驱动） |
-| 存档 | 跨版本世界、备份、删除 |
-| 账户 | 离线账户增删、设为默认 |
-| 运行状态 / 启动器日志 | 会话状态与 `game.output` 实时滚动 |
-| 联机 | 陶瓦 / 第三方 SDK 快照、建房/进房/停止、核心安装进度 |
-| 实验室 | litematic 解析 + canvas 等距体素 3D 预览 + 世吞模板生成 |
-| Nova | 流式对话、工具调用提示、自接模型设置 |
-| 插件 | .mclplug 安装、JS/Python/声明式运行时、免责确认 |
-| 设置 | 游戏目录 / Java / 内存 / 下载源（写入 C# 共享设置） |
+```bash
+# 已有主仓库副本时（默认路径 ../starcloud-minecraft-launcher）
+./scripts/fetch-bridge.sh
 
-## 设计语言
+# 或手动指定主仓库路径
+./scripts/fetch-bridge.sh /path/to/starcloud-minecraft-launcher
 
-对齐 Win 端（WinUI 3）的设计规范见 [`DESIGN.md`](./DESIGN.md)（通读 `App.xaml` /
-`MainWindow.xaml` / `Views/Controls/*` 提炼，含色彩、圆角阴影、间距、排版、组件、动效、布局）。
-代码令牌在 `theme.ts`：
+# 或让脚本克隆主仓库（较慢）
+STARCLOUD_CLONE=1 ./scripts/fetch-bridge.sh
+```
 
-- **圆角**：控件/卡片/列表行 8、浮层 16（XAML 里定义的 12/20 实际引用为 0，照抄实际值）
-- **动效**：`MotionFx.Pace = 1.5` → 进场 375ms / 退场 210ms / 悬停 300→450ms / 错峰 39ms
-- **曲线**：进场 `cubic-bezier(0.1,0.9,0.2,1)`、退场 `cubic-bezier(0.7,0,1,0.5)`、
-  控件 `cubic-bezier(0.16,1,0.3,1)`、**纯明暗渐变** `cubic-bezier(0.33,0,0.67,1)`
-- **跟手光斑** `PointerGlow`：复刻 Win 端 `HoverShadowBehavior` 的径向渐变跟光标，
-  淡入 300 / 淡出 450、移出卡片立即灭、光斑圆角与载体一致
-- 阴影不用 `box-shadow` 重投影，改用轻量投影 + 光斑（Win 端实测合成阴影不渲染）
+也可以直接用环境变量指定 DLL：
 
-其余动效：页面切换淡入上移、列表行错峰入场、启动按钮按压缩放、运行中状态点脉冲、
-Toast 弹入、骨架屏、页面级错误边界。
+```bash
+STARCLOUD_BRIDGE_DLL=/abs/path/Starcloud.Bridge.dll npm run dev
+```
 
-## 快捷键
+## 工程结构
 
-`Ctrl+1..9` 切换前 9 个页面，`Ctrl+0` 打开设置。
+```
+src/
+  main/index.ts        主进程：窗口骨架（无边框 + 自绘标题栏）、C# 桥接进程管理、IPC
+  preload/index.ts     contextBridge 暴露 bridge / bridgeEvents / theme / win
+  renderer/
+    index.html
+    src/
+      main.tsx         入口：先定主题再 render（避免首帧闪白）
+      App.tsx          应用壳：标题栏 + 导航 + 内容区 + 主题
+      nav.tsx          NavigationView（鸿蒙图标库字形 + 两个自绘 SVG）
+      titlebar.tsx     Fluent 标题栏（最小化/最大化/关闭，Wayland 拖拽兜底）
+      theme.ts         亮/暗/跟随系统 + 窗口底色同步
+      winui.css        WinUI 3 视觉层（令牌、材质、控件、动效）
+      bridge.ts        桥接客户端（浏览器调试时自动降级为 mock）
+      ui.tsx           共用原子（Modal / Toast / Segmented / 右键菜单 …）
+      pages/           13 个页面
+      assets/          HarmonyOS Icons 字体、Inter、MC-Icons、品牌 SVG
+tools/                 取证与截图脚本（非运行时依赖）
+```
 
-## 与 Flutter 版的关系
+## 设计与移植说明
 
-`flutter/` 目录是此前的 Flutter + fluent_ui 实现，功能已全部覆盖，保留作参考；
-Linux 交付版本以 `electron/` 为准。
+- **设计令牌**：取自 Win 端 `App.xaml` 与实际渲染值，见 [`DESIGN.md`](./DESIGN.md)。
+  圆角 8/16、动效 `Pace=1.5`（进场 375ms / 退场 210ms / 悬停 300→450ms / 错峰 39ms）、
+  四条缓动曲线（进场 / 退场 / 控件 / 明暗渐变）。
+- **图标**：导航图标用**鸿蒙图标库字体**（与 Win 端同一份 ttf，码位一一对应）；
+  「实验室」「投影管理」是**自绘 SVG**；版本行用仓库 `MC-Icons` 的等距方块图。
+- **材质**：Linux 没有原生 Mica/Acrylic，用 `backdrop-filter` + 分层渐变模拟，
+  `[data-blur="off"]` 可降级为纯色（软件渲染 / WSLg 下更稳）。
 
-## 已知
+### Linux 平台已知问题
 
-- WSL 下 GPU 进程会报错，走软件渲染（不影响功能）。
-- 首次 `npm install` 需要 Electron 运行时（约 100MB），建议放 Linux 文件系统。
+| 现象 | 原因 | 规避 |
+|---|---|---|
+| 窗口圆角被 WM 覆盖 | X11 下窗口形状由 WM 决定 | 窗口不透明，圆角交给 CSS |
+| 首帧闪白 | 主题在 effect 里才写入，浏览器已合成一帧 | `main.tsx` 挂载前写入 `data-theme` |
+| Wayland 下标题栏拖不动 | `-webkit-app-region` 依赖 X11 `_NET_WM_MOVERESIZE` | 标题栏内置 JS 拖拽兜底（IPC `win:moveBy`） |
+| `backdrop-filter` 掉帧 | 软件渲染 / WSLg 无 GPU | 模糊只铺装饰层，可关 |
+| 字体缺字 / 图标空白 | 依赖 CDN 字体 | 字体与图标字体全部本地打包 |
+| root / 容器里起不来 | Chromium 沙箱不可用 | `ELECTRON_DISABLE_SANDBOX=1` |
+
+## 打包
+
+```bash
+npm run package        # deb + AppImage
+npm run package:dir    # 只出未压缩目录，便于排查
+```
+
+`electron-builder.yml` 会把 `../bridge-linux-x64` 作为 `extraResources` 打进包里
+（**打包前先跑 `scripts/fetch-bridge.sh`**，否则安装包里没有桥接）。
+
+产物在 `release/`：
+
+- `starcloud-launcher-linux_x.y.z_amd64.deb`
+- `Starcloud Launcher-x.y.z.AppImage`
+
+## 许可
+
+AGPL-3.0，见 [LICENSE](./LICENSE)。

@@ -62,7 +62,8 @@ export interface SaveInfo {
   isolated: boolean
   sizeBytes: number
   iconPath?: string
-  lastPlayedAt?: string
+  /** 桥接字段名是 lastPlayed（历史命名），不是 lastPlayedAt。 */
+  lastPlayed?: string
 }
 
 export interface SaveList {

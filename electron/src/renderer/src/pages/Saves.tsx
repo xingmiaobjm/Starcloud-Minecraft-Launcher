@@ -1,11 +1,13 @@
-/// 存档页：跨版本（主目录 + 各隔离实例）汇总展示，支持打开目录 / 备份 / 删除。
-/// 删除是破坏性操作，必须走 Modal 二次确认。
-/// 视觉全部走 winui.css 的纯 CSS 类，不依赖 Fluent 组件。
-import { useCallback, useEffect, useState } from 'react'
-import type { CSSProperties } from 'react'
+/// 存档页：对齐 Win 端 SavesPage —— 顶部工具栏（批量操作 + 搜索 + 筛选 + 导入 + 打开目录）
+/// + 满高列表（64px 世界缩略图、名称双行、版本/隔离芯片、两行数据列）。
+///
+/// 缩略图：世界目录里的 icon.png 由桥接 `saves.icon` 读成 data URL 返回
+/// （渲染层读不到文件系统，也不该为图片放开 file:// CSP）。
+import { useCallback, useEffect, useMemo, useState } from 'react'
+
 import { request } from '../bridge'
 import type { SaveInfo, SaveList } from '../bridge'
-import { EmptyState, Modal, PageShell, SkeletonList, useToasts } from '../ui'
+import { EmptyState, SkeletonList, useToasts } from '../ui'
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B'
@@ -19,38 +21,48 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-/** 相对时间比绝对日期更有信息量：刚玩过的存档一眼可辨。 */
-function formatLastPlayed(iso?: string): string {
-  if (!iso) return '从未游玩'
+/** 上次游玩文案（对齐 Win 端：无记录 → 无游玩记录）。 */
+function lastPlayedText(iso?: string): string {
+  if (iso === undefined || iso === null || iso === '') return '无游玩记录'
   const d = new Date(iso)
-  if (isNaN(d.getTime())) return '从未游玩'
-  const diff = Date.now() - d.getTime()
-  const minute = 60_000
-  const hour = 60 * minute
-  const day = 24 * hour
-  if (diff < minute) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
-  if (diff < 30 * day) return `${Math.floor(diff / day)} 天前`
-  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d
-    .getDate()
-    .toString()
-    .padStart(2, '0')}`
+  if (isNaN(d.getTime())) return '无游玩记录'
+  const pad = (n: number): string => n.toString().padStart(2, '0')
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const today = new Date()
+  const dayDiff = Math.floor(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
+      new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
+      86400000
+  )
+  if (dayDiff <= 0) return `今天 ${hm}`
+  if (dayDiff === 1) return `昨天 ${hm}`
+  if (dayDiff < 30) return `${dayDiff} 天前`
+  if (dayDiff < 365) return `${Math.floor(dayDiff / 30)} 个月前`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-export default function SavesPage() {
+export default function SavesPage(): JSX.Element {
   const { push, host } = useToasts()
   const [saves, setSaves] = useState<SaveInfo[]>([])
   const [loading, setLoading] = useState(true)
-  // 待删除目标：非空即代表确认弹窗处于打开态。
-  const [pendingDelete, setPendingDelete] = useState<SaveInfo | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const [icons, setIcons] = useState<Record<string, string>>({})
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState('')
+  const [versionFilter, setVersionFilter] = useState('全部')
+  const [busy, setBusy] = useState(false)
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true)
     try {
       const data = await request<SaveList>('saves.list')
       setSaves(data.saves)
+      // 缩略图逐张取（数量有限；失败就保持占位块）
+      for (const s of data.saves) {
+        if (s.iconPath === undefined || s.iconPath === '') continue
+        void request<{ dataUrl: string }>('saves.icon', { path: s.iconPath })
+          .then((r) => setIcons((prev) => ({ ...prev, [s.folderName]: r.dataUrl })))
+          .catch(() => undefined)
+      }
     } catch (e) {
       push('error', `存档列表读取失败：${String(e)}`)
     }
@@ -61,198 +73,205 @@ export default function SavesPage() {
     void load()
   }, [load])
 
-  async function openFolder(save: SaveInfo): Promise<void> {
+  const versions = useMemo(() => {
+    const set = new Set<string>()
+    for (const s of saves) set.add(s.versionId === '' ? '全局' : s.versionId)
+    return ['全部', ...set]
+  }, [saves])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return saves.filter((s) => {
+      if (q !== '' && !`${s.levelName} ${s.folderName} ${s.versionId}`.toLowerCase().includes(q)) {
+        return false
+      }
+      if (versionFilter !== '全部') {
+        const v = s.versionId === '' ? '全局' : s.versionId
+        if (v !== versionFilter) return false
+      }
+      return true
+    })
+  }, [saves, query, versionFilter])
+
+  const selectedSaves = filtered.filter((s) => selected.has(s.folderName))
+
+  async function openFolder(save?: SaveInfo): Promise<void> {
+    setBusy(true)
     try {
-      await request<{ path: string }>('saves.openFolder', {
-        gameRoot: save.gameRoot,
-        folderName: save.folderName
-      })
-      push('success', `已打开 ${save.levelName} 的存档目录`)
+      await request('saves.openFolder', { gameRoot: save?.gameRoot, folderName: save?.folderName })
+      push('success', save === undefined ? '已打开存档目录' : `已打开 ${save.levelName} 的目录`)
     } catch (e) {
       push('error', `打开目录失败：${String(e)}`)
+    } finally {
+      setBusy(false)
     }
   }
 
-  async function backup(save: SaveInfo): Promise<void> {
+  async function backup(targets: SaveInfo[]): Promise<void> {
+    if (targets.length === 0) {
+      push('info', '先勾选要备份的世界')
+      return
+    }
+    setBusy(true)
     try {
-      const result = await request<{ path: string; sizeBytes: number }>('saves.backup', {
-        gameRoot: save.gameRoot,
-        folderName: save.folderName
-      })
-      push('success', `已备份 ${save.levelName}（${formatBytes(result.sizeBytes)}）`)
+      let total = 0
+      for (const t of targets) {
+        const r = await request<{ sizeBytes: number }>('saves.backup', {
+          gameRoot: t.gameRoot,
+          folderName: t.folderName
+        })
+        total += r.sizeBytes
+      }
+      push('success', `已备份 ${targets.length} 个世界（${formatBytes(total)}）`)
     } catch (e) {
       push('error', `备份失败：${String(e)}`)
+    } finally {
+      setBusy(false)
     }
   }
 
-  async function confirmDelete(): Promise<void> {
-    if (!pendingDelete) return
-    const target = pendingDelete
-    setDeleting(true)
-    try {
-      const result = await request<{ freedBytes: number }>('saves.delete', {
-        gameRoot: target.gameRoot,
-        folderName: target.folderName
-      })
-      push('success', `已删除 ${target.levelName}，释放 ${formatBytes(result.freedBytes)}`)
-      setPendingDelete(null)
-      await load()
-    } catch (e) {
-      push('error', `删除失败：${String(e)}`)
-    } finally {
-      setDeleting(false)
-    }
+  function toggle(folder: string): void {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(folder)) next.delete(folder)
+      else next.add(folder)
+      return next
+    })
   }
+
+  const tplBtn = (
+    label: string,
+    onClick: () => void,
+    opts?: { disabled?: boolean; title?: string }
+  ): JSX.Element => (
+    <button
+      className="btn"
+      disabled={opts?.disabled === true || busy}
+      title={opts?.title ?? label}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  )
 
   return (
-    <>
-      <PageShell
-        title="存档"
-        subtitle={`共 ${saves.length} 个世界（包含各隔离实例）`}
-        actions={
-          <button className="btn btn-subtle" onClick={() => void load()} disabled={loading}>
-            ↻
-          </button>
-        }
+    <div className="page">
+      {/* 工具栏（对齐 Win 端批量操作行） */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          marginBottom: 14,
+          flexWrap: 'wrap',
+          flexShrink: 0
+        }}
       >
-        {loading && <SkeletonList rows={4} />}
-        {!loading && saves.length === 0 && (
-          <EmptyState
-            title="还没有发现存档"
-            hint="启动一次游戏后回到这里，或确认设置里的 .minecraft 目录是否正确。"
-            action={
-              <button className="btn" onClick={() => void load()}>
-                ↻ 重新扫描
-              </button>
-            }
-          />
+        {tplBtn('用其他版本启动', () => push('info', '跨版本启动：需选择版本后可用'), {
+          disabled: true
+        })}
+        {tplBtn('复制到其他版本', () => push('info', '复制存档：内核能力接入后可用'), {
+          disabled: true
+        })}
+        {tplBtn(
+          '备份所选世界',
+          () => void backup(selectedSaves),
+          { disabled: selectedSaves.length === 0, title: '备份勾选的世界' }
         )}
+        {tplBtn('同步到设备…', () => push('info', '设备同步：需登录 Starcloud ID'), {
+          disabled: true
+        })}
+        {tplBtn('分享', () => push('info', '分享：内核能力接入后可用'), { disabled: true })}
+        <div style={{ width: 1, height: 24, background: 'var(--stroke-divider)' }} />
+        <input
+          className="input"
+          style={{ width: 220 }}
+          placeholder="搜索世界 / 版本"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          className="input"
+          style={{ width: 140 }}
+          value={versionFilter}
+          onChange={(e) => setVersionFilter(e.target.value)}
+        >
+          {versions.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <div style={{ flex: 1 }} />
+        {tplBtn('导入分享包', () => push('info', '导入分享包：内核能力接入后可用'), {
+          disabled: true
+        })}
+        {tplBtn('打开存档目录', () => void openFolder())}
+        <button className="btn btn-subtle" onClick={() => void load()} disabled={loading}>
+          ↻
+        </button>
+      </div>
 
-        {!loading && saves.length > 0 && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-              gap: 12,
-              paddingTop: 4
-            }}
-          >
-            {saves.map((save, index) => (
+      {/* 列表卡片：满高、内部滚动 */}
+      <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 12px 12px' }}>
+          {loading && <SkeletonList rows={5} avatar />}
+          {!loading && filtered.length === 0 && (
+            <EmptyState
+              title={saves.length === 0 ? '还没有发现存档' : '没有匹配的世界'}
+              hint={
+                saves.length === 0
+                  ? '启动一次游戏后回到这里，或确认设置里的 .minecraft 目录是否正确。'
+                  : '换个关键词或版本筛选试试。'
+              }
+              action={
+                <button className="btn" onClick={() => void load()}>
+                  ↻ 重新扫描
+                </button>
+              }
+            />
+          )}
+          {filtered.map((s) => {
+            const icon = icons[s.folderName]
+            const checked = selected.has(s.folderName)
+            return (
               <div
-                key={`${save.gameRoot}::${save.folderName}`}
-                className="card glow"
-                style={
-                  {
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    padding: 14,
-                    animation: 'slideUp var(--t-enter) var(--e-enter) both',
-                    animationDelay: `${index * 39}ms`,
-                    '--glow':
-                      'radial-gradient(360px circle at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 65%)'
-                  } as CSSProperties
-                }
+                key={s.gameRoot + '/' + s.folderName}
+                className={`row${checked ? ' row-active' : ''}`}
+                onClick={() => toggle(s.folderName)}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div
-                    className="icon32"
-                    style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', overflow: 'hidden' }}
-                  >
-                    {save.iconPath ? (
-                      <img
-                        src={`file://${save.iconPath}`}
-                        alt=""
-                        width={32}
-                        height={32}
-                        style={{ width: 32, height: 32, borderRadius: 'var(--r-control)', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <span style={{ color: 'var(--accent)' }}>◫</span>
-                    )}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="t-strong truncate">{save.levelName}</div>
-                    <div className="t-meta truncate">{save.folderName}</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span className="chip">{save.versionId}</span>
-                  {save.isolated ? (
-                    <span className="chip">实例独立</span>
+                {/* 64px 世界缩略图（Win 端同尺寸） */}
+                <div
+                  className="icon32"
+                  style={{ width: 64, height: 64, borderRadius: 8, overflow: 'hidden' }}
+                >
+                  {icon !== undefined ? (
+                    <img src={icon} alt="" width={64} height={64} style={{ objectFit: 'cover' }} />
                   ) : (
-                    <span className="chip chip-accent">主目录共享</span>
+                    <span style={{ fontSize: 22, opacity: 0.45 }}>▧</span>
                   )}
                 </div>
-
-                <div style={{ display: 'flex', gap: 14 }}>
-                  <span className="t-meta">{formatBytes(save.sizeBytes)}</span>
-                  <span className="t-meta">{formatLastPlayed(save.lastPlayedAt)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="t-strong truncate">{s.levelName}</div>
+                  <div className="t-meta truncate">{s.folderName}</div>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => void openFolder(save)}
-                  >
-                    ▤ 打开目录
-                  </button>
-                  <button className="btn" onClick={() => void backup(save)}>
-                    ⛁ 备份
-                  </button>
-                  <div style={{ flex: 1 }} />
-                  <button
-                    className="btn btn-subtle btn-danger"
-                    onClick={() => setPendingDelete(save)}
-                    aria-label={`删除 ${save.levelName}`}
-                  >
-                    ✕
-                  </button>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className="chip">{s.versionId === '' ? '全局' : s.versionId}</span>
+                  {s.isolated && <span className="chip">隔离</span>}
+                </div>
+                <div className="meta">
+                  <span className="meta-k">上次游玩</span>
+                  <span className="meta-v">{lastPlayedText(s.lastPlayed)}</span>
+                  <span className="meta-k">大小</span>
+                  <span className="meta-v">{formatBytes(s.sizeBytes)}</span>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </PageShell>
-
-      {/* 删除确认：不可撤销，必须二次确认。 */}
-      <Modal
-        open={pendingDelete !== null}
-        title={`删除存档「${pendingDelete?.levelName ?? ''}」？`}
-        onClose={() => setPendingDelete(null)}
-        width={480}
-        footer={
-          <>
-            <button className="btn" onClick={() => setPendingDelete(null)} disabled={deleting}>
-              取消
-            </button>
-            <button
-              className="btn btn-primary"
-              style={{ background: 'var(--danger)', color: '#fff' }}
-              onClick={() => void confirmDelete()}
-              disabled={deleting}
-            >
-              ✕ {deleting ? '删除中…' : '确认删除'}
-            </button>
-          </>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div className="t-body">
-            这会永久删除目录 {pendingDelete?.folderName}
-            {pendingDelete !== null && ` （约 ${formatBytes(pendingDelete.sizeBytes)}）`}
-            ，且无法撤销。建议先备份。
-          </div>
-          {deleting && (
-            <div className="t-cap" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="spinner" />
-              正在删除，请勿关闭窗口…
-            </div>
-          )}
+            )
+          })}
         </div>
-      </Modal>
+      </div>
+
       {host}
-    </>
+    </div>
   )
 }

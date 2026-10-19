@@ -1,13 +1,17 @@
-/// 下载页：拉取官方版本清单、搜索过滤、异步安装（含进度事件流）。
-/// 安装走「先受理 + 事件推进」的模型：request 立即返回 accepted，进度由
-/// install.progress / install.done / install.failed 三个事件驱动。
-/// 视觉全部走 winui.css 的纯 CSS 类，不依赖 Fluent 组件。
+/// 下载页：对齐 Win 端 DownloadPage —— 左侧子导航（原版游戏 / 社区资源）
+/// + 右侧分段（正式版/快照版/远古版本）+ 搜索 + 缓存 + 两张推荐卡 + 版本列表。
+/// 安装走「先受理 + 事件推进」：request 立即返回，进度由 install.* 事件驱动。
 import { useCallback, useEffect, useMemo, useState } from 'react'
+
 import { onBridgeEvent, request } from '../bridge'
 import type { RemoteVersion, VersionCatalog } from '../bridge'
-import { EmptyState, PageShell, ProgressBar, SkeletonList, useToasts } from '../ui'
+import { EmptyState, ProgressBar, SkeletonList, useToasts } from '../ui'
 
-/** 单个安装任务的进度快照。 */
+import grassIcon from '../assets/mc-icons/natural_grass_block.png'
+import amethystIcon from '../assets/mc-icons/block_of_amethyst.png'
+import cobbleIcon from '../assets/mc-icons/masonry_cobblestone.png'
+import dirtIcon from '../assets/mc-icons/natural_dirt.png'
+
 interface InstallProgress {
   versionId: string
   stage: string
@@ -16,34 +20,72 @@ interface InstallProgress {
   total: number
 }
 
-function isRelease(version: RemoteVersion): boolean {
-  return version.type.toLowerCase() === 'release'
+type Channel = 'release' | 'snapshot' | 'ancient'
+
+const CHANNEL_LABEL: Record<Channel, string> = {
+  release: '正式版',
+  snapshot: '快照版',
+  ancient: '远古版本'
 }
 
-function typeLabel(version: RemoteVersion): string {
-  return version.type.toLowerCase() === 'release' ? '正式版' : '快照版'
+const TYPE_ICON: Record<string, string> = {
+  release: grassIcon,
+  snapshot: amethystIcon,
+  old_beta: cobbleIcon,
+  old_alpha: dirtIcon
 }
 
-function typeColor(version: RemoteVersion): string {
-  return isRelease(version) ? '#6FA852' : '#8A6FD8'
+const TYPE_LABEL: Record<string, string> = {
+  release: '正式版',
+  snapshot: '快照版',
+  old_beta: '远古 Beta',
+  old_alpha: '远古 Alpha'
 }
 
-/** 只取日期部分，发布时间过长且带时区后缀，展示反而噪声。 */
+/** 版本 id → 图标（远古版本按 id 前缀区分 beta/alpha）。 */
+function iconFor(v: RemoteVersion): string {
+  const t = v.type.toLowerCase()
+  if (t === 'old_beta' || t === 'old_alpha') return TYPE_ICON[t]
+  return TYPE_ICON[t] ?? grassIcon
+}
+
+function typeLabel(v: RemoteVersion): string {
+  const t = v.type.toLowerCase()
+  return TYPE_LABEL[t] ?? t
+}
+
+/** 只取日期（发布时间带时区后缀，展示反而噪声）。 */
 function releaseDate(iso?: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (isNaN(d.getTime())) return '—'
-  const two = (n: number) => n.toString().padStart(2, '0')
+  const two = (n: number): string => n.toString().padStart(2, '0')
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`
 }
 
-export default function DownloadPage() {
+function releaseDateTime(iso?: string): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  const two = (n: number): string => n.toString().padStart(2, '0')
+  return `${releaseDate(iso)} ${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
+function channelOf(v: RemoteVersion): Channel {
+  const t = v.type.toLowerCase()
+  if (t === 'old_beta' || t === 'old_alpha') return 'ancient'
+  return t === 'snapshot' ? 'snapshot' : 'release'
+}
+
+export default function DownloadPage(): JSX.Element {
   const { push, host } = useToasts()
   const [catalog, setCatalog] = useState<VersionCatalog>({ remote: [], installed: [] })
   const [loading, setLoading] = useState(true)
   const [keyword, setKeyword] = useState('')
-  const [releaseOnly, setReleaseOnly] = useState(true)
+  const [channel, setChannel] = useState<Channel>('release')
   const [progress, setProgress] = useState<InstallProgress | null>(null)
+  /** 社区资源子页（Mod / 整合包 / 数据包 / 资源包 / 光影包）：Win 端左侧列表 */
+  const [section, setSection] = useState<string>('vanilla')
 
   const installedIds = useMemo(
     () => new Set(catalog.installed.map((i) => i.id)),
@@ -65,7 +107,7 @@ export default function DownloadPage() {
     void load()
   }, [load])
 
-  // 安装进度全部走事件流：request 已返回 accepted，这里只负责渲染与终态收敛。
+  // 安装进度事件流
   useEffect(() => {
     let alive = true
     onBridgeEvent((event, params) => {
@@ -79,15 +121,14 @@ export default function DownloadPage() {
           total: Number(params.total ?? 0)
         })
       } else if (event === 'install.done') {
-        const versionId = String(params.versionId ?? '')
+        const id = String(params.versionId ?? '')
         setProgress(null)
-        push('success', `${versionId} 安装完成`)
+        push('success', `${id} 安装完成`)
         void load()
       } else if (event === 'install.failed') {
-        const versionId = String(params.versionId ?? '')
-        const error = String(params.error ?? '未知错误')
+        const id = String(params.versionId ?? '')
         setProgress(null)
-        push('error', `${versionId} 安装失败：${error}`)
+        push('error', `${id} 安装失败：${String(params.error ?? '未知错误')}`)
         void load()
       }
     })
@@ -101,7 +142,6 @@ export default function DownloadPage() {
 
   async function install(versionId: string): Promise<void> {
     if (busy) return
-    // 先乐观标记，让提示条立刻有内容，随后由事件流覆盖真实进度。
     setProgress({ versionId, stage: '准备中', detail: '', current: 0, total: 0 })
     try {
       await request<{ accepted: boolean }>('install.vanilla', { versionId })
@@ -111,152 +151,218 @@ export default function DownloadPage() {
     }
   }
 
-  const filtered = catalog.remote.filter((v) => {
-    if (releaseOnly && !isRelease(v)) return false
-    if (keyword.trim() !== '' && !v.id.toLowerCase().includes(keyword.trim().toLowerCase())) {
-      return false
-    }
-    return true
-  })
+  // 最新正式版 / 最新预览版（推荐卡）
+  const latestRelease = catalog.remote.find((v) => v.type.toLowerCase() === 'release')
+  const latestSnapshot = catalog.remote.find((v) => v.type.toLowerCase() === 'snapshot')
+
+  const filtered = useMemo(() => {
+    const q = keyword.trim().toLowerCase()
+    return catalog.remote.filter((v) => {
+      if (channelOf(v) !== channel) return false
+      if (q !== '' && !v.id.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [catalog.remote, channel, keyword])
+
+  const subNav: Array<{ id: string; label: string; icon: string; group?: string }> = [
+    { id: 'vanilla', label: '原版游戏', icon: '▣' },
+    { id: 'mod', label: 'Mod', icon: '▦', group: '社区资源' },
+    { id: 'modpack', label: '整合包', icon: '▤' },
+    { id: 'datapack', label: '数据包', icon: '▥' },
+    { id: 'resourcepack', label: '资源包', icon: '🖼' },
+    { id: 'shader', label: '光影包', icon: '☀' }
+  ]
 
   return (
-    <>
-      <PageShell
-        title="下载版本"
-        subtitle={`官方清单 ${catalog.remote.length} 个版本，已安装 ${catalog.installed.length} 个`}
-        actions={
-          <button className="btn btn-subtle" onClick={() => void load()} disabled={loading}>
-            ↻
-          </button>
-        }
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, paddingBottom: 12 }}>
-          <div style={{ width: 320 }}>
-            <div className="t-cap" style={{ marginBottom: 4 }}>
-              搜索版本号
+    <div className="page">
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16 }}>
+        {/* 左侧子导航卡（Win 端 260 宽） */}
+        <div className="card" style={{ width: 240, flexShrink: 0, padding: 8 }}>
+          {subNav.map((item) => (
+            <div key={item.id}>
+              {item.group !== undefined && (
+                <div className="t-cap" style={{ padding: '8px 10px 4px' }}>
+                  {item.group}
+                </div>
+              )}
+              <button
+                className={`nav-item${section === item.id ? ' nav-active' : ''}`}
+                style={{ height: 38, width: '100%' }}
+                onClick={() => {
+                  setSection(item.id)
+                  if (item.id !== 'vanilla') {
+                    push('info', `${item.label}：内容检索接入后可用`)
+                  }
+                }}
+              >
+                <span className="nav-icon" style={{ fontFamily: 'inherit', fontSize: 14 }}>
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* 右侧内容 */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          {/* 顶部：分段 + 搜索 + 缓存 */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+            <div className="seg" style={{ width: 330, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <div
+                className="seg-ind"
+                style={{
+                  width: 'calc(33.333% - 2px)',
+                  transform: `translateX(calc(2px + ${
+                    channel === 'release' ? 0 : channel === 'snapshot' ? 1 : 2
+                  } * 33.333%))`
+                }}
+              />
+              {(['release', 'snapshot', 'ancient'] as Channel[]).map((c) => (
+                <button
+                  key={c}
+                  className={`seg-item${channel === c ? ' seg-active' : ''}`}
+                  onClick={() => setChannel(c)}
+                >
+                  {CHANNEL_LABEL[c]}
+                </button>
+              ))}
             </div>
             <input
               className="input"
-              style={{ width: '100%' }}
+              style={{ flex: 1, minWidth: 0 }}
+              placeholder="搜索版本 ID…"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="例如 1.21"
             />
+            <button className="btn btn-primary btn-sm" onClick={() => void load()} disabled={loading}>
+              缓存
+            </button>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
-            <input
-              type="checkbox"
-              checked={releaseOnly}
-              onChange={(e) => setReleaseOnly(e.target.checked)}
-              style={{ accentColor: 'var(--accent)', width: 15, height: 15 }}
-            />
-            <span className="t-body">只看正式版</span>
-          </label>
-          <div style={{ flex: 1 }} />
-          <span className="t-cap" style={{ paddingBottom: 7 }}>
-            命中 {filtered.length} 条
-          </span>
-        </div>
 
-        {progress && (
-          <div className="info info-info" style={{ marginBottom: 12 }}>
-            <span className="spinner" aria-hidden />
-            <div className="info-body">
-              <div className="t-body">
-                正在安装 {progress.versionId} · {progress.stage}
-                {progress.total > 0 && (
-                  <span style={{ opacity: 0.75 }}>
-                    {' '}
-                    {progress.current}/{progress.total}（{progress.detail}）
-                  </span>
-                )}
-              </div>
-              {progress.total > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  <ProgressBar
-                    value={(progress.current / progress.total) * 100}
-                  />
-                </div>
+          {/* 推荐卡：最新正式版 / 最新预览版 */}
+          {!loading && (latestRelease !== undefined || latestSnapshot !== undefined) && (
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              {[latestRelease, latestSnapshot].map((v, i) =>
+                v === undefined ? null : (
+                  <div
+                    key={v.id}
+                    className="card glow"
+                    style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
+                    onClick={() => setKeyword(v.id)}
+                  >
+                    <div className="icon32" style={{ width: 40, height: 40 }}>
+                      <img src={iconFor(v)} alt="" width={40} height={40} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="t-cap">{i === 0 ? '最新正式版' : '最新预览版'}</div>
+                      <div className="t-strong truncate">{v.id}</div>
+                      <div className="t-meta">发布于 {releaseDateTime(v.releaseTime)}</div>
+                    </div>
+                    <span style={{ opacity: 0.5 }}>›</span>
+                  </div>
+                )
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {loading && <SkeletonList rows={7} />}
-        {!loading && filtered.length === 0 && (
-          <EmptyState
-            title={catalog.remote.length === 0 ? '版本清单为空' : '没有匹配的版本'}
-            hint={
-              catalog.remote.length === 0
-                ? '点右上角刷新按钮重新拉取官方清单。'
-                : '换个关键词，或关掉「只看正式版」再试试。'
-            }
-            action={
-              <button className="btn" onClick={() => void load()}>
-                ↻ 重新拉取
-              </button>
-            }
-          />
-        )}
-
-        {!loading &&
-          filtered.map((version, index) => {
-            const installed = installedIds.has(version.id)
-            const installing = installingId === version.id
-            const color = typeColor(version)
-            const dimmed = busy && !installing
-            return (
-              <div
-                key={version.id}
-                className={`row row-static${installing ? ' row-active' : ''}`}
-                style={{ animationDelay: `${index * 39}ms`, opacity: dimmed ? 0.5 : 1 }}
-              >
-                <div
-                  className="icon32"
-                  style={{ background: `${color}2b`, border: `1px solid ${color}`, color }}
-                >
-                  {installed ? '✓' : version.id[0]?.toUpperCase()}
+          {/* 安装进度条 */}
+          {progress !== null && (
+            <div className="info info-info" style={{ marginBottom: 12 }}>
+              <span className="spinner" aria-hidden />
+              <div className="info-body">
+                <div className="t-body">
+                  正在安装 {progress.versionId} · {progress.stage}
+                  {progress.total > 0 && (
+                    <span style={{ opacity: 0.75 }}>
+                      {' '}
+                      {progress.current}/{progress.total}
+                    </span>
+                  )}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span className="t-strong truncate" style={{ display: 'block' }}>
-                    {version.id}
-                  </span>
-                </div>
-                <span className="t-meta" style={{ color, width: 52 }}>
-                  {typeLabel(version)}
-                </span>
-                <span className="t-meta" style={{ width: 104, textAlign: 'right' }}>
-                  {releaseDate(version.releaseTime)}
-                </span>
-                {installing ? (
-                  <div style={{ width: 150, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <ProgressBar
-                      value={
-                        progress && progress.total > 0
-                          ? Math.min(100, (progress.current / progress.total) * 100)
-                          : undefined
-                      }
-                    />
+                {progress.total > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <ProgressBar value={(progress.current / progress.total) * 100} />
                   </div>
-                ) : installed ? (
-                  <span className="chip chip-accent" style={{ minWidth: 92, justifyContent: 'center' }}>
-                    已安装
-                  </span>
-                ) : (
-                  <button
-                    className="btn btn-primary"
-                    style={{ minWidth: 92 }}
-                    disabled={dimmed}
-                    onClick={() => void install(version.id)}
-                  >
-                    ↓ {installing ? '安装中' : '安装'}
-                  </button>
                 )}
               </div>
-            )
-          })}
-      </PageShell>
+            </div>
+          )}
+
+          {/* 版本列表（满高滚动） */}
+          <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 10px 10px' }}>
+              {loading && <SkeletonList rows={7} avatar />}
+              {!loading && filtered.length === 0 && (
+                <EmptyState
+                  title={catalog.remote.length === 0 ? '版本清单为空' : '没有匹配的版本'}
+                  hint={
+                    catalog.remote.length === 0
+                      ? '点「缓存」重新拉取官方清单（需要网络）。'
+                      : '换个关键词或切换上面的版本类型。'
+                  }
+                  action={
+                    <button className="btn" onClick={() => void load()}>
+                      ↻ 重新拉取
+                    </button>
+                  }
+                />
+              )}
+              {!loading &&
+                filtered.map((v) => {
+                  const installed = installedIds.has(v.id)
+                  const installing = installingId === v.id
+                  const dimmed = busy && !installing
+                  return (
+                    <div
+                      key={v.id}
+                      className={`row row-static${installing ? ' row-active' : ''}`}
+                      style={{ opacity: dimmed ? 0.5 : 1 }}
+                    >
+                      <div className="icon32">
+                        <img src={iconFor(v)} alt="" width={32} height={32} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="t-strong truncate">{v.id}</div>
+                        <div className="t-meta">
+                          {releaseDate(v.releaseTime)} · {typeLabel(v)}
+                        </div>
+                      </div>
+                      {installing ? (
+                        <div style={{ width: 150, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                          <ProgressBar
+                            value={
+                              progress !== null && progress.total > 0
+                                ? Math.min(100, (progress.current / progress.total) * 100)
+                                : undefined
+                            }
+                            indeterminate={progress !== null && progress.total === 0}
+                          />
+                        </div>
+                      ) : installed ? (
+                        <span
+                          className="chip"
+                          style={{ color: 'var(--success)', background: 'transparent', border: 'none' }}
+                        >
+                          已安装
+                        </span>
+                      ) : (
+                        <button
+                          className="btn btn-sm"
+                          disabled={dimmed}
+                          onClick={() => void install(v.id)}
+                        >
+                          ↓ 安装
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        </div>
+      </div>
       {host}
-    </>
+    </div>
   )
 }

@@ -425,6 +425,18 @@ public static class Program
                 return new { ok = true, lastVersion = _settings.LastVersion };
             }
 
+            case "saves.icon":
+            {
+                // 世界缩略图是本地文件，渲染层（Electron）读不到文件系统，
+                // 这里读成 data URL 回传，避免为图片放开 file:// CSP。
+                var iconPath = p.GetProperty("path").GetString()!;
+                var full = LabSafePath(iconPath);
+                var bytes = File.ReadAllBytes(full);
+                var mime = full.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                    ? "image/png" : "image/jpeg";
+                return new { dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}" };
+            }
+
             case "saves.list":
             {
                 var list = _saveLibrary.ListAll(_settings.DotMinecraft, _settings);

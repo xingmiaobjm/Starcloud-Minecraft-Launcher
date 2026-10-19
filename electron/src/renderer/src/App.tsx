@@ -78,7 +78,12 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
           />
         )
       case 'versions':
-        return <VersionsPage />
+        return (
+          <VersionsPage
+            onOpenDetail={(id) => setPage('versions')}
+            onOpenSettings={() => setPage('settings')}
+          />
+        )
       case 'download':
         return <DownloadPage />
       case 'saves':

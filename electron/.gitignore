@@ -1,0 +1,22 @@
+# 依赖与构建产物
+node_modules/
+out/
+release/
+dist/
+.bridge-src/
+bridge-linux-x64/
+bridge-win-x64/
+bridge-osx-x64/
+
+# 打包资源（图标从主仓库复制，不进版本库以免二进制膨胀）
+build/icon.png
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# 本地取证产物
+tools/output/
