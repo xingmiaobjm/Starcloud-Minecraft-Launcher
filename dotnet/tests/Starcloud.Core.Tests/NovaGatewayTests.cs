@@ -309,7 +309,7 @@ public class NovaGatewayTests
     [Fact]
     public void 中转地址与逻辑模型名的约定()
     {
-        Assert.Equal(StarcloudIdService.AiBaseUrl + "/v1/ai", NovaGatewayClient.CloudBaseUrl);
+        Assert.Equal("https://starcloudfur.cn/v1", NovaGatewayClient.CloudBaseUrl);
         Assert.StartsWith("https://", NovaGatewayClient.CloudBaseUrl); // 明文 http 不接受
         Assert.Equal("nova", NovaGatewayClient.DefaultModel);         // 客户端只发逻辑模型名，具体模型由网关选
     }

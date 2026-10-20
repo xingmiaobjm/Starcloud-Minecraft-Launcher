@@ -56,7 +56,7 @@ public sealed class NovaGatewayException(string message, int statusCode, NovaQuo
 public static class NovaGatewayClient
 {
     /// <summary>云端中转路径前缀（宿主 = StarcloudIdService.CloudBaseUrl）。</summary>
-    public const string CloudBaseUrl = StarcloudIdService.AiBaseUrl + "/v1/ai";
+    public const string CloudBaseUrl = StarcloudIdService.AiBaseUrl + "/v1";
 
     /// <summary>逻辑模型名：网关按这个名字选上游模型，客户端的预设里不出现具体模型。</summary>
     public const string DefaultModel = "nova";
@@ -92,7 +92,7 @@ public static class NovaGatewayClient
     /// <summary>用户是否已经接入自己的模型（地址 + Key + 模型齐全）</summary>
     public static bool HasOwnModel(LauncherSettings settings) => settings.ReadyLlmProfile() is not null;
 
-    // ── 额度查询：GET /v1/ai/quota ──
+    // ── 额度查询：GET /v1/quota ──
 
     /// <summary>拉取本周额度；失败返回 null（UI 显示「未知」，不打扰用户）。</summary>
     public static async Task<NovaQuota?> FetchQuotaAsync(string apiKey, CancellationToken ct = default)
@@ -114,7 +114,7 @@ public static class NovaGatewayClient
         }
     }
 
-    // ── 文本对话（一次性返回）：POST /v1/ai/chat/completions ──
+    // ── 文本对话（一次性返回）：POST /v1/chat/completions ──
 
     /// <summary>非流式对话；返回正文。失败抛 <see cref="NovaGatewayException"/>。</summary>
     public static async Task<string> ChatAsync(

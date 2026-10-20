@@ -29,8 +29,8 @@ public sealed class StarcloudIdService
     /// <summary>账号服务地址：登录 / 注册 / 换 API Key</summary>
     public const string AuthBaseUrl = "https://starcloudfur.cn";
 
-    /// <summary>云 AI 助手网关地址（Nova 的 quota / chat 走这里）</summary>
-    public const string AiBaseUrl = "https://api.starcloudfur.cn";
+    /// <summary>云 AI 助手网关地址（OpenAI 兼容，Nova 的 chat / models / quota 都挂在这下面）</summary>
+    public const string AiBaseUrl = "https://starcloudfur.cn";
 
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
