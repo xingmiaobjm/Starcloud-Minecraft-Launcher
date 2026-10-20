@@ -114,13 +114,69 @@ public static class NovaGatewayClient
         }
     }
 
+    // ── 模型列表：GET /v1/models（取第一个可用模型作为对话模型） ──
+
+    /// <summary>已解析的对话模型（按 API Key 缓存：换号/换 Key 会重新拉）</summary>
+    private static string? _modelCache;
+    private static string? _modelCacheKey;
+
+    /// <summary>拉取可用模型 id 列表；失败返回空（调用方回退到逻辑名）。</summary>
+    public static async Task<IReadOnlyList<string>> FetchModelsAsync(
+        string apiKey, CancellationToken ct = default)
+    {
+        var list = new List<string>();
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{CloudBaseUrl}/models");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            using var resp = await Http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return list;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            // OpenAI 兼容：{"data":[{"id":"..."}]}；部分网关直接给数组或 models 字段
+            var root = doc.RootElement;
+            var items = root.ValueKind == JsonValueKind.Array ? root
+                : root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array ? data
+                : root.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array ? models
+                : default;
+            if (items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    var id = item.ValueKind == JsonValueKind.String
+                        ? item.GetString()
+                        : item.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(id)) list.Add(id!);
+                }
+            }
+        }
+        catch
+        {
+            // 取不到就让调用方用逻辑名，不挡对话
+        }
+        return list;
+    }
+
+    /// <summary>对话实际使用的模型：/v1/models 里的第一个；取不到则回退逻辑名 "nova"。</summary>
+    public static async Task<string> ResolveModelAsync(string apiKey, CancellationToken ct = default)
+    {
+        if (_modelCache is not null && _modelCacheKey == apiKey) return _modelCache;
+        var models = await FetchModelsAsync(apiKey, ct);
+        var picked = models.Count > 0 ? models[0] : DefaultModel;
+        _modelCache = picked;
+        _modelCacheKey = apiKey;
+        return picked;
+    }
+
     // ── 文本对话（一次性返回）：POST /v1/chat/completions ──
 
     /// <summary>非流式对话；返回正文。失败抛 <see cref="NovaGatewayException"/>。</summary>
     public static async Task<string> ChatAsync(
-        string apiKey, IReadOnlyList<object> messages, string model = DefaultModel,
+        string apiKey, IReadOnlyList<object> messages, string? model = null,
         int? maxTokens = null, CancellationToken ct = default)
     {
+        // 不指定模型 / 仍是逻辑名 "nova" → 用 /v1/models 里第一个可用的真实模型
+        if (string.IsNullOrEmpty(model) || model == DefaultModel)
+            model = await ResolveModelAsync(apiKey, ct);
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{CloudBaseUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Headers.TryAddWithoutValidation("X-Starcloud-Client", "launcher");
@@ -147,9 +203,11 @@ public static class NovaGatewayClient
     /// </summary>
     public static async IAsyncEnumerable<SseEvent> StreamChatAsync(
         string apiKey, IReadOnlyList<object> messages, object? tools = null,
-        string model = DefaultModel, int? maxTokens = null,
+        string? model = null, int? maxTokens = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        if (string.IsNullOrEmpty(model) || model == DefaultModel)
+            model = await ResolveModelAsync(apiKey, ct);
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{CloudBaseUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Headers.TryAddWithoutValidation("X-Starcloud-Client", "launcher");
