@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Starcloud</title>
+<style>
+  :root{
+    --accent:#FFD322; --ink:#F5F5F5; --sub:#A0A0A0; --line:#2A2A2A;
+    --bg:#111111; --card:#1B1B1B; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"HarmonyOS Sans SC","Noto Sans CJK SC",system-ui,sans-serif;font-weight:500}
+  header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .dot{width:22px;height:22px;border-radius:7px;background:var(--accent)}
+  h1{font-size:16px;margin:0}
+  .ver{font-size:12px;color:var(--sub)}
+  main{padding:16px 18px 24px}
+  h2{font-size:13px;color:var(--sub);font-weight:500;margin:0 0 10px}
+  .row{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+  .row b{font-size:14px;font-weight:500}
+  .row span{font-size:12px;color:var(--sub)}
+  .empty{color:var(--sub);font-size:13px;padding:24px 0;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="dot"></div>
+  <div>
+    <h1>Starcloud</h1>
+    <div class="ver" id="ver">Web UI · 加载中…</div>
+  </div>
+</header>
+<main>
+  <h2>已安装版本</h2>
+  <div id="list" class="empty">读取中…</div>
+</main>
+<script>
+  // 桥在 WebView 里由 addJavascriptInterface 注入；浏览器里调试时不存在，
+  // 这里给出空实现，页面本身不做任何兜底数据。
+  const bridge = window.starcloud || {
+    appInfo: () => JSON.stringify({ version: "dev", platform: "web" }),
+    versions: () => JSON.stringify({ versions: [] }),
+    log: (m) => console.log(m),
+  };
+
+  function fmt(bytes) {
+    if (!bytes) return "未完成";
+    const mb = bytes / 1048576;
+    return mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : mb.toFixed(1) + " MB";
+  }
+
+  try {
+    const info = JSON.parse(bridge.appInfo());
+    document.getElementById("ver").textContent =
+      "Web UI · v" + info.version + " · " + info.platform;
+    bridge.log("web ui ready: " + info.version);
+
+    const data = JSON.parse(bridge.versions());
+    const list = document.getElementById("list");
+    if (!data.versions.length) {
+      list.textContent = "还没有已安装的版本";
+    } else {
+      list.className = "";
+      list.innerHTML = data.versions.map(v =>
+        `<div class="row"><b>${v.id}</b><span>${fmt(v.sizeBytes)}</span></div>`
+      ).join("");
+    }
+  } catch (e) {
+    document.getElementById("list").textContent = "桥接调用失败：" + e.message;
+    bridge.log("bridge error: " + e.message);
+  }
+</script>
+</body>
+</html>

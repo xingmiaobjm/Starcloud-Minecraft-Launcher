@@ -17,6 +17,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Web UI 壳（Phase 0）：同一份 Web 前端在安卓上的容器。
+             不设 launcher 入口，Compose 仍是默认界面；用 adb am start 进入验证。
+             android:name 指向 cn.starcloud.launcher.web.WebUiActivity -->
+        <activity
+            android:name="cn.starcloud.launcher.web.WebUiActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <!-- MC 26.x SDL 后端游戏活动：libSDL3.so 由活动 onCreate 从组件目录按完整路径
              加载；固定横屏 + 全屏，configChanges 防止旋转重建活动（对齐 Uno 壳注册） -->
         <activity
