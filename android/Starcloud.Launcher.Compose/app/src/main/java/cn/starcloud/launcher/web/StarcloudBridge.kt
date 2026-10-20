@@ -62,6 +62,11 @@ class StarcloudBridge(
                 "catalog.versions" -> remoteVersions()
                 "versions.delete" -> deleteVersion(params)
                 "saves.list" -> saves()
+                "saves.delete" -> deleteSave(params)
+                "saves.backup" -> backupSave(params)
+                "version.detail" -> versionDetail(params)
+                "java.list" -> javaList()
+                "accounts.list" -> accountsList()
                 "settings.get" -> settingsGet()
                 "settings.set", "settings.apply" -> settingsWrite(params)
                 "ui.log" -> {
@@ -166,6 +171,118 @@ class StarcloudBridge(
             })
         }
         return JSONObject().put("saves", arr).toString()
+    }
+
+    // ── version.detail：版本 JSON + 实例目录里的内容文件 ──
+    private fun versionDetail(params: JSONObject): String {
+        val id = params.optString("versionId").ifEmpty { params.optString("id") }
+        if (id.isEmpty()) return errorJson("bad-request", "缺少版本 id")
+
+        val versionDir = File(versionsDir, id)
+        val jsonFile = File(versionDir, "$id.json")
+        if (!jsonFile.isFile) return errorJson("not-found", "没有已安装的版本 $id")
+
+        val root = JSONObject()
+        var mc = id
+        var loader = ""
+        try {
+            val json = JSONObject(jsonFile.readText())
+            json.optString("inheritsFrom").takeIf { it.isNotEmpty() }?.let { mc = it }
+            val probe = "$id ${json.optString("mainClass")}".lowercase()
+            loader = when {
+                "neoforge" in probe -> "neoforge"
+                "forge" in probe -> "forge"
+                "quilt" in probe -> "quilt"
+                "fabric" in probe -> "fabric"
+                else -> "vanilla"
+            }
+        } catch (_: Exception) {
+            // JSON 坏了也照样把目录内容列出来，页面至少能看文件
+        }
+
+        return JSONObject().apply {
+            put("versionId", id)
+            put("gameRoot", versionDir.absolutePath)
+            put("isolated", false)
+            put("mcVersion", mc)
+            put("loader", loader)
+            put("mods", contentFiles(File(versionDir, "mods")))
+            put("resourcepacks", contentFiles(File(versionDir, "resourcepacks")))
+            put("shaderpacks", contentFiles(File(versionDir, "shaderpacks")))
+        }.toString()
+    }
+
+    private fun contentFiles(dir: File): JSONArray {
+        val arr = JSONArray()
+        dir.listFiles { f -> f.isFile }?.sortedBy { it.name.lowercase() }?.forEach { f ->
+            val enabled = !f.name.endsWith(".disabled", ignoreCase = true)
+            arr.put(JSONObject().apply {
+                put("fileName", f.name)
+                put("displayName", if (enabled) f.name else f.name.removeSuffix(".disabled"))
+                put("enabled", enabled)
+                put("sizeBytes", f.length())
+                put("path", f.absolutePath)
+            })
+        }
+        return arr
+    }
+
+    // ── java.list：组件目录里的 JRE（组件包由 fetch-components 下载） ──
+    private fun javaList(): String {
+        val arr = JSONArray()
+        File(filesRoot, "components").listFiles { f -> f.isDirectory && f.name.startsWith("jre") }
+            ?.sortedBy { it.name }
+            ?.forEach { jre ->
+                val major = Regex("(\\d+)").find(jre.name)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                arr.put(JSONObject().apply {
+                    put("versionString", jre.name)
+                    put("majorVersion", major)
+                })
+            }
+        return JSONObject().put("runtimes", arr).toString()
+    }
+
+    // ── accounts.list：安卓端目前只有离线账号（设置里的用户名） ──
+    private fun accountsList(): String {
+        val name = LauncherPrefs.playerName(context)
+        val uuid = java.util.UUID.nameUUIDFromBytes("OfflinePlayer:$name".toByteArray()).toString()
+        val accounts = JSONArray().put(JSONObject().apply {
+            put("uuid", uuid)
+            put("name", name)
+            put("type", "offline")
+            put("isDefault", true)
+            put("hasSession", true)
+        })
+        return JSONObject().put("accounts", accounts).put("current", uuid).toString()
+    }
+
+    // ── saves.delete / backups：直接对存档目录动手 ──
+    private fun saveDir(params: JSONObject): File? {
+        val folder = params.optString("folderName").ifEmpty { params.optString("folder") }
+        if (folder.isEmpty() || folder.contains("..")) return null
+        return File(File(File(filesRoot, ".minecraft"), "saves"), folder).takeIf { it.isDirectory }
+    }
+
+    private fun deleteSave(params: JSONObject): String {
+        val dir = saveDir(params) ?: return errorJson("not-found", "找不到该存档")
+        val freed = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        dir.deleteRecursively()
+        return JSONObject().put("ok", !dir.exists()).put("freedBytes", freed).toString()
+    }
+
+    private fun backupSave(params: JSONObject): String {
+        val dir = saveDir(params) ?: return errorJson("not-found", "找不到该存档")
+        val out = File(File(context.cacheDir, "backup"), "${dir.name}-${System.currentTimeMillis()}.zip")
+        out.parentFile?.mkdirs()
+        java.util.zip.ZipOutputStream(out.outputStream().buffered()).use { zip ->
+            dir.walkTopDown().filter { it.isFile }.forEach { f ->
+                val rel = f.relativeTo(dir).path.replace('\\', '/')
+                zip.putNextEntry(java.util.zip.ZipEntry(rel))
+                f.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
+        }
+        return JSONObject().put("ok", true).put("path", out.absolutePath).put("sizeBytes", out.length()).toString()
     }
 
     // ── versions.install：复用 VersionDownloader，进度走 InstallState 轮询 ──

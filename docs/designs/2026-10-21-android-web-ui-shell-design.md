@@ -79,6 +79,11 @@ adb logcat -s StarcloudWeb
 | `catalog.versions` | — | `{remote:[{id,type,url,releaseTime}]}`（缓存优先，离线可列） |
 | `versions.delete` | `{versionId}` | `{deleted,freedBytes,wasDefault}` |
 | `saves.list` | — | `{saves:[{folderName,levelName,gameRoot,versionId,isolated,sizeBytes,lastPlayedAt}]}` |
+| `version.detail` | `{versionId}` | 版本 JSON 摘要 + mods/resourcepacks/shaderpacks 文件列表 |
+| `java.list` | — | `{runtimes:[{versionString,majorVersion}]}`（扫 components/jre*） |
+| `accounts.list` | — | `{accounts:[离线账号],current}`（用户名取自 LauncherPrefs） |
+| `saves.delete` | `{folderName}` | `{ok,freedBytes}` |
+| `saves.backup` | `{folderName}` | `{ok,path,sizeBytes}`（zip 落 cache） |
 | `settings.get` | — | `{gameDir,javaExecutable,maxMemoryMb,downloadSource,playerName,theme,platform}` |
 | `settings.apply` | 同上的子集 | 写入后的完整快照 |
 | `ui.log` | `{message}` | `{}` |
