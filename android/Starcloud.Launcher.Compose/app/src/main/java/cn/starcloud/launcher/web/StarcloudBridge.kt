@@ -6,6 +6,7 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import cn.starcloud.launcher.compose.data.InstallState
 import cn.starcloud.launcher.compose.data.LauncherPrefs
+import cn.starcloud.launcher.compose.data.VersionsRepository
 import cn.starcloud.launcher.compose.data.ManifestRepository
 import cn.starcloud.launcher.compose.data.VersionDownloader
 import cn.starcloud.launcher.compose.game.GameLauncher
@@ -49,7 +50,7 @@ class StarcloudBridge(
 
         // 长任务：先认领 id，再在线程池里跑，结束时（或进度中）自己回推
         when (method) {
-            "versions.install" -> { worker.execute { installVersion(id, params) }; return }
+            "versions.install", "install.vanilla" -> { worker.execute { installVersion(id, params) }; return }
             "launch.start" -> { worker.execute { launchGame(id, params) }; return }
             "install.cancel" -> { InstallState.cancel(); reply(id, "{}"); return }
         }
@@ -57,7 +58,10 @@ class StarcloudBridge(
         val result = try {
             when (method) {
                 "app.info" -> appInfo()
-                "versions.list" -> versions()
+                "versions.list", "catalog.installed" -> versions()
+                "catalog.versions" -> remoteVersions()
+                "versions.delete" -> deleteVersion(params)
+                "saves.list" -> saves()
                 "settings.get" -> settingsGet()
                 "settings.set", "settings.apply" -> settingsWrite(params)
                 "ui.log" -> {
@@ -98,6 +102,70 @@ class StarcloudBridge(
             LauncherPrefs.setMaxMemoryMb(context, params.optInt("maxMemoryMb"))
         }
         return settingsGet()
+    }
+
+    // ── catalog.installed：已安装版本（含类型与时间，渲染层按这些字段排序/标注） ──
+    private fun installedVersions(): String {
+        val repo = VersionsRepository(filesRoot)
+        val arr = JSONArray()
+        repo.list().forEach { v ->
+            arr.put(JSONObject().apply {
+                put("id", v.id)
+                put("type", v.type)
+                put("sizeBytes", v.sizeBytes)
+                put("lastPlayedAt", java.time.Instant.ofEpochMilli(v.lastModified).toString())
+            })
+        }
+        return JSONObject().put("installed", arr).toString()
+    }
+
+    // ── catalog.versions：官方清单（缓存优先，离线也能列出） ──
+    private fun remoteVersions(): String {
+        val repo = ManifestRepository(File(filesRoot, "cache/version_manifest.json"))
+        val list = try { repo.cached() ?: repo.fetch() } catch (e: Exception) { emptyList() }
+        val arr = JSONArray()
+        list.forEach { e ->
+            arr.put(JSONObject().apply {
+                put("id", e.id)
+                put("type", e.type)
+                put("url", e.url)
+                put("releaseTime", e.releaseTime)
+            })
+        }
+        return JSONObject().put("remote", arr).toString()
+    }
+
+    // ── versions.delete：算一下删前大小，删完把释放的字节数回给页面 ──
+    private fun deleteVersion(params: JSONObject): String {
+        val id = params.optString("versionId").ifEmpty { params.optString("id") }
+        if (id.isEmpty()) return errorJson("bad-request", "缺少版本 id")
+        val repo = VersionsRepository(filesRoot)
+        val before = repo.list().firstOrNull { it.id == id }?.sizeBytes ?: 0L
+        repo.remove(id)
+        return JSONObject().apply {
+            put("deleted", !File(repo.versionsDir, id).exists())
+            put("freedBytes", before)
+            put("wasDefault", false)
+        }.toString()
+    }
+
+    // ── saves.list：扫描 .minecraft/saves，字段对齐渲染层的 SaveEntry ──
+    private fun saves(): String {
+        val dir = File(File(filesRoot, ".minecraft"), "saves")
+        val arr = JSONArray()
+        dir.listFiles { f -> f.isDirectory }?.forEach { world ->
+            val size = world.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            arr.put(JSONObject().apply {
+                put("folderName", world.name)
+                put("levelName", world.name)
+                put("gameRoot", File(filesRoot, ".minecraft").absolutePath)
+                put("versionId", "")
+                put("isolated", false)
+                put("sizeBytes", size)
+                put("lastPlayedAt", java.time.Instant.ofEpochMilli(world.lastModified()).toString())
+            })
+        }
+        return JSONObject().put("saves", arr).toString()
     }
 
     // ── versions.install：复用 VersionDownloader，进度走 InstallState 轮询 ──
@@ -181,20 +249,10 @@ class StarcloudBridge(
 
     /** 已安装版本：目录名即实例名，与桌面端版本页同一口径 */
     private fun versions(): String {
-        val arr = JSONArray()
-        versionsDir.takeIf { it.isDirectory }?.listFiles()
-            ?.filter { it.isDirectory && File(it, "${it.name}.json").exists() }
-            ?.sortedBy { it.name.lowercase() }
-            ?.forEach { v ->
-                val jar = File(v, "${v.name}.jar")
-                arr.put(
-                    JSONObject().apply {
-                        put("id", v.name)
-                        put("sizeBytes", if (jar.exists()) jar.length() else 0L)
-                    }
-                )
-            }
-        return JSONObject().put("versions", arr).toString()
+        // catalog.installed 与 versions.list 共用：渲染层读 installed，老页面读 versions
+        val json = JSONObject(installedVersions())
+        val arr = json.getJSONArray("installed")
+        return JSONObject().put("installed", arr).put("versions", arr).toString()
     }
 
     /** 版本号取自 PackageInfo：这个模块没开 BuildConfig 生成 */

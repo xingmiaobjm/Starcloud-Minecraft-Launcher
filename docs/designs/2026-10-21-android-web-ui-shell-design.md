@@ -58,6 +58,8 @@ adb shell am start -n cn.starcloud.launcher.compose/cn.starcloud.launcher.web.We
 adb logcat -s StarcloudWeb
 ```
 
+真机走查脚本：`tools/walkthrough.ps1`（等设备 → 装 APK → 起 Web 壳 → 截屏 + 抓 StarcloudWeb 日志）。
+
 已验证：`gradle :app:assembleDebug` 通过；React 产物在 1280×800 的 Chromium 里能正常渲染首页
 （mock 桥），APK 内含 `assets/web/app/` 14 个条目。**真机走查待设备接入**（当前 `adb devices` 为空）。
 
@@ -70,9 +72,13 @@ adb logcat -s StarcloudWeb
 | --- | --- | --- |
 | `app.info` | — | `{name,version,platform,sdk,root}` |
 | `versions.list` | — | `{versions:[{id,sizeBytes}]}` |
-| `versions.install` | `{id}` | `{ok,id}`；过程推 `install.progress` 事件 |
+| `versions.install` / `install.vanilla` | `{id}` | `{ok,id}`；过程推 `install.progress` 事件 |
 | `launch.start` | `{id,player?}` | `{ok,exitCode}`；`player` 省略时取 `settings.playerName`；过程推 `game.log` / `game.progress` |
 | `install.cancel` | — | `{}` |
+| `catalog.installed` | — | `{installed:[{id,type,sizeBytes,lastPlayedAt}]}`（`versions.list` 为别名） |
+| `catalog.versions` | — | `{remote:[{id,type,url,releaseTime}]}`（缓存优先，离线可列） |
+| `versions.delete` | `{versionId}` | `{deleted,freedBytes,wasDefault}` |
+| `saves.list` | — | `{saves:[{folderName,levelName,gameRoot,versionId,isolated,sizeBytes,lastPlayedAt}]}` |
 | `settings.get` | — | `{gameDir,javaExecutable,maxMemoryMb,downloadSource,playerName,theme,platform}` |
 | `settings.apply` | 同上的子集 | 写入后的完整快照 |
 | `ui.log` | `{message}` | `{}` |
