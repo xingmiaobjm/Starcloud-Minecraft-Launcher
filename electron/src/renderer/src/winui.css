@@ -62,6 +62,9 @@
   --e-control: cubic-bezier(0.16, 1, 0.3, 1);
   --e-fade: cubic-bezier(0.33, 0, 0.67, 1);
 
+  /* 窗口外壳（标题栏 + 左导航）共用底色：两处必须完全一致 */
+  --chrome-bg: rgba(255, 255, 255, 0.028);
+
   /* 磨砂玻璃令牌 */
   --glass-blur: 22px;
   --glass-bg: rgba(255, 255, 255, 0.055);
@@ -247,8 +250,9 @@ input, textarea, .selectable { user-select: text; }
   align-items: stretch;
   /* X11：原生拖拽路径（Wayland 失效时由 titlebar.tsx 的 JS 兜底接管） */
   -webkit-app-region: drag;
-  background: var(--surface-mica-a);
-  border-bottom: 1px solid var(--stroke-subtle);
+  background: var(--chrome-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   position: relative;
   z-index: 30;
 }
@@ -391,7 +395,7 @@ input, textarea, .selectable { user-select: text; }
   /* 左导航也走磨砂：与 Win 端 NavigationView 在 Mica 上的观感一致 */
   -webkit-backdrop-filter: blur(18px) saturate(140%);
   backdrop-filter: blur(18px) saturate(140%);
-  background: rgba(255, 255, 255, 0.028);
+  background: var(--chrome-bg);
   width: 48px;
   flex-shrink: 0;
   display: flex;

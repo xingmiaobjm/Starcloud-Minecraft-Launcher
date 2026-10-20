@@ -135,6 +135,11 @@ export default function HomePage(props: {
   const [selected, setSelected] = useState<string | undefined>()
   const [mode, setMode] = useState<Mode>('offline')
   const [error, setError] = useState('')
+  /** 两张卡的收起态（对齐 Win 0.3.5：收起后合成底部工具条） */
+  const [versionsCollapsed, setVersionsCollapsed] = useState(false)
+  const [accountCollapsed, setAccountCollapsed] = useState(false)
+  /** 收起态里版本选择下拉是否展开 */
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [gameDir, setGameDir] = useState('')
   const [avatarFailed, setAvatarFailed] = useState(false)
@@ -225,6 +230,15 @@ export default function HomePage(props: {
     }
   ])
 
+  /** 任一卡收起 → 进入底部工具条形态（Win 0.3.5 的收起态）。 */
+  const compact = versionsCollapsed || accountCollapsed
+
+  function expandCards(): void {
+    setVersionsCollapsed(false)
+    setAccountCollapsed(false)
+    setPickerOpen(false)
+  }
+
   const statusColor = running
     ? 'var(--success)'
     : session.launching
@@ -241,7 +255,9 @@ export default function HomePage(props: {
         </h1>
       </div>
 
-      {/* 满高两栏：卡片撑满窗口高度、列表在卡内滚动（对齐 Win 端 HomePage） */}
+      {/* 满高两栏：卡片撑满窗口高度、列表在卡内滚动（对齐 Win 端 HomePage）。
+          收起态（任一卡收起）时整块让位给底部工具条。 */}
+      {!compact && (
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 24 }}>
           {/* ── 左栏（*）：启动自检 → 版本列表 ── */}
           <div
@@ -253,6 +269,13 @@ export default function HomePage(props: {
                 <span className="card-title">已安装版本</span>
                 <span className="chip">{installed.length}</span>
                 <div style={{ flex: 1 }} />
+                <button
+                  className="btn btn-subtle btn-sm"
+                  title={versionsCollapsed ? '展开版本列表' : '收起版本列表'}
+                  onClick={() => setVersionsCollapsed((v) => !v)}
+                >
+                  {versionsCollapsed ? '⌄' : '⌃'}
+                </button>
                 <button
                   className="btn btn-subtle btn-sm"
                   onClick={() => void reload()}
@@ -505,16 +528,132 @@ export default function HomePage(props: {
                     color: 'var(--text-on-accent)',
                     fontSize: 16
                   }}
-                  onClick={() =>
-                    push('info', '更多启动方式：调试启动 / 演示模式等，接入后可用')
-                  }
+                  onClick={() => setAccountCollapsed((v) => !v)}
                 >
-                  ⌄
+                  {accountCollapsed ? '⌃' : '⌄'}
                 </button>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {/* 收起态：底部工具条（版本选择 + 启动 + 展开），对齐 Win 0.3.5 */}
+      {compact && (
+        <div
+          className="home-dock"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'flex-end',
+            gap: 12,
+            paddingBottom: 4,
+            position: 'relative'
+          }}
+        >
+          {/* 版本选择 */}
+          <div style={{ position: 'relative' }}>
+            <button
+              className="card"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                height: 62,
+                paddingLeft: 14,
+                paddingRight: 14,
+                minWidth: 260,
+                cursor: 'pointer'
+              }}
+              onClick={() => setPickerOpen((v) => !v)}
+            >
+              <div className="icon32">
+                {selected !== undefined && (
+                  <img src={iconFor({ id: selected, loader: installed.find((v) => v.id === selected)?.loader, type: installed.find((v) => v.id === selected)?.type })} alt="" width={32} height={32} />
+                )}
+              </div>
+              <span className="t-strong truncate" style={{ flex: 1, textAlign: 'left' }}>
+                {selected ?? '未选择版本'}
+              </span>
+              <span style={{ opacity: 0.6 }}>⌄</span>
+            </button>
+
+            {pickerOpen && (
+              <div
+                className="flyout"
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: 0,
+                  marginBottom: 8,
+                  width: 320,
+                  maxHeight: 320,
+                  overflowY: 'auto',
+                  zIndex: 60
+                }}
+              >
+                {installed.map((v) => (
+                  <button
+                    key={v.id}
+                    className={`nav-item${v.id === selected ? ' nav-active' : ''}`}
+                    style={{ height: 36, width: '100%' }}
+                    onClick={() => {
+                      setSelected(v.id)
+                      setPickerOpen(false)
+                    }}
+                  >
+                    <span className="truncate">{v.id}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 启动 + 展开 */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-primary"
+              style={{
+                width: 300,
+                height: 62,
+                borderRadius: 'var(--r-control)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+                fontSize: 16,
+                fontWeight: 700
+              }}
+              disabled={!canLaunch}
+              onClick={() => {
+                if (selected === undefined || account === undefined) return
+                void session.launch({
+                  versionId: selected,
+                  playerName: account.name,
+                  accountUuid: account.uuid,
+                  loginMode: MODE_LABEL[mode]
+                })
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                ▶ {session.launching ? '启动中…' : running ? '游戏运行中' : '启动游戏'}
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.72 }}>
+                {selected ?? '未选择版本'}
+              </span>
+            </button>
+            <button
+              className="btn"
+              title="展开"
+              style={{ width: 62, height: 62, borderRadius: 'var(--r-control)', fontSize: 16 }}
+              onClick={expandCards}
+            >
+              ⌃
+            </button>
+          </div>
+        </div>
+      )}
 
         {/* 运行日志不放在首页：Win 端首页没有日志区，且启动时日志卡出现会挤压
             两栏布局（用户看到账户卡被"拉大"）。日志在「运行状态 / 启动器日志」页。 */}
