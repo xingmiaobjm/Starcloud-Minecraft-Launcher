@@ -101,6 +101,55 @@ public static class InstanceActions
         }
     }
 
+    /// <summary>
+    /// 同一个游戏版本重复安装时，给新副本起名（默认 <c>id-2</c>）。
+    /// <para>版本名就是目录名，也是版本 JSON 里的 id；重名会让两份实例互相顶掉，
+    /// 所以这里在下载开始前就把「非空 / 不含路径非法字符 / 目录里还没有」校验掉。
+    /// 用户取消返回 null。</para>
+    /// </summary>
+    public static async Task<string?> AskInstanceNameAsync(XamlRoot xamlRoot, string dotMc, string id)
+    {
+        var versionsDir = Path.Combine(dotMc, "versions");
+        var suggested = id;
+        for (var i = 2; ; i++)
+        {
+            suggested = $"{id}-{i}";
+            if (!Directory.Exists(Path.Combine(versionsDir, suggested))) break;
+        }
+
+        var box = new TextBox { PlaceholderText = Loc.T("新实例的名称"), Text = suggested };
+        var hint = new TextBlock { FontSize = 12, Opacity = 0.7 };
+        var dlg = new ThemedDialog
+        {
+            Title = Loc.T("「{0}」已经安装过", id),
+            Content = new StackPanel { Spacing = 8, Children = { box, hint } },
+            PrimaryButtonText = Loc.T("新建实例"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = xamlRoot,
+        };
+
+        void Validate()
+        {
+            var name = box.Text.Trim();
+            var error =
+                name.Length == 0 ? Loc.T("名称不能为空") :
+                !InstanceLayout.IsValidVersionId(name) ? Loc.T("不能包含 < > : \" / \\ | ? *") :
+                Directory.Exists(Path.Combine(versionsDir, name)) ? Loc.T("这个名字已经被占用了") :
+                "";
+            hint.Text = error.Length == 0
+                ? Loc.T("新实例与原来的那份互不影响：设置、模组、存档都可以各用各的。")
+                : error;
+            dlg.IsPrimaryButtonEnabled = error.Length == 0;
+        }
+
+        box.TextChanged += (_, _) => Validate();
+        Validate();
+
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return null;
+        return box.Text.Trim();
+    }
+
     /// <summary>错误提示（重命名/复制失败统一弹窗）。</summary>
     public static async Task ShowErrorAsync(XamlRoot xamlRoot, string title, Exception error)
     {

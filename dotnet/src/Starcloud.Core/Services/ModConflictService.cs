@@ -11,7 +11,8 @@ namespace Starcloud.Core.Services;
 /// <summary>mods 目录中的单个模组 jar（Loader: fabric/quilt/forge/unknown，多加载器混合包含 "+"）</summary>
 public sealed record ModFileInfo(
     string FileName, string FullPath, long SizeBytes, DateTime ModifiedAt,
-    string? ModId, string? ModName, string? ModVersion, string Loader, string? Error = null);
+    string? ModId, string? ModName, string? ModVersion, string Loader,
+    string? GameVersion = null, string? Error = null);
 
 /// <summary>一个冲突（Files 为涉及的文件名）</summary>
 public sealed record ModConflict(string Kind, string Detail, string Suggestion, List<string> Files);
@@ -81,7 +82,7 @@ public sealed class ModConflictService
                      .Where(f => f.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)))
         {
             ct.ThrowIfCancellationRequested();
-            mods.Add(ReadJar(file));
+            mods.Add(Read(file));
         }
 
         var conflicts = BuildConflicts(mods);
@@ -141,14 +142,18 @@ public sealed class ModConflictService
     }
 
     // ── jar 元数据解析 ──
-    private static ModFileInfo ReadJar(string path)
+    /// <summary>
+    /// 读取单个 jar 的 mod 元数据。冲突扫描与「模组管理」列表共用：
+    /// 后者要用 ModName / ModVersion / GameVersion 把文件名换成人能读的卡片。
+    /// </summary>
+    public static ModFileInfo Read(string path)
     {
         var fi = new FileInfo(path);
         try
         {
             using var jar = ZipFile.OpenRead(path);
 
-            string? id = null, name = null, version = null;
+            string? id = null, name = null, version = null, gameVersion = null;
             var loader = "unknown";
             var hasFabricMeta = jar.GetEntry("fabric.mod.json") is not null;
             var hasForgeMeta = jar.GetEntry("META-INF/mods.toml") is not null
@@ -157,11 +162,13 @@ public sealed class ModConflictService
             if (hasFabricMeta)
             {
                 (id, name, version) = ParseFabricJson(jar.GetEntry("fabric.mod.json")!);
+                gameVersion = FabricMinecraftRange(jar.GetEntry("fabric.mod.json")!);
                 loader = hasForgeMeta ? "fabric+forge" : "fabric";
             }
             else if (jar.GetEntry("quilt.mod.json") is { } quilt)
             {
                 (id, name, version) = ParseQuiltJson(quilt);
+                gameVersion = QuiltMinecraftRange(quilt);
                 loader = "quilt";
             }
             else if (hasForgeMeta)
@@ -169,11 +176,14 @@ public sealed class ModConflictService
                 (id, name, version) = jar.GetEntry("META-INF/mods.toml") is { } toml
                     ? ParseModsToml(toml)
                     : ParseMcModInfo(jar.GetEntry("mcmod.info")!);
+                gameVersion = jar.GetEntry("META-INF/mods.toml") is { } toml2
+                    ? TomlMinecraftRange(toml2)
+                    : McModInfoGameVersion(jar.GetEntry("mcmod.info")!);
                 loader = "forge";
             }
 
             return new ModFileInfo(fi.Name, path, fi.Length, fi.LastWriteTime,
-                id, name, version, loader,
+                id, name, version, loader, gameVersion,
                 id is null && !hasFabricMeta && !hasForgeMeta && jar.GetEntry("quilt.mod.json") is null
                     ? "未识别到 mod 元数据（可能是前置库）"
                     : null);
@@ -181,9 +191,120 @@ public sealed class ModConflictService
         catch (Exception ex)
         {
             return new ModFileInfo(fi.Name, path, fi.Length, fi.LastWriteTime,
-                null, null, null, "unknown", ex.Message);
+                null, null, null, "unknown", Error: ex.Message);
         }
     }
+
+    /// <summary>fabric.mod.json 的 depends.minecraft（字符串或字符串数组）</summary>
+    private static string? FabricMinecraftRange(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadEntryText(entry));
+            return doc.RootElement.TryGetProperty("depends", out var dep) &&
+                   dep.ValueKind == JsonValueKind.Object &&
+                   dep.TryGetProperty("minecraft", out var mc)
+                ? JoinVersions(mc)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>quilt.mod.json 的 quilt_loader.depends 里 id=minecraft 的 versions</summary>
+    private static string? QuiltMinecraftRange(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadEntryText(entry));
+            if (!doc.RootElement.TryGetProperty("quilt_loader", out var ql) ||
+                !ql.TryGetProperty("depends", out var deps) ||
+                deps.ValueKind != JsonValueKind.Array)
+                return null;
+            foreach (var dep in deps.EnumerateArray())
+            {
+                if (dep.ValueKind == JsonValueKind.Object &&
+                    dep.TryGetProperty("id", out var id) &&
+                    string.Equals(id.GetString(), "minecraft", StringComparison.OrdinalIgnoreCase) &&
+                    dep.TryGetProperty("versions", out var versions))
+                    return JoinVersions(versions);
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>mods.toml / neoforge.mods.toml 里 [[dependencies.*]] 段中 modId="minecraft" 的 versionRange</summary>
+    private static string? TomlMinecraftRange(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var sr = new StreamReader(entry.Open());
+            var inDeps = false;
+            string? modId = null, range = null;
+            while (sr.ReadLine() is { } line)
+            {
+                var t = line.Trim();
+                if (t.StartsWith("[["))
+                {
+                    if (inDeps && modId is not null && range is not null) break;
+                    inDeps = t.Contains("dependencies", StringComparison.OrdinalIgnoreCase);
+                    modId = null;
+                    range = null;
+                    continue;
+                }
+                if (!inDeps || t.StartsWith('#') || t.StartsWith('[')) continue;
+                var eq = t.IndexOf('=');
+                if (eq <= 0) continue;
+                var key = t[..eq].Trim();
+                var val = t[(eq + 1)..].Trim().Trim('"', '\'');
+                if (key == "modId") modId = val;
+                else if (key == "versionRange") range = val;
+            }
+            return modId is not null &&
+                   string.Equals(modId, "minecraft", StringComparison.OrdinalIgnoreCase)
+                ? range
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? McModInfoGameVersion(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadEntryText(entry));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+                return null;
+            var first = doc.RootElement[0];
+            return first.TryGetProperty("mcversion", out var v) && v.ValueKind == JsonValueKind.String
+                ? v.GetString()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>把 "1.20.1" / ["1.20","1.20.1"] 统一成一行可读文本</summary>
+    private static string? JoinVersions(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Array => string.Join(" / ", element.EnumerateArray()
+            .Where(v => v.ValueKind == JsonValueKind.String)
+            .Select(v => v.GetString())
+            .Where(v => !string.IsNullOrWhiteSpace(v))),
+        _ => null,
+    };
 
     private static (string? Id, string? Name, string? Version) ParseFabricJson(ZipArchiveEntry entry)
     {

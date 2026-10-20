@@ -1,21 +1,22 @@
-; Starcloud Minecraft Launcher - NSIS installer script
+; Starcloud Minecraft Launcher - 自定义单窗口安装器
 ;
-; 编译（源码是 UTF-8 无 BOM，必须显式声明输入字符集，否则中文按 ANSI 误读成乱码）：
-;   makensis /INPUTCHARSET UTF8 ^
-;     /DPRODUCT_VERSION=0.2.1 /DPRODUCT_VERSION4=0.2.1.0 ^
-;     /DSRCDIR=<publish 目录> /DOUTFILE=<输出 exe> /DAPPICON=<AppIcon.ico> ^
-;     tools\installer.nsi
-; 日常不用手敲：tools\build-installer.ps1 会带上全部参数。
+; 形态：一个无边框窗口，三态切换（安装前 → 安装中 → 完成），不再使用 MUI 向导。
+; 界面由 tools/gen-installer-ui.py 生成的三档 DPI 位图打底，交互控件叠在上面：
+;   - 标题栏 / 关闭 / 最小化 / 拖拽：透明 STATIC 热区
+;   - 安装位置：无边框 EDIT + 自绘文件夹按钮
+;   - 复选框：自绘位图 STATIC（勾选态换图）
+;   - 进度条：原生 msctls_progress32（品牌黄）
+; 安装动作在本页的点击回调里直接完成，所以没有独立的 instfiles 页。
 ;
-; 形态：unpackaged + self-contained（WindowsPackageType=None），
-; 因此安装器只做「整目录铺文件 + 快捷方式 + 卸载登记」，不涉及 MSIX / 依赖安装。
+; 编译：makensis /INPUTCHARSET UTF8 /DSRCDIR=... /DOUTFILE=...
+; 日常用 tools\build-installer.ps1（会先生成 installer-payload.nsh）。
 
 Unicode true
 ManifestDPIAware true
 ManifestDPIAwareness PerMonitorV2
 SetCompressor /SOLID lzma
 
-; ── 编译期入参（缺省值仅用于脚本自检，正式打包由 build-installer.ps1 注入）──
+; ── 编译期入参 ──
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "0.0.0"
 !endif
@@ -37,51 +38,23 @@ SetCompressor /SOLID lzma
 !define MAIN_EXE "Starcloud.App.exe"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 !define APP_KEY "Software\${MANUFACTURER}\${PRODUCT_NAME}"
-; 用户数据（卸载时可选删除，见 un.PageDeleteData）
 !define DATA_DIR "$APPDATA\starcloud-launcher"
 !define LOG_DIR "$LOCALAPPDATA\Starcloud"
 
-; ── MUI 外观 ──
-!define MUI_ICON "${APPICON}"
-!define MUI_UNICON "${APPICON}"
-!define MUI_ABORTWARNING
-
-; ── 品牌安装界面（位图由 tools/gen-installer-assets.py 生成） ──
-!define MUI_WELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\installer-assets\welcome.bmp"
-!define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "${__FILEDIR__}\installer-assets\header.bmp"
-!define MUI_WELCOMEPAGE_TITLE "欢迎安装 Starcloud"
-!define MUI_WELCOMEPAGE_TEXT "本向导将把 Starcloud Minecraft Launcher 安装到你的电脑。$\r$\n这是开发版 ${PRODUCT_VERSION}：安装不需要管理员权限，也不会修改系统设置。"
-!define MUI_FINISHPAGE_TITLE "Starcloud 已就绪"
-!define MUI_FINISHPAGE_TEXT "安装完成，开始菜单里已经放好快捷方式。$\r$\n开发版 ${PRODUCT_VERSION}"
-!define MUI_FINISHPAGE_NOAUTOCLOSE
-!define MUI_FINISHPAGE_RUN
-!define MUI_FINISHPAGE_RUN_FUNCTION RunApp
-!define MUI_FINISHPAGE_RUN_TEXT "立即运行 Starcloud"
-!define MUI_FINISHPAGE_SHOWREADME
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "创建桌面快捷方式"
-!define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
-
-; 安装引导动画：品牌画面淡入 → 停留 → 淡出（NSIS 原生只能是静态帧 + 淡入淡出）。
-; MUI2 自己已经占用了 .onGUIInit，必须走它的挂钩，不能自己再定义同名函数。
-; 这个 define 必须在 !include MUI2.nsh 之前：Interface.nsh 在 include 时就会
-; 用 !ifdef 检查它，放到后面会「编译通过但动画静默消失」。
-!define MUI_CUSTOMFUNCTION_GUIINIT StarcloudGuiInit
-
-!include MUI2.nsh
-; 守卫：如果上面的 define 被挪到 include 之后，这里立刻报错，而不是静默丢动画
-!ifndef MUI_CUSTOMFUNCTION_GUIINIT
-  !error "MUI_CUSTOMFUNCTION_GUIINIT 未在 !include MUI2.nsh 之前定义，启动动画不会显示"
-!endif
+!include LogicLib.nsh
+!include WinMessages.nsh
+!include nsDialogs.nsh
 !include FileFunc.nsh
 !include x64.nsh
+!include "${__FILEDIR__}\installer-assets\ui\layout.nsh"
 
 Name "${PRODUCT_NAME}"
-BrandingText "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "${OUTFILE}"
-; 免管理员：整个安装过程只写当前用户的目录与注册表
 RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\Programs\Starcloud"
+XPStyle on
+ShowInstDetails nevershow
+BrandingText " "
 
 VIProductVersion "${PRODUCT_VERSION4}"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
@@ -91,86 +64,450 @@ VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "LegalCopyright" "${MANUFACTURER}"
 
-; ── 页面 ──
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
-!insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
+Icon "${APPICON}"
+UninstallIcon "${APPICON}"
 
-!insertmacro MUI_UNPAGE_CONFIRM
-UninstPage custom un.PageDeleteData un.PageDeleteDataLeave
-!insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_UNPAGE_FINISH
+Var Scale
+Var WinW
+Var WinH
+Var FontH
 
-!insertmacro MUI_LANGUAGE "SimpChinese"
+Var hPage
+Var hBg
+Var hBmpInstall
+Var hBmpProgress
+Var hBmpDone
+Var hBmpUninstall
+Var hBmpUninstalling
+Var hBmpChkOn
+Var hBmpChkOff
 
-Var AppRunningDialogTitle
-Var DeleteAppDataCheckbox
-Var DeleteAppDataState
+Var hDrag
+Var hMin
+Var hClose
+Var hBmpTitle
+Var hBmpMin
+Var hBmpClose
+Var hBmpFolder
+Var hBmpBtnInstall
+Var hBmpBtnDone
+Var hBmpBtnUninstall
+Var hEdit
+Var hBtnPath
+Var hBtnMain
+Var hChkAgree
+Var hChkCustom
+Var hChkRun
+Var hChkData
+Var hProgress
 
-Function StarcloudGuiInit
-  ; advsplash 在运行期才读图片文件，必须先把位图释放到 $PLUGINSDIR：
-  ; 直接写编译机上的绝对路径只有开发机能看到，装到别人机器上就是白屏。
-  ; 另注意它要求传「不带 .bmp 后缀」的路径，带了会直接返回 -1（错误）。
-  InitPluginsDir
-  File /oname=$PLUGINSDIR\splash.bmp "${__FILEDIR__}\installer-assets\splash.bmp"
+Var State
+Var Agree
+Var WantCustom
+Var WantRun
+Var DelData
+Var DoneBytes
 
-  ; advsplash::show 会一直阻塞到动画结束才返回，所以任何窗口 z 序调整都必须
-  ; 在它之前做完（之后再改，splash 已经销毁，等于无效）。安装包不是前台窗口
-  ; 时 splash 会被浏览器/聊天软件整个盖住，用户一点都看不到，先把向导提上来。
-  ${If} $HWNDPARENT != 0
-    System::Call 'user32::SetForegroundWindow(i $HWNDPARENT)'
+; 载荷清单必须在 Var 之后包含：生成的文件里用到 $DoneBytes
+!if /FileExists "${__FILEDIR__}\installer-payload.nsh"
+  !include "${__FILEDIR__}\installer-payload.nsh"
+!else
+  !error "installer-payload.nsh 未生成：请用 tools\build-installer.ps1 打包"
+!endif
+
+Page custom UiPage UiPageLeave
+Page instfiles
+
+UninstPage custom un.UiPage un.UiPageLeave
+
+; ── 通用：窗口与缩放 ──
+
+Function PrepWindow
+  System::Call 'user32::GetDpiForWindow(i $HWNDPARENT) i .r0'
+  ${If} $0 < 48
+    StrCpy $0 96
   ${EndIf}
+  IntOp $Scale $0 * 100
+  IntOp $Scale $Scale / 96
+  IntOp $WinW ${UI_W} * $Scale
+  IntOp $WinW $WinW / 100
+  IntOp $WinH ${UI_H} * $Scale
+  IntOp $WinH $WinH / 100
+  IntOp $FontH 15 * $Scale
+  IntOp $FontH $FontH / 100
 
-  advsplash::show 1800 400 500 -1 "$PLUGINSDIR\splash"
-  Pop $0
+  ; 去掉标题栏：CAPTION|SYSMENU|THICKFRAME|MIN|MAX，再补 WS_POPUP
+  System::Call 'user32::GetWindowLong(i $HWNDPARENT, i -16) i .r1'
+  IntOp $0 $0 & 0xFF30FFFF
+  IntOp $0 $0 | 0x80000000
+  System::Call 'user32::SetWindowLong(i $HWNDPARENT, i -16, i r0)'
+  System::Call 'user32::SetWindowPos(i $HWNDPARENT, i 0, i 0, i 0, i 0, i 0, i 0x0002|0x0004|0x0020)'
+  System::Call 'user32::SetClassLongW(i $HWNDPARENT, i -26, i 0x00020000)'  ; CS_DROPSHADOW
+
+  ; 居中
+  System::Call 'user32::GetSystemMetrics(i 0) i .r2'
+  System::Call 'user32::GetSystemMetrics(i 1) i .r3'
+  IntOp $4 $2 - $WinW
+  IntOp $4 $4 / 2
+  IntOp $5 $3 - $WinH
+  IntOp $5 $5 / 2
+  System::Call 'user32::SetWindowPos(i $HWNDPARENT, i 0, i r4, i r5, i $WinW, i $WinH, i 0x0004|0x0010)'
+
+  ; 圆角窗口（半径 18 逻辑像素）
+  IntOp $6 $WinW + 1
+  IntOp $7 $WinH + 1
+  IntOp $8 18 * $Scale
+  IntOp $8 $8 / 100
+  System::Call 'gdi32::CreateRoundRectRgn(i 0, i 0, i r6, i r7, i r8, i r8) i .r9'
+  System::Call 'user32::SetWindowRgn(i $HWNDPARENT, i r9, i 1)'
 FunctionEnd
 
-Function .onInit
-  ; 产物是 win-x64 自包含，32 位系统直接拒绝而不是装出一堆跑不起来的文件
-  ${IfNot} ${RunningX64}
-    MessageBox MB_ICONSTOP "Starcloud 仅支持 64 位 Windows。"
+Function FillPage
+  ; 隐藏向导自带的按钮条，并让页面铺满整个客户区
+  GetDlgItem $0 $HWNDPARENT 1
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 2
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 3
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
+  System::Call 'user32::SetWindowPos(i $hPage, i 0, i 0, i 0, i $WinW, i $WinH, i 0x0004)'
+FunctionEnd
+
+; 热区 = 背景同位置裁剪出来的位图：STATIC 自带底色，只有贴图才能和底图一致
+!macro HitArea hwnd bmp
+  Pop ${hwnd}
+  SendMessage ${hwnd} 0x172 0 ${bmp}
+!macroend
+
+!macro Sc x y w h
+  IntOp $R0 ${x} * $Scale
+  IntOp $R0 $R0 / 100
+  IntOp $R1 ${y} * $Scale
+  IntOp $R1 $R1 / 100
+  IntOp $R2 ${w} * $Scale
+  IntOp $R2 $R2 / 100
+  IntOp $R3 ${h} * $Scale
+  IntOp $R3 $R3 / 100
+!macroend
+
+Function LoadUiAssets
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  ${If} $Scale >= 190
+    File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
+  ${ElseIf} $Scale >= 140
+    File /r "${__FILEDIR__}\installer-assets\ui\150\*.*"
+  ${Else}
+    File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+  ${EndIf}
+
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-install.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpInstall $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-progress.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpProgress $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-done.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpDone $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-on.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpChkOn $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-off.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpChkOff $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-title.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpTitle $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-min.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpMin $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-close.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpClose $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-folder.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpFolder $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-btn-install.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpBtnInstall $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-btn-done.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpBtnDone $0
+FunctionEnd
+
+Function un.LoadUninstallAssets
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  ${If} $Scale >= 190
+    File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
+  ${ElseIf} $Scale >= 140
+    File /r "${__FILEDIR__}\installer-assets\ui\150\*.*"
+  ${Else}
+    File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+  ${EndIf}
+
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-uninstall.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpUninstall $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-uninstalling.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpUninstalling $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-on.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpChkOn $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-off.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpChkOff $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-title.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpTitle $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-min.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpMin $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-close.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpClose $0
+  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-btn-uninstall.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $hBmpBtnUninstall $0
+FunctionEnd
+; ── 控件创建 ──
+
+Function CreateChrome
+  ; 背景（最底层）
+  nsDialogs::CreateControl STATIC 0x5000000E 0 0 0 $WinW $WinH ""
+  Pop $hBg
+
+  ; 标题栏拖拽区
+  !insertmacro Sc ${UI_DRAG_X} ${UI_DRAG_Y} ${UI_DRAG_W} ${UI_DRAG_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hDrag $hBmpTitle
+  ${NSD_OnClick} $hDrag OnDrag
+
+  !insertmacro Sc ${UI_MIN_X} ${UI_MIN_Y} ${UI_MIN_W} ${UI_MIN_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hMin $hBmpMin
+  ${NSD_OnClick} $hMin OnMinimize
+
+  !insertmacro Sc ${UI_CLOSE_X} ${UI_CLOSE_Y} ${UI_CLOSE_W} ${UI_CLOSE_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hClose $hBmpClose
+  ${NSD_OnClick} $hClose OnClose
+FunctionEnd
+
+Function CreateCheckbox
+  ; 入参：$R0..$R3 位置，$R4 位图句柄；返回 $R5
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  Pop $R5
+  SendMessage $R5 0x172 0 $R4
+FunctionEnd
+
+; ── 安装页 ──
+
+Function UiPage
+  StrCpy $State "install"
+  StrCpy $Agree 0
+  StrCpy $WantCustom 0
+  StrCpy $WantRun 0
+
+  Call PrepWindow
+
+  nsDialogs::Create 0
+  Pop $hPage
+  ${If} $hPage == error
     Abort
   ${EndIf}
+  WriteRegStr HKCU "Software\Starcloud\ui-debug" "prep" "scale=$Scale w=$WinW h=$WinH page=$hPage"
+  Call FillPage
+  Call LoadUiAssets
+  Call CreateChrome
 
-  SetShellVarContext current
-  ; 已装过就沿用原安装目录，避免升级时装成第二份
-  ReadRegStr $0 HKCU "${APP_KEY}" ""
-  ${If} $0 != ""
-    StrCpy $INSTDIR $0
+  ; 背景位图放到最底层（先创建即可）
+  SendMessage $hBg 0x172 0 $hBmpInstall
+
+  ; 安装位置
+  !insertmacro Sc ${UI_PATH_EDIT_X} ${UI_PATH_EDIT_Y} ${UI_PATH_EDIT_W} ${UI_PATH_EDIT_H}
+  nsDialogs::CreateControl EDIT 0x50000080 0 $R0 $R1 $R2 $R3 ""
+  Pop $hEdit
+  SetCtlColors $hEdit 0x00181310 0x00F8F6F5
+  System::Call 'gdi32::CreateFontW(i -$FontH, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 134, i 0, i 0, i 5, i 0, w "Microsoft YaHei UI") i .r0'
+  SendMessage $hEdit ${WM_SETFONT} $0 1
+  SendMessage $hEdit ${EM_SETREADONLY} 1 0
+  ${NSD_SetText} $hEdit "$INSTDIR"
+
+  !insertmacro Sc ${UI_PATH_BTN_X} ${UI_PATH_BTN_Y} ${UI_PATH_BTN_W} ${UI_PATH_BTN_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hBtnPath $hBmpFolder
+  ${NSD_OnClick} $hBtnPath OnBrowse
+
+  ; 复选框
+  !insertmacro Sc ${UI_CHK_AGREE_X} ${UI_CHK_AGREE_Y} ${UI_CHK_AGREE_W} ${UI_CHK_AGREE_H}
+  StrCpy $R4 $hBmpChkOff
+  Call CreateCheckbox
+  StrCpy $hChkAgree $R5
+  ${NSD_OnClick} $hChkAgree OnToggleAgree
+
+  !insertmacro Sc ${UI_CHK_CUSTOM_X} ${UI_CHK_CUSTOM_Y} ${UI_CHK_CUSTOM_W} ${UI_CHK_CUSTOM_H}
+  StrCpy $R4 $hBmpChkOff
+  Call CreateCheckbox
+  StrCpy $hChkCustom $R5
+  ${NSD_OnClick} $hChkCustom OnToggleCustom
+
+  !insertmacro Sc ${UI_CHK_RUN_X} ${UI_CHK_RUN_Y} ${UI_CHK_RUN_W} ${UI_CHK_RUN_H}
+  StrCpy $R4 $hBmpChkOff
+  Call CreateCheckbox
+  StrCpy $hChkRun $R5
+  ${NSD_OnClick} $hChkRun OnToggleRun
+
+  ; 主按钮
+  !insertmacro Sc ${UI_BTN_X} ${UI_BTN_Y} ${UI_BTN_W} ${UI_BTN_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hBtnMain $hBmpBtnInstall
+  ${NSD_OnClick} $hBtnMain OnPrimary
+
+  ; 进度条
+  !insertmacro Sc ${UI_PROGRESS_X} ${UI_PROGRESS_Y} ${UI_PROGRESS_W} ${UI_PROGRESS_H}
+  nsDialogs::CreateControl "msctls_progress32" 0x50000001 0 $R0 $R1 $R2 $R3 ""
+  Pop $hProgress
+  SendMessage $hProgress 0x409 0 0x0022D3FF   ; PBM_SETBARCOLOR（品牌黄）
+  SendMessage $hProgress 0x2001 0 0x00F4F1F0   ; PBM_SETBKCOLOR
+
+  Call ApplyState
+  nsDialogs::Show
+FunctionEnd
+
+Function ApplyState
+  ${If} $State == "install"
+    SendMessage $hBg 0x172 0 $hBmpInstall
+    ${NSD_SetText} $hEdit "$INSTDIR"
+    ShowWindow $hDrag ${SW_SHOW}
+    ShowWindow $hMin ${SW_SHOW}
+    ShowWindow $hClose ${SW_SHOW}
+    ShowWindow $hEdit ${SW_SHOW}
+    ShowWindow $hBtnPath ${SW_SHOW}
+    ShowWindow $hChkAgree ${SW_SHOW}
+    ShowWindow $hChkCustom ${SW_SHOW}
+    SendMessage $hBtnMain 0x172 0 $hBmpBtnInstall
+    ShowWindow $hBtnMain ${SW_SHOW}
+    ShowWindow $hChkRun ${SW_HIDE}
+    ShowWindow $hProgress ${SW_HIDE}
+  ${ElseIf} $State == "progress"
+    SendMessage $hBg 0x172 0 $hBmpProgress
+    ShowWindow $hDrag ${SW_HIDE}
+    ShowWindow $hMin ${SW_HIDE}
+    ShowWindow $hClose ${SW_HIDE}
+    ShowWindow $hEdit ${SW_HIDE}
+    ShowWindow $hBtnPath ${SW_HIDE}
+    ShowWindow $hChkAgree ${SW_HIDE}
+    ShowWindow $hChkCustom ${SW_HIDE}
+    ShowWindow $hChkRun ${SW_HIDE}
+    ShowWindow $hBtnMain ${SW_HIDE}
+    ShowWindow $hProgress ${SW_SHOW}
+  ${ElseIf} $State == "done"
+    SendMessage $hBg 0x172 0 $hBmpDone
+    ShowWindow $hDrag ${SW_SHOW}
+    ShowWindow $hMin ${SW_SHOW}
+    ShowWindow $hClose ${SW_SHOW}
+    ShowWindow $hEdit ${SW_HIDE}
+    ShowWindow $hBtnPath ${SW_HIDE}
+    ShowWindow $hChkAgree ${SW_HIDE}
+    ShowWindow $hChkCustom ${SW_HIDE}
+    SendMessage $hBtnMain 0x172 0 $hBmpBtnDone
+    ShowWindow $hChkRun ${SW_SHOW}
+    ShowWindow $hBtnMain ${SW_SHOW}
+    ShowWindow $hProgress ${SW_HIDE}
   ${EndIf}
 FunctionEnd
 
-Function RunApp
-  ; 从安装目录启动，工作目录一并给对，保证 Assets 与运行时能被找到
-  ExecShell "" "$INSTDIR\${MAIN_EXE}"
+; ── 交互 ──
+
+Function OnDrag
+  Pop $0
+  System::Call 'user32::ReleaseCapture()'
+  SendMessage $HWNDPARENT 0x00A1 2 0
 FunctionEnd
 
-Function CreateDesktopShortcut
-  SetShellVarContext current
-  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${MAIN_EXE}"
+Function OnMinimize
+  Pop $0
+  System::Call 'user32::ShowWindow(i $HWNDPARENT, i 6)'
 FunctionEnd
 
-; 安装前确认旧实例已退出：自包含目录的整体覆盖写不进去被占用的 dll/exe
-Function CheckAppRunning
-  StrCpy $AppRunningDialogTitle "${PRODUCT_NAME} 正在运行"
-  retry:
-  FindWindow $0 "" "${PRODUCT_NAME}"
-  StrCmp $0 0 done
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-    "检测到 Starcloud 启动器正在运行。$\r$\n请先关闭它（托盘图标也要退出）后点「重试」，或点「取消」放弃本次安装。" \
-    IDRETRY retry
+Function OnClose
+  Pop $0
+  ${If} $State == "progress"
+    Return
+  ${EndIf}
+  System::Call 'user32::PostMessage(i $HWNDPARENT, i 0x0010, i 0, i 0)'
   Quit
-  done:
 FunctionEnd
 
-Section "Starcloud" SecInstall
-  SetShellVarContext current
-  Call CheckAppRunning
+Function OnToggleAgree
+  Pop $0
+  ${If} $Agree == 1
+    StrCpy $Agree 0
+    SendMessage $hChkAgree 0x172 0 $hBmpChkOff
+  ${Else}
+    StrCpy $Agree 1
+    SendMessage $hChkAgree 0x172 0 $hBmpChkOn
+  ${EndIf}
+FunctionEnd
 
-  ; 升级安装时先清空上一版：自包含发布目录里换了版本的 dll 混着旧的会起不来，
-  ; 旧 Tauri 版的 starcloud-launcher.exe 也会一直留在里面。只在目录确实是本产品
-  ; 的安装目录（有安装器/主程序痕迹）时才清，避免误删用户自选目录里的其它文件。
+Function OnToggleCustom
+  Pop $0
+  ${If} $WantCustom == 1
+    StrCpy $WantCustom 0
+    SendMessage $hChkCustom 0x172 0 $hBmpChkOff
+    SendMessage $hEdit ${EM_SETREADONLY} 1 0
+  ${Else}
+    StrCpy $WantCustom 1
+    SendMessage $hChkCustom 0x172 0 $hBmpChkOn
+    SendMessage $hEdit ${EM_SETREADONLY} 0 0
+  ${EndIf}
+FunctionEnd
+
+Function OnToggleRun
+  Pop $0
+  ${If} $WantRun == 1
+    StrCpy $WantRun 0
+    SendMessage $hChkRun 0x172 0 $hBmpChkOff
+  ${Else}
+    StrCpy $WantRun 1
+    SendMessage $hChkRun 0x172 0 $hBmpChkOn
+  ${EndIf}
+FunctionEnd
+
+Function OnBrowse
+  Pop $0
+  nsDialogs::SelectFolderDialog "选择 Starcloud 的安装位置" "$INSTDIR"
+  Pop $1
+  ${If} $1 != error
+    StrCpy $INSTDIR $1
+    ${NSD_SetText} $hEdit "$INSTDIR"
+    ${If} $WantCustom != 1
+      StrCpy $WantCustom 1
+      SendMessage $hChkCustom 0x172 0 $hBmpChkOn
+      SendMessage $hEdit ${EM_SETREADONLY} 0 0
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+
+Function OnPrimary
+  Pop $0
+  ${If} $State == "done"
+    ${If} $WantRun == 1
+      ; 动作必须写 "open"：空字符串会让 ShellExecuteEx 失败并弹出错误框，
+      ; 表现就是「启动器打开了但安装程序不关」。
+      ExecShell "open" "$INSTDIR\${MAIN_EXE}"
+    ${EndIf}
+    System::Call 'user32::PostMessage(i $HWNDPARENT, i 0x0010, i 0, i 0)'
+    Quit
+    Return
+  ${EndIf}
+
+  ${If} $Agree != 1
+    MessageBox MB_OK|MB_ICONINFORMATION "请先阅读并同意《Starcloud 用户服务协议》和《隐私政策》。"
+    Return
+  ${EndIf}
+
+  ; 从 EDIT 里取用户手填的路径
+  ${NSD_GetText} $hEdit $2
+  ${If} $2 != ""
+    StrCpy $INSTDIR $2
+  ${EndIf}
+
+  StrCpy $State "progress"
+  Call ApplyState
+
+  Call CheckAppRunning
+  ; 升级：只在目录确实属于本产品时清空，避免误删用户自选目录
   ${If} ${FileExists} "$INSTDIR\uninstall.exe"
   ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
   ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
@@ -178,16 +515,20 @@ Section "Starcloud" SecInstall
   ${EndIf}
   CreateDirectory "$INSTDIR"
 
+  StrCpy $DoneBytes 0
+  SendMessage $hProgress 0x402 0 0
+  Call ExtractPayload
+
+  Call RegisterInstall
+
+  StrCpy $State "done"
+  Call ApplyState
+FunctionEnd
+
+Function RegisterInstall
   SetOutPath "$INSTDIR"
-  DetailPrint "正在部署运行环境（约 220 MB）…"
-  ; 整个 publish 目录原样铺开：自包含应用的运行时都在里面，少一个 dll 都起不来
-  File /r "${SRCDIR}\*.*"
-
-  DetailPrint "正在登记卸载信息…"
-
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
-  ; 卸载登记（控制面板 / 设置-应用）
   WriteRegStr HKCU "${APP_KEY}" "" "$INSTDIR"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${MAIN_EXE}"
@@ -201,34 +542,219 @@ Section "Starcloud" SecInstall
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
 
-  ; 开始菜单（当前用户）
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
   CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\${MAIN_EXE}"
   CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}\卸载 ${PRODUCT_NAME}.lnk" "$INSTDIR\uninstall.exe"
+  ${If} $WantCustom == 1
+    CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${MAIN_EXE}"
+  ${EndIf}
+FunctionEnd
+
+Function ProgressStep
+  ; 先除后乘：字节数 x100 会超过 32 位整数（220MB*100 > 2^31）直接溢出
+  IntOp $0 $DoneBytes / 1024
+  IntOp $1 ${SC_TOTAL_BYTES} / 1024
+  IntOp $0 $0 * 100
+  IntOp $0 $0 / $1
+  SendMessage $hProgress 0x402 $0 0
+  System::Call 'user32::UpdateWindow(i $hProgress)'
+FunctionEnd
+
+Function CheckAppRunning
+  retry:
+  FindWindow $0 "" "${PRODUCT_NAME}"
+  StrCmp $0 0 done
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
+    "检测到 Starcloud 启动器正在运行。$\r$\n请先关闭它（托盘图标也要退出）后点「重试」，或点「取消」放弃本次安装。" \
+    IDRETRY retry
+  Quit
+  done:
+FunctionEnd
+
+Function UiPageLeave
+  ${If} $State != "done"
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; ── 卸载 ──
+
+Section "Starcloud" SecInstall
+  ; 安装动作在安装页的回调里完成，这里保持为空（instfiles 页不会被走到）
 SectionEnd
 
 Function un.onInit
   SetShellVarContext current
 FunctionEnd
 
-; 卸载前的二次确认：是否连配置与账号一起删（默认保留，避免误删登录态）
-Function un.PageDeleteData
-  !insertmacro MUI_HEADER_TEXT "卸载 Starcloud" "选择是否保留本地数据"
-  nsDialogs::Create 1018
-  Pop $0
-  ${If} $0 == error
+Function un.FillPage
+  GetDlgItem $0 $HWNDPARENT 1
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 2
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 3
+  ${If} $0 != 0
+    ShowWindow $0 ${SW_HIDE}
+  ${EndIf}
+  System::Call 'user32::SetWindowPos(i $hPage, i 0, i 0, i 0, i $WinW, i $WinH, i 0x0004)'
+FunctionEnd
+
+Function un.CreateCheckbox
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  Pop $R5
+  SendMessage $R5 0x172 0 $R4
+FunctionEnd
+
+Function un.CreateChrome
+  nsDialogs::CreateControl STATIC 0x5000000E 0 0 0 $WinW $WinH ""
+  Pop $hBg
+
+  !insertmacro Sc ${UI_DRAG_X} ${UI_DRAG_Y} ${UI_DRAG_W} ${UI_DRAG_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hDrag $hBmpTitle
+  ${NSD_OnClick} $hDrag un.OnDrag
+
+  !insertmacro Sc ${UI_MIN_X} ${UI_MIN_Y} ${UI_MIN_W} ${UI_MIN_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hMin $hBmpMin
+  ${NSD_OnClick} $hMin un.OnMinimize
+
+  !insertmacro Sc ${UI_CLOSE_X} ${UI_CLOSE_Y} ${UI_CLOSE_W} ${UI_CLOSE_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hClose $hBmpClose
+  ${NSD_OnClick} $hClose un.OnClose
+FunctionEnd
+
+Function un.UiPage
+  StrCpy $State "install"
+  StrCpy $DelData 0
+
+  System::Call 'user32::GetDpiForWindow(i $HWNDPARENT) i .r0'
+  ${If} $0 < 48
+    StrCpy $0 96
+  ${EndIf}
+  IntOp $Scale $0 * 100
+  IntOp $Scale $Scale / 96
+  IntOp $WinW ${UI_W} * $Scale
+  IntOp $WinW $WinW / 100
+  IntOp $WinH ${UI_H} * $Scale
+  IntOp $WinH $WinH / 100
+
+  System::Call 'user32::GetWindowLong(i $HWNDPARENT, i -16) i .r1'
+  IntOp $0 $0 & 0xFF30FFFF
+  IntOp $0 $0 | 0x80000000
+  System::Call 'user32::SetWindowLong(i $HWNDPARENT, i -16, i r0)'
+  System::Call 'user32::SetWindowPos(i $HWNDPARENT, i 0, i 0, i 0, i 0, i 0, i 0x0002|0x0004|0x0020)'
+  System::Call 'user32::SetClassLongW(i $HWNDPARENT, i -26, i 0x00020000)'
+
+  System::Call 'user32::GetSystemMetrics(i 0) i .r2'
+  System::Call 'user32::GetSystemMetrics(i 1) i .r3'
+  IntOp $4 $2 - $WinW
+  IntOp $4 $4 / 2
+  IntOp $5 $3 - $WinH
+  IntOp $5 $5 / 2
+  System::Call 'user32::SetWindowPos(i $HWNDPARENT, i 0, i r4, i r5, i $WinW, i $WinH, i 0x0004|0x0010)'
+
+  IntOp $6 $WinW + 1
+  IntOp $7 $WinH + 1
+  IntOp $8 18 * $Scale
+  IntOp $8 $8 / 100
+  System::Call 'gdi32::CreateRoundRectRgn(i 0, i 0, i r6, i r7, i r8, i r8) i .r9'
+  System::Call 'user32::SetWindowRgn(i $HWNDPARENT, i r9, i 1)'
+
+  nsDialogs::Create 0
+  Pop $hPage
+  ${If} $hPage == error
     Abort
   ${EndIf}
-  ${NSD_CreateLabel} 0 0 100% 28u "卸载会删除程序本体。$\r$\n下面的数据可以保留，重新安装后会继续沿用："
-  Pop $0
-  ${NSD_CreateCheckbox} 0 40u 100% 12u "同时删除配置、账号与崩溃日志（%APPDATA%\starcloud-launcher、%LOCALAPPDATA%\Starcloud）"
-  Pop $DeleteAppDataCheckbox
-  ${NSD_SetState} $DeleteAppDataCheckbox ${BST_UNCHECKED}
+  Call un.FillPage
+  Call un.LoadUninstallAssets
+  Call un.CreateChrome
+
+  SendMessage $hBg 0x172 0 $hBmpUninstall
+
+  !insertmacro Sc ${UI_CHK_DATA_X} ${UI_CHK_DATA_Y} ${UI_CHK_DATA_W} ${UI_CHK_DATA_H}
+  StrCpy $R4 $hBmpChkOff
+  Call un.CreateCheckbox
+  StrCpy $hChkData $R5
+  ${NSD_OnClick} $hChkData un.OnToggleData
+
+  !insertmacro Sc ${UI_BTN_X} ${UI_BTN_Y} ${UI_BTN_W} ${UI_BTN_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  !insertmacro HitArea $hBtnMain $hBmpBtnUninstall
+  ${NSD_OnClick} $hBtnMain un.OnUninstall
+
   nsDialogs::Show
 FunctionEnd
 
-Function un.PageDeleteDataLeave
-  ${NSD_GetState} $DeleteAppDataCheckbox $DeleteAppDataState
+Function un.OnToggleData
+  Pop $0
+  ${If} $DelData == 1
+    StrCpy $DelData 0
+    SendMessage $hChkData 0x172 0 $hBmpChkOff
+  ${Else}
+    StrCpy $DelData 1
+    SendMessage $hChkData 0x172 0 $hBmpChkOn
+  ${EndIf}
+FunctionEnd
+
+Function un.OnUninstall
+  Pop $0
+  SendMessage $hBg 0x172 0 $hBmpUninstalling
+  ShowWindow $hChkData ${SW_HIDE}
+  ShowWindow $hBtnMain ${SW_HIDE}
+  ShowWindow $hClose ${SW_HIDE}
+  ShowWindow $hMin ${SW_HIDE}
+  ShowWindow $hDrag ${SW_HIDE}
+  System::Call 'user32::UpdateWindow(i $HWNDPARENT)'
+  ${If} $hBg != 0
+    System::Call 'user32::UpdateWindow(i $hBg)'
+  ${EndIf}
+
+  Call un.CheckAppRunning
+
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir /r "$INSTDIR"
+  RMDir "$INSTDIR"
+
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}\卸载 ${PRODUCT_NAME}.lnk"
+  RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
+  Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+
+  DeleteRegKey HKCU "${UNINST_KEY}"
+  DeleteRegKey HKCU "${APP_KEY}"
+
+  ${If} $DelData == 1
+    RMDir /r "${DATA_DIR}"
+    RMDir /r "${LOG_DIR}"
+  ${EndIf}
+
+  Quit
+FunctionEnd
+
+Function un.OnDrag
+  Pop $0
+  System::Call 'user32::ReleaseCapture()'
+  SendMessage $HWNDPARENT 0x00A1 2 0
+FunctionEnd
+
+Function un.OnMinimize
+  Pop $0
+  System::Call 'user32::ShowWindow(i $HWNDPARENT, i 6)'
+FunctionEnd
+
+Function un.OnClose
+  Pop $0
+  Quit
+FunctionEnd
+
+Function un.UiPageLeave
+  Abort
 FunctionEnd
 
 Function un.CheckAppRunning
@@ -243,26 +769,5 @@ Function un.CheckAppRunning
 FunctionEnd
 
 Section "Uninstall"
-  SetShellVarContext current
-  Call un.CheckAppRunning
-
-  ; 先删 UninstallString 指向的自己，再整目录清空：自包含目录里没有用户数据
-  Delete "$INSTDIR\uninstall.exe"
-  RMDir /r "$INSTDIR"
-  ; 若用户改过安装目录、留下过空壳目录，一并收掉
-  RMDir "$INSTDIR"
-
-  Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
-  Delete "$SMPROGRAMS\${PRODUCT_NAME}\卸载 ${PRODUCT_NAME}.lnk"
-  RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
-  Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
-
-  DeleteRegKey HKCU "${UNINST_KEY}"
-  DeleteRegKey HKCU "${APP_KEY}"
-
-  ; 勾选了才动用户数据（登录态、实例设置、崩溃日志）
-  ${If} $DeleteAppDataState = 1
-    RMDir /r "${DATA_DIR}"
-    RMDir /r "${LOG_DIR}"
-  ${EndIf}
+  ; 卸载动作在卸载页的回调里完成
 SectionEnd

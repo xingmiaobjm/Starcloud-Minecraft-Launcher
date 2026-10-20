@@ -198,11 +198,15 @@ public sealed record StationSkinRow(StationSkin Skin, string ModelText, ImageSou
     public string Name => Skin.Name;
 }
 
-/// <summary>版本内容分区的单个文件行</summary>
+/// <summary>版本内容分区的单个文件行（Name/Version/GameVersion/Loader 只有 Mod 有，来自 jar 元数据）</summary>
 public sealed record ContentFileRow(
-    string FileName, string SizeText, string StatusText, bool Enabled, string Kind, string FullPath)
+    string FileName, string SizeText, string StatusText, bool Enabled, string Kind, string FullPath,
+    string? Name = null, string? Version = null, string? GameVersion = null, string? Loader = null)
 {
     public string ToggleVerb => Enabled ? Loc.T("停用") : Loc.T("启用");
+
+    /// <summary>卡片标题：有 mod 元数据就用它，没有就退回文件名（资源包/光影包没有元数据）</summary>
+    public string Title => string.IsNullOrWhiteSpace(Name) ? FileName : Name!;
 }
 
 /// <summary>备份列表行</summary>

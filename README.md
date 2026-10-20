@@ -36,10 +36,6 @@
 - [.NET SDK 8.0+](https://dotnet.microsoft.com/download)（8 / 9 / 10 均可构建）
 - 无需其他依赖——Windows App SDK 以自包含（SelfContained）方式打包，目标机器无需单独安装运行时
 
-> **跨平台（2026-10 起）**：除 Windows 外全面转向 **Flutter + Fluent UI**（[`flutter/`](flutter/)，
-> Linux 端先行，macOS 共用同一套 UI 源码与内核）。原 Uno 路线已归档至
-> [`legacy/crossplatform-uno/`](legacy/crossplatform-uno/)（不再演进）。
-
 ### 构建与运行
 
 ```powershell

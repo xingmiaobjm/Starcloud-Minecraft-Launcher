@@ -89,6 +89,11 @@ public sealed class GlowButton : Button
         if (!HoverShadowBehavior.HasVisibleBackground(this) &&
             ReadLocalValue(BackgroundProperty) != DependencyProperty.UnsetValue)
         {
+            // 光斑行为必须一并关掉：只把 PointerLight 设成 None 的话，HoverShadowBehavior
+            // 还挂着「启用」开关却没有载体可认，会自己建一层光斑贴在按钮背后。
+            // 透明底按钮没有可承载光斑的表面，那层会在按钮边缘被裁掉一截 ——
+            // 就是返回类按钮上看到的「残缺阴影」。
+            HoverShadowBehavior.SetIsEnabled(this, false);
             PointerLightBehavior.SetMode(this, PointerLightMode.None);
             return;
         }

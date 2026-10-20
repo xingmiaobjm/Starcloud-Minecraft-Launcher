@@ -434,8 +434,12 @@ public sealed partial class DownloadPage : Page
     private void RefreshDetailState()
     {
         if (_detailId is not { } id) return;
-        DetailStateText.Text = _s.Installer.IsInstalled(_s.Settings.DotMinecraft, id)
-            ? Loc.T("已安装（重新下载将覆盖）") : "";
+        DetailStateText.Text = _s.Installer.CountInstalledCopies(_s.Settings.DotMinecraft, id) switch
+        {
+            0 => "",
+            1 => Loc.T("已安装 · 再次下载会新建一个独立实例"),
+            var n => Loc.T("已安装 {0} 份 · 再次下载会新建一个独立实例", n),
+        };
     }
 
     private async Task LoadLoaderOptionsAsync(string id)
@@ -672,10 +676,18 @@ public sealed partial class DownloadPage : Page
         var neo = _picked.GetValueOrDefault(LoaderKind.NeoForge);
         var quilt = _picked.GetValueOrDefault(LoaderKind.Quilt);
 
+        // 同一个版本允许装多份：已经装过就先让用户给新副本起名（默认 id-2），
+        // 而不是默默追加后缀——版本名会原样写进版本 JSON，是这份实例在 UI 里的名字。
+        var dotMc = _s.Settings.DotMinecraft;
+        if (_s.Installer.IsInstalled(dotMc, id))
+        {
+            var name = await InstanceActions.AskInstanceNameAsync(Content.XamlRoot, dotMc, id);
+            if (name is null) return;
+            id = name;
+        }
+
         await RunInstallAsync(async progress =>
         {
-            // 同名版本并存：目录已存在时自动改为 -2、-3…，不再覆盖重装
-            id = _s.Installer.UniqueVersionId(_s.Settings.DotMinecraft, id);
             progress.Report(new BatchProgress(Loc.T("下载原版 {0}", id), 0, 0, 0, 0, 0, null));
             await _s.Installer.InstallVanillaAsync(id, url, _s.Settings, progress);
 

@@ -503,7 +503,7 @@ public sealed partial class VersionDetailPage : Page
         _ => "\uEA90",               // 目录
     };
 
-    /// <summary>枚举目录内文件（含 .disabled）生成行模型。</summary>
+    /// <summary>枚举目录内文件（含 .disabled）生成行模型；mod 额外读 jar 元数据（名称/版本/适配版本）。</summary>
     private static List<ContentFileRow> BuildFileRows(string dir, string kind)
     {
         var rows = new List<ContentFileRow>();
@@ -513,28 +513,74 @@ public sealed partial class VersionDetailPage : Page
             var name = Path.GetFileName(file);
             var enabled = !name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
             var display = enabled ? name : name[..^".disabled".Length];
+            // 只对 mod 解析 jar：资源包/光影包没有 mod 元数据；损坏的 jar 读失败就退回文件名
+            ModFileInfo? meta = kind == "mod" && display.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)
+                ? ModConflictService.Read(file)
+                : null;
             rows.Add(new ContentFileRow(
                 display, FormatSize(new FileInfo(file).Length),
-                enabled ? Loc.T("启用") : Loc.T("已停用"), enabled, kind, file));
+                enabled ? Loc.T("启用") : Loc.T("已停用"), enabled, kind, file,
+                meta?.ModName, meta?.ModVersion, meta?.GameVersion, meta?.Loader));
         }
-        return rows.OrderBy(r => r.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+        return rows.OrderBy(r => r.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>单行：图标 + 文件名 + 状态 + 大小 + 启停 / 删除。</summary>
+    /// <summary>
+    /// 内容行：与下载页的社区资源卡同构 —— 图标块 + 标题行（名称 + 版本/适配版本/加载器芯片）
+    /// + 副行（文件名 · 大小）+ 右侧启停/删除。原来是一行纯文字，文件名里的信息读不出来。
+    /// </summary>
     private Grid BuildFileRow(ContentFileRow row)
     {
-        var info = new StackPanel
+        var iconBox = new Border
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(8),
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = (Brush)Application.Current.Resources["SubtleFillColorTertiaryBrush"],
+            Child = new FontIcon
+            {
+                FontFamily = IconFont.Family,
+                Glyph = GlyphForKind(row.Kind),
+                FontSize = 16,
+                Foreground = SecondaryBrush(),
+            },
+        };
+
+        var titleLine = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             VerticalAlignment = VerticalAlignment.Center,
-            Children =
-            {
-                new FontIcon { FontFamily = IconFont.Family,  Glyph = GlyphForKind(row.Kind), FontSize = 14, Foreground = SecondaryBrush() },
-                new TextBlock { Text = row.FileName, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis },
-                new TextBlock { Text = row.StatusText, FontSize = 12, Foreground = SecondaryBrush() },
-                new TextBlock { Text = row.SizeText, FontSize = 12, Foreground = SecondaryBrush() },
-            },
+        };
+        titleLine.Children.Add(new TextBlock
+        {
+            Text = row.Title,
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 460,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        if (!string.IsNullOrWhiteSpace(row.Version)) titleLine.Children.Add(FileChip(row.Version!));
+        if (!string.IsNullOrWhiteSpace(row.GameVersion)) titleLine.Children.Add(FileChip(row.GameVersion!));
+        if (!string.IsNullOrWhiteSpace(row.Loader) && row.Loader != "unknown")
+            titleLine.Children.Add(FileChip(row.Loader!));
+        if (!row.Enabled) titleLine.Children.Add(FileChip(row.StatusText));
+
+        var subLine = new TextBlock
+        {
+            Text = $"{row.FileName} · {row.SizeText}",
+            FontSize = 12,
+            Foreground = SecondaryBrush(),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+
+        var text = new StackPanel
+        {
+            Spacing = 2,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { titleLine, subLine },
         };
 
         var toggle = new GlowButton
@@ -569,12 +615,19 @@ public sealed partial class VersionDetailPage : Page
             Children = { toggle, del },
         };
 
-        var grid = new Grid { Padding = new Thickness(0, 2, 0, 2) };
+        var grid = new Grid
+        {
+            Padding = new Thickness(10, 8, 10, 8),
+            ColumnSpacing = 12,
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(info, 0);
-        Grid.SetColumn(actions, 1);
-        grid.Children.Add(info);
+        Grid.SetColumn(iconBox, 0);
+        Grid.SetColumn(text, 1);
+        Grid.SetColumn(actions, 2);
+        grid.Children.Add(iconBox);
+        grid.Children.Add(text);
         grid.Children.Add(actions);
         return grid;
     }
@@ -1862,6 +1915,16 @@ public sealed partial class VersionDetailPage : Page
             .Select(l => l.Trim())
             .Where(l => l.Length > 0)
             .ToList();
+
+    /// <summary>内容行里的小芯片（版本 / 适配游戏版本 / 加载器 / 已停用）</summary>
+    private static Border FileChip(string text) => new()
+    {
+        Padding = new Thickness(7, 1, 7, 2),
+        CornerRadius = new CornerRadius(6),
+        VerticalAlignment = VerticalAlignment.Center,
+        Background = (Brush)Application.Current.Resources["SubtleFillColorTertiaryBrush"],
+        Child = new TextBlock { Text = text, FontSize = 11, Foreground = SecondaryBrush() },
+    };
 
     private static Brush SecondaryBrush() =>
         (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];

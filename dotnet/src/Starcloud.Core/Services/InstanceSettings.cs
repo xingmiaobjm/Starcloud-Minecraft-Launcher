@@ -400,7 +400,12 @@ public static class InstanceLayout
             throw new ArgumentException("版本名不能包含 < > : \" / \\ | ? * 或路径符号");
     }
 
-    private static void PatchJsonId(string jsonFile, string newId)
+    /// <summary>
+    /// 把版本 JSON 的 id 改成目录名（改名、复制、同名多份安装共用）。
+    /// <para>安装副本时目录是 <c>1.20.1-2</c>，下载到的 JSON 里 id 仍是 <c>1.20.1</c>；
+    /// 不同步的话详情页与启动器读到的还是原版号，副本看起来就像「没有自己的名字」。</para>
+    /// </summary>
+    public static void PatchJsonId(string jsonFile, string newId)
     {
         try
         {

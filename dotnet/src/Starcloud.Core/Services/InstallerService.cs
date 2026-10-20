@@ -35,6 +35,32 @@ public sealed class InstallerService
             if (!IsInstalled(dotMinecraft, $"{id}-{i}")) return $"{id}-{i}";
     }
 
+    /// <summary>
+    /// 同一版本已安装了几份（<c>id</c> 本身，加上 <c>id-2</c>、<c>id-3</c>… 这些副本）。
+    /// 只认纯数字后缀，<c>26.3-rc-3</c> 这种不算副本。
+    /// </summary>
+    public int CountInstalledCopies(string dotMinecraft, string id)
+    {
+        var dir = Path.Combine(dotMinecraft, "versions");
+        if (!Directory.Exists(dir)) return 0;
+        var count = 0;
+        foreach (var sub in Directory.EnumerateDirectories(dir))
+        {
+            var name = Path.GetFileName(sub);
+            if (!File.Exists(Path.Combine(sub, name + ".json"))) continue;
+            if (string.Equals(name, id, StringComparison.OrdinalIgnoreCase))
+            {
+                count++;
+                continue;
+            }
+            if (name.Length > id.Length + 1 &&
+                name.StartsWith(id + "-", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(name[(id.Length + 1)..], out _))
+                count++;
+        }
+        return count;
+    }
+
     /// <summary>加载版本 JSON（含一层 inheritsFrom 合并，如 Fabric 继承原版）</summary>
     public async Task<MinecraftVersion> LoadVersionAsync(string dotMinecraft, string id,
         CancellationToken ct = default)
@@ -77,7 +103,13 @@ public sealed class InstallerService
         var versionJson = await _downloader.GetStringAsync(versionUrl, ct);
         var version = JsonSerializer.Deserialize<MinecraftVersion>(versionJson)
                       ?? throw new InvalidOperationException($"版本 {versionId} 解析失败");
-        await File.WriteAllTextAsync(VersionJsonPath(dotMc, versionId), versionJson, ct);
+        var jsonPath = VersionJsonPath(dotMc, versionId);
+        await File.WriteAllTextAsync(jsonPath, versionJson, ct);
+
+        // 同名版本的第二份起，目录名是 1.20.1-2，下载到的 JSON 里 id 还写着 1.20.1。
+        // 不同步的话这份副本在详情页/启动器眼里仍是原版，等于"装了多份但只有一份有名字"。
+        if (!string.Equals(version.Id, versionId, StringComparison.Ordinal))
+            InstanceLayout.PatchJsonId(jsonPath, versionId);
 
         // 2. 安装内容（jar + 库 + 资源）
         await InstallVersionContentAsync(version, versionId, settings, progress, ct);
