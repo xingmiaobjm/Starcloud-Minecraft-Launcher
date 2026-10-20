@@ -213,9 +213,12 @@ export default function DownloadPage(): JSX.Element {
                 className="seg-ind"
                 style={{
                   width: 'calc(33.333% - 2px)',
+                  // translateX 的百分比相对指示器自身宽度（= 一格）
                   transform: `translateX(calc(2px + ${
-                    channel === 'release' ? 0 : channel === 'snapshot' ? 1 : 2
-                  } * 33.333%))`
+                    (channel === 'release' ? 0 : channel === 'snapshot' ? 1 : 2) * 100
+                  }% + ${
+                    (channel === 'release' ? 0 : channel === 'snapshot' ? 1 : 2) * 2
+                  }px))`
                 }}
               />
               {(['release', 'snapshot', 'ancient'] as Channel[]).map((c) => (

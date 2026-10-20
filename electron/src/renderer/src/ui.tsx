@@ -40,24 +40,36 @@ export function EmptyState(props: {
   )
 }
 
-/** 骨架屏：与真实行同尺寸，加载时布局不跳。 */
-export function SkeletonList(props: { rows?: number; avatar?: boolean }): JSX.Element {
+/**
+ * 骨架屏：一次性渲染全部行。
+ * 早期版本用 setInterval 逐行渐显，切换页面时会连续触发重排（用户看到的「抽搐」）；
+ * 这里改成整块淡入，行高与真实行对齐，避免加载完成时的跳变。
+ */
+export function SkeletonList(props: {
+  rows?: number
+  avatar?: boolean
+  /** 行高变体：普通列表 44，带缩略图的列表（存档）72 */
+  tall?: boolean
+}): JSX.Element {
   const rows = props.rows ?? 5
-  const [visible, setVisible] = useState(0)
-  useEffect(() => {
-    let i = 0
-    const timer = setInterval(() => {
-      i += 1
-      setVisible(Math.min(i, rows))
-      if (i >= rows) clearInterval(timer)
-    }, 60)
-    return () => clearInterval(timer)
-  }, [rows])
   return (
-    <div>
-      {Array.from({ length: visible }).map((_, index) => (
-        <div key={index} className="skel-row" style={{ opacity: 1 - index * 0.12 }}>
-          {props.avatar === true && <div className="skel-thumb" />}
+    <div style={{ animation: 'fadeIn 180ms cubic-bezier(0.33, 0, 0.67, 1) both' }}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <div
+          key={index}
+          className="skel-row"
+          style={{ minHeight: props.tall === true ? 72 : 44 }}
+        >
+          {props.avatar === true && (
+            <div
+              className="skel-thumb"
+              style={
+                props.tall === true
+                  ? { width: 64, height: 64, borderRadius: 8 }
+                  : undefined
+              }
+            />
+          )}
           <div className="skel-text" style={{ maxWidth: `${60 - index * 6}%` }} />
         </div>
       ))}
@@ -212,7 +224,9 @@ export function Segmented<T extends string>(props: {
         className="seg-ind"
         style={{
           width: `calc(${slot}% - 2px)`,
-          transform: `translateX(calc(2px + ${index} * ${slot}%))`
+          // translateX 的百分比相对「指示器自身宽度」（恰好一格），
+          // 所以每前进一格 = +100%，再补格子之间的 2px 间距
+          transform: `translateX(calc(2px + ${index * 100}% + ${index * 2}px))`
         }}
       />
       {props.options.map((o) => (

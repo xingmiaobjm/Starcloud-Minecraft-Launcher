@@ -215,7 +215,7 @@ export default function SavesPage(): JSX.Element {
       {/* 列表卡片：满高、内部滚动 */}
       <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '6px 12px 12px' }}>
-          {loading && <SkeletonList rows={5} avatar />}
+          {loading && <SkeletonList rows={5} avatar tall />}
           {!loading && filtered.length === 0 && (
             <EmptyState
               title={saves.length === 0 ? '还没有发现存档' : '没有匹配的世界'}

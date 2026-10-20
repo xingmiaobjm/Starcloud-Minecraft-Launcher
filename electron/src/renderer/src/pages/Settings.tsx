@@ -230,9 +230,12 @@ export default function SettingsPage(): JSX.Element {
                   className="seg-ind"
                   style={{
                     width: `calc(${100 / sources.length}% - 2px)`,
+                    // translateX 的百分比相对指示器自身宽度（= 一格）
                     transform: `translateX(calc(2px + ${
-                      Math.max(0, sources.findIndex((s) => s.id === downloadSource))
-                    } * ${100 / sources.length}%))`
+                      Math.max(0, sources.findIndex((s) => s.id === downloadSource)) * 100
+                    }% + ${
+                      Math.max(0, sources.findIndex((s) => s.id === downloadSource)) * 2
+                    }px))`
                   }}
                 />
                 {sources.map((s) => (

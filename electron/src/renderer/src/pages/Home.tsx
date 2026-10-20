@@ -555,28 +555,8 @@ export default function HomePage(props: {
           </div>
         </div>
 
-        {/* 运行日志（固定在主区下方，高度固定） */}
-        {session.logs.length > 0 && (
-          <div className="card card-flush" style={{ height: 230, marginTop: 16 }}>
-            <div className="card-head">
-              <span
-                className="dot"
-                style={{ background: running ? 'var(--success)' : 'var(--text-disabled)' }}
-              />
-              <span className="card-title">运行日志</span>
-              <div style={{ flex: 1 }} />
-              {running && <span className="t-cap">pid {session.pid}</span>}
-              <button className="btn btn-subtle btn-sm" onClick={session.clearLogs}>
-                ✕ 清空
-              </button>
-            </div>
-            <div className="log">
-              {session.logs.map((line, index) => (
-                <div key={index}>{line}</div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* 运行日志不放在首页：Win 端首页没有日志区，且启动时日志卡出现会挤压
+            两栏布局（用户看到账户卡被"拉大"）。日志在「运行状态 / 启动器日志」页。 */}
 
         {error !== '' && (
           <div style={{ marginTop: 12 }}>
