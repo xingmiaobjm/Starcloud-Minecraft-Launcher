@@ -53,6 +53,13 @@ export default function LabPage() {
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+  /** 左侧子栏当前工具（Win 端：投影工坊 / 彩色文字 / 投影社区 / 指令助手） */
+  const [section, setSection] = useState('workshop')
+  /** 投影工坊文件列表（来自 projections.scan） */
+  const [projFiles, setProjFiles] = useState<
+    Array<{ filePath: string; fileName: string; sizeBytes: number; modifiedAt: string; versionId?: string }>
+  >([])
+  const [schematicsDir, setSchematicsDir] = useState('')
 
   // ── 视图变换：滚轮缩放 + 左键拖拽平移，只存 ref 不进 state ──
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -63,6 +70,26 @@ export default function LabPage() {
   const [drawToken, setDrawToken] = useState(0)
 
   const redraw = useCallback(() => setDrawToken((n) => n + 1), [])
+
+  const scanProjections = useCallback(async () => {
+    try {
+      const r = await request<{
+        files: Array<{ filePath: string; fileName: string; sizeBytes: number; modifiedAt: string; versionId?: string }>
+        versions: string[]
+      }>('projections.scan', {})
+      setProjFiles(r.files)
+      const first = r.files[0]
+      if (first !== undefined) {
+        setSchematicsDir(first.filePath.replace(/[\/][^\/]+$/, ''))
+      }
+    } catch {
+      /* 投影扫描失败不阻塞预览 */
+    }
+  }, [])
+
+  useEffect(() => {
+    void scanProjections()
+  }, [scanProjections])
 
   const load = async () => {
     const target = path.trim()
@@ -228,21 +255,110 @@ export default function LabPage() {
 
   return (
     <>
-      <PageShell
-        title="实验室"
-        subtitle="投影工坊：解析 .litematic 并画等距体素预览；世吞生成器：直接产出分层 TNT 模板。"
-        actions={
-          <button
-            className="btn btn-subtle"
-            title="重新加载"
-            onClick={() => {
-              if (path.trim().length > 0) void load()
-            }}
-          >
-            ↻
-          </button>
-        }
-      >
+      <div className="page">
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16 }}>
+          {/* 左栏：实验室工具（Win 端四项） */}
+          <div className="card" style={{ width: 220, flexShrink: 0, padding: 8, alignSelf: 'flex-start' }}>
+            {[
+              { id: 'workshop', label: '投影工坊', icon: '▤' },
+              { id: 'color', label: '彩色文字', icon: '⚙' },
+              { id: 'community', label: '投影社区', icon: '◴' },
+              { id: 'command', label: '指令助手', icon: '⤓' }
+            ].map((t) => (
+              <button
+                key={t.id}
+                className={`nav-item${section === t.id ? ' nav-active' : ''}`}
+                style={{ height: 40, width: '100%' }}
+                onClick={() => {
+                  setSection(t.id)
+                  if (t.id !== 'workshop') push('info', `${t.label}：实验室功能开发中`)
+                }}
+              >
+                <span className="nav-icon" style={{ fontFamily: 'inherit', fontSize: 14 }}>
+                  {t.icon}
+                </span>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
+            {/* 投影工坊：路径 + 三个操作 + 文件列表 */}
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <span
+                  style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--accent)' }}
+                />
+                <span className="t-strong" style={{ fontSize: 15 }}>
+                  投影工坊
+                </span>
+                <span className="t-cap truncate">{schematicsDir}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <button className="btn" onClick={() => void scanProjections()}>
+                  刷新列表
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => push('info', '打开文件：需要主进程文件对话框，接入后可用')}
+                >
+                  打开文件…
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => push('info', '打开投影目录：需要主进程 openPath，接入后可用')}
+                >
+                  打开投影目录
+                </button>
+                <div style={{ flex: 1 }} />
+                <button
+                  className="btn btn-subtle"
+                  disabled={generating}
+                  onClick={() => void generateWorldEater()}
+                >
+                  ▤ {generating ? '生成中…' : '生成世吞模板'}
+                </button>
+              </div>
+
+              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                {projFiles.length === 0 && (
+                  <div className="t-cap">暂无投影文件（schematics 目录为空）。</div>
+                )}
+                {projFiles.map((f) => (
+                  <button
+                    key={f.filePath}
+                    className={`row${path === f.filePath ? ' row-active' : ''}`}
+                    style={{ width: '100%', textAlign: 'left', minHeight: 0, paddingTop: 8, paddingBottom: 8 }}
+                    onClick={() => {
+                      setPath(f.filePath)
+                      void (async () => {
+                        setLoading(true)
+                        try {
+                          const result = await request<ProjectionPreview>('lab.load', {
+                            path: f.filePath
+                          })
+                          setPreview(result)
+                          viewRef.current = { zoom: 1, offsetX: 0, offsetY: 0 }
+                          redraw()
+                        } catch (e) {
+                          setError(String(e))
+                        } finally {
+                          setLoading(false)
+                        }
+                      })()
+                    }}
+                  >
+                    <span className="t-body truncate" style={{ flex: 1, color: 'var(--text-primary)' }}>
+                      {f.fileName}
+                    </span>
+                    <span className="t-meta" style={{ flexShrink: 0 }}>
+                      {(f.sizeBytes / 1024).toFixed(0)} KB ·{' '}
+                      {new Date(f.modifiedAt).toLocaleDateString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
         {loading && <SkeletonList rows={3} />}
 
         {error !== '' && (
@@ -254,48 +370,6 @@ export default function LabPage() {
           </div>
         )}
 
-        {/* ── 工具条 ── */}
-        <div
-          className="card"
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 12,
-            flexWrap: 'wrap',
-            padding: '14px 16px',
-            marginBottom: 14
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 280 }}>
-            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-              投影文件路径
-            </div>
-            <input
-              className="input"
-              style={{ width: '100%' }}
-              value={path}
-              placeholder="/home/user/.minecraft/schematics/build.litematic"
-              onChange={(e) => setPath(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void load()
-              }}
-            />
-          </div>
-          <button
-            className="btn btn-primary"
-            disabled={loading}
-            onClick={() => void load()}
-          >
-            ↻ {loading ? '解析中…' : '加载预览'}
-          </button>
-          <button
-            className="btn"
-            disabled={generating}
-            onClick={() => void generateWorldEater()}
-          >
-            ▤ {generating ? '生成中…' : '生成世吞模板'}
-          </button>
-        </div>
 
         {preview != null && preview.unsupported != null && preview.unsupported.length > 0 && (
           <div className="info info-warning" style={{ marginBottom: 14 }}>
@@ -520,7 +594,9 @@ export default function LabPage() {
           </div>
         )}
         {host}
-      </PageShell>
+          </div>
+        </div>
+      </div>
     </>
   )
 }
