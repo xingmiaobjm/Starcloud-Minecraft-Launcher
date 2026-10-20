@@ -23,7 +23,8 @@ Electron 只能跑桌面，所以"Electron 重构 UI"在安卓上的落地方式
 | Web 壳渲染 | 模拟器 `nebula_api36`（x86_64，`-PemuAbi` 打包）`am start` | React 首页、导航 11+2 项、版本/下载/存档页全部正常 |
 | 桥数据 | 同上，数据来自真实 Kotlin 侧 | 清单 920 个版本、离线账户、Java 未安装状态 |
 | `versions.install` 全流程 | `tools/fake-repo` + `adb reverse` + `http.server` | `install.progress` 五阶段走完，`{"ok":true,"message":"安装完成：starcloud-test"}`，`catalog.installed` 出现该版本 |
-| `launch.start` 链路 | 同上 | 收到 `game.log` 事件流后因 `components/manifest.json` 缺失中止（组件包未生成） |
+| `launch.start` 编排链 | 同上 + 临时假组件（`glfw-stub`） | 走完「启动链开始 → 部署 glfw-stub(1/1) → 组件就绪 → Java 桥就绪 → 运行时选择」，停在"没有真实 JRE 组件"（假组件里不含 jre） |
+| `launch.start` 拉起 SDL | — | **未验证**：需要真实 JRE/SDL 组件 + arm64 硬件 |
 
 ### 走查过程中修掉的真 bug
 
@@ -52,6 +53,13 @@ gradle :app:assembleDebug
 # 3) 装包 + 起壳 + 截屏 + 日志
 powershell -ExecutionPolicy Bypass -File ..\tools\walkthrough.ps1
 ```
+
+### 复现"编排链"的临时手法（不进仓库）
+
+`app/src/debug/assets/components/` 放一个最小 manifest（只声明 `glfw-stub`，zip 里放个
+占位 `libpojavexec.so`）→ 构建 debug → `launch.start` 会依次打出
+`部署 glfw-stub` / `组件就绪` / `Java 桥就绪`，然后停在运行时选择。
+验证完把该目录删掉再重新构建——假组件绝不能进正式包。
 
 ### 验收判据
 
