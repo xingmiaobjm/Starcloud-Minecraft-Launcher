@@ -152,7 +152,11 @@ class StarcloudBridge(
                 put("releaseTime", e.releaseTime)
             })
         }
-        return JSONObject().put("remote", arr).toString()
+        // 渲染层的 VersionCatalog 同时要 remote 与 installed（下载页会 installed.map 过滤已装）
+        return JSONObject().apply {
+            put("remote", arr)
+            put("installed", JSONObject(installedVersions()).getJSONArray("installed"))
+        }.toString()
     }
 
     // ── versions.delete：算一下删前大小，删完把释放的字节数回给页面 ──
@@ -416,9 +420,11 @@ class StarcloudBridge(
             VersionDownloader(filesRoot).downloadVersion(entry)
             poller.join(2000)
 
+            // VersionDownloader 的失败文案是「安装失败：…」，不能用 startsWith 判断
             val msg = InstallState.message
-            reply(callId, if (msg != null && msg.startsWith("失败")) errorJson("install-failed", msg)
-            else JSONObject().put("ok", true).put("id", versionId).toString())
+            val failed = msg != null && msg.contains("失败")
+            reply(callId, if (failed) errorJson("install-failed", msg!!)
+            else JSONObject().put("ok", true).put("id", versionId).put("message", msg ?: "").toString())
         } catch (t: Throwable) {
             reply(callId, errorJson("install-failed", t.message ?: t.javaClass.simpleName))
         }

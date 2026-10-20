@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- debug 专用：把 Web UI 壳设为可被 adb 启动（exported=true），
+     方便真机/模拟器走查用 am start 直接进入，而不影响 release 包。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name="cn.starcloud.launcher.web.WebUiActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+        <!-- debug 专用自检入口：直接调桥并写 logcat（tag ScSelfTest） -->
+        <activity
+            android:name="cn.starcloud.launcher.web.BridgeSelfTestActivity"
+            android:exported="true" />
+    </application>
+</manifest>

@@ -15,9 +15,12 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // 游戏链组件（jre/lwjgl/mesa）只有 arm64-v8a 构建
+        // 游戏链组件（jre/lwjgl/mesa）只有 arm64-v8a 构建；
+        // 但 Web 壳与桥的 UI 层可以在 x86_64 模拟器上验证，用 -PemuAbi 切过去：
+        //   gradle :app:assembleDebug -PemuAbi
+        // （x86_64 包装得上但 launch.start 会在 JVM 阶段失败——native 只有 arm64）
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += if (project.hasProperty("emuAbi")) listOf("x86_64") else listOf("arm64-v8a")
         }
     }
 

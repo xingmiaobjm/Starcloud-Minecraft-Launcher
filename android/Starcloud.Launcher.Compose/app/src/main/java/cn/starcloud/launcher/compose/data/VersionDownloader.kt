@@ -85,11 +85,12 @@ class VersionDownloader(private val filesRoot: File) {
         return (if (mirrored.isEmpty()) listOf(url) else mirrored + url).map { proxied(it) }.distinct()
     }
 
-    // 代理模式（调试）：adb reverse tcp:8888 + 电脑 tools/forward_proxy.py——设备网络对
-    // Mojang/BMCLAPI 域名响应被替换时，下载改走电脑网络（HTTP 明文，manifest 已开 cleartext）。
-    // BMCLAPI 全路径可透传（versions/maven/assets 均有镜像）。
-    private val USE_LOCAL_PROXY = true
-    private val LOCAL_PROXY = "http://192.168.10.251:8889"
+    // 代理模式（仅开发机调试用，默认关闭）：
+    //   电脑跑 tools/forward_proxy.py 后，把 LOCAL_PROXY 改成电脑在局域网里的地址再打开，
+    //   设备下载会绕到电脑网络（Mojang 直连被污染时用）。
+    // ⚠ 绝不能带 true 发版：写死内网地址会让所有用户（以及模拟器）下载失败。
+    private val USE_LOCAL_PROXY = false
+    private val LOCAL_PROXY = "http://127.0.0.1:8889"
 
     private fun proxied(url: String): String {
         if (!USE_LOCAL_PROXY) return url
