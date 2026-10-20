@@ -38,7 +38,14 @@ class WebUiActivity : Activity() {
             // 资源从 assets 读，不需要跨域
             settings.allowFileAccessFromFileURLs = true
             webViewClient = WebViewClient()
-            addJavascriptInterface(StarcloudBridge(this@WebUiActivity), "starcloud")
+            // 回调统一走主线程 + evaluateJavascript：@JavascriptInterface 的执行线程不是 UI 线程
+            val self = this
+            addJavascriptInterface(
+                StarcloudBridge(this@WebUiActivity) { js ->
+                    post { self.evaluateJavascript(js, null) }
+                },
+                "starcloud",
+            )
             loadUrl("file:///android_asset/web/index.html")
         }
         webView = view

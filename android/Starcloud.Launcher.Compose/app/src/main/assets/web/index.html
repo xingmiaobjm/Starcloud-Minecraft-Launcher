@@ -37,14 +37,11 @@
   <h2>已安装版本</h2>
   <div id="list" class="empty">读取中…</div>
 </main>
-<script>
-  // 桥在 WebView 里由 addJavascriptInterface 注入；浏览器里调试时不存在，
-  // 这里给出空实现，页面本身不做任何兜底数据。
-  const bridge = window.starcloud || {
-    appInfo: () => JSON.stringify({ version: "dev", platform: "web" }),
-    versions: () => JSON.stringify({ versions: [] }),
-    log: (m) => console.log(m),
-  };
+<script src="bridge.js"></script>
+<script type="module">
+  // 页面只认 window.bridge（与 Electron preload 同一形状），平台差异在 bridge.js 里抹平
+  const bridge = window.bridge;
+  bridgeEvents.subscribe((name, params) => console.log("[event]", name, params));
 
   function fmt(bytes) {
     if (!bytes) return "未完成";
@@ -53,12 +50,12 @@
   }
 
   try {
-    const info = JSON.parse(bridge.appInfo());
+    const info = await bridge.request("app.info");
     document.getElementById("ver").textContent =
       "Web UI · v" + info.version + " · " + info.platform;
-    bridge.log("web ui ready: " + info.version);
+    bridge.request("ui.log", { message: "web ui ready: " + info.version });
 
-    const data = JSON.parse(bridge.versions());
+    const data = await bridge.request("versions.list");
     const list = document.getElementById("list");
     if (!data.versions.length) {
       list.textContent = "还没有已安装的版本";
@@ -70,7 +67,6 @@
     }
   } catch (e) {
     document.getElementById("list").textContent = "桥接调用失败：" + e.message;
-    bridge.log("bridge error: " + e.message);
   }
 </script>
 </body>
