@@ -119,6 +119,20 @@ Page custom UiPage UiPageLeave
 Page instfiles
 
 UninstPage custom un.UiPage un.UiPageLeave
+UninstPage instfiles
+
+; 静默安装（setup.exe /S）：页面不会创建，实际安装动作由 Section 兜底
+Function .onInit
+  SetShellVarContext current
+  ${If} ${Silent}
+    StrCpy $State "silent"
+  ${EndIf}
+  ; 已装过就沿用原安装目录，升级不会装成第二份
+  ReadRegStr $0 HKCU "${APP_KEY}" ""
+  ${If} $0 != ""
+    StrCpy $INSTDIR $0
+  ${EndIf}
+FunctionEnd
 
 ; ── 通用：窗口与缩放 ──
 
@@ -580,7 +594,20 @@ FunctionEnd
 ; ── 卸载 ──
 
 Section "Starcloud" SecInstall
-  ; 安装动作在安装页的回调里完成，这里保持为空（instfiles 页不会被走到）
+  ; 带界面时安装动作在安装页的回调里完成（instfiles 页走不到）；
+  ; 静默安装（/S）没有页面，这里把同样的动作做一遍。
+  ${If} $State == "silent"
+    Call CheckAppRunning
+    ${If} ${FileExists} "$INSTDIR\uninstall.exe"
+    ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
+    ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
+      RMDir /r "$INSTDIR"
+    ${EndIf}
+    CreateDirectory "$INSTDIR"
+    StrCpy $DoneBytes 0
+    Call ExtractPayload
+    Call RegisterInstall
+  ${EndIf}
 SectionEnd
 
 Function un.onInit
@@ -715,6 +742,13 @@ Function un.OnUninstall
     System::Call 'user32::UpdateWindow(i $hBg)'
   ${EndIf}
 
+  Call un.DoUninstall
+
+  Quit
+FunctionEnd
+
+; 真正删东西的那一段：卸载页与静默卸载（/S）共用
+Function un.DoUninstall
   Call un.CheckAppRunning
 
   Delete "$INSTDIR\uninstall.exe"
@@ -733,8 +767,6 @@ Function un.OnUninstall
     RMDir /r "${DATA_DIR}"
     RMDir /r "${LOG_DIR}"
   ${EndIf}
-
-  Quit
 FunctionEnd
 
 Function un.OnDrag
@@ -769,5 +801,7 @@ Function un.CheckAppRunning
 FunctionEnd
 
 Section "Uninstall"
-  ; 卸载动作在卸载页的回调里完成
+  ; 带界面时在卸载页回调里完成；静默卸载（uninstall.exe /S）没有页面，这里兜底
+  IfSilent 0 +2
+    Call un.DoUninstall
 SectionEnd
