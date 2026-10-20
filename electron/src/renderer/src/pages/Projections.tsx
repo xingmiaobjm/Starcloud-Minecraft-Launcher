@@ -1,16 +1,17 @@
-/// 投影管理：把散落在全局目录和各版本实例里的投影收在一张表里，
-/// 直接复制 / 移动到需要的版本（对齐 Win 端 ProjectionManagerPage）。
-import { useEffect, useState } from 'react'
+/// 投影管理页：对齐 Win 端 ProjectionManagerPage ——
+/// 左侧投影列表（文件名 + 大小·日期·位置 + 完整路径 + 所在版本标签），
+/// 右侧「目标版本」面板（下拉 + 复制/移动/在文件夹中显示/删除）。
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { request } from '../bridge'
-import { EmptyState, Modal, PageShell, SkeletonList, useToasts } from '../ui'
+import { EmptyState, Modal, SkeletonList, useToasts } from '../ui'
 
 export interface ProjectionFile {
   filePath: string
   fileName: string
   sizeBytes: number
   modifiedAt: string
-  /** null = 全局 .minecraft/schematics */
+  /** 空 = 全局 .minecraft/schematics */
   versionId?: string
 }
 
@@ -36,173 +37,187 @@ export default function ProjectionsPage(): JSX.Element {
   const [files, setFiles] = useState<ProjectionFile[]>([])
   const [versions, setVersions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [target, setTarget] = useState<ProjectionFile | null>(null)
-  const [mode, setMode] = useState<'copy' | 'move'>('copy')
-  const [destVersion, setDestVersion] = useState<string>('')
+  const [busy, setBusy] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  /** 目标版本：'' = 全局（共享目录） */
+  const [dest, setDest] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<ProjectionFile | null>(null)
 
-  async function reload(): Promise<void> {
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true)
     try {
       const r = await request<ScanResult>('projections.scan', {})
       setFiles(r.files)
       setVersions(r.versions)
+      if (selected !== null && !r.files.some((f) => f.filePath === selected)) {
+        setSelected(null)
+      }
     } catch (e) {
       push('error', `扫描投影失败：${String(e)}`)
-    } finally {
-      setLoading(false)
     }
-  }
+    setLoading(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [push])
 
   useEffect(() => {
-    void reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void load()
+  }, [load])
 
-  async function transfer(): Promise<void> {
-    if (target === null) return
-    setBusy(target.filePath)
+  const current = useMemo(
+    () => files.find((f) => f.filePath === selected) ?? null,
+    [files, selected]
+  )
+
+  async function transfer(mode: 'copy' | 'move'): Promise<void> {
+    if (current === null) return
+    setBusy(true)
     try {
       const r = await request<{ path: string }>(
         mode === 'copy' ? 'projections.copy' : 'projections.move',
-        { filePath: target.filePath, versionId: destVersion === '' ? null : destVersion }
+        { filePath: current.filePath, versionId: dest === '' ? null : dest }
       )
       push('success', `${mode === 'copy' ? '已复制' : '已移动'}到 ${r.path}`)
-      setTarget(null)
-      await reload()
+      await load()
     } catch (e) {
       push('error', String(e))
     } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
   async function remove(file: ProjectionFile): Promise<void> {
-    setBusy(file.filePath)
+    setBusy(true)
     try {
       await request('projections.delete', { filePath: file.filePath })
       push('success', `已删除 ${file.fileName}`)
-      await reload()
+      setSelected(null)
+      await load()
     } catch (e) {
       push('error', String(e))
     } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
   return (
-    <PageShell
-      title="投影管理"
-      subtitle="全局与各版本实例的投影文件，跨版本复制或移动"
-      actions={
-        <button className="btn" onClick={() => void reload()} disabled={loading}>
-          ↻ 刷新
-        </button>
-      }
-    >
-      {loading ? (
-        <SkeletonList rows={6} avatar />
-      ) : files.length === 0 ? (
-        <EmptyState
-          title="还没有投影文件"
-          hint="投影放在游戏目录的 schematics 下（.litematic / .nbt / .schematic / .schem）。"
-        />
-      ) : (
-        <div>
-          {files.map((file, index) => (
-            <div
-              key={file.filePath}
-              className="row row-static"
-              style={{ animationDelay: `${index * 39}ms` }}
-            >
-              <div className="icon32">◈</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="t-strong truncate">{file.fileName}</div>
-                <div className="t-cap truncate">
-                  {fmtSize(file.sizeBytes)} · {fmtTime(file.modifiedAt)} ·{' '}
-                  {file.versionId ?? '全局目录'}
-                </div>
-              </div>
-              <div className="meta">
-                <span className="meta-k">位置</span>
-                <span className="meta-v">{file.versionId ?? '全局'}</span>
-                <span className="meta-k">大小</span>
-                <span className="meta-v">{fmtSize(file.sizeBytes)}</span>
-              </div>
-              <button
-                className="btn"
-                disabled={busy !== null}
-                onClick={() => {
-                  setTarget(file)
-                  setMode('copy')
-                  setDestVersion('')
-                }}
-              >
-                复制到…
-              </button>
-              <button
-                className="btn"
-                disabled={busy !== null}
-                onClick={() => {
-                  setTarget(file)
-                  setMode('move')
-                  setDestVersion('')
-                }}
-              >
-                移动到…
-              </button>
-              <button
-                className="btn btn-subtle btn-danger"
-                disabled={busy !== null}
-                onClick={() => setConfirmDelete(file)}
-              >
-                删除
-              </button>
-            </div>
-          ))}
+    <div className="page">
+      <div className="page-head">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 className="page-title">投影管理</h1>
+          <div className="page-sub">扫描全局与各版本实例的投影，可直接复制到需要使用的版本。</div>
         </div>
-      )}
+        <button className="btn btn-primary" onClick={() => void load()} disabled={loading}>
+          刷新
+        </button>
+      </div>
 
-      {/* 复制/移动目标选择 */}
-      <Modal
-        open={target !== null}
-        title={mode === 'copy' ? '复制投影' : '移动投影'}
-        onClose={() => setTarget(null)}
-        footer={
-          <>
-            <button className="btn" onClick={() => setTarget(null)}>
-              取消
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16 }}>
+        {/* 左：投影列表 */}
+        <div className="card card-flush" style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 12px' }}>
+            {loading && <SkeletonList rows={6} />}
+            {!loading && files.length === 0 && (
+              <EmptyState
+                title="还没有投影文件"
+                hint="投影放在游戏目录的 schematics 下（.litematic / .nbt / .schematic / .schem）。"
+              />
+            )}
+            {files.map((f) => {
+              const active = f.filePath === selected
+              return (
+                <div
+                  key={f.filePath}
+                  className={`row${active ? ' row-active' : ''}`}
+                  style={{ alignItems: 'flex-start', paddingTop: 12, paddingBottom: 12 }}
+                  onClick={() => setSelected(active ? null : f.filePath)}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="t-strong truncate">{f.fileName}</div>
+                    <div className="t-meta">
+                      {fmtSize(f.sizeBytes)} · {fmtTime(f.modifiedAt)} ·{' '}
+                      {f.versionId === undefined ? '全局目录' : `版本 ${f.versionId}`}
+                    </div>
+                    <div
+                      className="t-meta truncate"
+                      style={{ opacity: 0.65 }}
+                      title={f.filePath}
+                    >
+                      {f.filePath}
+                    </div>
+                  </div>
+                  <span className="t-body" style={{ flexShrink: 0 }}>
+                    {f.versionId === undefined ? '全局' : f.versionId}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 右：目标版本面板 */}
+        <div className="card" style={{ width: 370, flexShrink: 0, alignSelf: 'flex-start' }}>
+          <div className="t-strong" style={{ marginBottom: 12 }}>
+            目标版本
+          </div>
+          <select
+            className="input"
+            style={{ width: '100%' }}
+            value={dest}
+            onChange={(e) => setDest(e.target.value)}
+          >
+            <option value="">全局（共享目录）</option>
+            {versions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
+            <button
+              className="btn"
+              disabled={current === null || busy}
+              onClick={() => void transfer('copy')}
+            >
+              复制到该版本
             </button>
             <button
-              className="btn btn-primary"
-              disabled={busy !== null}
-              onClick={() => void transfer()}
+              className="btn"
+              disabled={current === null || busy}
+              onClick={() => void transfer('move')}
             >
-              {busy !== null ? '处理中…' : mode === 'copy' ? '复制' : '移动'}
+              移动到该版本
             </button>
-          </>
-        }
-      >
-        <div className="t-body" style={{ marginBottom: 12 }}>
-          将「{target?.fileName}」{mode === 'copy' ? '复制' : '移动'}到：
-        </div>
-        <select
-          className="input"
-          style={{ width: '100%' }}
-          value={destVersion}
-          onChange={(e) => setDestVersion(e.target.value)}
-        >
-          <option value="">全局 .minecraft/schematics</option>
-          {versions.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-      </Modal>
+            <button
+              className="btn"
+              disabled={current === null || busy}
+              onClick={() =>
+                push('info', '在文件夹中显示：需要主进程 openPath 能力，接入后可用')
+              }
+            >
+              在文件夹中显示
+            </button>
+            <button
+              className="btn btn-danger"
+              disabled={current === null || busy}
+              onClick={() => {
+                if (current !== null) setConfirmDelete(current)
+              }}
+            >
+              删除
+            </button>
+          </div>
 
-      {/* 删除确认 */}
+          {current !== null && (
+            <div className="t-cap" style={{ marginTop: 12 }}>
+              已选：{current.fileName}
+              <br />
+              当前位于：{current.versionId === undefined ? '全局目录' : current.versionId}
+            </div>
+          )}
+        </div>
+      </div>
+
       <Modal
         open={confirmDelete !== null}
         title="删除投影？"
@@ -216,9 +231,9 @@ export default function ProjectionsPage(): JSX.Element {
               className="btn btn-primary"
               style={{ background: 'var(--danger)', color: '#fff' }}
               onClick={() => {
-                const t = confirmDelete
+                const f = confirmDelete
                 setConfirmDelete(null)
-                if (t !== null) void remove(t)
+                if (f !== null) void remove(f)
               }}
             >
               删除
@@ -232,6 +247,6 @@ export default function ProjectionsPage(): JSX.Element {
       </Modal>
 
       {host}
-    </PageShell>
+    </div>
   )
 }

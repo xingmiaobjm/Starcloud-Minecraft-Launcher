@@ -95,7 +95,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
       case 'projections':
         return <ProjectionsPage />
       case 'running':
-        return <RunningPage session={session} />
+        return <RunningPage session={session} onGoHome={() => setPage('home')} />
       case 'accounts':
         return <AccountsPage />
       case 'plugins':
