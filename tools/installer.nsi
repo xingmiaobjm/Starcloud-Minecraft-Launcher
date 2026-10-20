@@ -150,6 +150,33 @@ Function PrepWindow
   ${EndIf}
   IntOp $Scale $0 * 100
   IntOp $Scale $Scale / 96
+
+  ; 位图只有 100/150/200 三档：先选「不小于当前缩放的最小档」，再让窗口与所有
+  ; 控件坐标都用这个档位 —— 位图 1:1 贴上，底图和控件永远是同一个比例。
+  ; 直接按真实 DPI 摆位、位图另按档位缩放的话，125% 这类非整档就会出现
+  ; 图标/路径框与底图对不上、下方留白。
+  ${If} $Scale <= 100
+    StrCpy $Tier 100
+  ${ElseIf} $Scale <= 150
+    StrCpy $Tier 150
+  ${Else}
+    StrCpy $Tier 200
+  ${EndIf}
+  ; 窗口不能高过屏幕：放不下就退一档，宁可用大字号也不让按钮跑出屏幕
+  System::Call 'user32::GetSystemMetrics(i 1) i .r3'
+  IntOp $8 ${UI_H} * $Tier
+  IntOp $8 $8 / 100
+  IntOp $9 $3 * 92
+  IntOp $9 $9 / 100
+  ${If} $8 > $9
+    ${If} $Tier == 200
+      StrCpy $Tier 150
+    ${ElseIf} $Tier == 150
+      StrCpy $Tier 100
+    ${EndIf}
+  ${EndIf}
+  StrCpy $Scale $Tier
+
   IntOp $WinW ${UI_W} * $Scale
   IntOp $WinW $WinW / 100
   IntOp $WinH ${UI_H} * $Scale
@@ -223,34 +250,11 @@ FunctionEnd
 ; LoadImage 传非零宽高在 NSIS 里会失败（实测返回 0），所以用 GDI StretchBlt 自己缩：
 ;   目标尺寸 = 当前 DPI 下的实际像素（$BmpW/$BmpH）
 ;   源尺寸   = 目标 × 素材档位 / 当前缩放（$SrcW/$SrcH，永远不小于目标，是缩小）
-Function ScaleSrc
-  IntOp $0 $BmpW * $Tier
-  IntOp $0 $0 / $Scale
-  StrCpy $SrcW $0
-  IntOp $0 $BmpH * $Tier
-  IntOp $0 $0 / $Scale
-  StrCpy $SrcH $0
-FunctionEnd
-
 Function LoadBmpScaled
-  Call ScaleSrc
+  ; 档位与窗口尺寸已经一致（PrepWindow 里把 Scale 对齐到 Tier），直接 1:1 加载。
+  ; 路径必须加引号：w $BmpFile 这种写法会让 LoadImage 静默返回 0。
   System::Call 'user32::LoadImageW(i 0, w "$BmpFile", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $1 $0
-  ${If} $1 == 0
-    StrCpy $BmpOut 0
-    Return
-  ${EndIf}
-  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r2'
-  System::Call 'gdi32::SelectObject(i r2, i r1) i .r3'
-  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r4'
-  System::Call 'gdi32::CreateCompatibleBitmap(i r2, i $BmpW, i $BmpH) i .r5'
-  System::Call 'gdi32::SelectObject(i r4, i r5) i .r6'
-  System::Call 'gdi32::SetStretchBltMode(i r4, i 4)'   ; HALFTONE：缩小不糊
-  System::Call 'gdi32::StretchBlt(i r4, i 0, i 0, i $BmpW, i $BmpH, i r2, i 0, i 0, i $SrcW, i $SrcH, i 0x00CC0020) i .r7'
-  System::Call 'gdi32::DeleteDC(i r4)'
-  System::Call 'gdi32::DeleteDC(i r2)'
-  System::Call 'gdi32::DeleteObject(i r1)'
-  StrCpy $BmpOut $5
+  StrCpy $BmpOut $0
 FunctionEnd
 
 Function LoadUiAssets
@@ -324,34 +328,11 @@ Function LoadUiAssets
   StrCpy $hBmpBtnDone $BmpOut
 FunctionEnd
 
-Function un.ScaleSrc
-  IntOp $0 $BmpW * $Tier
-  IntOp $0 $0 / $Scale
-  StrCpy $SrcW $0
-  IntOp $0 $BmpH * $Tier
-  IntOp $0 $0 / $Scale
-  StrCpy $SrcH $0
-FunctionEnd
-
 Function un.LoadBmpScaled
-  Call un.ScaleSrc
+  ; 档位与窗口尺寸已经一致（PrepWindow 里把 Scale 对齐到 Tier），直接 1:1 加载。
+  ; 路径必须加引号：w $BmpFile 这种写法会让 LoadImage 静默返回 0。
   System::Call 'user32::LoadImageW(i 0, w "$BmpFile", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $1 $0
-  ${If} $1 == 0
-    StrCpy $BmpOut 0
-    Return
-  ${EndIf}
-  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r2'
-  System::Call 'gdi32::SelectObject(i r2, i r1) i .r3'
-  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r4'
-  System::Call 'gdi32::CreateCompatibleBitmap(i r2, i $BmpW, i $BmpH) i .r5'
-  System::Call 'gdi32::SelectObject(i r4, i r5) i .r6'
-  System::Call 'gdi32::SetStretchBltMode(i r4, i 4)'
-  System::Call 'gdi32::StretchBlt(i r4, i 0, i 0, i $BmpW, i $BmpH, i r2, i 0, i 0, i $SrcW, i $SrcH, i 0x00CC0020) i .r7'
-  System::Call 'gdi32::DeleteDC(i r4)'
-  System::Call 'gdi32::DeleteDC(i r2)'
-  System::Call 'gdi32::DeleteObject(i r1)'
-  StrCpy $BmpOut $5
+  StrCpy $BmpOut $0
 FunctionEnd
 
 Function un.LoadUninstallAssets
@@ -804,6 +785,33 @@ Function un.UiPage
   ${EndIf}
   IntOp $Scale $0 * 100
   IntOp $Scale $Scale / 96
+
+  ; 位图只有 100/150/200 三档：先选「不小于当前缩放的最小档」，再让窗口与所有
+  ; 控件坐标都用这个档位 —— 位图 1:1 贴上，底图和控件永远是同一个比例。
+  ; 直接按真实 DPI 摆位、位图另按档位缩放的话，125% 这类非整档就会出现
+  ; 图标/路径框与底图对不上、下方留白。
+  ${If} $Scale <= 100
+    StrCpy $Tier 100
+  ${ElseIf} $Scale <= 150
+    StrCpy $Tier 150
+  ${Else}
+    StrCpy $Tier 200
+  ${EndIf}
+  ; 窗口不能高过屏幕：放不下就退一档，宁可用大字号也不让按钮跑出屏幕
+  System::Call 'user32::GetSystemMetrics(i 1) i .r3'
+  IntOp $8 ${UI_H} * $Tier
+  IntOp $8 $8 / 100
+  IntOp $9 $3 * 92
+  IntOp $9 $9 / 100
+  ${If} $8 > $9
+    ${If} $Tier == 200
+      StrCpy $Tier 150
+    ${ElseIf} $Tier == 150
+      StrCpy $Tier 100
+    ${EndIf}
+  ${EndIf}
+  StrCpy $Scale $Tier
+
   IntOp $WinW ${UI_W} * $Scale
   IntOp $WinW $WinW / 100
   IntOp $WinH ${UI_H} * $Scale

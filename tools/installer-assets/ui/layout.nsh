@@ -1,6 +1,6 @@
 ; 由 tools/gen-installer-ui.py 生成，请勿手改
 !define UI_W 960
-!define UI_H 720
+!define UI_H 660
 !define UI_MIN_X 852
 !define UI_MIN_Y 8
 !define UI_MIN_W 40
@@ -22,11 +22,11 @@
 !define UI_BTN_W 880
 !define UI_BTN_H 64
 !define UI_CHK_AGREE_X 40
-!define UI_CHK_AGREE_Y 596
+!define UI_CHK_AGREE_Y 584
 !define UI_CHK_AGREE_W 18
 !define UI_CHK_AGREE_H 18
 !define UI_CHK_CUSTOM_X 716
-!define UI_CHK_CUSTOM_Y 596
+!define UI_CHK_CUSTOM_Y 584
 !define UI_CHK_CUSTOM_W 18
 !define UI_CHK_CUSTOM_H 18
 !define UI_CHK_RUN_X 88

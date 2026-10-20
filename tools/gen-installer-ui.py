@@ -37,14 +37,14 @@ OK_GREEN = (34, 197, 94)
 SCALES = [(100, 1.0), (150, 1.5), (200, 2.0)]
 
 # ── 逻辑坐标（layout.nsh 从这里生成） ──
-WIN_W, WIN_H = 960, 720
+WIN_W, WIN_H = 960, 660
 TITLE_MIN = (852, 8, 40, 40)
 TITLE_CLOSE = (892, 8, 44, 40)
 PATH_EDIT = (176, 418, 700, 36)
 PATH_BTN = (864, 414, 48, 44)
 BTN_INSTALL = (40, 492, 880, 64)
-CHK_AGREE = (40, 596, 18, 18)
-CHK_CUSTOM = (716, 596, 18, 18)
+CHK_AGREE = (40, 584, 18, 18)
+CHK_CUSTOM = (716, 584, 18, 18)
 BTN_DONE = (40, 492, 880, 64)
 CHK_RUN = (88, 320, 18, 18)
 CHK_UNINSTALL_DATA = (88, 316, 18, 18)
@@ -189,12 +189,12 @@ def draw_primary(c: Canvas, label: str):
 
 def draw_footer(c: Canvas):
     # 复选框本身由 NSIS 自绘覆盖，这里只写文字
-    c.text((66, 593), "同意", 12.5, SUB, bold=False)
-    c.text((100, 593), "《Starcloud 用户服务协议》", 12.5, (32, 107, 255), bold=False)
-    c.text((288, 593), "和", 12.5, SUB, bold=False)
-    c.text((304, 593), "《隐私政策》", 12.5, (32, 107, 255), bold=False)
-    c.text((742, 593), "自定义安装", 12.5, SUB, bold=False)
-    c.text((920, 682), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((66, 581), "同意", 12.5, SUB, bold=False)
+    c.text((100, 581), "《Starcloud 用户服务协议》", 12.5, (32, 107, 255), bold=False)
+    c.text((288, 581), "和", 12.5, SUB, bold=False)
+    c.text((304, 581), "《隐私政策》", 12.5, (32, 107, 255), bold=False)
+    c.text((742, 581), "自定义安装", 12.5, SUB, bold=False)
+    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_install(c: Canvas):
@@ -212,7 +212,7 @@ def build_progress(c: Canvas):
     x, y, w, h = PROGRESS
     c.d.rounded_rectangle(c.box((x, y, w, h)), radius=c.radius(6), fill=(240, 241, 244))
     c.text((88, 348), "这通常需要十几秒，安装完成后会自动进入下一步。", 11.5, MUTED, bold=False)
-    c.text((920, 682), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_uninstall(c: Canvas):
@@ -221,14 +221,14 @@ def build_uninstall(c: Canvas):
     c.text((88, 250), "程序本体将被删除，你的账号与配置可以选择保留。", 13.5, SUB, bold=False)
     c.text((114, 314), "同时删除配置、账号与崩溃日志", 13.5, INK, bold=False)
     draw_primary(c, "卸载")
-    c.text((920, 682), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_uninstalling(c: Canvas):
     draw_title(c)
     c.text((88, 196), "正在卸载 Starcloud", 30, INK)
     c.text((88, 250), "正在移除程序文件与快捷方式，请稍候。", 13.5, SUB, bold=False)
-    c.text((920, 682), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_done(c: Canvas):
@@ -244,7 +244,7 @@ def build_done(c: Canvas):
     c.text((176, 262), "Starcloud 已经就绪，随时可以开始游戏。", 13.5, SUB, bold=False)
     c.text((114, 316), "立即运行 Starcloud", 13.5, INK, bold=False)
     draw_primary(c, "完成")
-    c.text((920, 682), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_check(c: Canvas, on: bool):
