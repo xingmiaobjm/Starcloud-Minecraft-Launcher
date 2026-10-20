@@ -39,6 +39,18 @@ data class LaunchOptions(
     val tmpDir: File,
 )
 
+/** 组件清单里实际存在的 JRE 大版本，用于缺 JRE 时的提示 */
+private fun describeAvailableJre(manifest: ComponentManifest): String {
+    val majors = manifest.components
+        .map { it.name }
+        .filter { it.startsWith("jre") }
+        .mapNotNull { Regex("(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        .distinct()
+        .sorted()
+    return if (majors.isEmpty()) "当前内置组件里没有任何 JRE"
+    else "当前只提供 Java " + majors.joinToString(" / ")
+}
+
 class LaunchSpecBuilder(
     private val manifest: ComponentManifest,
     private val componentsRoot: File,
@@ -67,7 +79,8 @@ class LaunchSpecBuilder(
 
         val jreEntry = manifest.find(RuntimeSelector.componentNameFor(jreMajor))
             ?: throw IllegalStateException(
-                "此版本需要 Java $jreMajor 运行时，当前内置组件未提供（已提供 Java 8 / 17 / 21 / 25）。"
+                // 别写死"已提供 8/17/21/25"：内置组件缺失时那句话会自相矛盾（走查时踩到）
+                "此版本需要 Java $jreMajor 运行时，${describeAvailableJre(manifest)}。"
             )
         val lwjglEntry = manifest.require(lwjglComponentNameOf(version))
         val glfwEntry = manifest.require("glfw-stub")
