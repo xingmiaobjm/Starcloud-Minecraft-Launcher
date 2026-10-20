@@ -66,6 +66,8 @@ class StarcloudBridge(
                 "saves.backup" -> backupSave(params)
                 "version.detail" -> versionDetail(params)
                 "java.list" -> javaList()
+                "projections.scan" -> projectionsScan()
+                "projections.delete" -> projectionsDelete(params)
                 "accounts.list" -> accountsList()
                 "settings.get" -> settingsGet()
                 "settings.set", "settings.apply" -> settingsWrite(params)
@@ -171,6 +173,45 @@ class StarcloudBridge(
             })
         }
         return JSONObject().put("saves", arr).toString()
+    }
+
+    // ── projections：schematics / config/litematica 两个约定目录 ──
+    private val projectionExts = setOf(".litematic", ".nbt", ".schem", ".schematic")
+
+    private fun projectionsScan(): String {
+        val dotMc = File(filesRoot, ".minecraft")
+        val dirs = listOf(File(dotMc, "schematics"), File(dotMc, "config/litematica"))
+        val files = JSONArray()
+        dirs.filter { it.isDirectory }.forEach { dir ->
+            dir.listFiles { f -> f.isFile && projectionExts.any { f.name.endsWith(it, true) } }
+                ?.sortedByDescending { it.lastModified() }
+                ?.forEach { f ->
+                    files.put(JSONObject().apply {
+                        put("filePath", f.absolutePath)
+                        put("fileName", f.nameWithoutExtension)
+                        put("sizeBytes", f.length())
+                        put("modifiedAt", java.time.Instant.ofEpochMilli(f.lastModified()).toString())
+                        put("versionId", "")   // 安卓端不做版本隔离，投影放全局目录
+                    })
+                }
+        }
+        val versions = JSONArray()
+        VersionsRepository(filesRoot).list().forEach { versions.put(it.id) }
+        return JSONObject().put("files", files).put("versions", versions).toString()
+    }
+
+    private fun projectionsDelete(params: JSONObject): String {
+        val path = params.optString("filePath").ifEmpty { params.optString("path") }
+        if (path.isEmpty()) return errorJson("bad-request", "缺少文件路径")
+        // 只允许删投影目录里的文件：防止页面传任意路径过来
+        val file = File(path).canonicalFile
+        val dotMc = File(filesRoot, ".minecraft").canonicalFile
+        val allowed = listOf(File(dotMc, "schematics"), File(dotMc, "config/litematica"))
+            .map { it.canonicalPath }
+            .any { file.path.startsWith(it) }
+        if (!allowed) return errorJson("forbidden", "只能删除投影目录内的文件")
+        val ok = file.isFile && file.delete()
+        return JSONObject().put("ok", ok).toString()
     }
 
     // ── version.detail：版本 JSON + 实例目录里的内容文件 ──

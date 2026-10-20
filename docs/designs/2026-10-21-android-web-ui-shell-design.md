@@ -80,6 +80,8 @@ adb logcat -s StarcloudWeb
 | `versions.delete` | `{versionId}` | `{deleted,freedBytes,wasDefault}` |
 | `saves.list` | — | `{saves:[{folderName,levelName,gameRoot,versionId,isolated,sizeBytes,lastPlayedAt}]}` |
 | `version.detail` | `{versionId}` | 版本 JSON 摘要 + mods/resourcepacks/shaderpacks 文件列表 |
+| `projections.scan` | — | `{files:[{filePath,fileName,sizeBytes,modifiedAt,versionId}],versions}`（扫 schematics / config/litematica） |
+| `projections.delete` | `{filePath}` | `{ok}`；只允许删投影目录内的文件（防任意路径） |
 | `java.list` | — | `{runtimes:[{versionString,majorVersion}]}`（扫 components/jre*） |
 | `accounts.list` | — | `{accounts:[离线账号],current}`（用户名取自 LauncherPrefs） |
 | `saves.delete` | `{folderName}` | `{ok,freedBytes}` |
