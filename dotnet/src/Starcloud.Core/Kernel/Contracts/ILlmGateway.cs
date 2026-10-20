@@ -34,6 +34,10 @@ public interface ILlmGateway
     Task<string> ChatAsync(string apiKey, IReadOnlyList<object> messages,
         string? model = null, int? maxTokens = null, CancellationToken ct = default);
 
+    /// <summary>流式对话的纯文本投影（不带工具的问答走这条）</summary>
+    IAsyncEnumerable<string> StreamDeltasAsync(string apiKey, IReadOnlyList<object> messages,
+        int? maxTokens = null, [EnumeratorCancellation] CancellationToken ct = default);
+
     /// <summary>流式对话（文本增量 + 工具调用增量）</summary>
     IAsyncEnumerable<SseEvent> StreamChatAsync(string apiKey, IReadOnlyList<object> messages,
         object? tools = null, string? model = null, int? maxTokens = null,

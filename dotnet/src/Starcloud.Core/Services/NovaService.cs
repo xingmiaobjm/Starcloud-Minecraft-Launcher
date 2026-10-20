@@ -21,6 +21,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Starcloud.Core.Kernel.Contracts;
+
 namespace Starcloud.Core.Services;
 
 /// <summary>确认清单里的一个具体动作（标题 + 具体数值/影响说明）</summary>
@@ -59,6 +61,7 @@ public sealed class NovaService
 
     /// <summary>中文搜索词 → 英文（可选）：本地推荐/搜索要用英文才搜得到东西</summary>
     private readonly SearchTranslationService? _translation;
+    private readonly ILlmGateway _gateway;
 
     /// <summary>Starcloud ID 会话来源：云端中转的 API Key 从这里取（未接入时为 null，只走自填 Key / 本地兜底）</summary>
     private readonly StarcloudIdService? _starcloudId;
@@ -87,7 +90,7 @@ public sealed class NovaService
         NovaPermissionStore permissions, NovaActionLog log,
         NovaMomentsService moments, NovaInviteService invites, SaveService saves,
         NovaToolRegistry? tools = null, StarcloudIdService? starcloudId = null,
-        SearchTranslationService? translation = null)
+        SearchTranslationService? translation = null, ILlmGateway? gateway = null)
     {
         _mods = mods;
         _diag = diag;
@@ -99,6 +102,8 @@ public sealed class NovaService
         _saves = saves;
         _starcloudId = starcloudId;
         _translation = translation;
+        // 云端网关走契约：未接线时退回静态实现，行为不变（Bridge / 单测不经过内核）
+        _gateway = gateway ?? new NovaLlmGateway(() => new LauncherSettings());
         if (tools is not null) _agent = new NovaAgentLoop(this, tools);
     }
 
@@ -148,7 +153,7 @@ public sealed class NovaService
         {
             try
             {
-                var text = await NovaGatewayClient.ChatAsync(
+                var text = await _gateway.ChatAsync(
                     gatewayKey, BuildMessages(trim.Text, sendHistory), NovaGatewayClient.DefaultModel, maxTokens, ct);
                 if (!string.IsNullOrWhiteSpace(text)) return new NovaReply(text, null, true, trim);
             }
@@ -237,7 +242,7 @@ public sealed class NovaService
         if (HasUserProfile(settings))
             channels.Add(UserLlmChatStreamAsync(settings, trim.Text, sendHistory, ct, maxTokens));
         if (GatewayKey(settings) is { } streamKey)
-            channels.Add(NovaGatewayClient.StreamDeltasAsync(
+            channels.Add(_gateway.StreamDeltasAsync(
                 streamKey, BuildMessages(trim.Text, sendHistory), maxTokens, ct));
 
         NovaGatewayException? notice = null;
@@ -952,7 +957,7 @@ public sealed class NovaService
     /// 不可用 → null（调用方直接跳过这一级）。
     /// </summary>
     private string? GatewayKey(LauncherSettings settings) =>
-        NovaGatewayClient.CanUse(settings, _starcloudId?.Current) ? _starcloudId!.Current!.ApiKey : null;
+        _gateway.CanUse(_starcloudId?.Current) ? _starcloudId!.Current!.ApiKey : null;
 
     /// <summary>发给模型的完整消息数组：system 人格 + 已裁剪的历史 + 本轮输入。</summary>
     internal static List<object> BuildMessages(string message, IReadOnlyList<NovaChatTurn>? history)
@@ -1110,7 +1115,7 @@ public sealed class NovaService
         if (UserProfileReady(settings) is { } profile)
             channels.Add(UserAgentChannelAsync(profile, messages, tools, maxTokens, linked.Token));
         if (GatewayKey(settings) is { } gatewayKey)
-            channels.Add(NovaGatewayClient.StreamChatAsync(
+            channels.Add(_gateway.StreamChatAsync(
                 gatewayKey, messages, tools, NovaGatewayClient.DefaultModel, maxTokens, linked.Token));
 
         var channelIndex = 0;

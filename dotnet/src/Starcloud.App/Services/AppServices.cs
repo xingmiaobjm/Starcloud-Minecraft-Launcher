@@ -258,7 +258,8 @@ public sealed class AppServices
             Host = new NovaHostActions(this),
         });
         Nova = new NovaService(Mods, Diagnostics, ModConflicts, NovaPermissions,
-            NovaLog, NovaMoments, NovaInvites, Saves, NovaTools, StarcloudId, SearchTranslation);
+            NovaLog, NovaMoments, NovaInvites, Saves, NovaTools, StarcloudId, SearchTranslation,
+            LlmGateway);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
         // 插件系统：宿主版本号取自启动器程序集（minLauncherVersion 校验 / ctx 透出）
