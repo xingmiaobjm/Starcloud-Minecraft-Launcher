@@ -93,10 +93,15 @@ class VersionDownloader(private val filesRoot: File) {
     private val LOCAL_PROXY = "http://127.0.0.1:8889"
 
     private fun proxied(url: String): String {
+        // 调试自检注入的代理优先（配 adb reverse + tools/forward_proxy.py）；
+        // 正式包里 DownloadDebug.proxyBase 恒为 null，走下面的常量分支
+        DownloadDebug.proxyBase?.let { base -> return prefix(base, url) ?: url }
         if (!USE_LOCAL_PROXY) return url
         val path = when {
             url.startsWith("https://piston-meta.mojang.com/") -> url.substringAfter("piston-meta.mojang.com/")
             url.startsWith("https://piston-data.mojang.com/maven/") -> url.substringAfter("piston-data.mojang.com/")
+            url.startsWith("https://piston-data.mojang.com/v1/objects/") ->
+                "v1/objects/" + url.substringAfter("piston-data.mojang.com/v1/objects/")
             url.startsWith("https://libraries.minecraft.net/") -> url.substringAfter("libraries.minecraft.net/")
             url.startsWith("https://resources.download.minecraft.net/") ->
                 "assets/" + url.substringAfter("resources.download.minecraft.net/")
@@ -104,6 +109,22 @@ class VersionDownloader(private val filesRoot: File) {
             else -> return url
         }
         return "$LOCAL_PROXY/$path"
+    }
+
+    /** 把官方 URL 改写成代理路径前缀；不认识的 URL 返回 null（原样直连） */
+    private fun prefix(base: String, url: String): String? {
+        val path = when {
+            url.startsWith("https://piston-meta.mojang.com/") -> url.substringAfter("piston-meta.mojang.com/")
+            url.startsWith("https://piston-data.mojang.com/maven/") -> url.substringAfter("piston-data.mojang.com/")
+            url.startsWith("https://piston-data.mojang.com/v1/objects/") ->
+                "v1/objects/" + url.substringAfter("piston-data.mojang.com/v1/objects/")
+            url.startsWith("https://libraries.minecraft.net/") -> url.substringAfter("libraries.minecraft.net/")
+            url.startsWith("https://resources.download.minecraft.net/") ->
+                "assets/" + url.substringAfter("resources.download.minecraft.net/")
+            url.startsWith("https://bmclapi2.bangbang93.com/") -> url.substringAfter("bmclapi2.bangbang93.com/")
+            else -> return null
+        }
+        return "$base/$path"
     }
 
     private fun fetchText(url: String): String {

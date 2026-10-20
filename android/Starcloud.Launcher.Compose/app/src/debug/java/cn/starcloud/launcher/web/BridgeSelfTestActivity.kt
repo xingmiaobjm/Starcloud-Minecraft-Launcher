@@ -21,6 +21,8 @@ class BridgeSelfTestActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         val method = intent?.getStringExtra("method") ?: "catalog.installed"
+        // --es proxy http://127.0.0.1:8889 ：下载走 forward_proxy（配 adb reverse）
+        intent?.getStringExtra("proxy")?.let { cn.starcloud.launcher.compose.data.DownloadDebug.proxyBase = it }
         // 参数用单独的 extra 拼，避免 adb shell 把 JSON 引号吃掉（踩过）
         val params = intent?.getStringExtra("params") ?: buildString {
             append("{")
