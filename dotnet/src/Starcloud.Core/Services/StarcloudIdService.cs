@@ -1,8 +1,12 @@
-// Starcloud ID 账号体系：登录换取会话，登录成功后后台为用户创建云 AI 助手 API Key。
-// 测试通道在本地模拟鉴权与发 Key（无需后端）；云端通道预留 HTTP 协议实现。
+// Starcloud ID 账号体系：登录换取会话令牌，再用令牌换取云 AI 助手 API Key。
+// 只保留云端通道（测试通道的本地模拟账号已移除）。
+//
+// 协议（后端 /v1/auth/*）：
+//   登录   POST /v1/auth/login    {id,password} → {token,user_id,display_name,avatar_url}
+//   换 Key POST /v1/auth/apikeys  Bearer token  → {api_key}（幂等：已有有效 Key 直接返回旧 Key）
+//   token 只能消费一次，拿到的 api_key 才是长期凭证，必须持久化到本地。
 
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -19,11 +23,14 @@ public sealed record StarcloudSession(
 
 public sealed class StarcloudIdService
 {
-    public const string TestChannel = "test";
+    /// <summary>会话记录的通道标识（新会话一律 cloud；旧会话文件里的值只用于展示）</summary>
     public const string CloudChannel = "cloud";
 
-    /// <summary>云 AI 助手服务地址（云端通道；测试通道不访问网络）</summary>
-    public const string CloudBaseUrl = "https://api.starcloudfur.cn";
+    /// <summary>账号服务地址：登录 / 注册 / 换 API Key</summary>
+    public const string AuthBaseUrl = "https://starcloudfur.cn";
+
+    /// <summary>云 AI 助手网关地址（Nova 的 quota / chat 走这里）</summary>
+    public const string AiBaseUrl = "https://api.starcloudfur.cn";
 
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
@@ -33,28 +40,7 @@ public sealed class StarcloudIdService
 
     public bool IsLoggedIn => Current is not null;
 
-    /// <summary>
-    /// 登录 Starcloud ID。登录成功后后台为该用户创建（或取回）云 AI API Key。
-    /// 测试通道：本地模拟服务端流程；同一 ID 多次登录得到同一 Key（模拟服务端存储）。
-    /// </summary>
-    public async Task<StarcloudSession> LoginAsync(
-        string starcloudId, string password, string channel = TestChannel,
-        CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(starcloudId))
-            throw new InvalidOperationException("请输入 Starcloud ID");
-        if (string.IsNullOrEmpty(password))
-            throw new InvalidOperationException("请输入密码");
-
-        var session = channel == CloudChannel
-            ? await CloudLoginAsync(starcloudId, password, ct)
-            : await TestLoginAsync(starcloudId, password, ct);
-
-        Current = session;
-        Persist();
-        return session;
-    }
-
+    /// <summary>退出登录：清掉内存里的会话与本地会话文件。</summary>
     public void Logout()
     {
         Current = null;
@@ -62,84 +48,92 @@ public sealed class StarcloudIdService
             File.Delete(LauncherPaths.StarcloudIdFile);
     }
 
-    /// <summary>
-    /// 注册新的 Starcloud ID。测试通道本地模拟（进程内去重）；云端通道调用 /v1/auth/register。
-    /// </summary>
-    public async Task RegisterAsync(
-        string starcloudId, string password, string channel = TestChannel,
-        CancellationToken ct = default)
+    /// <summary>登录 Starcloud ID：拿会话令牌，再换（或取回）云 AI API Key。</summary>
+    public async Task<StarcloudSession> LoginAsync(
+        string starcloudId, string password, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(starcloudId))
+            throw new InvalidOperationException("请输入 Starcloud ID");
+        if (string.IsNullOrEmpty(password))
+            throw new InvalidOperationException("请输入密码");
+
+        var session = await CloudLoginAsync(starcloudId.Trim(), password, ct);
+        Current = session;
+        Persist();
+        return session;
+    }
+
+    /// <summary>注册新的 Starcloud ID（POST /v1/auth/register）。</summary>
+    public async Task RegisterAsync(string starcloudId, string password, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(starcloudId))
             throw new InvalidOperationException("请输入 Starcloud ID");
         if (password.Length < 6)
             throw new InvalidOperationException("密码至少 6 位");
 
-        if (channel == CloudChannel)
-            await CloudRegisterAsync(starcloudId, password, ct);
-        else
-            await TestRegisterAsync(starcloudId, password, ct);
-    }
-
-    // ── 测试通道：本地模拟注册（同进程内同 ID 不可重复注册） ──
-    private static readonly HashSet<string> TestRegisteredIds = new();
-
-    private static async Task TestRegisterAsync(string id, string password, CancellationToken ct)
-    {
-        await Task.Delay(500, ct); // 模拟网络往返
-        if (!TestRegisteredIds.Add(id.ToLowerInvariant()))
-            throw new InvalidOperationException("该 Starcloud ID 已被注册（测试通道）");
-    }
-
-    // ── 云端通道：POST /v1/auth/register ──
-    private static async Task CloudRegisterAsync(string id, string password, CancellationToken ct)
-    {
-        using var http = new HttpClient { BaseAddress = new Uri(CloudBaseUrl) };
+        using var http = new HttpClient { BaseAddress = new Uri(AuthBaseUrl) };
         var resp = await http.PostAsync("/v1/auth/register",
-            new StringContent(JsonSerializer.Serialize(new { id, password }),
+            new StringContent(JsonSerializer.Serialize(new { id = starcloudId.Trim(), password }),
                 Encoding.UTF8, "application/json"), ct);
         if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"注册失败（{(int)resp.StatusCode}）");
+            throw await ServerErrorAsync(resp, ct, "注册失败，请稍后再试");
     }
 
-    // ── 测试通道：本地模拟「登录 → 后台创建 API Key」 ──
-    private static async Task<StarcloudSession> TestLoginAsync(string id, string password, CancellationToken ct)
-    {
-        await Task.Delay(500, ct); // 模拟网络往返
-        if (password.Length < 4)
-            throw new InvalidOperationException("测试通道：密码至少 4 位（任意内容均可）");
-
-        var userId = "sc-" + Sha256Hex(id.ToLowerInvariant())[..12];
-        var apiKey = "sk-test-" + Sha256Hex($"starcloud:{userId}:{id}")[..32];
-        return new StarcloudSession(userId, id, apiKey, TestChannel, DateTime.Now);
-    }
-
-    // ── 云端通道：POST /v1/auth/login 换 token → POST /v1/auth/apikeys 创建 API Key ──
+    // ── 登录：POST /v1/auth/login 换 token → POST /v1/auth/apikeys 换 api_key ──
     private static async Task<StarcloudSession> CloudLoginAsync(string id, string password, CancellationToken ct)
     {
-        using var http = new HttpClient { BaseAddress = new Uri(CloudBaseUrl) };
+        using var http = new HttpClient { BaseAddress = new Uri(AuthBaseUrl) };
 
         var loginResp = await http.PostAsync("/v1/auth/login",
             new StringContent(JsonSerializer.Serialize(new { id, password }),
                 Encoding.UTF8, "application/json"), ct);
-        loginResp.EnsureSuccessStatusCode();
+        if (!loginResp.IsSuccessStatusCode)
+            throw await ServerErrorAsync(loginResp, ct, "登录失败，请检查账号或密码");
+
         var loginJson = await loginResp.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(loginJson);
-        var token = doc.RootElement.GetProperty("token").GetString()
+        var token = (doc.RootElement.TryGetProperty("token", out var tk) ? tk.GetString() : null)
                     ?? throw new InvalidOperationException("登录响应缺少 token");
-        var userId = doc.RootElement.GetProperty("user_id").GetString() ?? "";
+        var userId = doc.RootElement.TryGetProperty("user_id", out var uid) ? uid.GetString() ?? "" : "";
         var displayName = doc.RootElement.TryGetProperty("display_name", out var dn)
             ? dn.GetString() ?? id : id;
 
+        // 令牌只能消费一次；这里立刻换成长期 API Key
         using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/auth/apikeys");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var keyResp = await http.SendAsync(req, ct);
-        keyResp.EnsureSuccessStatusCode();
+        if (!keyResp.IsSuccessStatusCode)
+            throw await ServerErrorAsync(keyResp, ct, "获取 API Key 失败");
+
         var keyJson = await keyResp.Content.ReadAsStringAsync(ct);
         using var keyDoc = JsonDocument.Parse(keyJson);
-        var apiKey = keyDoc.RootElement.GetProperty("api_key").GetString()
+        var apiKey = (keyDoc.RootElement.TryGetProperty("api_key", out var ak) ? ak.GetString() : null)
                      ?? throw new InvalidOperationException("API Key 创建失败");
 
         return new StarcloudSession(userId, displayName, apiKey, CloudChannel, DateTime.Now);
+    }
+
+    /// <summary>后端错误体统一是 {"error":{"code","message"}}，message 已中文化，直接给用户看。</summary>
+    private static async Task<Exception> ServerErrorAsync(
+        HttpResponseMessage resp, CancellationToken ct, string fallback)
+    {
+        string? message = null;
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var err) &&
+                err.ValueKind == JsonValueKind.Object &&
+                err.TryGetProperty("message", out var m) &&
+                m.ValueKind == JsonValueKind.String)
+                message = m.GetString();
+        }
+        catch
+        {
+            // 非 JSON / 空响应：用兜底文案
+        }
+        return new InvalidOperationException(
+            string.IsNullOrWhiteSpace(message) ? fallback : message);
     }
 
     // ── 会话持久化 ──
@@ -163,11 +157,5 @@ public sealed class StarcloudIdService
         LauncherPaths.EnsureDataDir();
         File.WriteAllText(LauncherPaths.StarcloudIdFile,
             JsonSerializer.Serialize(Current, JsonOpts));
-    }
-
-    private static string Sha256Hex(string s)
-    {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(s));
-        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

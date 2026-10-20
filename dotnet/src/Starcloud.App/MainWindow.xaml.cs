@@ -1156,7 +1156,7 @@ public sealed partial class MainWindow : Window
             });
             tip.Children.Add(new TextBlock
             {
-                Text = Loc.T("已登录 · {0}", session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道")),
+                Text = Loc.T("已登录"),
                 FontSize = 12,
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             });

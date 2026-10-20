@@ -44,10 +44,6 @@
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBox x:Name="ScIdBox" loc:Loc.Placeholder="Starcloud ID（用户名或邮箱）" Width="250" />
                         <PasswordBox x:Name="ScPwdBox" loc:Loc.Placeholder="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
-                        <ComboBox x:Name="ScChannelBox" SelectedIndex="0" Width="128" SelectionChanged="ScChannelBox_SelectionChanged">
-                            <ComboBoxItem loc:Loc.Text="测试通道" />
-                            <ComboBoxItem loc:Loc.Text="云端通道" />
-                        </ComboBox>
                         <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource ScAccentButtonStyle}"
                                 FontWeight="Medium" Click="ScLogin_Click" />
                         <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"

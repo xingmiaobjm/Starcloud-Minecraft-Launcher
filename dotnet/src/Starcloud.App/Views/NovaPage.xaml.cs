@@ -30,7 +30,6 @@ public sealed partial class NovaPage : Page
         InitializeComponent();
         // 输入控件 Header 无法用 XAML 附加属性本地化（Loc.Header 仅支持 ToggleSwitch/Expander）→ 在此赋值
         PwdBox.Header = Loc.T("密码");
-        ChannelBox.Header = Loc.T("通道");
         LlmPresetBox.Header = Loc.T("服务商预设");
         LlmBaseUrlBox.Header = Loc.T("接入地址（Base URL，OpenAI 兼容）");
         ProfileNameBox.Header = Loc.T("备注名");
@@ -77,7 +76,7 @@ public sealed partial class NovaPage : Page
         LoginForm.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
         AccountInfo.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
         if (session is { } s)
-            UserSub.Text = $"{s.UserId} · {Loc.T(s.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")} · Key {MaskKey(s.ApiKey)}";
+            UserSub.Text = $"{s.UserId} · Key {MaskKey(s.ApiKey)}";
         ApplyQuota(_s.Settings.CachedQuota()); // 先显示上次数值，再异步刷新
         MaybeRefreshQuota();
     }
@@ -127,7 +126,7 @@ public sealed partial class NovaPage : Page
     }
 
     /// <summary>
-    /// 额度卡渲染：能显示数值就显示数值，不能就说明为什么（未登录 / 测试通道）。
+    /// 额度卡渲染：能显示数值就显示数值，不能就说明为什么（未登录 / 自接模型）。
     /// 进度条按已用比例填充，剩余量用芯片表达，低于 20% 换提示色、用尽换危险色。
     /// </summary>
     private void ApplyQuota(NovaQuota? quota)
@@ -138,11 +137,6 @@ public sealed partial class NovaPage : Page
         if (session is null)
         {
             ShowQuotaHint("还没登录 Starcloud ID：登录后 Nova 走云端模型，额度记在账号上。");
-            return;
-        }
-        if (session.Channel != StarcloudIdService.CloudChannel)
-        {
-            ShowQuotaHint("测试通道是本地模拟账号，不连云端也没有额度；切到「云端通道」登录即可用云端模型。");
             return;
         }
 
@@ -237,16 +231,13 @@ public sealed partial class NovaPage : Page
     private async void Login_Click(object sender, RoutedEventArgs e)
     {
         var id = IdBox.Text.Trim();
-        var channel = ChannelBox.SelectedIndex == 1
-            ? StarcloudIdService.CloudChannel
-            : StarcloudIdService.TestChannel;
 
         LoginBtn.IsEnabled = false;
         LoginProgress.IsActive = true;
         LoginError.Visibility = Visibility.Collapsed;
         try
         {
-            await _s.StarcloudId.LoginAsync(id, PwdBox.Password, channel);
+            await _s.StarcloudId.LoginAsync(id, PwdBox.Password);
             UpdateAccountState();
             _s.NovaRuntime.NotifyLoginChanged();
         }
@@ -260,13 +251,6 @@ public sealed partial class NovaPage : Page
             LoginBtn.IsEnabled = true;
             LoginProgress.IsActive = false;
         }
-    }
-
-    private void ChannelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        PwdBox.PlaceholderText = ChannelBox.SelectedIndex == 1
-            ? Loc.T("云端通道密码")
-            : Loc.T("测试通道任意内容即可（至少 4 位）");
     }
 
     private async void Logout_Click(object sender, RoutedEventArgs e)

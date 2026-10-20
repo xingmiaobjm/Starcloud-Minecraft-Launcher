@@ -103,14 +103,6 @@ public class NovaGatewayTests
     }
 
     [Fact]
-    public void 测试通道的假Key不参与中转()
-    {
-        // sk-test-* 是本地模拟出来的，打网关只会拿 401 —— 必须在进入请求之前就被挡掉
-        var settings = new LauncherSettings { NovaGatewayEnabled = true };
-        Assert.False(NovaGatewayClient.CanUse(settings, Session(StarcloudIdService.TestChannel, "sk-test-1234")));
-    }
-
-    [Fact]
     public void 未登录与空Key都不可用()
     {
         var settings = new LauncherSettings { NovaGatewayEnabled = true };
@@ -317,7 +309,7 @@ public class NovaGatewayTests
     [Fact]
     public void 中转地址与逻辑模型名的约定()
     {
-        Assert.Equal(StarcloudIdService.CloudBaseUrl + "/v1/ai", NovaGatewayClient.CloudBaseUrl);
+        Assert.Equal(StarcloudIdService.AiBaseUrl + "/v1/ai", NovaGatewayClient.CloudBaseUrl);
         Assert.StartsWith("https://", NovaGatewayClient.CloudBaseUrl); // 明文 http 不接受
         Assert.Equal("nova", NovaGatewayClient.DefaultModel);         // 客户端只发逻辑模型名，具体模型由网关选
     }

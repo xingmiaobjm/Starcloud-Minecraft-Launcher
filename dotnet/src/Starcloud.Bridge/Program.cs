@@ -1910,7 +1910,7 @@ public static class Program
     // ── 外部插件（v2 沙箱）：清单/权限/安装/启停状态 ─────────────────────────
 
     /// <summary>与 Windows 端一致的启动器版本（manifest 兼容性校验用）。</summary>
-    private const string LauncherVersion = "0.3.4";
+    private const string LauncherVersion = "0.3.5";
 
     private static readonly object PluginGate = new();
 

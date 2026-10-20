@@ -86,8 +86,6 @@ Var BmpW
 Var BmpH
 Var BmpOut
 Var Tier
-Var SrcW
-Var SrcH
 
 Var hDrag
 Var hMin
@@ -253,7 +251,6 @@ FunctionEnd
 ; 非整档机器会拿到偏小的底图贴在偏大的窗口里，控件却按缩放摆位，于是整个界面错位。
 ; LoadImage 传非零宽高在 NSIS 里会失败（实测返回 0），所以用 GDI StretchBlt 自己缩：
 ;   目标尺寸 = 当前 DPI 下的实际像素（$BmpW/$BmpH）
-;   源尺寸   = 目标 × 素材档位 / 当前缩放（$SrcW/$SrcH，永远不小于目标，是缩小）
 Function LoadBmpScaled
   ; 档位与窗口尺寸已经一致（PrepWindow 里把 Scale 对齐到 Tier），直接 1:1 加载。
   ; 路径必须加引号：w $BmpFile 这种写法会让 LoadImage 静默返回 0。
@@ -330,6 +327,12 @@ Function LoadUiAssets
   StrCpy $BmpFile "$PLUGINSDIR\hit-btn-done.bmp"
   Call LoadBmpScaled
   StrCpy $hBmpBtnDone $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\hit-link-terms.bmp"
+  Call LoadBmpScaled
+  StrCpy $hBmpLinkTerms $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\hit-link-privacy.bmp"
+  Call LoadBmpScaled
+  StrCpy $hBmpLinkPrivacy $BmpOut
 FunctionEnd
 
 Function un.LoadBmpScaled

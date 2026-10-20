@@ -56,7 +56,7 @@ public sealed class NovaGatewayException(string message, int statusCode, NovaQuo
 public static class NovaGatewayClient
 {
     /// <summary>云端中转路径前缀（宿主 = StarcloudIdService.CloudBaseUrl）。</summary>
-    public const string CloudBaseUrl = StarcloudIdService.CloudBaseUrl + "/v1/ai";
+    public const string CloudBaseUrl = StarcloudIdService.AiBaseUrl + "/v1/ai";
 
     /// <summary>逻辑模型名：网关按这个名字选上游模型，客户端的预设里不出现具体模型。</summary>
     public const string DefaultModel = "nova";
@@ -75,13 +75,10 @@ public static class NovaGatewayClient
     /// <summary>额度刷新（任何一次调用带回新额度都会触发）→ UI 更新显示。</summary>
     public static event Action<NovaQuota>? QuotaChanged;
 
-    /// <summary>
-    /// 这个会话能不能走中转：开关打开 + 云端通道 + 有 Key。
-    /// 测试通道的 Key 是本地模拟的假 Key（sk-test-*），打网关只会拿 401，直接跳过。
-    /// </summary>
+    /// <summary>这个会话能不能走中转：开关打开 + 有 Key（测试通道已移除，通道字段只做存档兼容）</summary>
     public static bool CanUse(LauncherSettings settings, StarcloudSession? session) =>
         settings.NovaGatewayEnabled
-        && session is { Channel: StarcloudIdService.CloudChannel }
+        && session is not null
         && !string.IsNullOrWhiteSpace(session.ApiKey);
 
     /// <summary>

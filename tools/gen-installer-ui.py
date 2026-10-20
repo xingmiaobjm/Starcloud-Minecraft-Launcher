@@ -15,11 +15,26 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "tools", "installer-assets", "ui")
 MARK_LIGHT = os.path.join(ROOT, "docs", "assets", "brand", "starcloud-mark-light-512.png")
+
+
+def read_app_version() -> str:
+    """版本号唯一来源：Starcloud.App.csproj 的 <Version>，避免界面写死落后于包。"""
+    try:
+        with open(os.path.join(ROOT, "dotnet", "src", "Starcloud.App", "Starcloud.App.csproj"),
+                  encoding="utf-8") as f:
+            m = re.search(r"<Version>([^<]+)</Version>", f.read())
+        return m.group(1).strip() if m else "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+APP_VERSION = read_app_version()
 ICON_DARK = os.path.join(ROOT, "docs", "assets", "brand", "starcloud-icon-dark-256.png")
 FONT_BD = r"C:\Windows\Fonts\msyhbd.ttc"
 FONT_RG = r"C:\Windows\Fonts\msyh.ttc"
@@ -169,7 +184,7 @@ def draw_hero(c: Canvas):
     chip = [92, 272, 92 + 128, 272 + 26]
     c.d.rounded_rectangle([c.px(chip[0]), c.px(chip[1]), c.px(chip[2]), c.px(chip[3])],
                           radius=c.radius(13), fill=(255, 255, 255))
-    c.text((104, 277), "V0.3.4  开发版", 10.5, (90, 95, 105), bold=False)
+    c.text((104, 277), f"V{APP_VERSION}  开发版", 10.5, (90, 95, 105), bold=False)
 
 
 def draw_pill(c: Canvas):
@@ -207,7 +222,7 @@ def draw_footer(c: Canvas):
     LINK_RECTS["terms"] = (96, 577, c.measure(terms, 12.5) + 8, 20)
     LINK_RECTS["privacy"] = (300, 577, c.measure(privacy, 12.5) + 8, 20)
     c.text((742, 581), "自定义安装", 12.5, SUB, bold=False)
-    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), f"V{APP_VERSION} · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_install(c: Canvas):
@@ -225,7 +240,7 @@ def build_progress(c: Canvas):
     x, y, w, h = PROGRESS
     c.d.rounded_rectangle(c.box((x, y, w, h)), radius=c.radius(6), fill=(240, 241, 244))
     c.text((88, 348), "这通常需要十几秒，安装完成后会自动进入下一步。", 11.5, MUTED, bold=False)
-    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), f"V{APP_VERSION} · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_uninstall(c: Canvas):
@@ -234,14 +249,14 @@ def build_uninstall(c: Canvas):
     c.text((88, 250), "程序本体将被删除，你的账号与配置可以选择保留。", 13.5, SUB, bold=False)
     c.text((114, 314), "同时删除配置、账号与崩溃日志", 13.5, INK, bold=False)
     draw_primary(c, "卸载")
-    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), f"V{APP_VERSION} · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_uninstalling(c: Canvas):
     draw_title(c)
     c.text((88, 196), "正在卸载 Starcloud", 30, INK)
     c.text((88, 250), "正在移除程序文件与快捷方式，请稍候。", 13.5, SUB, bold=False)
-    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), f"V{APP_VERSION} · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_done(c: Canvas):
@@ -257,7 +272,7 @@ def build_done(c: Canvas):
     c.text((176, 262), "Starcloud 已经就绪，随时可以开始游戏。", 13.5, SUB, bold=False)
     c.text((114, 316), "立即运行 Starcloud", 13.5, INK, bold=False)
     draw_primary(c, "完成")
-    c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
+    c.text((920, 620), f"V{APP_VERSION} · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
 
 def build_check(c: Canvas, on: bool):

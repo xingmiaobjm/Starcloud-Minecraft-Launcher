@@ -61,19 +61,7 @@ public sealed partial class AccountsPage : Page
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
             ? "?" : session.DisplayName[..1].ToUpperInvariant();
         ScNameText.Text = session.DisplayName;
-        ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId,
-            session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道"));
-    }
-
-    private string SelectedChannel =>
-        (ScChannelBox.SelectedItem as ComboBoxItem)?.Content.ToString() == Loc.T("云端通道")
-            ? StarcloudIdService.CloudChannel : StarcloudIdService.TestChannel;
-
-    private void ScChannelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (ScPwdBox is null) return; // XAML 初始化期间触发
-        ScPwdBox.PlaceholderText = SelectedChannel == StarcloudIdService.CloudChannel
-            ? Loc.T("密码") : Loc.T("密码（测试通道任意内容）");
+        ScUserSubText.Text = session.UserId;
     }
 
     private async void ScPwdBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
@@ -91,7 +79,7 @@ public sealed partial class AccountsPage : Page
         ScLoginProgress.IsActive = true;
         try
         {
-            await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password, SelectedChannel);
+            await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password);
             ScPwdBox.Password = "";
             RefreshStarcloudState();
             _s.NovaRuntime.NotifyLoginChanged(); // 登录态变了：Nova 状态机/问候/Orb 面板同步
@@ -145,7 +133,7 @@ public sealed partial class AccountsPage : Page
         ScRegisterBtn.IsEnabled = false;
         try
         {
-            await _s.StarcloudId.RegisterAsync(ScRegIdBox.Text.Trim(), ScRegPwdBox.Password, SelectedChannel);
+            await _s.StarcloudId.RegisterAsync(ScRegIdBox.Text.Trim(), ScRegPwdBox.Password);
             ScIdBox.Text = ScRegIdBox.Text.Trim();
             ScPwdBox.Password = "";
             ScRegPwdBox.Password = "";

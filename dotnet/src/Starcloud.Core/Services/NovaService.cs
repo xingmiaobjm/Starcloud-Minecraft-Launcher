@@ -948,7 +948,7 @@ public sealed class NovaService
         UserProfileReady(settings) is not null || GatewayKey(settings) is not null;
 
     /// <summary>
-    /// 云端中转的可用 Key：开关打开 + 云端通道已登录（测试通道的本地假 Key 不参与）。
+    /// 云端中转的可用 Key：开关打开 + 已登录 Starcloud ID 且拿到 Key。
     /// 不可用 → null（调用方直接跳过这一级）。
     /// </summary>
     private string? GatewayKey(LauncherSettings settings) =>

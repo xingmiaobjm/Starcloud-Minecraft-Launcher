@@ -9,7 +9,18 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 ROOT = Path(__file__).resolve().parent.parent
 ICON = ROOT / "docs" / "assets" / "brand" / "starcloud-icon-dark-1024.png"
 OUT = ROOT / "tools" / "installer-assets"
-VERSION = "V0.3.4"
+def _app_version() -> str:
+    """版本号唯一来源：Starcloud.App.csproj 的 <Version>。"""
+    import re
+    try:
+        text = (ROOT / "dotnet" / "src" / "Starcloud.App" / "Starcloud.App.csproj").read_text(encoding="utf-8")
+        m = re.search(r"<Version>([^<]+)</Version>", text)
+        return "V" + (m.group(1).strip() if m else "0.0.0")
+    except OSError:
+        return "V0.0.0"
+
+
+VERSION = _app_version()
 
 BG_TOP = (22, 22, 22)
 BG_BOTTOM = (12, 12, 12)
