@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Starcloud Launcher</title>
+    <!--
+      字体用本地文件而不是 CDN：Linux 上没有 Segoe UI（WinUI3 的默认字体），
+      也不该依赖网络。Inter 作为 Segoe UI Variable 的等宽替代。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:"
+    />
+    <script src="./bridge.js"></script>
+    <script type="module" src="./assets/index-1r30HEWx.js"></script>
+    <link rel="stylesheet" href="./assets/index-B3YLZavz.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

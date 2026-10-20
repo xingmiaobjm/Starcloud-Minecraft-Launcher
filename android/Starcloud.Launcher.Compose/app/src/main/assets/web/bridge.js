@@ -112,8 +112,8 @@
     },
   }
 
-  // 只在 WebView 里补齐；Electron 的 preload 已经注入过，不覆盖
-  if (window.bridge === undefined) window.bridge = bridge
+  // 只在 WebView 里补齐：有原生桥才接管，没有就留给页面自己的 mock（浏览器调试）
+  if (available && window.bridge === undefined) window.bridge = bridge
   if (window.bridgeEvents === undefined) window.bridgeEvents = bridgeEvents
   if (window.theme === undefined) window.theme = theme
 })()

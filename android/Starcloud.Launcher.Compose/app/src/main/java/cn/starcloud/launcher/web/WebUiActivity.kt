@@ -46,7 +46,7 @@ class WebUiActivity : Activity() {
                 },
                 "starcloud",
             )
-            loadUrl("file:///android_asset/web/index.html")
+            loadUrl("file:///android_asset/web/app/index.html")
         }
         webView = view
         setContentView(view)

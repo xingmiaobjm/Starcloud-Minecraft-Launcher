@@ -46,7 +46,9 @@ Electron 自带 Chromium **和 Node 主进程**，主进程是桌面进程模型
 | --- | --- |
 | `app/src/main/java/cn/starcloud/launcher/web/WebUiActivity.kt` | 全屏 WebView，加载 `assets/web/index.html`，注入桥 |
 | `.../web/StarcloudBridge.kt` | `@JavascriptInterface`：`appInfo()` / `versions()` / `log()` |
-| `app/src/main/assets/web/index.html` | 占位页：展示已安装版本，验证通道 |
+| `app/src/main/assets/web/bridge.js` | 统一适配层：把原生 `call/reply` 适配成 `window.bridge.request` |
+| `app/src/main/assets/web/app/` | **electron 渲染层构建产物**（React + Fluent），由 `electron/out/renderer` 拷入 |
+| `app/src/main/assets/web/index.html` | 原生桥自检页（保留，排查用） |
 | `AndroidManifest.xml` | 注册 `WebUiActivity`（`exported=false`，不是 launcher 入口） |
 
 进入方式（不影响正常启动）：
@@ -56,7 +58,8 @@ adb shell am start -n cn.starcloud.launcher.compose/cn.starcloud.launcher.web.We
 adb logcat -s StarcloudWeb
 ```
 
-已验证：`gradle :app:assembleDebug` 通过，APK 产出正常（含原生库，debug 160 MB）。
+已验证：`gradle :app:assembleDebug` 通过；React 产物在 1280×800 的 Chromium 里能正常渲染首页
+（mock 桥），APK 内含 `assets/web/app/` 14 个条目。**真机走查待设备接入**（当前 `adb devices` 为空）。
 
 ## 4. 桥接契约（两端共用）
 
@@ -65,9 +68,12 @@ adb logcat -s StarcloudWeb
 
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
-| `appInfo()` | — | `{name,version,platform,sdk,root}` |
-| `versions()` | — | `{versions:[{id,sizeBytes}]}` |
-| `log(msg)` | string | — |
+| `app.info` | — | `{name,version,platform,sdk,root}` |
+| `versions.list` | — | `{versions:[{id,sizeBytes}]}` |
+| `versions.install` | `{id}` | `{ok,id}`；过程推 `install.progress` 事件 |
+| `launch.start` | `{id,player}` | `{ok,exitCode}`；过程推 `game.log` / `game.progress` |
+| `install.cancel` | — | `{}` |
+| `ui.log` | `{message}` | `{}` |
 
 后续按能力补齐（括号内是首版要接的）：
 
@@ -81,8 +87,8 @@ adb logcat -s StarcloudWeb
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
 | P0（已完成） | WebView 容器 + 桥 + 占位页 | 真机能进页面、能列出已装版本 |
-| P1 | 把 `electron/src/renderer` 拆成可复用包（`ui/`），去掉 `window.api` 依赖，改为注入式 `bridge` | 同一份 bundle 在浏览器、Electron、WebView 都能跑 |
-| P2 | 桥补齐 install / launch / settings，Web 壳能完整走通「装一个版本 → 启动」 | 真机跑通一条完整链路 |
+| P1（已完成） | 复用 `electron/out/renderer` 构建产物，拷进 `assets/web/app/`；补 `bridge.js` 适配层 | 同一份 bundle 在浏览器、Electron、WebView 都能跑（浏览器已截图验证） |
+| P2（代码已就位，待真机） | 桥补齐 `versions.install` / `launch.start` / `install.cancel`，复用 `VersionDownloader` 与 `GameLauncher` | 真机跑通「装一个版本 → 启动」 |
 | P3 | Web 壳设为默认入口，Compose 保留为「兼容界面」开关 | 用户可切回 Compose |
 | P4 | 移除 Compose 界面代码 | — |
 
