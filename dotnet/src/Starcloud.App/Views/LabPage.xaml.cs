@@ -523,7 +523,7 @@ public sealed partial class LabPage : Page
             var assets = _s.MinecraftAssets;
             var (voxels, pack) = await Task.Run(() =>
             {
-                var v = VoxelExporter.Read(path, budget, assets);
+                var v = _s.Projections.ExportVoxels(path, budget, assets);
                 var p = ProjectionAssetCollector.Collect(v.BlockIds, assets.Read);
                 return (v, p);
             });

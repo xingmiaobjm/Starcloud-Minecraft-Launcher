@@ -2,6 +2,7 @@
 
 using Starcloud.Core.Kernel.Plugins;
 using Starcloud.Core.Plugins;
+using Starcloud.Core.Kernel.Contracts;
 using Starcloud.Core.Services;
 using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
@@ -73,7 +74,7 @@ public sealed class AppServices
     public SaveSyncService SaveSync { get; }
 
     /// <summary>SC 实验室 · 投影工坊（.litematic / 结构 nbt / schematic / schem 的解析、元数据编辑与转换）</summary>
-    public ProjectionService Projections { get; }
+    public IProjectionEngine Projections { get; }
 
     /// <summary>SC 实验室 · 投影社区（多源聚合投影资源列表 + 下载；GitHub 经镜像加速，基址可在界面配置）</summary>
     public ProjectionCommunityService ProjectionCommunity { get; }
@@ -139,6 +140,7 @@ public sealed class AppServices
         Kernel.Register(BuiltinTranslatePlugin.Descriptor, _ => new BuiltinTranslatePlugin());
         Kernel.Register(BuiltinIconCachePlugin.Descriptor, _ => new BuiltinIconCachePlugin(() => Settings));
         Kernel.Register(BuiltinProjectionPlugin.Descriptor, _ => new BuiltinProjectionPlugin(() => Settings));
+        Kernel.Register(BuiltinProjectionEnginePlugin.Descriptor, _ => new BuiltinProjectionEnginePlugin(() => Settings));
         // 内置插件的 InitializeAsync 都是纯内存构造，同步启动即可（有 I/O 的插件应声明 lazy）
         Kernel.StartAsync().GetAwaiter().GetResult();
 
@@ -187,7 +189,7 @@ public sealed class AppServices
         SaveSync = new SaveSyncService(() => Settings, StarcloudId, DeviceLink, Saves,
             msg => LauncherLog.Write("devlink", msg));
         Download.PeerSource = () => DeviceLink;
-        Projections = new ProjectionService(() => Settings);
+        Projections = Kernel.Get<IProjectionEngine>();
         ProjectionCommunity = new ProjectionCommunityService(() => Settings, Download);
         CommunityTranslation = new CommunityTranslator(Download);
         MinecraftAssets = new MinecraftAssets(() => Settings);
