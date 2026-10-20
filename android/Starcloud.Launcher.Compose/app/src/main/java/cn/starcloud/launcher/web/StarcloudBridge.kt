@@ -72,6 +72,16 @@ class StarcloudBridge(
                 "projections.scan" -> projectionsScan()
                 "projections.delete" -> projectionsDelete(params)
                 "accounts.list" -> accountsList()
+                "accounts.addOffline" -> {
+                    val name = params.optString("name").ifEmpty { params.optString("playerName") }
+                    if (name.isNotBlank()) LauncherPrefs.setPlayerName(context, name)
+                    "{}"
+                }
+                // 单账号模型：切换/删除都保持现状（页面随后会重新拉 accounts.list）
+                "accounts.setCurrent", "accounts.remove" -> "{}"
+                // 安卓端没有插件运行时：给空列表，页面显示"暂无插件"而不是报错
+                "plugins.list" -> "{\"plugins\":[]}"
+                "plugins.setEnabled" -> "{}"
                 "settings.get" -> settingsGet()
                 "settings.set", "settings.apply" -> settingsWrite(params)
                 "ui.log" -> {
