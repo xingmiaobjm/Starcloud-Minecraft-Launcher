@@ -45,9 +45,23 @@ const win = {
     ipcRenderer.sendSync('win:state')
 }
 
+/**
+ * 本机能力：渲染层（contextIsolation）拿不到 Node，文件系统与外部打开都得
+ * 由主进程代办。三件事都只接受渲染层传来的字符串参数，不回传 Node 对象。
+ */
+const native = {
+  /** 读本地图片并回传 data URL（皮肤库缩略图；渲染层没有 file:// 权限）。 */
+  skinIcon: (path: string): Promise<string> => ipcRenderer.invoke('skin:icon', path),
+  /** 用系统默认浏览器打开链接（微软设备码的验证站点）。 */
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  /** 系统文件选择框；用户取消返回 null。 */
+  pickFile: (title: string): Promise<string | null> => ipcRenderer.invoke('dialog:pickFile', title)
+}
+
 contextBridge.exposeInMainWorld('bridge', bridge)
 contextBridge.exposeInMainWorld('bridgeEvents', bridgeEvents)
 contextBridge.exposeInMainWorld('theme', theme)
 contextBridge.exposeInMainWorld('win', win)
+contextBridge.exposeInMainWorld('native', native)
 
 export type BridgeApi = typeof bridge

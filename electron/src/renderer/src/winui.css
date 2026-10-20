@@ -41,9 +41,9 @@
   --font-icon: 'HarmonyOS Icons';
 
   /* ── 圆角（WinUI 实际值） ── */
-  --r-sm: 4px;   /* 微控件 */
-  --r-control: 7px; /* 按钮 / 输入框（WinUI ControlCornerRadius 实际生效值） */
-  --r-card: 8px;   /* 卡片 / 列表行 */
+  --r-sm: 8px;   /* 微控件 */
+  --r-control: 12px; /* 按钮 / 输入框（WinUI ControlCornerRadius 实际生效值） */
+  --r-card: 20px;   /* 卡片 / 列表行 */
   --r-overlay: 16px; /* 浮层 / 提示条 */
   --r-pill: 999px;
 
@@ -52,8 +52,8 @@
   --t-press: 100ms;
   --t-enter: 375ms;
   --t-exit: 210ms;
-  --t-hover-in: 300ms;
-  --t-hover-out: 450ms;
+  --t-hover-in: 83ms;
+  --t-hover-out: 120ms;
   --t-stagger: 39ms;
   --t-segment: 390ms;
   /* 四条缓动：进场 / 退场 / 控件 / 明暗渐变 */
@@ -69,7 +69,7 @@
   --glass-highlight: rgba(255, 255, 255, 0.06);
 
   --control-h: 32px;
-  --titlebar-h: 36px;
+  --titlebar-h: 48px;
 }
 
 /* ── 亮色主题（WinUI Light） ─────────────────────────────────────────── */
@@ -94,9 +94,9 @@
   --brand-150: #0b0802;
   --brand-160: #060401;
 
-  --accent: #ffc21f;         /* Win 端品牌黄（App.xaml 统一为黄） */
-  --accent-hover: #ffd35c;
-  --accent-pressed: #f0b600;
+  --accent: #ffd322;         /* Win 端品牌黄（App.xaml 统一为黄） */
+  --accent-hover: #ffbc00;
+  --accent-pressed: #e6a800;
   --accent-fg: #1a1307;      /* accent 面强制深色字 */
 
   /* 表面层级（SolidFill + SubtleFill 语义） */
@@ -528,6 +528,8 @@ input, textarea, .selectable { user-select: text; }
 
 /* ═══ 内容区 ═══ */
 .content {
+  /* 相对定位给启动覆盖层用（inset:0 只盖内容区，不盖标题栏与导航） */
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;

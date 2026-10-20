@@ -8,6 +8,16 @@ export interface SessionStore {
   status: string
   logs: string[]
   exitCode?: number
+  /** 启动覆盖层：当前步骤文案（Win 端「当前步骤」）。 */
+  stage?: string
+  /** 启动覆盖层：登录方式（正版 / 外置 / 离线）。 */
+  loginMode?: string
+  /** 启动覆盖层进度（0–100，未知时不设）。 */
+  progress?: number
+  /** 本次启动是否失败（覆盖层据此显示错误而不是转圈）。 */
+  launchFailed?: boolean
+  /** 正在启动的版本 id（覆盖层标题下方显示）。 */
+  launchVersion?: string
 }
 
 export interface GameSessionApi extends SessionStore {
@@ -15,8 +25,11 @@ export interface GameSessionApi extends SessionStore {
     versionId: string
     playerName: string
     accountUuid: string
+    loginMode?: string
   }) => Promise<void>
   clearLogs: () => void
+  /** 关闭启动失败覆盖层（不清日志）。 */
+  dismissLaunchError: () => void
   setVersion: (id: string) => void
   selectedVersion?: string
 }
@@ -58,28 +71,52 @@ export function useGameSession(): GameSessionApi {
     selectedVersion,
     setVersion,
     clearLogs: () => setStore((s) => ({ ...s, logs: [] })),
-    launch: async ({ versionId, playerName, accountUuid }) => {
+    dismissLaunchError: () =>
+      setStore((s) => ({ ...s, launchFailed: false, status: '', stage: undefined, progress: undefined })),
+    launch: async ({ versionId, playerName, accountUuid, loginMode }) => {
       if (startedRef.current === false) return
-      setStore((s) => ({ ...s, launching: true, status: '启动中…', logs: [] }))
+      const step = (stage: string, progress: number): void =>
+        setStore((s) => ({ ...s, stage, progress, launching: true }))
+
+      setStore((s) => ({
+        ...s,
+        launching: true,
+        launchFailed: false,
+        logs: [],
+        status: '启动中…',
+        launchVersion: versionId,
+        stage: '检查运行环境…',
+        progress: 8,
+        loginMode: loginMode ?? ''
+      }))
       const { request } = await import('../bridge')
       try {
+        step('准备游戏文件…', 35)
         const session = await request<{ pid: number }>('launch.start', {
           versionId,
           playerName,
           accountUuid
         })
+        step('游戏进程已启动', 100)
         setStore((s) => ({
           ...s,
           launching: false,
           pid: session.pid,
           exitCode: undefined,
+          launchFailed: false,
+          stage: undefined,
+          progress: undefined,
           status: `游戏运行中（pid ${session.pid}）`
         }))
       } catch (e) {
+        const message = String(e)
         setStore((s) => ({
           ...s,
           launching: false,
-          status: `启动失败：${String(e)}`
+          launchFailed: true,
+          stage: undefined,
+          progress: undefined,
+          status: `启动失败：${message}`
         }))
       }
     }

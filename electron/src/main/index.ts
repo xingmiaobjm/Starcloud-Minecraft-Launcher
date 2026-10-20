@@ -17,8 +17,8 @@
 ///    内容区用纯色分层；并提供 `--no-blur` 降级开关（见 renderer 的 blur 开关）。
 /// 5. **root 用户 / 容器无沙箱**：Chromium 沙箱不可用，需显式 `--no-sandbox`
 ///    （由 ELECTRON_DISABLE_SANDBOX=1 环境变量控制）。
-import { app, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
-import { readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell } from 'electron'
+import { readFileSync, existsSync, statSync, writeFileSync } from 'node:fs'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import * as readline from 'node:readline'
 import * as path from 'node:path'
@@ -224,11 +224,79 @@ function createWindow(): BrowserWindow {
 
 // ── IPC ───────────────────────────────────────────────────────────────────
 
+/**
+ * 皮肤缩略图大小上限。
+ * 皮肤纹理最大 4MB（内核 ImportBytes 的限制），HD 图也有 512×256；
+ * 列表里只画 64px 方块，超过 4MB 的直接拒绝读，避免把大图塞进 renderer 内存。
+ */
+const SKIN_ICON_MAX_BYTES = 4 * 1024 * 1024
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp'
+}
+
 function registerIpc(): void {
   ipcMain.handle('bridge:request', (_e, method: string, params: unknown) =>
     bridgeRequest(method, params)
   )
   ipcMain.handle('app:version', () => LAUNCHER_VERSION)
+
+  // ── 渲染层没有文件系统：本地图片读成 data URL 回传 ──
+  // 不放开 file:// CSP（那等于把整个磁盘挂到页面上），只在受控的 IPC 上做。
+  ipcMain.handle('skin:icon', (_e, filePath: unknown) => {
+    if (typeof filePath !== 'string' || filePath.trim() === '') {
+      throw new Error('皮肤路径为空')
+    }
+    const full = path.resolve(filePath)
+    if (!existsSync(full) || !statSync(full).isFile()) {
+      throw new Error(`皮肤文件不存在：${full}`)
+    }
+    const size = statSync(full).size
+    if (size > SKIN_ICON_MAX_BYTES) {
+      throw new Error(`皮肤文件过大（${Math.round(size / 1024)} KB），无法生成缩略图`)
+    }
+    const mime = IMAGE_MIME[path.extname(full).toLowerCase()]
+    if (mime === undefined) {
+      throw new Error(`不支持的图片格式：${path.extname(full) || '（无扩展名）'}`)
+    }
+    return `data:${mime};base64,${readFileSync(full).toString('base64')}`
+  })
+
+  // 设备码登录要跳系统浏览器打开验证站点。
+  // 只放行 http/https：file:// 及其它 scheme 不给渲染层用，避免变成任意本地文件读取器。
+  ipcMain.handle('shell:openExternal', async (_e, url: unknown) => {
+    if (typeof url !== 'string' || url === '') throw new Error('链接为空')
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error(`不是有效的链接：${url}`)
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('只允许打开 http / https 链接')
+    }
+    await shell.openExternal(parsed.toString())
+  })
+
+  // 导入本地皮肤：系统文件选择框（比让用户手敲绝对路径可靠）
+  ipcMain.handle('dialog:pickFile', async (_e, title: unknown) => {
+    const win = mainWindow
+    const options: Electron.OpenDialogOptions = {
+      title: typeof title === 'string' && title !== '' ? title : '选择文件',
+      properties: ['openFile'],
+      filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+    }
+    const result =
+      win !== null
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
 
   // 渲染层定好主题后回传窗口底色，避免缩放时露出另一套主题的底
   ipcMain.on('theme:set-background', (_e, dark: boolean) => {

@@ -7,6 +7,7 @@ import { appVersion as readAppVersion } from './bridge'
 import Nav, { PAGE_LABEL, type PageKey } from './nav'
 import { useTheme } from './theme'
 import TitleBar from './titlebar'
+import LaunchOverlay from './launchOverlay'
 import { ErrorBoundary } from './ui'
 import { useGameSession } from './state/session'
 import HomePage from './pages/Home'
@@ -148,6 +149,11 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
       <div className="win-body">
         <Nav page={page} dark={theme.resolved === 'dark'} running={running} onNavigate={setPage} />
         <main className="content">
+          <LaunchOverlay
+            session={session}
+            versionId={session.launchVersion}
+            onCancel={session.dismissLaunchError}
+          />
           <ErrorBoundary key={page} label={PAGE_LABEL[page]}>
             <div className="page" key={page}>
               {render()}

@@ -48,6 +48,118 @@ export interface AccountList {
   current?: string
 }
 
+// ── 登录（对齐桥接 auth.*） ────────────────────────────────────────────────
+
+/** 账户登录后的身份摘要（auth.* 的 account 字段，比 AccountList 精简）。 */
+export interface AuthAccount {
+  uuid: string
+  name: string
+  /** microsoft / external / offline */
+  type: string
+  /** 外置账户的认证服务器展示名 */
+  serverName?: string
+}
+
+/** 微软设备码会话：auth.microsoft.start 的返回体。 */
+export interface DeviceCodeSession {
+  /** 展示给用户、需要在网页上输入的一次性代码 */
+  userCode: string
+  /** 回传给 auth.microsoft.poll 的设备码（不要展示给用户） */
+  deviceCode: string
+  /** 验证站点（Win 端：复制验证码并用它开浏览器） */
+  verificationUri: string
+  /** 建议的轮询间隔（秒） */
+  interval: number
+}
+
+export type AuthPollState = 'pending' | 'success'
+
+/** auth.microsoft.poll 的返回体：pending 时只有 message，success 时带 account。 */
+export interface MicrosoftPollResult {
+  state: AuthPollState
+  /** pending：等待授权 / 降速轮询等说明；失败会直接抛错，message 即原因 */
+  message?: string
+  account?: AuthAccount
+}
+
+/** auth.yggdrasil.login 的返回体（失败直接抛错，错误原文即后端消息）。 */
+export interface ExternalLoginResult {
+  state: string
+  account: AuthAccount
+}
+
+/** accounts.setSkin：设置成功后回传落盘后的账户。 */
+export interface SetSkinResult {
+  account: GameAccount
+}
+
+// ── 皮肤库（对齐桥接 skins.*） ──────────────────────────────────────────────
+
+/** 皮肤型号：auto = 按纹理自动判断纤细手臂；classic / slim 为强制。 */
+export type SkinModel = 'auto' | 'classic' | 'slim'
+
+/** 皮肤库条目（skins.list / skins.* 操作的单条返回）。 */
+export interface SkinEntry {
+  id: string
+  name: string
+  model: SkinModel
+  /** 皮肤库目录内的文件名（<id>.png） */
+  fileName: string
+  /** 绝对路径：渲染层读不到文件系统，靠它向主进程换缩略图 */
+  path: string
+  /** 来源：file（本地导入）/ url（链接导入）/ preset（启动器自带） */
+  source: string
+  sourceUrl?: string
+  width: number
+  height: number
+  /** ISO-8601 */
+  addedAt: string
+}
+
+export interface SkinList {
+  skins: SkinEntry[]
+}
+
+/** skins.importPath / importUrl / rename / setModel 的返回体。 */
+export interface SkinResult {
+  skin: SkinEntry
+}
+
+export interface OkResult {
+  ok: boolean
+}
+
+/** skins.station.list：皮肤站（LittleSkin 等）衣柜里的皮肤。 */
+export interface SkinStationEntry {
+  id: string
+  name: string
+  model?: string
+  /** 皮肤站给出的纹理地址 */
+  url?: string
+  slim?: boolean
+}
+
+export interface SkinStationList {
+  skins: SkinStationEntry[]
+}
+
+/**
+ * skins.station.apply。
+ * 注意：桥接实际返回的是 `{ message }`（服务端回执），不是 `{ ok }`；
+ * 早期规格里写的 `ok` 这里一并留着，两种形状都能收。
+ */
+export interface SkinStationApplyResult {
+  message?: string
+  ok?: boolean
+}
+
+/** 主进程把本地 PNG 读成的 data URL（skin:icon IPC）。 */
+export interface SkinIconResult {
+  dataUrl: string
+}
+
+// ── 内容管理类型转出（定义见 bridge-content.ts） ────────────────────────────
+
 export interface LaunchSession {
   sessionId: number
   pid: number
@@ -171,7 +283,25 @@ declare global {
         handler: (event: string, params: Record<string, unknown>) => void
       ) => void
     }
+    /** 主进程直连能力（皮肤缩略图 / 系统浏览器），浏览器调试模式下不存在。 */
+    native?: NativeApi
   }
+}
+
+/** preload 用 contextBridge 暴露的本机能力。 */
+export interface NativeApi {
+  /** 读本地图片并回传 data URL（渲染层没有文件系统权限）。 */
+  skinIcon: (path: string) => Promise<string>
+  /** 用系统默认浏览器打开链接（设备码验证站点）。 */
+  openExternal: (url: string) => Promise<void>
+  /** 系统文件选择框；返回 null 表示用户取消。 */
+  pickFile: (title: string) => Promise<string | null>
+}
+
+/** preload 未注入时（浏览器调试）返回 null，相关功能退化为提示。 */
+export function nativeApi(): NativeApi | null {
+  const api = (globalThis as { native?: NativeApi }).native
+  return api !== undefined && typeof api.skinIcon === 'function' ? api : null
 }
 
 const MOCK_NOW = Date.now()
@@ -196,6 +326,43 @@ const MOCK_ACCOUNTS: GameAccount[] = [
     isDefault: false,
     hasSession: false,
     serverName: 'LittleSkin'
+  }
+]
+
+const MOCK_SKINS: SkinEntry[] = [
+  {
+    id: 'sk0a1b2c3d4e5',
+    name: '经典 Steve',
+    model: 'classic',
+    fileName: 'sk0a1b2c3d4e5.png',
+    path: '/home/user/.starcloud/skins/sk0a1b2c3d4e5.png',
+    source: 'file',
+    width: 64,
+    height: 64,
+    addedAt: ago(52)
+  },
+  {
+    id: 'sk1b2c3d4e5f6',
+    name: '纤细 Alex',
+    model: 'slim',
+    fileName: 'sk1b2c3d4e5f6.png',
+    path: '/home/user/.starcloud/skins/sk1b2c3d4e5f6.png',
+    source: 'url',
+    sourceUrl: 'https://littleskin.cn/skin/alex.png',
+    width: 64,
+    height: 64,
+    addedAt: ago(9)
+  },
+  {
+    id: 'sk2c3d4e5f6a7',
+    name: '高清 128×128',
+    model: 'auto',
+    fileName: 'sk2c3d4e5f6a7.png',
+    path: '/home/user/.starcloud/skins/sk2c3d4e5f6a7.png',
+    source: 'file',
+    width: 128,
+    height: 128,
+    addedAt: ago(200)
   }
 ]
 
@@ -253,7 +420,6 @@ function mockOf(method: string, p: Record<string, unknown>): unknown {
     case 'accounts.addOffline':
     case 'accounts.setCurrent':
     case 'accounts.remove':
-    case 'accounts.setSkin':
     case 'settings.apply':
     case 'version.saveSettings':
       return {}
@@ -535,6 +701,69 @@ function mockOf(method: string, p: Record<string, unknown>): unknown {
       }
     case 'nova.chat':
       return { accepted: true }
+    case 'auth.microsoft.start':
+      return {
+        userCode: 'STAR-3F7K',
+        deviceCode: 'mock-device-code',
+        verificationUri: 'https://www.microsoft.com/link',
+        interval: 5
+      } satisfies DeviceCodeSession
+    case 'auth.microsoft.poll':
+      return { state: 'pending', message: '等待用户授权' } satisfies MicrosoftPollResult
+    case 'auth.yggdrasil.login':
+      return {
+        state: 'success',
+        account: {
+          uuid: 'e5',
+          name: String(p.username ?? 'Player'),
+          type: 'external',
+          serverName: 'Mock 皮肤站'
+        }
+      } satisfies ExternalLoginResult
+    case 'skins.list':
+      return { skins: MOCK_SKINS } satisfies SkinList
+    case 'skins.importPath':
+    case 'skins.importUrl': {
+      const picked = MOCK_SKINS[0]
+      return {
+        skin: {
+          ...picked,
+          id: 'sknew' + String(p.url ?? p.path ?? '').length,
+          name: String(p.name ?? '新导入的皮肤'),
+          source: p.url !== undefined ? 'url' : 'file',
+          sourceUrl: p.url !== undefined ? String(p.url) : undefined,
+          addedAt: new Date(MOCK_NOW).toISOString()
+        }
+      } satisfies SkinResult
+    }
+    case 'skins.rename':
+      return {
+        skin: {
+          ...(MOCK_SKINS.find((s) => s.id === p.id) ?? MOCK_SKINS[0]),
+          name: String(p.name)
+        }
+      } satisfies SkinResult
+    case 'skins.setModel':
+      return {
+        skin: {
+          ...(MOCK_SKINS.find((s) => s.id === p.id) ?? MOCK_SKINS[0]),
+          model: p.model === 'slim' ? 'slim' : 'classic'
+        }
+      } satisfies SkinResult
+    case 'skins.delete':
+      return { ok: true } satisfies OkResult
+    case 'skins.station.list':
+      return { skins: [] } satisfies SkinStationList
+    case 'skins.station.apply':
+      return { message: '皮肤已提交到皮肤站' } satisfies SkinStationApplyResult
+    case 'accounts.setSkin':
+      return {
+        account: {
+          ...(MOCK_ACCOUNTS.find((a) => a.uuid === p.uuid) ?? MOCK_ACCOUNTS[0]),
+          skinId: p.skinId === undefined ? undefined : String(p.skinId),
+          skinModel: p.model === undefined ? undefined : String(p.model)
+        }
+      } satisfies SetSkinResult
     default:
       return {}
   }
@@ -577,11 +806,22 @@ export function installMockBridgeIfNeeded(): void {
 
 // ── 对外调用入口 ─────────────────────────────────────────────────────────────
 
+/** 剥掉 Electron IPC 的包装前缀，只把真正的失败原因给用户看。 */
+function cleanError(e: unknown): Error {
+  const raw = e instanceof Error ? e.message : String(e)
+  const stripped = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+  return new Error(stripped === '' ? raw : stripped)
+}
+
 export function request<T>(method: string, params: unknown = {}): Promise<T> {
   if (typeof window === 'undefined' || window.bridge === undefined) {
     return Promise.reject(new Error('桥接不可用'))
   }
-  return window.bridge.request(method, params) as Promise<T>
+  return (window.bridge.request(method, params) as Promise<T>).catch((e: unknown) => {
+    throw cleanError(e)
+  })
 }
 
 export function onBridgeEvent(

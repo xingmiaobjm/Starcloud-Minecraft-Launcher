@@ -136,9 +136,6 @@ export default function HomePage(props: {
   const [mode, setMode] = useState<Mode>('offline')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [java, setJava] = useState<{ version: string; major: number } | null | undefined>(
-    undefined
-  )
   const [gameDir, setGameDir] = useState('')
   const [avatarFailed, setAvatarFailed] = useState(false)
 
@@ -175,15 +172,7 @@ export default function HomePage(props: {
       const settings = await request<{ gameDir: string }>('settings.get')
       setGameDir(settings.gameDir)
     } catch { /* 读取失败不阻塞主流程 */ }
-    setLoading(false) // ← 主列表就绪即结束 loading，Java 在后台补
-    // Java 扫描慢（多盘 + java -version），放最后并不阻断页面：
-    // Bridge 是串行行式 JSON，若不分开会把上面的 catalog/accounts 一起阻住。
-    void request<{ runtimes: Array<{ versionString: string; majorVersion: number }> }>('java.list')
-      .then((r) => {
-        const first = r.runtimes[0]
-        setJava(first != null ? { version: first.versionString, major: first.majorVersion } : null)
-      })
-      .catch(() => setJava(null))
+    setLoading(false)
   }
 
   useEffect(() => {
@@ -207,29 +196,6 @@ export default function HomePage(props: {
   const running = session.pid !== undefined && session.pid > 0
   const canLaunch =
     !session.launching && !running && selected !== undefined && account !== undefined
-
-  // 启动自检：版本 / 账户 / Java 三项，未就绪时给出可点击的跳转
-  const checks = [
-    {
-      label: '游戏版本',
-      ok: selected !== undefined,
-      hint: selected ?? '去「下载」页安装',
-      go: 'download' as const
-    },
-    {
-      label: '游戏账户',
-      ok: account !== undefined,
-      hint: account?.name ?? '去「账户」页添加',
-      go: 'accounts' as const
-    },
-    {
-      label: 'Java',
-      ok: java != null && java.major >= 17,
-      hint: java === undefined ? '检测中…' : java === null ? '未安装 Java 17+' : java.version,
-      go: 'settings' as const
-    }
-  ]
-  const readyCount = checks.filter((c) => c.ok).length
 
   const menu = useContextMenu([
     { label: '问 Nova', onSelect: () => props.onNavigate('nova') },
@@ -281,41 +247,7 @@ export default function HomePage(props: {
           <div
             style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}
           >
-            {readyCount < checks.length && (
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}
-                >
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>启动自检</span>
-                  <span className="t-cap">
-                    {readyCount}/{checks.length} 项就绪
-                  </span>
-                  <div style={{ flex: 1 }} />
-                  <button
-                    className="btn btn-subtle btn-sm"
-                    title="重新检测"
-                    onClick={() => void reload()}
-                  >
-                    ↻
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {checks.map((c) => (
-                    <button
-                      key={c.label}
-                      className={`chip${c.ok ? ' chip-accent' : ' chip-danger'}`}
-                      style={{ cursor: c.ok ? 'default' : 'pointer' }}
-                      onClick={() => {
-                        if (!c.ok) props.onNavigate(c.go)
-                      }}
-                    >
-                      {c.ok ? '✓' : '⚠'} {c.label}：{c.hint}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
+            {/* 启动自检卡片已移除：Win 端首页只在必要时短暂提示，不常驻占位 */}
             <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
               <div className="card-head">
                 <span className="card-title">已安装版本</span>
@@ -394,11 +326,29 @@ export default function HomePage(props: {
             </div>
           </div>
 
-          {/* ── 右栏（360）：账户 / 启动 ── */}
-          <div style={{ width: 360, flexShrink: 0, minHeight: 0, display: 'flex' }}>
+          {/* ── 右栏（360）：账户 / 启动 ──
+              minWidth: 0 必须要有：flex 子项默认 min-width:auto，遇到不可换行的
+              长文本（例如桥接错误信息）会被顶宽，把整栏挤出窗口。 */}
+          <div
+            style={{
+              width: 360,
+              minWidth: 360,
+              maxWidth: 360,
+              flexShrink: 0,
+              minHeight: 0,
+              display: 'flex'
+            }}
+          >
             <div
               className="card"
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14
+              }}
             >
               <Segmented<Mode>
                 value={mode}
@@ -483,7 +433,10 @@ export default function HomePage(props: {
               </div>
 
               {session.status !== '' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+                  title={session.status}
+                >
                   <span
                     className="dot"
                     style={{
@@ -492,18 +445,21 @@ export default function HomePage(props: {
                         session.launching || running ? 'pulse 1.6s infinite' : undefined
                     }}
                   />
-                  <span className="t-cap truncate">{session.status}</span>
+                  <span className="t-cap truncate" style={{ minWidth: 0, flex: 1 }}>
+                    {session.status}
+                  </span>
                 </div>
               )}
 
-              {/* 启动按钮：主段 + 下拉段（对齐 Win 端 HomePage 的按钮组） */}
-              <div style={{ display: 'flex', gap: 8 }}>
+              {/* 启动按钮：主段 + 下拉段（对齐 Win 端 HomePage 的按钮组）
+                  两段必须同高同圆角，下拉段是主段的"同组深一档"，不是灰按钮 */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
                 <button
                   className="btn btn-primary"
                   style={{
                     flex: 1,
                     height: 62,
-                    borderRadius: 'var(--r-overlay)',
+                    borderRadius: 'var(--r-control)',
                     flexDirection: 'column',
                     gap: 1,
                     display: 'flex',
@@ -512,7 +468,7 @@ export default function HomePage(props: {
                     boxShadow:
                       running || session.launching
                         ? 'none'
-                        : '0 4px 22px rgba(255,194,31,0.28)'
+                        : '0 4px 22px rgba(255,211,34,0.28)'
                   }}
                   disabled={!canLaunch}
                   onClick={() => {
@@ -520,7 +476,8 @@ export default function HomePage(props: {
                     void session.launch({
                       versionId: selected,
                       playerName: account.name,
-                      accountUuid: account.uuid
+                      accountUuid: account.uuid,
+                      loginMode: MODE_LABEL[mode]
                     })
                   }}
                 >
@@ -537,16 +494,20 @@ export default function HomePage(props: {
                   </span>
                 </button>
                 <button
-                  className="btn"
+                  className="btn btn-primary"
                   disabled={!canLaunch}
                   title="更多启动方式"
                   style={{
                     width: 52,
-                    borderRadius: 'var(--r-overlay)',
-                    background: 'rgba(255,255,255,0.18)',
+                    height: 62,
+                    borderRadius: 'var(--r-control)',
+                    background: 'var(--accent-pressed)',
                     color: 'var(--text-on-accent)',
-                    borderColor: 'transparent'
+                    fontSize: 16
                   }}
+                  onClick={() =>
+                    push('info', '更多启动方式：调试启动 / 演示模式等，接入后可用')
+                  }
                 >
                   ⌄
                 </button>
