@@ -65,6 +65,9 @@ class StarcloudBridge(
                 "saves.delete" -> deleteSave(params)
                 "saves.backup" -> backupSave(params)
                 "version.detail" -> versionDetail(params)
+                "version.toggleContent" -> toggleContent(params)
+                "version.deleteContent" -> deleteContent(params)
+                "versions.setDefault" -> setDefaultVersion(params)
                 "java.list" -> javaList()
                 "projections.scan" -> projectionsScan()
                 "projections.delete" -> projectionsDelete(params)
@@ -251,6 +254,50 @@ class StarcloudBridge(
             put("resourcepacks", contentFiles(File(versionDir, "resourcepacks")))
             put("shaderpacks", contentFiles(File(versionDir, "shaderpacks")))
         }.toString()
+    }
+
+    /** kind → 实例目录名 */
+    private fun kindDir(kind: String): String? = when (kind) {
+        "mod" -> "mods"
+        "resourcepack" -> "resourcepacks"
+        "shader" -> "shaderpacks"
+        else -> null
+    }
+
+    private fun versionContentDir(params: JSONObject): File? {
+        val id = params.optString("versionId").ifEmpty { params.optString("id") }
+        val dir = kindDir(params.optString("kind")) ?: return null
+        if (id.isEmpty() || id.contains("..")) return null
+        return File(File(versionsDir, id), dir)
+    }
+
+    // 启用/停用 = 改名加/去 .disabled（与桌面端同一规则）
+    private fun toggleContent(params: JSONObject): String {
+        val dir = versionContentDir(params) ?: return errorJson("bad-request", "版本或类型不对")
+        val fileName = params.optString("fileName")
+        val wantEnabled = params.optBoolean("enabled", true)
+        val current = File(dir, fileName)
+        val target = if (wantEnabled) File(dir, fileName.removeSuffix(".disabled"))
+        else File(dir, fileName.removeSuffix(".disabled") + ".disabled")
+        if (!current.isFile) return errorJson("not-found", "找不到 $fileName")
+        if (!current.renameTo(target)) return errorJson("io", "改名失败：$fileName")
+        return JSONObject().put("files", contentFiles(dir)).toString()
+    }
+
+    private fun deleteContent(params: JSONObject): String {
+        val dir = versionContentDir(params) ?: return errorJson("bad-request", "版本或类型不对")
+        val fileName = params.optString("fileName")
+        val file = File(dir, fileName)
+        if (!file.isFile) return errorJson("not-found", "找不到 $fileName")
+        if (!file.delete()) return errorJson("io", "删除失败：$fileName")
+        return JSONObject().put("files", contentFiles(dir)).toString()
+    }
+
+    private fun setDefaultVersion(params: JSONObject): String {
+        val id = params.optString("versionId").ifEmpty { params.optString("id") }
+        if (id.isEmpty()) return errorJson("bad-request", "缺少版本 id")
+        LauncherPrefs.setLastVersion(context, id)
+        return JSONObject().put("ok", true).put("lastVersion", id).toString()
     }
 
     private fun contentFiles(dir: File): JSONArray {

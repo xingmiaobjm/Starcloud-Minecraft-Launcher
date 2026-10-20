@@ -15,6 +15,7 @@ object LauncherPrefs {
     const val KEY_PLAYER_NAME = "player_name"
     const val KEY_THEME = "theme"
     const val KEY_MAX_MEM_MB = "max_mem_mb"
+    const val KEY_LAST_VERSION = "last_version"
 
     const val DEFAULT_PLAYER_NAME = "Player"
 
@@ -45,6 +46,14 @@ object LauncherPrefs {
 
     fun setMaxMemoryMb(context: Context, mb: Int) {
         prefs(context).edit().putInt(KEY_MAX_MEM_MB, mb.coerceAtLeast(0)).apply()
+    }
+
+    /** 默认（上次启动）版本 id：versions.setDefault 写它，启动页读它 */
+    fun lastVersion(context: Context): String =
+        prefs(context).getString(KEY_LAST_VERSION, "") ?: ""
+
+    fun setLastVersion(context: Context, id: String) {
+        prefs(context).edit().putString(KEY_LAST_VERSION, id.trim()).apply()
     }
 
     /** 一次性导出全部设置，供 settings.get 返回 */
