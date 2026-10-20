@@ -117,11 +117,11 @@
                         </TransitionCollection>
                     </ListView.ItemContainerTransitions>
                 </ListView>
+                <!-- 不预设任何示例问题：空会话只留图标与标题，由用户自己开口 -->
                 <ctrl:EmptyStateView x:Name="ChatEmpty" VerticalAlignment="Center"
                                       Margin="16"
                                       IconImage="{StaticResource NovaMarkSmall}"
-                                      loc:Loc.Title="描述你的问题"
-                                      loc:Loc.Subtitle="例如启动崩溃、帧数偏低、模组冲突、找不到整合包；日志与配置由 Nova 读取，不需要你手动翻找。" />
+                                      loc:Loc.Title="描述你的问题" />
             </Grid>
         </Border>
 
@@ -144,7 +144,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBox x:Name="InputBox" VerticalAlignment="Center"
-                     loc:Loc.Placeholder="描述问题，例如「启动崩溃」「帧数很低」"
+                     loc:Loc.Placeholder="描述你的问题"
                      KeyDown="InputBox_KeyDown" />
             <ProgressRing x:Name="SendProgress" Grid.Column="1" IsActive="False"
                           Width="22" Height="22" VerticalAlignment="Center" />
