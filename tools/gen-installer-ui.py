@@ -80,6 +80,11 @@ class Canvas:
         f = font(FONT_EN, size * self.s)
         self.d.text((self.px(xy[0]), self.px(xy[1])), s, font=f, fill=fill, anchor=anchor)
 
+    def measure(self, s, size, bold=False):
+        """文字的逻辑宽度（用于给链接文字配点击热区）"""
+        f = font(FONT_BD if bold else FONT_RG, size * self.s)
+        return f.getlength(s) / self.s
+
     def line(self, pts, fill, width):
         self.d.line([(self.px(x), self.px(y)) for x, y in pts],
                     fill=fill, width=max(1, self.px(width)), joint="curve")
@@ -187,12 +192,20 @@ def draw_primary(c: Canvas, label: str):
     c.text((x + w / 2, y + h / 2 - 1), label, 18, INK, anchor="mm")
 
 
+LINK_RECTS = {}
+
+
 def draw_footer(c: Canvas):
     # 复选框本身由 NSIS 自绘覆盖，这里只写文字
     c.text((66, 581), "同意", 12.5, SUB, bold=False)
-    c.text((100, 581), "《Starcloud 用户服务协议》", 12.5, (32, 107, 255), bold=False)
+    terms = "《Starcloud 用户服务协议》"
+    privacy = "《隐私政策》"
+    c.text((100, 581), terms, 12.5, (32, 107, 255), bold=False)
     c.text((288, 581), "和", 12.5, SUB, bold=False)
-    c.text((304, 581), "《隐私政策》", 12.5, (32, 107, 255), bold=False)
+    c.text((304, 581), privacy, 12.5, (32, 107, 255), bold=False)
+    # 链接的点击热区：文字矩形外扩 4px，点击后打开官网
+    LINK_RECTS["terms"] = (96, 577, c.measure(terms, 12.5) + 8, 20)
+    LINK_RECTS["privacy"] = (300, 577, c.measure(privacy, 12.5) + 8, 20)
     c.text((742, 581), "自定义安装", 12.5, SUB, bold=False)
     c.text((920, 620), "V0.3.4 · 开发版", 10.5, MUTED, bold=False, anchor="ra")
 
@@ -282,6 +295,10 @@ def main():
             "title": (0, 0, 840, 64), "min": TITLE_MIN, "close": TITLE_CLOSE,
             "folder": PATH_BTN, "btn-install": BTN_INSTALL,
         })
+        for link, rect in LINK_RECTS.items():
+            c.img.crop((c.px(rect[0]), c.px(rect[1]),
+                        c.px(rect[0] + rect[2]), c.px(rect[1] + rect[3]))).save(
+                os.path.join(d, f"hit-link-{link}.bmp"))
 
         c = Canvas(scale)
         build_progress(c)
@@ -314,6 +331,7 @@ def main():
         ("PATH_BTN", PATH_BTN), ("BTN", BTN_INSTALL), ("CHK_AGREE", CHK_AGREE),
         ("CHK_CUSTOM", CHK_CUSTOM), ("CHK_RUN", CHK_RUN), ("PROGRESS", PROGRESS),
         ("CHK_DATA", CHK_UNINSTALL_DATA), ("DRAG", (0, 0, 840, 64)),
+        ("LINK_TERMS", LINK_RECTS["terms"]), ("LINK_PRIVACY", LINK_RECTS["privacy"]),
     ]:
         lines.append("!define UI_%s_X %d" % (name, x))
         lines.append("!define UI_%s_Y %d" % (name, y))

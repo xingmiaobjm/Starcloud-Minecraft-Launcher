@@ -101,6 +101,10 @@ Var hBmpBtnDone
 Var hBmpBtnUninstall
 Var hEdit
 Var hBtnPath
+Var hLinkTerms
+Var hLinkPrivacy
+Var hBmpLinkTerms
+Var hBmpLinkPrivacy
 Var hBtnMain
 Var hChkAgree
 Var hChkCustom
@@ -486,6 +490,18 @@ Function UiPage
   !insertmacro HitArea $hBtnMain $hBmpBtnInstall
   ${NSD_OnClick} $hBtnMain OnPrimary
 
+  ; 协议 / 隐私政策：点文字打开官网
+  !insertmacro Sc ${UI_LINK_TERMS_X} ${UI_LINK_TERMS_Y} ${UI_LINK_TERMS_W} ${UI_LINK_TERMS_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  Pop $hLinkTerms
+  SendMessage $hLinkTerms 0x172 0 $hBmpLinkTerms
+  ${NSD_OnClick} $hLinkTerms OnOpenTerms
+  !insertmacro Sc ${UI_LINK_PRIVACY_X} ${UI_LINK_PRIVACY_Y} ${UI_LINK_PRIVACY_W} ${UI_LINK_PRIVACY_H}
+  nsDialogs::CreateControl STATIC 0x5000010E 0 $R0 $R1 $R2 $R3 ""
+  Pop $hLinkPrivacy
+  SendMessage $hLinkPrivacy 0x172 0 $hBmpLinkPrivacy
+  ${NSD_OnClick} $hLinkPrivacy OnOpenPrivacy
+
   ; 进度条
   !insertmacro Sc ${UI_PROGRESS_X} ${UI_PROGRESS_Y} ${UI_PROGRESS_W} ${UI_PROGRESS_H}
   nsDialogs::CreateControl "msctls_progress32" 0x50000001 0 $R0 $R1 $R2 $R3 ""
@@ -510,6 +526,8 @@ Function ApplyState
     ShowWindow $hChkCustom ${SW_SHOW}
     SendMessage $hBtnMain 0x172 0 $hBmpBtnInstall
     ShowWindow $hBtnMain ${SW_SHOW}
+    ShowWindow $hLinkTerms ${SW_SHOW}
+    ShowWindow $hLinkPrivacy ${SW_SHOW}
     ShowWindow $hChkRun ${SW_HIDE}
     ShowWindow $hProgress ${SW_HIDE}
   ${ElseIf} $State == "progress"
@@ -523,6 +541,8 @@ Function ApplyState
     ShowWindow $hChkCustom ${SW_HIDE}
     ShowWindow $hChkRun ${SW_HIDE}
     ShowWindow $hBtnMain ${SW_HIDE}
+    ShowWindow $hLinkTerms ${SW_HIDE}
+    ShowWindow $hLinkPrivacy ${SW_HIDE}
     ShowWindow $hProgress ${SW_SHOW}
   ${ElseIf} $State == "done"
     SendMessage $hBg 0x172 0 $hBmpDone
@@ -536,6 +556,8 @@ Function ApplyState
     SendMessage $hBtnMain 0x172 0 $hBmpBtnDone
     ShowWindow $hChkRun ${SW_SHOW}
     ShowWindow $hBtnMain ${SW_SHOW}
+    ShowWindow $hLinkTerms ${SW_HIDE}
+    ShowWindow $hLinkPrivacy ${SW_HIDE}
     ShowWindow $hProgress ${SW_HIDE}
   ${EndIf}
 FunctionEnd
@@ -595,6 +617,16 @@ Function OnToggleRun
     StrCpy $WantRun 1
     SendMessage $hChkRun 0x172 0 $hBmpChkOn
   ${EndIf}
+FunctionEnd
+
+Function OnOpenTerms
+  Pop $0
+  ExecShell "open" "https://starcloudfur.cn/terms"
+FunctionEnd
+
+Function OnOpenPrivacy
+  Pop $0
+  ExecShell "open" "https://starcloudfur.cn/privacy"
 FunctionEnd
 
 Function OnBrowse

@@ -45,3 +45,11 @@
 !define UI_DRAG_Y 0
 !define UI_DRAG_W 840
 !define UI_DRAG_H 64
+!define UI_LINK_TERMS_X 96
+!define UI_LINK_TERMS_Y 577
+!define UI_LINK_TERMS_W 168
+!define UI_LINK_TERMS_H 20
+!define UI_LINK_PRIVACY_X 300
+!define UI_LINK_PRIVACY_Y 577
+!define UI_LINK_PRIVACY_W 83
+!define UI_LINK_PRIVACY_H 20
