@@ -1,6 +1,6 @@
 /// 共用 UI 原子（纯 CSS 类，无框架依赖）。
 /// 视觉规范见 winui.css 与 DESIGN.md（WinUI 3 令牌）。
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 // ── 页面骨架 ────────────────────────────────────────────────────────────────
 
@@ -125,11 +125,14 @@ export function useToasts(): {
 } {
   const [items, setItems] = useState<ToastItem[]>([])
   const seq = useRef(1)
-  const push = (kind: ToastKind, text: string): void => {
+  // push 必须**引用稳定**：各页面把它放进 useCallback 依赖，若每次渲染都新建
+  // 函数，load() 就会不断重建 → useEffect 反复触发 → 无限请求桥接
+  // （表现为页面抽搐、桥接被灌满后全部加载失败）。这里用空依赖 useCallback。
+  const push = useCallback((kind: ToastKind, text: string): void => {
     const id = seq.current++
     setItems((prev) => [...prev, { id, kind, text }])
     setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), 4200)
-  }
+  }, [])
   const host = (
     <div className="toast-host">
       {items.map((item) => (

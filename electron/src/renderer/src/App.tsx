@@ -117,6 +117,27 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
         title={PAGE_LABEL[page]}
         themeMode={theme.mode}
         onCycleTheme={theme.cycle}
+        actions={
+          <>
+            {/* 自绘标题栏快捷入口（Win 端：Nova 助手 / 调度中心 / 个人中心） */}
+            <button
+              className="tb-action-btn"
+              title="Nova 助手"
+              aria-label="Nova 助手"
+              onClick={() => setPage('nova')}
+            >
+              ✦
+            </button>
+            <button
+              className="tb-action-btn"
+              title="账户"
+              aria-label="账户"
+              onClick={() => setPage('accounts')}
+            >
+              ☺
+            </button>
+          </>
+        }
       >
         <span className="tb-brand">
           <img src={brandMark} alt="" width={18} height={18} />

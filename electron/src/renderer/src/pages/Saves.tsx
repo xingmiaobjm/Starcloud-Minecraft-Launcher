@@ -214,7 +214,7 @@ export default function SavesPage(): JSX.Element {
 
       {/* 列表卡片：满高、内部滚动 */}
       <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 12px 12px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '6px 12px 12px' }}>
           {loading && <SkeletonList rows={5} avatar />}
           {!loading && filtered.length === 0 && (
             <EmptyState

@@ -34,6 +34,10 @@ let bridgeProc: ChildProcessWithoutNullStreams | null = null
 let nextId = 1
 const pending = new Map<number, Pending>()
 let mainWindow: BrowserWindow | null = null
+/** 桥接自动重启次数（用于诊断持续崩溃）。 */
+let restartCount = 0
+/** 应用正在退出，桥接退出属于预期，不再重启。 */
+let shuttingDown = false
 
 function bridgeCandidates(): string[] {
   const env = process.env.STARCLOUD_BRIDGE_DLL
@@ -96,7 +100,15 @@ function startBridge(): ChildProcessWithoutNullStreams {
 }
 
 function bridgeRequest(method: string, params: unknown): Promise<unknown> {
-  if (!bridgeProc) throw new Error('桥接进程未运行')
+  // 桥接意外退出后自动拉起：否则一次崩溃会让界面此后所有请求都失败
+  // （表现是「用一会儿之后什么都加载不出来」）。
+  if (!bridgeProc && !shuttingDown) {
+    bridgeProc = startBridge()
+    restartCount += 1
+    if (restartCount > 5) {
+      console.error('[bridge] 重启过于频繁，可能存在持续崩溃')
+    }
+  }
   const id = nextId++
   const payload = JSON.stringify({ id, method, params })
   return new Promise((resolve, reject) => {
@@ -291,6 +303,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  shuttingDown = true
   bridgeProc?.kill()
   app.quit()
 })

@@ -268,7 +268,7 @@ export default function VersionsPage(props: {
 
       {/* 列表卡片：满高、内部滚动 */}
       <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 10px 10px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '6px 10px 10px' }}>
           {loading && <SkeletonList rows={6} avatar />}
           {!loading && filtered.length === 0 && (
             <EmptyState
@@ -286,7 +286,7 @@ export default function VersionsPage(props: {
               className="row"
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'auto 260px 1fr auto auto auto',
+                gridTemplateColumns: 'auto minmax(120px, 260px) minmax(0, 1fr) auto auto auto',
                 columnGap: 12
               }}
               onClick={() => setOpenId(v.id)}

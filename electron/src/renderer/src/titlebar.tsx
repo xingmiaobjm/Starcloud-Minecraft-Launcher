@@ -46,6 +46,8 @@ export default function TitleBar(props: {
   /** 主题模式；提供时显示切换按钮（system / light / dark 循环）。 */
   themeMode?: 'system' | 'light' | 'dark'
   onCycleTheme?: () => void
+  /** 右侧快捷操作（Nova 等），排在主题与窗口按钮之前。 */
+  actions?: React.ReactNode
   /** 左侧品牌区（避免与标题文字重叠）。 */
   children?: React.ReactNode
 }): JSX.Element {
@@ -139,6 +141,7 @@ export default function TitleBar(props: {
           </button>
         )}
       </div>
+      {props.actions !== undefined && <div className="tb-actions">{props.actions}</div>}
       <div className="tb-actions">
         <button
           className="tb-btn"

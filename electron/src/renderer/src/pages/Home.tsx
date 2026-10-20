@@ -332,7 +332,7 @@ export default function HomePage(props: {
                 style={{
                   flex: 1,
                   minHeight: 0,
-                  overflowY: 'auto',
+                  overflowY: 'auto', overflowX: 'hidden',
                   padding: '0 10px 10px'
                 }}
               >
@@ -365,7 +365,7 @@ export default function HomePage(props: {
                           animationDelay: `${index * 39}ms`,
                           // Win 端列宽：图标 Auto / 名称 260 / 芯片 * / 数据 Auto
                           display: 'grid',
-                          gridTemplateColumns: 'auto 260px 1fr auto',
+                          gridTemplateColumns: 'auto minmax(120px, 260px) minmax(0, 1fr) auto',
                           columnGap: 12
                         }}
                         onClick={() => setSelected(version.id)}

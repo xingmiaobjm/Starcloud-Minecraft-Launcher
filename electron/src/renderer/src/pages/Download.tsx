@@ -291,7 +291,7 @@ export default function DownloadPage(): JSX.Element {
 
           {/* 版本列表（满高滚动） */}
           <div className="card card-flush" style={{ flex: 1, minHeight: 0 }}>
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 10px 10px' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '6px 10px 10px' }}>
               {loading && <SkeletonList rows={7} avatar />}
               {!loading && filtered.length === 0 && (
                 <EmptyState
