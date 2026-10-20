@@ -1,0 +1,168 @@
+<ContentDialog
+    x:Class="Starcloud.Launcher.Phone.Views.Dialogs.ContentDownloadDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.Launcher.Phone.Views.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Phone.Localization"
+    Style="{ThemeResource DefaultContentDialogStyle}">
+    <ContentDialog.Resources>
+        <!-- 版本芯片（参考 PCL2 版本筛选）：圆角矩形 + accent 文字，选中态由代码切换为 accent 实底 -->
+        <Style x:Key="ChipStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </ContentDialog.Resources>
+
+    <!-- 手机版：原固定 Width="1060" 在竖屏（可用宽约 300-360 DIP）会溢出，改为随对话框自适应、上限 1060 -->
+    <Grid RowSpacing="12" MaxWidth="1060" HorizontalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 手机版：顶行原为「左=安装目标+返回」+「右=来源切换+搜索框(固定260)+搜索钮」的横排，
+             合计约 550 DIP 竖屏放不下，改为竖排三行：安装目标 → 来源切换 → 搜索框+搜索按钮 -->
+        <StackPanel Grid.Row="0" Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="14">
+                <!-- 安装目标常显：主页选中的版本（整合包为新建版本说明） -->
+                <TextBlock x:Name="DlTarget" FontSize="12" Opacity="0.85"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <ctrl:GlowButton x:Name="DownloadBack" Click="DownloadBack_Click" loc:Loc.Name="返回搜索结果"
+                        Background="Transparent" BorderThickness="0" Padding="6,2" Margin="-6,0,0,0"
+                        Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE908;" FontSize="13" />
+                        <TextBlock loc:Loc.Text="返回搜索结果" FontSize="12" />
+                    </StackPanel>
+                </ctrl:GlowButton>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <!-- 资源来源切换：Modrinth / CurseForge（两个源的数据模型已统一，切完直接重搜） -->
+                <ctrl:GlowButton x:Name="SourceModrinthBtn" Content="Modrinth" FontSize="12" Padding="10,4"
+                        Click="SourceModrinth_Click" loc:Loc.Name="资源来源 Modrinth" />
+                <ctrl:GlowButton x:Name="SourceCurseForgeBtn" Content="CurseForge" FontSize="12" Padding="10,4"
+                        Click="SourceCurseForge_Click" loc:Loc.Name="资源来源 CurseForge" />
+            </StackPanel>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <!-- 手机版：搜索框 260 固定宽改为随行自适应（上限 260），给搜索按钮留位 -->
+                <TextBox x:Name="SearchBox" loc:Loc.Placeholder="搜索 Modrinth…"
+                         MaxWidth="260" HorizontalAlignment="Stretch"
+                         KeyDown="DownloadSearch_KeyDown" loc:Loc.Name="搜索资源" />
+                <ctrl:GlowButton Grid.Column="1" Click="DownloadSearch_Click" loc:Loc.Name="搜索资源">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6F;" FontSize="14" />
+                        <TextBlock loc:Loc.Text="搜索" />
+                    </StackPanel>
+                </ctrl:GlowButton>
+            </Grid>
+        </StackPanel>
+        <InfoBar Grid.Row="1" x:Name="DlInfoBar" IsOpen="False" IsClosable="True" />
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="720"
+                      HorizontalScrollMode="Disabled">
+            <StackPanel Spacing="12">
+
+                <!-- 项目详情卡（PCL2 样式） -->
+                <StackPanel x:Name="DownloadDetail" Spacing="12" Visibility="Collapsed">
+                    <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                            CornerRadius="12" Padding="12">
+                        <StackPanel Spacing="10">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="56" Height="56" CornerRadius="10"
+                                        Background="{ThemeResource SubtleFillColorTertiaryBrush}">
+                                    <Grid>
+                                        <Image x:Name="DlIcon" Width="56" Height="56" Stretch="Uniform"
+                                               Visibility="Collapsed" />
+                                        <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="DlIconFallback" Glyph="&#xEC62;" FontSize="22"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Grid>
+                                </Border>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock x:Name="DlTitle" FontSize="16" FontWeight="Medium"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock x:Name="DlDesc" FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <!-- 手机版：四个元信息横排约 430 DIP 竖屏放不下，改为两行两列，超长省略号截断 -->
+                                    <Grid ColumnSpacing="14" RowSpacing="2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock x:Name="DlMeta1" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DlMeta2" Grid.Column="1" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DlMeta3" Grid.Row="1" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DlMeta4" Grid.Row="1" Grid.Column="1" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Grid>
+                                    <!-- 前置依赖（Mod 类别；拉取成功后填充显示） -->
+                                    <TextBlock x:Name="DlDeps" FontSize="12" TextWrapping="Wrap"
+                                               Visibility="Collapsed"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                            <!-- 手机版：三个操作按钮横排约 330 DIP，竖屏（约 300-320 可用宽）放不下，拆成两行 -->
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <ctrl:GlowButton Click="DlModrinth_Click" loc:Loc.Name="转到 Modrinth">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE973;" FontSize="13" />
+                                            <TextBlock loc:Loc.Text="转到 Modrinth" FontSize="12" />
+                                        </StackPanel>
+                                    </ctrl:GlowButton>
+                                    <ctrl:GlowButton Click="DlWiki_Click" loc:Loc.Name="转到 MC 百科">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBA2;" FontSize="13" />
+                                            <TextBlock loc:Loc.Text="转到 MC 百科" FontSize="12" />
+                                        </StackPanel>
+                                    </ctrl:GlowButton>
+                                </StackPanel>
+                                <ctrl:GlowButton Click="DlCopy_Click" loc:Loc.Name="复制名称"
+                                                 HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA9F;" FontSize="13" />
+                                        <TextBlock loc:Loc.Text="复制名称" FontSize="12" />
+                                    </StackPanel>
+                                </ctrl:GlowButton>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 版本芯片行（MC 版本筛选，默认当前版本） -->
+                    <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollMode="Disabled">
+                        <StackPanel x:Name="DlVersionChips" Orientation="Horizontal" Spacing="4" />
+                    </ScrollViewer>
+
+                    <!-- 版本分组（展开后可下载安装） -->
+                    <StackPanel x:Name="DlVersionList" Spacing="8" />
+                </StackPanel>
+
+                <!-- 搜索结果列表 -->
+                <StackPanel x:Name="DownloadResults" Spacing="8" />
+                <TextBlock x:Name="DlEmpty" loc:Loc.Text="没有找到匹配的资源" FontSize="12" Margin="0,4"
+                           HorizontalAlignment="Center" Visibility="Collapsed"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</ContentDialog>

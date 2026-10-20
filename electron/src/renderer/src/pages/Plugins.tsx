@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { request } from '../bridge'
 import type { ExternalPlugin, PluginList } from '../bridge'
 import { Modal, SkeletonList, Toggle, useToasts } from '../ui'
+import { PluginPanelView } from '../pluginView'
 
 /// 内核内置插件（与 Win 端内核注册表一致）。
 /// 这些是编译进内核的固定能力，不来自 plugins.list，所以在这里静态展示。
@@ -56,6 +57,11 @@ export default function PluginsPage(): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
   const [pendingUninstall, setPendingUninstall] = useState<ExternalPlugin | null>(null)
   const [pendingDisclaimer, setPendingDisclaimer] = useState<ExternalPlugin | null>(null)
+  /** 面板：当前打开的插件与其面板列表 */
+  const [panelFor, setPanelFor] = useState<ExternalPlugin | null>(null)
+  const [panels, setPanels] = useState<Array<{ id: string; title: string; declarative: boolean; entry: string }>>([])
+  const [activePanelId, setActivePanelId] = useState('')
+  const [panelBusy, setPanelBusy] = useState(false)
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -118,6 +124,24 @@ export default function PluginsPage(): JSX.Element {
       push('error', String(e))
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function openPanels(p: ExternalPlugin): Promise<void> {
+    setPanelFor(p)
+    setPanelBusy(true)
+    try {
+      const r = await request<{ panels: Array<{ id: string; title: string; declarative: boolean; entry: string }> }>(
+        'plugins.panels',
+        { id: p.id }
+      )
+      setPanels(r.panels)
+      setActivePanelId(r.panels[0]?.id ?? '')
+    } catch (e) {
+      push('error', String(e))
+      setPanelFor(null)
+    } finally {
+      setPanelBusy(false)
     }
   }
 
@@ -194,6 +218,15 @@ export default function PluginsPage(): JSX.Element {
                   {p.permissions.length > 0 && ` · 能力：${p.permissions.join(' · ')}`}
                 </div>
               </div>
+              {p.panelCount > 0 && (
+                <button
+                  className="btn btn-sm"
+                  disabled={busy !== null || panelBusy}
+                  onClick={() => void openPanels(p)}
+                >
+                  打开面板
+                </button>
+              )}
               <button
                 className="btn btn-sm"
                 disabled={busy !== null}
@@ -310,6 +343,58 @@ export default function PluginsPage(): JSX.Element {
         <div className="dialog-body">
           将删除插件 <b>{pendingUninstall?.name}</b> 的目录与配置。
         </div>
+      </Modal>
+
+      {/* 插件面板 */}
+      <Modal
+        open={panelFor !== null}
+        title={panelFor === null ? '' : `${panelFor.name} · 面板`}
+        width={720}
+        onClose={() => setPanelFor(null)}
+        footer={
+          <button className="btn" onClick={() => setPanelFor(null)}>
+            关闭
+          </button>
+        }
+      >
+        {panelBusy ? (
+          <div className="t-cap">加载面板列表…</div>
+        ) : panels.length === 0 ? (
+          <div className="t-cap">该插件没有声明面板。</div>
+        ) : (
+          <div style={{ display: 'flex', gap: 12, minHeight: 240 }}>
+            {panels.length > 1 && (
+              <div style={{ width: 160, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {panels.map((panel) => (
+                  <button
+                    key={panel.id}
+                    className={`nav-item${activePanelId === panel.id ? ' nav-active' : ''}`}
+                    style={{ height: 36, width: '100%' }}
+                    onClick={() => setActivePanelId(panel.id)}
+                  >
+                    {panel.title}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+              {panels.find((x) => x.id === activePanelId)?.declarative === false ? (
+                <div className="info info-warning">
+                  <span aria-hidden>⚠</span>
+                  <div className="info-body">
+                    HTML 面板需要主进程文件 IPC，当前版本暂以声明式面板为准。
+                  </div>
+                </div>
+              ) : panelFor !== null && activePanelId !== '' ? (
+                <PluginPanelView
+                  pluginId={panelFor.id}
+                  panelId={activePanelId}
+                  onError={(msg) => push('error', msg)}
+                />
+              ) : null}
+            </div>
+          </div>
+        )}
       </Modal>
 
       {host}

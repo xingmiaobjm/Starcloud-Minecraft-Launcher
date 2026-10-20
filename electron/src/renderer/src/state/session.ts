@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import { onBridgeEvent } from '../bridge'
 
 export interface SessionStore {
+  /** 桥接侧会话 id（game.kill 需要它；pid 是系统进程号）。 */
+  sessionId?: number
   pid?: number
   launching: boolean
   status: string
@@ -58,6 +60,7 @@ export function useGameSession(): GameSessionApi {
         setStore((s) => ({
           ...s,
           pid: undefined,
+          sessionId: undefined,
           launching: false,
           exitCode: code,
           status: `游戏退出（exit=${code}）`
@@ -92,7 +95,7 @@ export function useGameSession(): GameSessionApi {
       const { request } = await import('../bridge')
       try {
         step('准备游戏文件…', 35)
-        const session = await request<{ pid: number }>('launch.start', {
+        const session = await request<{ sessionId: number; pid: number; logFile?: string }>('launch.start', {
           versionId,
           playerName,
           accountUuid
@@ -101,6 +104,7 @@ export function useGameSession(): GameSessionApi {
         setStore((s) => ({
           ...s,
           launching: false,
+          sessionId: session.sessionId,
           pid: session.pid,
           exitCode: undefined,
           launchFailed: false,

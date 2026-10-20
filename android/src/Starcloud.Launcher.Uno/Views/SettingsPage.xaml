@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:beh="using:Starcloud.Launcher.Uno.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Enabled">
+
+    <Page.Resources>
+        <!-- PCL 风格：白卡片 + 1px 描边 + 圆角 + 悬浮/按压反馈（继承全局 ScHoverCard） -->
+        <Style x:Key="PclCard" TargetType="Border" BasedOn="{StaticResource ScHoverCard}" />
+        <!-- 小节标题：中性 14px 粗体（强调色交给标题左侧的脊柱，见 App.xaml 的视觉基元）。
+             原先整行染成品牌色，一屏十来个标题都在喊，层级反而被拉平。 -->
+        <Style x:Key="PclSectionTitle" TargetType="TextBlock"
+               BasedOn="{StaticResource ScSectionTitle}" />
+        <!-- 小节标题行：脊柱 + 标题 -->
+        <Style x:Key="PclSectionHead" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Spacing" Value="8" />
+        </Style>
+        <Style x:Key="PclSectionSpine" TargetType="Border"
+               BasedOn="{StaticResource ScSectionSpine}" />
+        <!-- PCL 风格：标签左固定 86px -->
+        <Style x:Key="PclLabel" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
+            <Setter Property="Width" Value="86" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Page.Resources>
+
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 主体：左导航 + 右内容 -->
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左侧分类导航（PCL2 / LauncherX 式）。
+                 上边距 12 = 右栏 RowSpacing：提示条收起时那一行高度为 0，间距仍然占位，
+                 右栏首个可见元素落在 12 之下，左栏补同样的边距才与之齐平。 -->
+            <Border Grid.Column="0" VerticalAlignment="Stretch" Margin="0,12,0,0"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="8">
+                <ListView x:Name="CategoryList" SelectionMode="Single"
+                          SelectionChanged="Category_SelectionChanged">
+                    <!-- 行的底色不再交给框架模板：模板给的是硬边直角矩形（也不是这里的圆角），
+                         压上圆角光斑后四个角互相啃掉一块，就是「阴影框与按钮框对不上」。
+                         改成 ctrl:CategoryNavItem 的模板里自己画同圆角的底（选中/悬停各一层），
+                         与光斑严格重合，圆角由控件的 CornerRadius 统一给定。 -->
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="40" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.Resources>
+                        <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉 -->
+                        <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                    </ListView.Resources>
+                    <ListViewItem Tag="game" IsSelected="True">
+                        <ctrl:CategoryNavItem x:Name="CatGame" IsActive="True"
+                                              Glyph="&#xEC20;" loc:Loc.Text="游戏" />
+                    </ListViewItem>
+                    <ListViewItem Tag="java">
+                        <ctrl:CategoryNavItem x:Name="CatJava" Content="Java">
+                            <!-- Java：自绘咖啡杯线稿（Segoe Fluent 无 Java 字形，原 &#xEA4D; 是缺字方框）。
+                                 16 单位画布按 14px 缩放 → 描边约 1px，与相邻字形图标重量一致。
+                                 走控件的 Icon 槽（字形槽被它盖掉）。 -->
+                            <ctrl:CategoryNavItem.Icon>
+                                <Viewbox Width="14" Height="14">
+                                    <Grid Width="16" Height="16">
+                                        <Path HorizontalAlignment="Left" VerticalAlignment="Top" Stretch="None"
+                                              Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                              StrokeThickness="1.25"
+                                              StrokeLineJoin="Round"
+                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                              Data="M1.9,7.2 L12.7,7.2 L11.4,13.4 L3.2,13.4 Z M12.3,9 C14.2,9 14.2,12.7 11.5,13.1 M5.3,6 C5.3,4.4 6.5,4.4 6.5,2.6 M8.5,6 C8.5,4.4 9.7,4.4 9.7,2.6" />
+                                    </Grid>
+                                </Viewbox>
+                            </ctrl:CategoryNavItem.Icon>
+                        </ctrl:CategoryNavItem>
+                    </ListViewItem>
+                    <ListViewItem Tag="download">
+                        <ctrl:CategoryNavItem x:Name="CatDownload" Glyph="&#xE90C;" loc:Loc.Text="下载与资源" />
+                    </ListViewItem>
+                    <ListViewItem Tag="general">
+                        <ctrl:CategoryNavItem x:Name="CatGeneral" Glyph="&#xEC04;" loc:Loc.Text="通用" />
+                    </ListViewItem>
+                </ListView>
+            </Border>
+
+            <!-- 右侧内容 -->
+            <Grid Grid.Column="1" RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 提示条（SavedBar / ErrorBar）已改成页面级浮层，见本文件末尾的「提示条浮层」：
+                     它不再占右栏高度，本行（Row 0）因此没有子元素，
+                     只靠 RowSpacing 与左栏的上边距对齐。 -->
+
+                <ScrollViewer x:Name="SectionScroll" Grid.Row="1">
+                    <StackPanel Spacing="16">
+
+                        <!-- ══ 游戏 ══ -->
+                        <StackPanel x:Name="SectionGame" Spacing="16">
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="游戏目录" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBox x:Name="DotMcBox" loc:Loc.Placeholder=".minecraft 目录路径" />
+                                    <TextBlock loc:Loc.Text="版本、资源与库文件将安装到该目录"
+                                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="内存分配" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="最大内存（整数 GB）" FontSize="12" />
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="MaxMemorySlider" Grid.Column="0"
+                                                Minimum="1" Maximum="16" StepFrequency="1"
+                                                SnapsTo="StepValues" TickFrequency="1"
+                                                ValueChanged="MaxMemorySlider_ValueChanged" />
+                                        <TextBlock x:Name="MaxMemoryText" Grid.Column="1" Width="72"
+                                                   VerticalAlignment="Center" TextAlignment="Right"
+                                                   FontWeight="Medium" />
+                                    </Grid>
+                                    <TextBlock x:Name="MemoryAutoHint" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="启动可靠性" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="启动失败自动重试一次" Style="{StaticResource PclLabel}"
+                                                   Width="Auto" />
+                                        <ToggleSwitch x:Name="LaunchAutoRetrySwitch"
+                                                      Toggled="LaunchAutoRetrySwitch_Toggled" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="游戏启动后 8 秒内异常退出时，自动重试一次（不重复环境体检）。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="启动页默认展开实时日志" Style="{StaticResource PclLabel}"
+                                                   Width="Auto" />
+                                        <ToggleSwitch x:Name="ShowGameLogSwitch"
+                                                      Toggled="ShowGameLogSwitch_Toggled" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="启动时在启动页显示游戏实时输出，便于排查启动问题。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock loc:Loc.Text="智能内存推荐" FontSize="12" FontWeight="Medium" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="MemoryRecommendText" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ctrl:GlowButton x:Name="ApplyMemoryRecommendBtn" loc:Loc.Text="应用为默认最大内存"
+                                            Click="ApplyMemoryRecommend_Click" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="默认窗口" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="窗口尺寸" Style="{StaticResource PclLabel}" />
+                                        <NumberBox x:Name="DefaultWidthBox" Minimum="320" Maximum="7680"
+                                                   SpinButtonPlacementMode="Compact" Width="120" />
+                                        <TextBlock Text="×" VerticalAlignment="Center" />
+                                        <NumberBox x:Name="DefaultHeightBox" Minimum="240" Maximum="4320"
+                                                   SpinButtonPlacementMode="Compact" Width="120" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="全屏启动" Style="{StaticResource PclLabel}" />
+                                        <ToggleSwitch x:Name="DefaultFullscreenSwitch" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="启动参数" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="额外 JVM 参数（每行一条）" FontSize="12" />
+                                    <TextBox x:Name="ExtraJvmArgsBox" AcceptsReturn="True" TextWrapping="Wrap"
+                                             Height="72" PlaceholderText="-Xss1M" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="内置 JVM 参数" Style="{StaticResource PclLabel}" />
+                                        <ToggleSwitch x:Name="UseBuiltinJvmSwitch" />
+                                        <TextBlock loc:Loc.Text="关闭后将不再自动附加官方推荐 JVM 参数"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="全局环境变量" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="对所有版本生效；版本级同名变量会覆盖此处。"
+                                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel x:Name="GlobalEnvPanel" Spacing="8" />
+                                    <ctrl:GlowButton loc:Loc.Text="添加环境变量" Click="GlobalEnvAdd_Click" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="版本隔离（默认）" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="新版本的默认隔离方式。开启后只隔离 mods/存档/配置/资源包/光影 5 类内容，库与资源文件仍共享；单个版本可在其详情页覆盖此设置。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <RadioButtons x:Name="IsolationDefaultRadio"
+                                                  loc:Loc.Name="默认版本隔离方式">
+                                        <RadioButton loc:Loc.Text="版本隔离（推荐）" />
+                                        <RadioButton loc:Loc.Text="共享目录" />
+                                    </RadioButtons>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ══ Java ══ -->
+                        <StackPanel x:Name="SectionJava" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="Java" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="进入本页时自动搜索本机 Java，搜索完成后在下方选择；也可以手动添加。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ComboBox x:Name="JavaCombo" Width="380"
+                                                  loc:Loc.Name="Java"
+                                                  loc:Loc.Placeholder="正在搜索本机 Java…"
+                                                  SelectionChanged="JavaCombo_SelectionChanged" />
+                                        <ctrl:GlowButton x:Name="JavaScanBtn" loc:Loc.Text="搜索 Java"
+                                                loc:Loc.Name="搜索 Java" Click="ScanJava_Click" />
+                                        <ctrl:GlowButton x:Name="JavaBrowseBtn" loc:Loc.Text="手动添加…"
+                                                loc:Loc.Name="手动添加 Java" Click="BrowseJava_Click" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ctrl:GlowButton loc:Loc.Text="下载 Java 21（Temurin）" Click="DownloadJava_Click" />
+                                        <ctrl:GlowButton loc:Loc.Text="下载 Java 8（Temurin）" Click="DownloadJava8_Click" />
+                                        <ctrl:GlowButton x:Name="JavaDeleteBtn" loc:Loc.Text="删除选中运行时"
+                                                loc:Loc.Name="删除选中运行时" Click="DeleteJava_Click"
+                                                IsEnabled="False" />
+                                    </StackPanel>
+                                    <ProgressBar x:Name="JavaProgress" Visibility="Collapsed" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ══ 下载与资源 ══ -->
+                        <StackPanel x:Name="SectionDownload" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="下载" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="下载并发数" Style="{StaticResource PclLabel}" />
+                                        <NumberBox x:Name="ConcurrencyBox" Minimum="1" Maximum="64"
+                                                   SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="失败重试次数" Style="{StaticResource PclLabel}" />
+                                        <NumberBox x:Name="RetriesBox" Minimum="0" Maximum="10"
+                                                   SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="下载源" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="SourceCombo" Width="200" loc:Loc.Name="下载源">
+                                            <ComboBoxItem loc:Loc.Text="自动（多源聚合）" Tag="auto" />
+                                            <ComboBoxItem loc:Loc.Text="仅官方" Tag="official" />
+                                            <ComboBoxItem loc:Loc.Text="BMCLAPI" Tag="bmclapi" />
+                                            <ComboBoxItem loc:Loc.Text="FastMinecraftMirror" Tag="fastmirror" />
+                                            <ComboBoxItem loc:Loc.Text="RainYun" Tag="rainyun" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="自定义镜像地址" Style="{StaticResource PclLabel}" />
+                                        <TextBox x:Name="CustomMirrorBox" Width="320"
+                                                 loc:Loc.Name="自定义镜像地址"
+                                                 loc:Loc.Placeholder="自定义镜像地址" />
+                                    </StackPanel>
+                                    <!-- CurseForge 官方 API Key（可空）：留空走社区只读代理，填了直连官方 -->
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="CurseForge API Key（可空）"
+                                                   Style="{StaticResource PclLabel}" />
+                                        <TextBox x:Name="CurseForgeKeyBox" Width="320"
+                                                 loc:Loc.Name="CurseForge API Key"
+                                                 loc:Loc.Placeholder="留空则使用启动器内置密钥" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="资源列表与图标缓存" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="启用资源列表拉取缓存" />
+                                            <TextBlock loc:Loc.Text="打开资源页时先用缓存瞬时展示，后台拉到新内容后自动替换；社区资源图标同样缓存到本地，命中后不再联网下载。关闭后完全不读不写缓存。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="ResourceCacheSwitch" Grid.Column="1"
+                                                      VerticalAlignment="Center"
+                                                      loc:Loc.Name="资源列表缓存开关" />
+                                    </Grid>
+                                    <ctrl:GlowButton loc:Loc.Text="清空缓存" Click="ClearCache_Click" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ══ 通用 ══ -->
+                        <StackPanel x:Name="SectionGeneral" Spacing="16" Visibility="Collapsed">
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="主题外观" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="外观" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="ThemeCombo" Width="160" SelectionChanged="Theme_Changed">
+                                            <ComboBoxItem loc:Loc.Text="跟随系统" Tag="system" />
+                                            <ComboBoxItem loc:Loc.Text="浅色" Tag="light" />
+                                            <ComboBoxItem loc:Loc.Text="深色" Tag="dark" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="界面动效" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="MotionCombo" Width="160"
+                                                  loc:Loc.Name="界面动效"
+                                                  SelectionChanged="Motion_Changed">
+                                            <ComboBoxItem loc:Loc.Text="跟随系统" Tag="system" />
+                                            <ComboBoxItem loc:Loc.Text="始终开启" Tag="on" />
+                                            <ComboBoxItem loc:Loc.Text="关闭" Tag="off" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="界面语言" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="LanguageCombo" Width="160"
+                                                  loc:Loc.Name="界面语言"
+                                                  SelectionChanged="Language_Changed">
+                                            <ComboBoxItem loc:Loc.Text="简体中文" Tag="zh-CN" />
+                                            <ComboBoxItem loc:Loc.Text="English" Tag="en-US" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 背景与外观（设计：custom-background-theme-design.md §8） -->
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="背景与外观" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="背景" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="BackgroundModeCombo" Width="160"
+                                                  loc:Loc.Name="背景类型"
+                                                  SelectionChanged="BackgroundMode_Changed">
+                                            <ComboBoxItem loc:Loc.Text="关闭（纯毛玻璃）" Tag="none" />
+                                            <ComboBoxItem loc:Loc.Text="内置壁纸" Tag="builtin" />
+                                            <ComboBoxItem loc:Loc.Text="本地图片" Tag="file" />
+                                        </ComboBox>
+                                    </StackPanel>
+
+                                    <!-- 内置壁纸：缩略图由代码按 AppearanceService.Wallpapers 生成 -->
+                                    <StackPanel x:Name="BuiltinWallpaperPanel" Spacing="6" Visibility="Collapsed">
+                                        <GridView x:Name="BuiltinWallpaperGrid"
+                                                  SelectionMode="Single" IsItemClickEnabled="False"
+                                                  ScrollViewer.HorizontalScrollMode="Disabled"
+                                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                                  loc:Loc.Name="内置壁纸列表"
+                                                  SelectionChanged="BuiltinWallpaper_SelectionChanged" />
+                                    </StackPanel>
+
+                                    <!-- 本地图片 -->
+                                    <StackPanel x:Name="LocalImagePanel" Spacing="6" Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock loc:Loc.Text="图片文件" Style="{StaticResource PclLabel}" />
+                                            <ctrl:GlowButton x:Name="PickImageBtn" loc:Loc.Text="选择图片…"
+                                                    loc:Loc.Name="选择本地背景图片"
+                                                    Click="PickImage_Click" />
+                                            <ctrl:GlowButton x:Name="ClearImageBtn" loc:Loc.Text="清除"
+                                                    loc:Loc.Name="清除本地背景图片"
+                                                    Click="ClearImage_Click" />
+                                        </StackPanel>
+                                        <TextBlock x:Name="ImagePathText" FontSize="12" Margin="94,0,0,0"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="模糊强度" Style="{StaticResource PclLabel}" />
+                                        <Slider x:Name="BgBlurSlider" Width="240" Minimum="0" Maximum="64"
+                                                StepFrequency="1"
+                                                loc:Loc.Name="背景模糊强度"
+                                                ValueChanged="BackgroundSlider_Changed" />
+                                        <TextBlock x:Name="BgBlurText" VerticalAlignment="Center" FontSize="12"
+                                                   Width="56"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="不透明度" Style="{StaticResource PclLabel}" />
+                                        <Slider x:Name="BgOpacitySlider" Width="240" Minimum="0.2" Maximum="1"
+                                                StepFrequency="0.05"
+                                                loc:Loc.Name="背景图片不透明度"
+                                                ValueChanged="BackgroundSlider_Changed" />
+                                        <TextBlock x:Name="BgOpacityText" VerticalAlignment="Center" FontSize="12"
+                                                   Width="56"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="毛玻璃强度" Style="{StaticResource PclLabel}" />
+                                        <Slider x:Name="MaskOpacitySlider" Width="240" Minimum="0" Maximum="1"
+                                                StepFrequency="0.05"
+                                                loc:Loc.Name="毛玻璃遮罩强度"
+                                                ValueChanged="BackgroundSlider_Changed" />
+                                        <ToggleSwitch x:Name="MaskFollowThemeCheck" IsOn="True"
+                                                      loc:Loc.OnContent="跟随主题" loc:Loc.OffContent="跟随主题"
+                                                      loc:Loc.Name="毛玻璃强度跟随主题"
+                                                      Toggled="MaskFollowTheme_Toggled" />
+                                    </StackPanel>
+
+                                    <!-- 账户页玩家 3D 形象：走路动画开关 -->
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="账户页走路动画" FontWeight="Medium" />
+                                            <TextBlock loc:Loc.Text="关闭后，账户页右侧的玩家形象将保持站立姿势。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="WalkAnimSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                      loc:Loc.Name="账户页走路动画开关"
+                                                      Toggled="WalkAnimSwitch_Toggled" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 微软登录方式：内置登录窗口（默认）/ 浏览器（验证码 + 系统浏览器） -->
+                            <Border Style="{StaticResource PclCard}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock loc:Loc.Text="使用内置登录窗口" FontWeight="Medium" />
+                                        <TextBlock loc:Loc.Text="微软（正版）登录在启动器内的窗口里完成，验证码自动填入，不跳系统浏览器；关闭后改为显示验证码并打开浏览器。"
+                                                   FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="EmbeddedLoginSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                  loc:Loc.Name="内置登录窗口开关"
+                                                  Toggled="EmbeddedLoginSwitch_Toggled" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Nova 游戏内浮窗（设计：nova-overlay-plan.md T6；默认关 = 显式授权） -->
+                            <Border Style="{StaticResource PclCard}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock loc:Loc.Text="Nova 游戏内浮窗" FontWeight="Medium" />
+                                        <TextBlock loc:Loc.Text="游戏运行时在屏幕角落显示 Nova 浮窗，Ctrl+N 随时呼出对话；下局游戏启动时生效。"
+                                                   FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="OverlaySwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                  loc:Loc.Name="Nova 游戏内浮窗开关"
+                                                  Toggled="OverlaySwitch_Toggled" />
+                                </Grid>
+                            </Border>
+
+                            <!-- 软件更新（设计：.trae/documents/auto-update-feature.md） -->
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="软件更新" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="自动检查更新" FontWeight="Medium" />
+                                            <TextBlock loc:Loc.Text="启动几秒后后台检查新版本，发现新版本时询问是否更新；游戏运行期间不打扰。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="AutoUpdateSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                      loc:Loc.Name="自动检查更新开关"
+                                                      Toggled="AutoUpdateSwitch_Toggled" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
+                                                loc:Loc.Name="手动检查启动器更新"
+                                                Click="CheckUpdate_Click" />
+                                        <TextBlock x:Name="UpdateStatusText" VerticalAlignment="Center" FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 固定底部操作栏：原来是"按钮浮在卡片上"，看着像没对齐；
+                     现在做成一条有上边线与底色的操作带，即滚动到任何位置它都是一条明确的动作区 -->
+                <Border Grid.Row="2" Padding="12,8" CornerRadius="8"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="0,1,0,0">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="12"
+                                   loc:Loc.Text="修改后在下方保存；未保存的改动会在切换分类时保留。"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Button Grid.Column="1" loc:Loc.Text="保存设置" MinWidth="120"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium" Click="Save_Click" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- 提示条浮层：与主体共用同一套列定义，只落在右列上方。
+             VerticalAlignment=Top 让它贴在页面顶部，自身不参与主体布局，
+             所以提示条展开时也不会把下方内容推下去。
+             列宽（180 + ColumnSpacing 16）与主体两列一致，右列左沿因此与内容区严格对齐。 -->
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="1" VerticalAlignment="Top" Spacing="8">
+                <InfoBar x:Name="SavedBar" Severity="Success" loc:Loc.Title="已保存" IsOpen="False" IsClosable="True" />
+                <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

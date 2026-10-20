@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.NovaPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Starcloud.Launcher.Uno.Views"
+    xmlns:beh="using:Starcloud.Launcher.Uno.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:core="using:Starcloud.Core.Services"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Enabled">
+
+    <!-- Nova 设置页：账户 / 模型设置（第三方 LLM · 多模型）/ 游戏内辅助 / 游戏记录记忆 /
+     录屏许可 / 操作日志 / 能力路线。
+         对话入口在顶栏 NovaOrb 面板与游戏内浮窗（共用 NovaRuntime 同一份消息流），本页只管设置。
+
+         ── 本页排版约定（全页统一，别再逐卡各写一套）─────────────────────────────
+         卡片外壳 = ScCard（毛玻璃 + 1px 描边 + 16 圆角 + 16 内边距）
+         卡片抬头 = ScSectionSpine + ScSectionTitle
+         卡片说明 = ScCardHint
+         状态芯片 = ScChip / ScChipAccent
+         块内顺序 = 卡片抬头 → 卡片说明 → 控件：从上往下读就是「这是什么 → 有什么用 → 怎么改」。 -->
+    <Grid MaxWidth="1080" HorizontalAlignment="Stretch">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+            <StackPanel Spacing="16">
+
+                <!-- ═══ 账户：登录 Starcloud ID（云端模型与在线能力） ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="Nova 账户" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="登录后可用云端模型与邀请、时刻等在线能力；凭据只保存在本机。"
+                                   Style="{StaticResource ScCardHint}" />
+
+                        <!-- 已登录：账户信息 + 退出 -->
+                        <Grid x:Name="AccountInfo" ColumnSpacing="12" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <!-- Nova 图标 = 品牌标记（多色，字形画不出来） -->
+                            <ctrl:BrandMark Small="True" Width="20" Height="20" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock loc:Loc.Text="已登录" FontWeight="Medium" FontSize="13" />
+                                <TextBlock x:Name="UserSub" FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <ctrl:GlowButton Grid.Column="2" loc:Loc.Text="退出登录" Click="Logout_Click"
+                                    VerticalAlignment="Center" />
+                        </Grid>
+
+                        <!-- 未登录：登录表单 -->
+                        <StackPanel x:Name="LoginForm" Spacing="10">
+                            <TextBox x:Name="IdBox" Header="Starcloud ID" loc:Loc.Placeholder="用户名或邮箱" />
+                            <PasswordBox x:Name="PwdBox" />
+                            <ComboBox x:Name="ChannelBox" SelectedIndex="0"
+                                      HorizontalAlignment="Stretch" SelectionChanged="ChannelBox_SelectionChanged">
+                                <ComboBoxItem loc:Loc.Text="测试通道（本地模拟，无需真实账号）" />
+                                <ComboBoxItem loc:Loc.Text="云端通道（真实账号）" />
+                            </ComboBox>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="登录"
+                                        FontWeight="Medium" MinWidth="160" Click="Login_Click" />
+                                <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24"
+                                              VerticalAlignment="Center" />
+                                <TextBlock x:Name="LoginError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                           TextWrapping="Wrap" Visibility="Collapsed" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 云端模型：Starcloud ID 下发的 Key（服务端记账，额度按账号按周重置） ═══
+                     额度只由服务端算：响应头带回限额，客户端负责「显示 + 讲清楚 + 降级」。 -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock Grid.Column="1" loc:Loc.Text="云端模型"
+                                       Style="{StaticResource ScSectionTitle}" />
+                            <ctrl:GlowButton Grid.Column="2" x:Name="QuotaRefreshBtn" loc:Loc.Text="刷新"
+                                    FontSize="12" Padding="10,4" MinWidth="0"
+                                    Click="QuotaRefresh_Click" />
+                        </Grid>
+                        <TextBlock loc:Loc.Text="登录 Starcloud ID 后 Nova 默认走云端模型，不用自己填 Key；用量记在账号上，按周重置。"
+                                   Style="{StaticResource ScCardHint}" />
+
+                        <!-- 已登录（云端通道）：本周用量 -->
+                        <StackPanel x:Name="QuotaBody" Spacing="8" Visibility="Collapsed">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="QuotaUsedText" FontSize="13" FontWeight="Medium"
+                                           TextWrapping="Wrap" VerticalAlignment="Center" />
+                                <Border x:Name="QuotaChip" Grid.Column="1"
+                                        Style="{StaticResource ScChipAccent}">
+                                    <TextBlock x:Name="QuotaRemainingText"
+                                               Style="{StaticResource ScChipAccentText}" />
+                                </Border>
+                            </Grid>
+                            <ProgressBar x:Name="QuotaBar" Minimum="0" Maximum="100" Value="0" />
+                            <TextBlock x:Name="QuotaResetText" Style="{StaticResource ScCardHint}" />
+                        </StackPanel>
+
+                        <!-- 未登录 / 测试通道：没有可用数值时说明原因，不留空行 -->
+                        <TextBlock x:Name="QuotaHintText" Style="{StaticResource ScCardHint}"
+                                   Visibility="Collapsed" />
+
+                        <ToggleSwitch x:Name="GatewaySwitch" MinWidth="0" OnContent="" OffContent=""
+                                      loc:Loc.Header="使用云端模型"
+                                      Toggled="Gateway_Toggled" />
+                        <TextBlock loc:Loc.Text="关掉后 Nova 只用下面接入的模型；云端额度仍记在账号上，不浪费。"
+                                   Style="{StaticResource ScCardHint}" Opacity="0.8" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 模型设置：第三方 LLM 添加 + 多模型支持 ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="模型设置" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="接入任意 OpenAI 兼容服务：选服务商 → 填 Key → 选模型。可添加多个模型并随时切换；接了自己的模型就优先用它，不可用时走上面的云端模型，最后才落到本地模板。Key 只保存在本机。"
+                                   Style="{StaticResource ScCardHint}" />
+
+                        <!-- 已添加的模型档案 -->
+                        <ListView x:Name="ProfileList" SelectionMode="None"
+                                  ItemContainerStyle="{StaticResource ScPlainListItem}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="local:NovaLlmProfileRow">
+                                    <Grid ColumnSpacing="8" Padding="10,8" CornerRadius="8"
+                                          beh:CardHoverBehavior.IsEnabled="True"
+                                          Background="{ThemeResource LayerFillColorDefaultBrush}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{x:Bind Name}" FontSize="12" FontWeight="Medium" />
+                                                <Border Style="{StaticResource ScChipAccent}"
+                                                        Visibility="{x:Bind ActiveVisibility}">
+                                                    <TextBlock loc:Loc.Text="当前使用"
+                                                               Style="{StaticResource ScChipAccentText}" />
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind Detail}" FontSize="11" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ctrl:GlowButton Grid.Column="1" loc:Loc.Text="设为当前" FontSize="12" Padding="10,4"
+                                                VerticalAlignment="Center" Tag="{x:Bind Id}"
+                                                Visibility="{x:Bind ActiveVisibility}"
+                                                Click="ProfileActivate_Click" />
+                                        <ctrl:GlowButton Grid.Column="2" loc:Loc.Text="删除" FontSize="12" Padding="10,4"
+                                                VerticalAlignment="Center" Tag="{x:Bind Id}"
+                                                Click="ProfileDelete_Click" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <ctrl:EmptyStateView x:Name="ProfileEmptyText"
+                                              HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              IconImage="{StaticResource NovaMarkSmall}"
+                                              loc:Loc.Title="还没有添加模型"
+                                              loc:Loc.Subtitle="接一个 OpenAI 兼容服务作为备用；不接也能用上面的云端模型" />
+
+                        <!-- 新增模型：预设模板流程（选服务商 → 填 Key → 选模型） -->
+                        <Button x:Name="LlmAddOpenBtn" loc:Loc.Text="新增模型"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                MinWidth="120" HorizontalAlignment="Left"
+                                Margin="0,4,0,0" Click="LlmAddOpen_Click" />
+
+                        <!-- 添加面板（点「新增模型」展开；预设自动带出地址与模型列表）
+                             模型名输入：Uno ComboBox 无 IsEditable，改用 AutoSuggestBox 承接
+                             「从列表选 + 手输」两种语义（与下载页筛选同一适配口径） -->
+                        <StackPanel x:Name="LlmAddPanel" Spacing="8" Padding="12,10"
+                                    CornerRadius="8" Visibility="Collapsed"
+                                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                            <ComboBox x:Name="LlmPresetBox"
+                                      HorizontalAlignment="Stretch" SelectedIndex="-1"
+                                      SelectionChanged="LlmPreset_SelectionChanged" />
+                            <TextBlock x:Name="PresetUrlText" FontSize="11" Opacity="0.7"
+                                       TextWrapping="Wrap" Visibility="Collapsed"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBox x:Name="LlmBaseUrlBox"
+                                     loc:Loc.Placeholder="例如 https://api.example.com/v1"
+                                     Visibility="Collapsed" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ProfileNameBox" Grid.Column="0"
+                                         loc:Loc.Placeholder="自动带出，可改" MinWidth="140" />
+                                <PasswordBox x:Name="LlmKeyBox" Grid.Column="1" Header="API Key"
+                                             PlaceholderText="sk-…" />
+                            </Grid>
+                            <AutoSuggestBox x:Name="LlmModelBox" HorizontalAlignment="Stretch"
+                                            TextChanged="LlmModel_TextChanged"
+                                            SuggestionChosen="LlmModel_SuggestionChosen" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="LlmSaveBtn" Style="{StaticResource AccentButtonStyle}"
+                                        loc:Loc.Text="保存" MinWidth="120" FontWeight="Medium" Click="LlmAdd_Click" />
+                                <ctrl:GlowButton x:Name="LlmTestBtn" loc:Loc.Text="测试连接" MinWidth="100"
+                                        Click="LlmTest_Click" />
+                                <ctrl:GlowButton loc:Loc.Text="取消" MinWidth="80" Click="LlmAddCancel_Click" />
+                                <TextBlock x:Name="LlmSaveHint" FontSize="11"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Visibility="Collapsed" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <!-- 自检结果：失败时把上游状态码与原文摆出来（模型名 / Key / 地址三选一） -->
+                            <TextBlock x:Name="LlmTestHint" FontSize="12" TextWrapping="Wrap"
+                                       Visibility="Collapsed"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 游戏内辅助：浮窗查询资料 ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="游戏内辅助浮窗" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="启动游戏时自动弹出浮窗，游戏内随时查资料；与顶栏 Nova 共用同一份对话。"
+                                   Style="{StaticResource ScCardHint}" />
+                        <ToggleSwitch x:Name="OverlaySwitch" MinWidth="0"
+                                      OnContent="" OffContent=""
+                                      loc:Loc.Name="游戏内辅助浮窗"
+                                      Toggled="Overlay_Toggled" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 游戏记录记忆：战报 / 时刻统计 ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="游戏记录记忆" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="Nova 从游戏日志里记录进度与挑战，退出后生成一局回顾。"
+                                   Style="{StaticResource ScCardHint}" />
+                        <TextBlock x:Name="MemoryStatsText" FontSize="12" FontWeight="Medium" />
+                        <TextBlock x:Name="MemoryReportText" Style="{StaticResource ScCardHint}"
+                                   IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 录屏许可：默认关闭，开启 = 显式授权（先弹确认） ═══
+                     安卓端暂无采集链路（RecordingService.IsSupported=false），卡片结构保留、文案走安卓口径 -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="录屏" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="默认关闭。未开启时不会读取屏幕内容；开启前会先向你确认。"
+                                   Style="{StaticResource ScCardHint}" />
+                        <ToggleSwitch x:Name="RecordingSwitch" Tag="recording" MinWidth="0"
+                                      OnContent="" OffContent=""
+                                      loc:Loc.Name="录屏许可"
+                                      Toggled="Permission_Toggled" />
+                        <TextBlock loc:Loc.Text="只在游戏运行时采集画面并硬件编码，写入本地磁盘；不采集其他窗口。"
+                                   Style="{StaticResource ScCardHint}" Opacity="0.8" />
+                        <!-- 手动录制入口与状态播报（安卓端 StartManual 会给出明确的不支持提示） -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ctrl:GlowButton x:Name="RecordNowBtn" loc:Loc.Text="立即录屏" Click="RecordNow_Click" />
+                            <ctrl:GlowButton x:Name="OpenRecordingsBtn" loc:Loc.Text="录像目录" Click="OpenRecordings_Click" />
+                        </StackPanel>
+                        <TextBlock x:Name="RecordingStatusText" Style="{StaticResource ScCardHint}"
+                                   IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 操作日志：谁动了、动了什么、何时 ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border Style="{StaticResource ScSectionSpine}" />
+                                <TextBlock loc:Loc.Text="操作日志" Style="{StaticResource ScSectionTitle}" />
+                            </StackPanel>
+                            <ctrl:GlowButton Grid.Column="1" loc:Loc.Text="清空" FontSize="12" Padding="10,2" MinWidth="0"
+                                    loc:Loc.Name="清空操作日志" Click="ClearLog_Click" />
+                        </Grid>
+                        <ctrl:EmptyStateView x:Name="LogEmptyText"
+                                              HorizontalAlignment="Left"
+                                              Glyph="&#xEC68;"
+                                              loc:Loc.Title="暂无记录"
+                                              loc:Loc.Subtitle="Nova 的每次执行（含开关授权）都会记入这里" />
+                        <ListView x:Name="LogList" SelectionMode="None"
+                                  ItemContainerStyle="{StaticResource ScPlainListItem}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="core:NovaActionEntry">
+                                    <StackPanel Spacing="1" Opacity="0.9">
+                                        <TextBlock Text="{x:Bind Title}" FontSize="12" TextWrapping="Wrap" FontWeight="Medium" />
+                                        <TextBlock FontSize="11" Opacity="0.7"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
+                                            <Run Text="{x:Bind State}" /><Run Text=" · " /><Run Text="{x:Bind TimeText}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 能力路线：Nova 从"只建议"到"在场"的四步（顺序本身就是信息） ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="能力路线" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="越往下权限越大，每一层都可以单独关闭。"
+                                   Style="{StaticResource ScCardHint}" />
+
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="①" FontSize="14" Width="18" Opacity="0.7"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock loc:Loc.Text="顾问 · 只给建议" FontSize="13" FontWeight="Medium" />
+                                <TextBlock loc:Loc.Text="只回答和解释，不动你的文件。"
+                                           Style="{StaticResource ScCardHint}" />
+                            </StackPanel>
+                            <Border Grid.Column="2" Style="{StaticResource ScChipAccent}">
+                                <TextBlock loc:Loc.Text="已解锁" Style="{StaticResource ScChipAccentText}" />
+                            </Border>
+                        </Grid>
+
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="②" FontSize="14" Width="18" Opacity="0.7"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock loc:Loc.Text="动手 · 确认后执行" FontSize="13" FontWeight="Medium" />
+                                <TextBlock loc:Loc.Text="每次执行前列出清单，确认后执行，过程记入上方记录。"
+                                           Style="{StaticResource ScCardHint}" />
+                            </StackPanel>
+                            <Border Grid.Column="2" Style="{StaticResource ScChipAccent}">
+                                <TextBlock loc:Loc.Text="已解锁" Style="{StaticResource ScChipAccentText}" />
+                            </Border>
+                        </Grid>
+
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="③" FontSize="14" Width="18" Opacity="0.7"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock loc:Loc.Text="主动 · Nova 时刻" FontSize="13" FontWeight="Medium" />
+                                <TextBlock loc:Loc.Text="退出游戏后自动汇总本局进度，形成游戏记录。"
+                                           Style="{StaticResource ScCardHint}" />
+                            </StackPanel>
+                            <Border Grid.Column="2" Style="{StaticResource ScChipAccent}">
+                                <TextBlock loc:Loc.Text="已解锁" Style="{StaticResource ScChipAccentText}" />
+                            </Border>
+                        </Grid>
+
+                        <Grid ColumnSpacing="10" Opacity="0.55">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="④" FontSize="14" Width="18" Opacity="0.7"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock loc:Loc.Text="在场 · 游戏内浮窗" FontSize="13" FontWeight="Medium" />
+                                <TextBlock loc:Loc.Text="游戏里随时呼出，不用切回启动器。"
+                                           Style="{StaticResource ScCardHint}" />
+                            </StackPanel>
+                            <Border Grid.Column="2" Style="{StaticResource ScChip}">
+                                <TextBlock loc:Loc.Text="灰度中" Style="{StaticResource ScChipText}" />
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Phone.Views.SavesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Starcloud.Launcher.Phone.Views"
+    xmlns:beh="using:Starcloud.Launcher.Phone.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.Launcher.Phone.Views.Controls"
+    xmlns:rows="using:Starcloud.Launcher.Phone.Views.Rows"
+    xmlns:loc="using:Starcloud.Launcher.Phone.Localization"
+       NavigationCacheMode="Enabled">
+
+    <!-- 存档页：跨版本列出 / 搜索 / 筛选世界，支持备份 zip / 删除 / 打开文件夹 / 跨版本复制。
+         桌面蓝本的「跨版本运行态」RunBar（正在运行 + 停止按钮）依赖页内游戏进程句柄，
+         安卓启动链由 GamePage 覆盖层统一承接，此处不再保留（见代码文件头说明）。 -->
+
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 状态提示 -->
+        <InfoBar x:Name="OkBar" Grid.Row="0" Severity="Success" IsOpen="False" IsClosable="True" />
+        <InfoBar x:Name="ErrorBar" Grid.Row="0" Severity="Error" IsOpen="False" IsClosable="True" />
+
+        <!-- 工具条（手机版）：左右两栏改竖排 —— 搜索框固定 200 宽与筛选/按钮的横排在竖屏放不下。
+             顺序：搜索（整宽）+ 刷新 → 筛选 + 打开存档目录 → 所选世界的动作按钮行
+             （按钮行保持横排，与设置页按钮行同一口径） -->
+        <StackPanel Grid.Row="1" Spacing="8">
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <AutoSuggestBox x:Name="SearchBox" HorizontalAlignment="Stretch"
+                                loc:Loc.Placeholder="搜索世界 / 版本"
+                                TextChanged="SearchBox_TextChanged">
+                    <!-- 搜索框内的放大镜同样换成图标库字形（默认是 Segoe 的 Find 符号） -->
+                    <AutoSuggestBox.QueryIcon>
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6F;" FontSize="14" />
+                    </AutoSuggestBox.QueryIcon>
+                </AutoSuggestBox>
+                <ctrl:GlowButton Grid.Column="1" Padding="6" MinWidth="32" Background="Transparent" BorderThickness="0"
+                        Click="Refresh_Click" loc:Loc.Name="刷新" loc:Loc.Tip="刷新">
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE918;" FontSize="14" />
+                </ctrl:GlowButton>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <ComboBox x:Name="VersionFilter" MinWidth="150" SelectionChanged="VersionFilter_SelectionChanged" />
+                <ctrl:GlowButton loc:Loc.Text="打开存档目录" Click="OpenSavesDir_Click" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button x:Name="LaunchOtherBtn" Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                        loc:Loc.Text="用其他版本启动" IsEnabled="False" Click="LaunchOther_Click" />
+                <ctrl:GlowButton x:Name="CopyOtherBtn" loc:Loc.Text="复制到其他版本" IsEnabled="False" Click="CopyOther_Click" />
+                <ctrl:GlowButton x:Name="BackupBtn" loc:Loc.Text="备份所选世界" IsEnabled="False" Click="Backup_Click" />
+                <ctrl:GlowButton x:Name="DeleteBtn" loc:Loc.Text="删除" IsEnabled="False" Click="Delete_Click" />
+                <ctrl:GlowButton x:Name="OpenFolderBtn" loc:Loc.Text="打开世界文件夹" IsEnabled="False" Click="OpenFolder_Click" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 世界列表 -->
+        <Border Grid.Row="2"
+                Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="12">
+            <Grid>
+                <ListView x:Name="SaveList" SelectionMode="Single" Padding="4"
+                          SelectionChanged="SaveList_SelectionChanged">
+                    <ListView.Resources>
+                        <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉
+                             （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                        <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                    </ListView.Resources>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <!-- 竖向也必须撑满：默认 Center 会让承载光斑的卡片 Border 比行矮一圈，
+                                 上下留下不亮光斑的死区，鼠标从两卡交界处掠过时完全没反应。 -->
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="72" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,2" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="rows:SaveRow">
+                            <Border CornerRadius="8"
+                                    beh:HoverShadowBehavior.IsEnabled="True"
+                                    beh:HoverShadowBehavior.Carrier="{Binding ElementName=SaveCardGlow}">
+                                <Grid>
+                                    <!-- 跟随光标的卡片内阴影（触屏端无悬停，保留结构与其余端一致） -->
+                                    <Border x:Name="SaveCardGlow" CornerRadius="8"
+                                            Opacity="0" IsHitTestVisible="False">
+                                        <Border.Background>
+                                            <RadialGradientBrush Center="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                                <GradientStop Color="#28000000" Offset="0" />
+                                                <GradientStop Color="#1F000000" Offset="0.18" />
+                                                <GradientStop Color="#16000000" Offset="0.40" />
+                                                <GradientStop Color="#0D000000" Offset="0.62" />
+                                                <GradientStop Color="#05000000" Offset="0.82" />
+                                                <GradientStop Color="#00000000" Offset="1" />
+                                            </RadialGradientBrush>
+                                        </Border.Background>
+                                    </Border>
+                                <Grid ColumnSpacing="14" Padding="12,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="56" Height="56" CornerRadius="8"
+                                            Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1">
+                                        <Grid>
+                                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" FontSize="22"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <!-- 世界图标：无图标时 Source 为空、不绘制内容，字形兜底自然露出 -->
+                                            <Image x:Name="WorldIcon" Source="{x:Bind Icon}"
+                                                   Stretch="UniformToFill" />
+                                        </Grid>
+                                    </Border>
+                                    <!-- 名称块：世界名 + 文件夹名 -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2"
+                                                MaxWidth="420" HorizontalAlignment="Left">
+                                        <TextBlock Text="{x:Bind Name}" FontWeight="Medium"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind FolderName}" FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <!-- 元信息芯片：所属版本 / 隔离（与版本页、首页同一套形态） -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center">
+                                        <Border Style="{StaticResource ScChip}">
+                                            <TextBlock Text="{x:Bind VersionLabel}"
+                                                       Style="{StaticResource ScChipText}" />
+                                        </Border>
+                                        <Border Style="{StaticResource ScChip}"
+                                                Visibility="{x:Bind IsolatedVisibility}">
+                                            <TextBlock loc:Loc.Text="隔离"
+                                                       Style="{StaticResource ScChipText}" />
+                                        </Border>
+                                    </StackPanel>
+                                    <!-- 数据列：标签 + 数值，跨行成列 -->
+                                    <Grid Grid.Column="3" ColumnSpacing="8" VerticalAlignment="Center"
+                                          HorizontalAlignment="Right" Margin="14,0,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="72" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" HorizontalAlignment="Right"
+                                                   loc:Loc.Text="上次游玩" Style="{StaticResource ScMetaLabel}" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Right"
+                                                   Text="{x:Bind LastPlayedText}"
+                                                   Style="{StaticResource ScMetaValue}" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" HorizontalAlignment="Right"
+                                                   loc:Loc.Text="大小" Style="{StaticResource ScMetaLabel}" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right"
+                                                   Text="{x:Bind SizeText}"
+                                                   Style="{StaticResource ScMetaValue}" />
+                                    </Grid>
+                                </Grid>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <ctrl:EmptyStateView x:Name="EmptyHint" Visibility="Collapsed"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      Glyph="&#xEA90;"
+                                      loc:Loc.Title="暂无存档"
+                                      loc:Loc.Subtitle="启动游戏创建世界后，可在此进行备份与管理" />
+                <ProgressBar x:Name="BackupProgress" IsIndeterminate="True" VerticalAlignment="Bottom"
+                             Visibility="Collapsed" />
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

@@ -1,0 +1,9 @@
+<Project>
+
+  <!-- 安卓端统一开启「警告即错误」；其余公共属性由各 csproj 自持，
+       避免覆盖 MAUI 工程的语言版本等特殊设置 -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

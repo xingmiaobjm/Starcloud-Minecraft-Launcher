@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- M0-S1 JVM 拉起技术验证 App（实施计划 M0-S1 / 设计稿 §6.1）：
+       P/Invoke libjvm.so 走 JNI Invocation API，验证 Absolute load / InitArgs 编组 / 线程 attach。
+       独立于主解决方案（不进 Starcloud.Android.slnx），仅 dotnet build 本文件。 -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Starcloud.Spike.S1Jvm</RootNamespace>
+    <ApplicationId>cn.starcloud.spike.s1jvm</ApplicationId>
+    <ApplicationTitle>S1 JVM Spike</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <SupportedOSPlatformVersion>28.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <!-- JNI 函数表按原始指针索引调用，需要 unsafe -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- 同主工程：Debug 真机直装必须把程序集嵌入 APK，否则 FastDev 触发 monodroid Abort -->
+    <EmbedAssembliesIntoApk Condition="'$(Configuration)' == 'Debug' And '$(EmbedAssembliesIntoApk)' == ''">true</EmbedAssembliesIntoApk>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AndroidManifest Include="AndroidManifest.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- runtime/ 是真机部署用的 JRE 树（含 jrt-fs.jar 与大量 .so）：
+         jar 会被自动收集生成 Java 绑定（BG8401/编译错误），so 会被误打进 APK，全部排除 -->
+    <AndroidJavaLibrary Remove="runtime\**\*.jar" />
+    <AndroidLibrary Remove="runtime\**\*.jar" />
+    <AndroidNativeLibrary Remove="runtime\**\*.so" />
+  </ItemGroup>
+
+</Project>

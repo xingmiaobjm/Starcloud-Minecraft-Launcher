@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 插件一级导航页（contributes.navItems）：
+     宿主在左侧导航栏为插件开的一级入口，内容由插件提供的声明式视图 JSON 渲染。
+     与「插件」页里的面板同源（同一份解析、同一套能力层、同一套失败兜底），
+     区别是没有返回按钮 —— 导航栏本身就是返回。 -->
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.PluginNavPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    NavigationCacheMode="Enabled">
+
+    <Grid RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 页头：只有标题（返回交给导航栏） -->
+        <TextBlock x:Name="NavTitle" FontSize="24" FontWeight="Medium" TextWrapping="Wrap" />
+
+        <!-- 内容：声明式视图 -->
+        <Border Grid.Row="1" Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+                <StackPanel x:Name="ViewRoot" Margin="16,14,16,14" Spacing="10" />
+            </ScrollViewer>
+        </Border>
+
+        <!-- 动作 / 绑定写回的结果条 -->
+        <InfoBar Grid.Row="2" x:Name="ActionBar" IsOpen="False" IsClosable="True" />
+    </Grid>
+</Page>

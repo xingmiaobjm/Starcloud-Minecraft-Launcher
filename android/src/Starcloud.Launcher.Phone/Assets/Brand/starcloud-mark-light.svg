@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="316 297 400 400" width="400" height="400" role="img" aria-label="Starcloud 标记 · 浅底">
+  <title>Starcloud 标记 · 浅底（黑线）</title>
+  <!--
+    Starcloud / 星云创新 · 主标记 · 浅底用
+    三个空心方格 + 一块抬起的实心黄面（12°、放大 8%），黄面内一颗实心五角星。
+    线 #111418 只在白/浅灰/浅彩色上成立；深底请用 starcloud-mark-dark.svg。
+    viewBox 已紧贴标记（四周约 25px 留白），直接当图标用不会被空白挤小。
+  -->
+  <g transform="translate(-6,-4)">
+    <g fill="none" stroke="#111418" stroke-width="9">
+      <rect x="348" y="348" width="150" height="150" rx="34"/>
+      <rect x="348" y="526" width="150" height="150" rx="34"/>
+      <rect x="526" y="526" width="150" height="150" rx="34"/>
+    </g>
+    <g transform="translate(601,423) rotate(12) scale(1.08) translate(-601,-423)">
+      <rect x="526" y="348" width="150" height="150" rx="34" fill="#FFD322"/>
+      <path fill="#111418"
+            d="M601,380 L614.28,408.72 L645.70,412.48 L622.24,433.98 L628.63,465.02 L601,449.6
+               L573.37,465.02 L579.51,433.98 L556.30,412.48 L587.72,408.72 Z"/>
+    </g>
+  </g>
+</svg>

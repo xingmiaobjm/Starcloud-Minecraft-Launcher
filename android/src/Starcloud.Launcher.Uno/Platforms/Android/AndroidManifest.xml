@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 游戏运行期前台服务（防杀，设计稿 §6.6） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/icon"
+        android:label="Starcloud"
+        android:debuggable="true">
+        <service
+            android:name="com.starcloud.launcher.GameForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- MC 26.x SDL 后端游戏活动（LWJGL ≥3.4）：libSDL3.so 由活动 onCreate 从组件
+             目录按完整路径加载；固定横幅 + 全屏，configChanges 防止旋转重建活动 -->
+        <activity
+            android:name="com.starcloud.launcher.SdlGameActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- SDL 启动期读 manifest 环境变量（nativeSetenv）：放行同进程活动重建，
+             使游戏退出后无需杀进程即可再次启动 -->
+        <meta-data
+            android:name="SDL_ENV.SDL_ANDROID_ALLOW_RECREATE_ACTIVITY"
+            android:value="1" />
+    </application>
+</manifest>

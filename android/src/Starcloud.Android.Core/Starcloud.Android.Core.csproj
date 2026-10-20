@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 安卓端纯逻辑层：不依赖 Android 运行时，可被桌面测试工程直接引用
+       （设计稿 docs/designs/2026-09-30-android-launcher-design.md §4/§5）。
+       M1 起填充：组件清单、部署计划、LaunchSpec、渲染链选择、输入映射等。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 复用桌面核心：MinecraftVersion / LaunchOptions / GameLauncher（含 BuildArgumentsAsync 覆盖机制） -->
+    <ProjectReference Include="..\..\..\dotnet\src\Starcloud.Core\Starcloud.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- tar.xz 归档读取（JRE / 大体积组件包解压） -->
+    <PackageReference Include="SharpCompress" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  游戏页：原生 SurfaceView 内嵌（覆盖层全窗）。
+  顶部工具条 = 退出 + 启动 + 虚拟键鼠开关 + 状态文本。
+  虚拟键鼠层（设计稿 §6.5，默认开启）：与画面同格的兄弟元素布局在四角，空白区触摸穿透到画面；
+  左下方向摇杆（八方向映射 WASD）+ 潜行，右下跳跃，右中功能列（背包 / 聊天 / 视角 / 菜单）。
+  运行日志只走 logcat（StarcloudS4 标签），页面不再显示日志区。
+-->
+<Page x:Class="Starcloud.Launcher.Phone.Views.GamePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:views="using:Starcloud.Launcher.Phone.Views"
+      Background="{StaticResource GameBackground}">
+
+    <Page.Resources>
+        <!-- 虚拟按键：半透明深底圆角方块，白字居中 -->
+        <Style x:Key="VKey" TargetType="Border">
+            <Setter Property="Width" Value="56" />
+            <Setter Property="Height" Value="56" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Background" Value="{StaticResource KeyIdle}" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="VKeyText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Page.Resources>
+
+    <Grid RowDefinitions="Auto,*" Padding="8,8,8,4" RowSpacing="6">
+
+        <!-- 顶部工具条 -->
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10">
+            <Button Content="退出" Style="{StaticResource OutlineButtonStyle}"
+                    Padding="14,6" VerticalAlignment="Center" Click="OnExitClicked" />
+            <Button x:Name="LaunchButton" Grid.Column="1" Content="启动"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Padding="14,6" VerticalAlignment="Center" Click="OnLaunchClicked" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="虚拟键鼠" FontSize="13" VerticalAlignment="Center" />
+                <ToggleSwitch x:Name="VirtualControlsToggle" OnContent="" OffContent=""
+                              Toggled="OnVirtualControlsToggled" />
+            </StackPanel>
+            <TextBlock x:Name="StatusLabel" Grid.Column="3" Text="待命"
+                       FontSize="12" Foreground="{StaticResource TextSecondary}"
+                       VerticalAlignment="Center" TextAlignment="Right" />
+        </Grid>
+
+        <!-- 游戏画面：原生 SurfaceView 嵌入 -->
+        <views:GameSurfaceHost x:Name="GameSurface" Grid.Row="1" />
+
+        <!-- 虚拟键鼠层：后声明 = 视觉在上层；布局间隙的触摸落到下层画面 -->
+        <Grid x:Name="VirtualControls" Grid.Row="1" Visibility="Collapsed">
+
+            <!-- 左下：方向摇杆（推杆八方向映射 W / A / S / D） -->
+            <Grid x:Name="JoystickBase" Width="150" Height="150"
+                  HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="16,0,0,16"
+                  Background="Transparent">
+                <Ellipse Fill="{StaticResource KeyIdle}"
+                         Stroke="#88FFFFFF" StrokeThickness="1.5" />
+                <Border x:Name="JoystickKnob" Width="60" Height="60" CornerRadius="30"
+                        Background="#B3FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="JoystickKnobShift" />
+                    </Border.RenderTransform>
+                </Border>
+                <TextBlock Text="移动" FontSize="11" Foreground="#66FFFFFF"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10" />
+            </Grid>
+
+            <!-- 右下：跳跃 + 左侧潜行（Shift，按住语义） -->
+            <Border x:Name="KeyShift" Style="{StaticResource VKey}"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,112,12">
+                <TextBlock Text="潜" Style="{StaticResource VKeyText}" />
+            </Border>
+            <Border x:Name="KeyJump" Style="{StaticResource VKey}" Width="84" Height="84"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,12">
+                <TextBlock Text="跳" Style="{StaticResource VKeyText}" FontSize="20" />
+            </Border>
+
+            <!-- 右中：功能列（背包 / 聊天 / 视角 / 菜单，点按语义） -->
+            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center"
+                        Spacing="8" Margin="0,0,12,0">
+                <Border x:Name="KeyE" Style="{StaticResource VKey}">
+                    <TextBlock Text="背包" Style="{StaticResource VKeyText}" FontSize="12" />
+                </Border>
+                <Border x:Name="KeyT" Style="{StaticResource VKey}">
+                    <TextBlock Text="聊天" Style="{StaticResource VKeyText}" FontSize="12" />
+                </Border>
+                <Border x:Name="KeyF5" Style="{StaticResource VKey}">
+                    <TextBlock Text="视角" Style="{StaticResource VKeyText}" FontSize="12" />
+                </Border>
+                <Border x:Name="KeyEsc" Style="{StaticResource VKey}">
+                    <TextBlock Text="菜单" Style="{StaticResource VKeyText}" FontSize="12" />
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

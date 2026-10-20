@@ -1,0 +1,11 @@
+# 宿主 dex 中被 libpojavexec 反调（JNI 按名字查找）的类：R8 裁剪时必须保留。
+-keep class org.lwjgl.glfw.CallbackBridge { *; }
+-keep class com.starcloud.launcher.keycodes.** { *; }
+-keep class net.kdt.pojavlaunch.utils.JREUtils { *; }
+# 组件 so 在 JNI_OnLoad 中按名查找的契约类（自研声明，非第三方源码）
+-keep class com.tungsten.fclauncher.bridge.FCLBridge { *; }
+-keep class com.tungsten.fclauncher.CriticalNativeTest { *; }
+-keep class com.bytedance.android.bytehook.ByteHook { *; }
+# SDL3 Java 胶水（libSDL3.so 经 JNI 按名反调）与 SDL 游戏活动（C# 按类名 Intent 启动）
+-keep class org.libsdl.app.** { *; }
+-keep class com.starcloud.launcher.SdlGameActivity { *; }

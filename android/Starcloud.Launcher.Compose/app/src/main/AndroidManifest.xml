@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:usesCleartextTraffic="true"
+        android:label="Starcloud"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="fullSensor"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- MC 26.x SDL 后端游戏活动：libSDL3.so 由活动 onCreate 从组件目录按完整路径
+             加载；固定横屏 + 全屏，configChanges 防止旋转重建活动（对齐 Uno 壳注册） -->
+        <activity
+            android:name="com.starcloud.launcher.SdlGameActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- SDL 启动期读 manifest 环境变量：放行同进程活动重建，
+             使游戏退出后无需杀进程即可再次启动 -->
+        <meta-data
+            android:name="SDL_ENV.SDL_ANDROID_ALLOW_RECREATE_ACTIVITY"
+            android:value="1" />
+    </application>
+</manifest>

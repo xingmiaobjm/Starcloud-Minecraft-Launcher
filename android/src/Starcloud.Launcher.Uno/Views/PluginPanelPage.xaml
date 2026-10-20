@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 插件面板宿主：
+     · 1.x：WebView 加载插件注册的 HTML 面板（launcher:ui_panel），内容完全由插件提供，仅展示；
+     · 2.0：contributes.panels 指向声明式视图 JSON，由 PluginViewRenderer 画成原生控件
+       （无 HTML/脚本入口，动作与绑定都经宿主能力校验）。 -->
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.PluginPanelPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Disabled">
+
+    <Grid RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 页头：返回 + 标题 -->
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <ctrl:GlowButton loc:Loc.Text="返回" Click="Back_Click" Padding="12,5" />
+            <TextBlock x:Name="PanelTitle" FontSize="24" FontWeight="Medium"
+                       VerticalAlignment="Center" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- 来源声明 -->
+        <InfoBar Grid.Row="1" IsOpen="True" IsClosable="True" Severity="Informational"
+                 x:Name="SourceBar" loc:Loc.Message="该面板由第三方插件提供，内容与启动器本体无关。" />
+
+        <!-- 面板内容：声明式视图与 HTML 二选一 -->
+        <Border Grid.Row="2" Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="4">
+            <Grid>
+                <ctrl:NativeWebViewer x:Name="Web" />
+                <ScrollViewer x:Name="DeclarativeHost" Visibility="Collapsed"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollMode="Disabled">
+                    <StackPanel x:Name="ViewRoot" Margin="16,14,16,14" Spacing="10" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 动作 / 绑定写回的结果条 -->
+        <InfoBar Grid.Row="3" x:Name="ActionBar" IsOpen="False" IsClosable="True" />
+    </Grid>
+</Page>

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { request } from '../bridge'
 import type { ProjectionPreview } from '../bridge'
+import ProjectionViewer from '../projectionViewer'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
 
 /** 统计列表最多展示这么多条（桥接侧本身也只给 60 条）。 */
@@ -468,46 +469,9 @@ export default function LabPage() {
                   border: '1px solid var(--stroke-subtle)'
                 }}
               >
-                {voxels.length === 0 ? (
-                  <EmptyState
-                    title="没有可预览的方块"
-                    hint="这个投影是空的，或者采样后没有落到任何方块。"
-                  />
-                ) : (
-                  <>
-                    <canvas
-                      ref={canvasRef}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        height: '100%',
-                        cursor: dragging ? 'grabbing' : 'grab',
-                        touchAction: 'none'
-                      }}
-                      onWheel={onWheel}
-                      onPointerDown={onPointerDown}
-                      onPointerMove={onPointerMove}
-                      onPointerUp={onPointerUp}
-                      onPointerCancel={onPointerUp}
-                    />
-                    <div
-                      style={{
-                        position: 'absolute',
-                        right: 10,
-                        bottom: 10,
-                        fontSize: 11,
-                        opacity: 0.5,
-                        pointerEvents: 'none',
-                        background: 'var(--surface-layer)',
-                        padding: '3px 8px',
-                        borderRadius: 'var(--r-control)'
-                      }}
-                    >
-                      滚轮缩放 · 左键拖拽平移
-                    </div>
-                  </>
-                )}
-              </div>
+                {/* 预览复用 Win 端的 three.js + deepslate 渲染器（同一个 HTML、同一份资源）。
+                    旧的 canvas 等距手绘保留在文件里但不再挂载，便于回退对比。 */}
+                <ProjectionViewer path={path} onError={(m) => setError(m)} />              </div>
             </div>
 
             {/* ── 方块统计列表 ── */}

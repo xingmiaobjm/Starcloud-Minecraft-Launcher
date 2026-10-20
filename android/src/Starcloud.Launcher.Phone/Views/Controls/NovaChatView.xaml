@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nova 复用对话组件（NOVA_INTEGRATION.md：Nova 内嵌为助手，页面 / 顶栏面板 / 游戏内浮窗共用）。
+     自身不持有会话：直接订阅 NovaRuntime 全局消息流与状态机。
+     宿主宽度差一倍（顶栏面板 440 / 游戏内浮窗 320），所以这里不写死行宽：
+     快捷能力走可换行布局，气泡用 MaxWidth + 对齐伸缩。
+     命名空间适配：svc 指向 Uno 壳服务门面；core（Nova 动作项模型）沿用桌面端纯逻辑层
+     Starcloud.Core.Services（安卓壳保留该命名空间）。 -->
+<UserControl
+    x:Class="Starcloud.Launcher.Phone.Views.Controls.NovaChatView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:loc="using:Starcloud.Launcher.Phone.Localization"
+    xmlns:ctrl="using:Starcloud.Launcher.Phone.Views.Controls"
+    xmlns:svc="using:Starcloud.Launcher.Phone.Services"
+    xmlns:core="using:Starcloud.Core.Services">
+
+    <UserControl.Resources>
+        <!-- 对话消息模板：文本气泡 + 动手确认清单卡（Plan 非空时展示） -->
+        <DataTemplate x:Key="MessageTemplate" x:DataType="svc:NovaChatMessage">
+            <StackPanel MaxWidth="720" HorizontalAlignment="{x:Bind Align}" Margin="0,2">
+                <!-- 工具动作提示：气泡外的一行小字（像代码助手的工具调用行），
+                     只在动作进行中显示；不写进正文，所以不会留在对话里，也不进历史。 -->
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="6,2,6,4"
+                            Visibility="{x:Bind ToolStatusVisible, Mode=OneWay}">
+                    <ProgressRing Width="13" Height="13" IsActive="True"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="{x:Bind ToolStatus, Mode=OneWay}" FontSize="12"
+                               VerticalAlignment="Center" Opacity="0.75"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- 文本气泡：等待增量时先显示三个点，正文到了点让位（同一条消息只有一个气泡） -->
+                <Border Background="{x:Bind Bubble}" CornerRadius="{x:Bind Corners}" Padding="12,9"
+                        Visibility="{x:Bind BubbleVisible, Mode=OneWay}">
+                    <StackPanel Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="5" Margin="2,2,2,1"
+                                    Visibility="{x:Bind PendingVisible, Mode=OneWay}">
+                            <Ellipse Width="7" Height="7" Fill="{x:Bind TextBrush}" Opacity="0.3"
+                                     Tag="0" Loaded="TypingDot_Loaded" />
+                            <Ellipse Width="7" Height="7" Fill="{x:Bind TextBrush}" Opacity="0.3"
+                                     Tag="1" Loaded="TypingDot_Loaded" />
+                            <Ellipse Width="7" Height="7" Fill="{x:Bind TextBrush}" Opacity="0.3"
+                                     Tag="2" Loaded="TypingDot_Loaded" />
+                        </StackPanel>
+                        <!-- Uno 无 RichTextBlock：Markdown 改由 TextBlock 承载渲染（NovaMarkdown.cs 同步改造），
+                             TextBlock 同样支持 TextWrapping / IsTextSelectionEnabled（Skia）/ Foreground -->
+                        <TextBlock ctrl:NovaMarkdown.Text="{x:Bind Content, Mode=OneWay}"
+                                   TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                   Foreground="{x:Bind TextBrush}"
+                                   Visibility="{x:Bind TextVisible, Mode=OneWay}" />
+                        <TextBlock Text="{x:Bind TimeText}" FontSize="11" Opacity="0.65"
+                                   Foreground="{x:Bind TextBrush}"
+                                   Visibility="{x:Bind TimeVisible, Mode=OneWay}"
+                                   HorizontalAlignment="{x:Bind Align}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 确认清单卡：执行前列给用户，确认后才执行 -->
+                <Border Background="{ThemeResource GlassCardBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="12" Padding="16,12"
+                        Visibility="{x:Bind HasPlanVisible, Mode=OneWay}">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA7C;" FontSize="14"
+                                      Foreground="{ThemeResource BrandBlueBrush}" />
+                            <TextBlock Text="{x:Bind Plan.Title}" FontWeight="Medium"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{x:Bind Plan.Items}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="core:NovaActionItem">
+                                    <StackPanel Margin="0,4,0,0" Spacing="1">
+                                        <TextBlock Text="{x:Bind Title}" FontSize="13"
+                                                   FontWeight="Medium" />
+                                        <TextBlock Text="{x:Bind Detail}" FontSize="12"
+                                                   TextWrapping="Wrap" Opacity="0.75"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0"
+                                    Visibility="{x:Bind PlanButtonsVisible, Mode=OneWay}">
+                            <Button Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="确认执行"
+                                    FontWeight="Medium"
+                                    loc:Loc.Name="确认执行" Click="PlanConfirm_Click" />
+                            <ctrl:GlowButton loc:Loc.Text="取消" loc:Loc.Name="取消执行"
+                                    Click="PlanCancel_Click" />
+                        </StackPanel>
+                        <TextBlock Text="{x:Bind PlanStateText, Mode=OneWay}" FontSize="12"
+                                   Visibility="{x:Bind PlanStateVisible, Mode=OneWay}" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{x:Bind TimeText}" FontSize="11" Opacity="0.65" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 对话流：空会话时铺一层"邀请你开口"的空状态，有内容就只留消息 -->
+        <Border Grid.Row="0" Style="{StaticResource ScCard}" Padding="8">
+            <Grid>
+                <ListView x:Name="ChatList" SelectionMode="None" Padding="4"
+                          ItemTemplate="{StaticResource MessageTemplate}">
+                    <!-- Uno 未实现 ItemContainerTransitions：气泡增删/让位转场省略（与「动效可关」公约一致） -->
+                </ListView>
+                <ctrl:EmptyStateView x:Name="ChatEmpty" VerticalAlignment="Center"
+                                      Margin="16"
+                                      IconImage="{StaticResource NovaMarkSmall}"
+                                      loc:Loc.Title="描述你的问题"
+                                      loc:Loc.Subtitle="例如启动崩溃、帧数偏低、模组冲突、找不到整合包；日志与配置由 Nova 读取，不需要你手动翻找。" />
+            </Grid>
+        </Border>
+
+        <!-- 发送完整日志（规格 §5：默认关闭；打开后跳过崩溃日志裁剪，令牌消耗以你的模型服务计费） -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
+            <ToggleSwitch x:Name="FullLogSwitch" MinWidth="0"
+                          OnContent="" OffContent="" Toggled="FullLog_Toggled" />
+            <TextBlock loc:Loc.Text="发送完整日志" FontSize="13" VerticalAlignment="Center" />
+            <TextBlock x:Name="FullLogHint" FontSize="12" VerticalAlignment="Center"
+                       TextWrapping="Wrap" Visibility="Collapsed"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       loc:Loc.Text="完整日志会显著增加令牌消耗，费用以你接入的模型服务计费，仅在裁剪后仍无法定位时使用" />
+        </StackPanel>
+
+        <!-- 输入行 -->
+        <Grid Grid.Row="2" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="InputBox" VerticalAlignment="Center"
+                     loc:Loc.Placeholder="描述问题，例如「启动崩溃」「帧数很低」"
+                     KeyDown="InputBox_KeyDown" />
+            <ProgressRing x:Name="SendProgress" Grid.Column="1" IsActive="False"
+                          Width="22" Height="22" VerticalAlignment="Center" />
+            <Button x:Name="SendBtn" Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
+                    loc:Loc.Text="发送" Padding="16,5" MinWidth="80" Click="Send_Click"
+                    FontWeight="Medium"
+                    VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
+</UserControl>

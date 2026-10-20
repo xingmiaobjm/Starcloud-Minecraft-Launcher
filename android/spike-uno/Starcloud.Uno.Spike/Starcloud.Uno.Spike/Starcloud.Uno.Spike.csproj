@@ -1,0 +1,35 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-android</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+
+    <!-- Display name -->
+    <ApplicationTitle>Starcloud.Uno.Spike</ApplicationTitle>
+    <!-- App Identifier -->
+    <ApplicationId>com.companyname.starcloud-uno-spike</ApplicationId>
+    <!-- Versions -->
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <!-- Package Publisher -->
+    <ApplicationPublisher>Starcloud.Uno.Spike</ApplicationPublisher>
+    <!-- Package Description -->
+    <Description>Starcloud.Uno.Spike powered by Uno Platform.</Description>
+
+    <!--
+      UnoFeatures are used to quickly add and manage features enabled for your app.
+      https://aka.platform.uno/singleproject-features
+    -->
+    <UnoFeatures>
+      SkiaRenderer;
+    </UnoFeatures>
+  </PropertyGroup>
+
+  <!-- spike：复用现有宿主层（JNI 互操作）与纯逻辑层，验证 Uno 工具链兼容性 -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Starcloud.Android.Host\Starcloud.Android.Host.csproj" />
+    <ProjectReference Include="..\..\..\src\Starcloud.Android.Core\Starcloud.Android.Core.csproj" />
+  </ItemGroup>
+
+</Project>

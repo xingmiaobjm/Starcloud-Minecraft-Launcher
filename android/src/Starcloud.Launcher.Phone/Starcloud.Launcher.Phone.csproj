@@ -1,0 +1,116 @@
+<Project Sdk="Uno.Sdk">
+
+  <!-- 安卓端启动器 UI 壳 · 手机版（Uno Platform，WinUI XAML + Skia 渲染器）：
+       由平板版 Starcloud.Launcher.Uno 复制而来，UI 层完全独立演进（底部导航 + 单列竖屏布局）；
+       逻辑层与平板版共享同一 Starcloud.Android.Host / Starcloud.Android.Core，修复同步生效。
+       游戏画面经 GameSurfaceHost 内嵌原生 SurfaceView（Skia 原生视图宿主契约）。 -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-android</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+
+    <ApplicationTitle>Starcloud Phone</ApplicationTitle>
+    <!-- 独立包名：与平板版（cn.starcloud.launcher.android）共存安装，互不覆盖数据 -->
+    <ApplicationId>cn.starcloud.launcher.phone</ApplicationId>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationPublisher>Starcloud</ApplicationPublisher>
+    <Description>Starcloud 安卓端启动器手机版（Uno Platform 壳，竖屏单列布局）。</Description>
+
+    <SupportedOSPlatformVersion>28.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+
+    <!-- 真机验证走 adb install 直装：Debug 默认 FastDev 把程序集放 __override__ 目录、
+         不进 APK，直装必崩（monodroid Abort），故 Debug 也把程序集嵌入 APK -->
+    <EmbedAssembliesIntoApk Condition="'$(Configuration)' == 'Debug' And '$(EmbedAssembliesIntoApk)' == ''">true</EmbedAssembliesIntoApk>
+
+    <!--
+      UnoFeatures are used to quickly add and manage features enabled for your app.
+      https://aka.platform.uno/singleproject-features
+    -->
+    <UnoFeatures>
+      SkiaRenderer;
+      Svg;
+    </UnoFeatures>
+
+    <!-- Uno.Sdk 默认把 Assets\**\*.svg 归入 UnoImage，而 Resizetizer 资源名不允许连字符；
+         品牌标记 SVG 走 AndroidAsset 原始资源通道，须从默认通配中排除 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Assets\Brand\**</DefaultItemExcludes>
+
+    <!-- XA0141（Android 16 16KB 页面要求）：NativeLibs 下 6 个系统库副本从
+         Android 12 真机提取（4KB 页面），仅服务当前真机的 classloader-ns 解析，
+         不面向 Android 16 分发，警告不适用 -->
+    <NoWarn>$(NoWarn);XA0141</NoWarn>
+  </PropertyGroup>
+
+  <!-- 复用现有宿主层（JNI 互操作 / JVM 拉起 / 前台服务）与纯逻辑层 -->
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Android.Host\Starcloud.Android.Host.csproj" />
+    <ProjectReference Include="..\Starcloud.Android.Core\Starcloud.Android.Core.csproj" />
+  </ItemGroup>
+
+  <!-- 字体图标（HarmonyOS Icons，MIT）：对齐桌面端导航字形；FontFamily 名 = 文件名 -->
+  <ItemGroup>
+    <UnoFont Include="Assets\Fonts\HarmonyOSIcons.ttf" />
+  </ItemGroup>
+
+  <!-- 版本方块图标（MC-Icons 等距渲染图）与品牌标记栅格图（brand_mark_*.png）等：
+       经 resizetizer 打包（品牌标记 SVG 的 ms-appx 加载在 Uno 安卓上不触发，
+       构建期已栅格化为 PNG 走此通道，见 Views/Controls/BrandMark.xaml.cs） -->
+  <ItemGroup>
+    <UnoImage Include="Assets\Images\*.png" />
+    <UnoImage Include="Assets\Wallpapers\*.jpg" />
+    <UnoImage Include="Assets\Skins\default\*.png" />
+    <UnoImage Include="Assets\steve.png" />
+    <!-- 预置皮肤 / steve.png 需要原始字节（AppAssets.Read 读像素数据 + 3D 兜底），
+         UnoImage 会把它们转成多倍率 drawable 导致 AndroidAsset 不再打包原件，
+         故从 UnoImage 中剔除，只走 AndroidAsset 通道 -->
+    <UnoImage Remove="Assets\Skins\default\*.png" />
+    <UnoImage Remove="Assets\steve.png" />
+  </ItemGroup>
+
+  <!-- 随包资产：3D 皮肤预览（skinview3d 播放器）、authlib-injector（第三方登录 JVM agent）、
+       插件 Python SDK、皮肤缓存兜底 —— 与桌面端 Assets 同构，页面按 ms-appx:/// 或
+       文件系统路径读取 -->
+  <ItemGroup>
+    <AndroidAsset Include="Assets\3d\**\*" Link="Assets\3d\%(Filename)%(Extension)" />
+    <AndroidAsset Include="Assets\authlib-injector\**\*" Link="Assets\authlib-injector\%(Filename)%(Extension)" />
+    <AndroidAsset Include="Assets\pluginsdk\**\*" Link="Assets\pluginsdk\%(Filename)%(Extension)" />
+    <AndroidAsset Include="Assets\Brand\*.svg" Link="Assets\Brand\%(Filename)%(Extension)" />
+    <AndroidAsset Include="Assets\Skins\default\*.png" Link="Assets\Skins\default\%(Filename)%(Extension)" />
+    <AndroidAsset Include="Assets\steve.png" Link="Assets\steve.png" />
+  </ItemGroup>
+
+  <!-- 内置组件包（fetch-components.ps1 产物）打进 APK assets/components/，
+       宿主经 asset://components/<文件名> 提供给部署器解压（免首启下载） -->
+  <ItemGroup>
+    <AndroidAsset Include="..\..\components\out\**\*" Link="components\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- mesa 链的非 public 系统库依赖（真机提取副本）：classloader-namespace 只能
+       解析 public 库清单内的系统库，libEGL_mesa/libzink_dri/libvulkan_freedreno 的
+       DT_NEEDED（libcutils 及其递归依赖）在 /system/lib64 无法解析。打进 APK
+       jniLibs 后随包进入 nativeLibraryDir（恒在 classloader-ns 搜索路径内）。
+       条目必须放在本 app 项目：AndroidNativeLibrary 不跨 ProjectReference 传递 -->
+  <ItemGroup>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libcutils.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libbase.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libc++.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libhardware.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libvndksupport.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libdl_android.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\ld-android.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <!-- mesa 组件的递归依赖：libEGL_mesa 需要 libglapi（组件目录已含）与 libsync
+         （非 public 库，需随包提供）；libcutils/libbase 等为更下层依赖 -->
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libglapi.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libsync.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+    <!-- 窗口 buffer 变换修正库（源码 NativeLibs/src/starcloud_windowhook.c，用 NDK 编译）：
+         拦截 SDL 必调的 ANativeWindow_setBuffersGeometry，补写 buffer 变换标记，
+         解决横屏时合成器不做反向旋转导致的画面整体转 90° -->
+    <AndroidNativeLibrary Include="NativeLibs\arm64-v8a\libstarcloudwindow.so"><Abi>arm64-v8a</Abi></AndroidNativeLibrary>
+  </ItemGroup>
+
+</Project>

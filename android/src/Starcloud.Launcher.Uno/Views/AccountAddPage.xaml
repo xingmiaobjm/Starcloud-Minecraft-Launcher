@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.AccountAddPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Disabled">
+
+    <!-- 添加游戏账户（二级页）：左分类 + 右内联表单。
+         为什么不是弹窗：三种身份的输入项长度差很多，弹窗会一直被撑高/缩窄；
+         放到页面里，左边换身份、右边直接填，填错也看得见整段说明。
+         移植自桌面 Starcloud.App.Views.AccountAddPage.xaml（结构与样式 1:1，仅改命名空间；
+         三类身份面板——微软 / 第三方 / 离线——与桌面现行形态一致，照搬保留）。 -->
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 页头：返回 -->
+        <StackPanel Grid.Row="0" Spacing="12">
+            <ctrl:GlowButton Click="Back_Click" loc:Loc.Name="返回账户列表"
+                    Background="Transparent" BorderThickness="0" Padding="8,4"
+                    Margin="-8,0,0,0" HorizontalAlignment="Left">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE908;" FontSize="14" />
+                    <TextBlock loc:Loc.Text="返回账户列表" />
+                </StackPanel>
+            </ctrl:GlowButton>
+        </StackPanel>
+
+        <!-- 状态条 -->
+        <StackPanel Grid.Row="1" Spacing="8">
+            <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+        </StackPanel>
+
+        <!-- 主体：左身份分类 + 右表单 -->
+        <Grid Grid.Row="2" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" VerticalAlignment="Top"
+                    Background="{ThemeResource AppPaneBackgroundBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="8">
+                <ListView x:Name="KindList" SelectionMode="Single"
+                          SelectionChanged="Kind_SelectionChanged">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="40" />
+                            <Setter Property="Padding" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListViewItem Tag="microsoft" IsSelected="True">
+                        <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB8F;" FontSize="14" />
+                            <TextBlock loc:Loc.Text="微软账户" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem Tag="external">
+                        <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB91;" FontSize="14" />
+                            <TextBlock loc:Loc.Text="第三方账户" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem Tag="offline">
+                        <StackPanel Orientation="Horizontal" Spacing="10" Padding="8,0">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC62;" FontSize="14" />
+                            <TextBlock loc:Loc.Text="离线账户" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ListViewItem>
+                </ListView>
+            </Border>
+
+            <!-- ── 微软正版 ── -->
+            <Border x:Name="MsPanel" Grid.Column="1" VerticalAlignment="Top"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="16" Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock loc:Loc.Text="Microsoft 正版账户（在线验证）" FontWeight="Medium" />
+                    <TextBlock loc:Loc.Text="登录后即可进入正版服务器；身份只保存在本机，令牌不写入磁盘。"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    <TextBlock loc:Loc.Text="登录会打开内置登录窗口，在里面完成微软验证即可（也可以在「设置 → 通用 → 使用内置登录窗口」改为浏览器方式）。"
+                               FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="MsLoginBtn" loc:Loc.Text="使用内置登录窗口登录"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Click="MsLogin_Click" />
+                        <ProgressRing x:Name="MsProgress" Width="20" Height="20" IsActive="False"
+                                      Visibility="Collapsed" VerticalAlignment="Center" />
+                        <TextBlock x:Name="MsStatus" FontSize="12" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ── 第三方（外置登录） ── -->
+            <Border x:Name="ExternalPanel" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="16" Padding="20">
+                <StackPanel Spacing="12" MaxWidth="520" HorizontalAlignment="Left">
+                    <TextBlock loc:Loc.Text="第三方认证服务器账户（外置登录）" FontWeight="Medium" />
+                    <TextBlock loc:Loc.Text="填写你自己认证服务器的 Yggdrasil API 地址与账密；启动器会注入 authlib-injector 让游戏走该服务器。"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    <TextBlock loc:Loc.Text="认证服务器地址" />
+                    <TextBox x:Name="ExtUrlBox" loc:Loc.Placeholder="认证服务器地址" />
+                    <TextBlock loc:Loc.Text="用户名" />
+                    <TextBox x:Name="ExtNameBox" loc:Loc.Placeholder="邮箱或用户名" />
+                    <TextBlock loc:Loc.Text="密码" />
+                    <PasswordBox x:Name="ExtPwdBox" loc:Loc.Placeholder="密码" KeyDown="ExtPwdBox_KeyDown" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="ExtLoginBtn" loc:Loc.Text="登录"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Click="ExtLogin_Click" />
+                        <ProgressRing x:Name="ExtProgress" Width="20" Height="20" IsActive="False"
+                                      Visibility="Collapsed" VerticalAlignment="Center" />
+                        <TextBlock x:Name="ExtStatus" FontSize="12" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBlock loc:Loc.Text="密码只用于本次登录、不落盘；令牌只存在内存里，重启应用后首次启动游戏会要求重新登录。"
+                               FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- ── 离线 ── -->
+            <Border x:Name="OfflinePanel" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="16" Padding="20">
+                <StackPanel Spacing="12" MaxWidth="520" HorizontalAlignment="Left">
+                    <TextBlock loc:Loc.Text="离线账户（无需登录，仅单人 / 局域网）" FontWeight="Medium" />
+                    <TextBlock loc:Loc.Text="玩家名" />
+                    <TextBox x:Name="OfflineNameBox" loc:Loc.Placeholder="玩家名（3-16 位字母、数字或下划线）"
+                             MaxLength="16" TextChanged="OfflineName_TextChanged"
+                             KeyDown="OfflineName_KeyDown" />
+                    <TextBlock x:Name="OfflineTip" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="OfflineAddBtn" loc:Loc.Text="添加"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Click="OfflineAdd_Click" />
+                        <TextBlock x:Name="OfflineStatus" FontSize="12" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

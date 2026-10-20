@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 账户页 3D 玩家形象渲染页：skinview3d 引擎（由 Skin3DView.cs 经 app3d.local 虚拟域加载）。
+     本页面本身不直接显示给用户（WebView2 隐藏），由宿主驱动渲染并 CapturePreview 抓帧后经
+     Win2D 呈现；浏览器背景经 WEBVIEW2_DEFAULT_BACKGROUND_COLOR=0 全透明 → PNG 帧带 alpha。
+     渲染完全由宿主消息驱动（tick/spin/skin/walk/size），页面自身不开任何 rAF/interval：
+     引擎 clock 全程冻结（draw() 内 getDelta() 恒为 0），走路相位只由 tick 指令设置，
+     杜绝 JS/C# 双时钟打架导致的快走与抽搐。 -->
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<script src="skinview3d.bundle.js"></script>
+<script>
+  "use strict";
+  function jslog(t) { try { window.chrome.webview.postMessage("[js] " + t); } catch (e) { } }
+  window.onerror = function (msg) { jslog("PAGE ERROR: " + msg); };
+  jslog("script start");
+  const viewer = new skinview3d.SkinViewer({
+    canvas: document.createElement("canvas"),
+    width: 230, height: 430
+  });
+  jslog("viewer ok");
+  document.body.appendChild(viewer.canvas);
+  viewer.background = null;                 // 透明背景（浏览器侧背景为全透明）
+  viewer.controls.enableZoom = false;
+  viewer.controls.enablePan = false;
+  // headBobbing 必须关：头部摆动 sin(t/4)、sin(t/5) 的周期是走路周期的 4~5 倍，
+  // 36 帧循环里头部只完成 1/4~1/5 个周期 → 头逐渐偏转、循环回绕时突然弹回原位。
+  // 关闭后引擎每帧把头复位为 0（正对前方），腿部/手臂摆动不受影响
+  function newWalkAnim() {
+    const a = new skinview3d.WalkingAnimation();
+    a.headBobbing = false;
+    return a;
+  }
+  viewer.animation = newWalkAnim();
+  const camY0 = viewer.camera.position.y;   // 相机默认高度（垂直拖拽以此为基准）
+
+  // 关掉引擎自带的 rAF 渲染循环（构造函数已排了一个，置 true 会将其取消），
+  // 之后所有渲染都由宿主消息驱动；clock 冻结 → animation.progress 只受 tick 指令控制
+  viewer.renderPaused = true;
+
+  const PHASE_STEPS = 36;                   // 走路周期 36 帧 —— 必须与 C# 侧 Skin3DView.LoopFrames 一致！
+  const CYCLE = Math.PI / 4;                // WalkingAnimation：t = 8*progress，sin 周期 2π → progress 周期 π/4
+
+  function drawFrame() {
+    // 单次渲染：clock.stop()+autoStart 让 draw() 内 getDelta() 返回 0（progress 不被推进）；
+    // draw() 尾部会排一个新 rAF，须立即取消，保持引擎完全静止
+    try {
+      viewer.clock.stop();
+      viewer.clock.autoStart = true;
+      viewer.draw();
+    } catch (err) { jslog("drawFrame ERR: " + err); }
+    window.cancelAnimationFrame(viewer.animationID);
+  }
+
+  function renderPhase(k) {
+    // 渲染精确相位 k/PHASE_STEPS（0..35 循环）；clock 冻结，相位完全由指令驱动
+    try {
+      if (viewer.animation) viewer.animation.progress = (k % PHASE_STEPS) / PHASE_STEPS * CYCLE;
+    } catch (err) { jslog("phase ERR: " + err); }
+    drawFrame();
+  }
+
+  function renderAtPhase(k) {
+    // 录制用：渲染精确相位后回执（带帧号），宿主收到匹配的 [tick done k] 再 CapturePreview，
+    // 保证抓到的就是这一相位的帧。
+    // 注意：隐藏页面（宿主 Opacity=0）中 Chromium 会挂起 rAF，不能用双 rAF 等合成；
+    // 用 setTimeout(0)（启动参数已带 --disable-background-timer-throttling，不会被节流），
+    // 让出当前任务使 WebGL 帧提交完成后立即回执
+    renderPhase(k);
+    window.setTimeout(() => {
+      try { window.chrome.webview.postMessage("[tick done] " + k); } catch (e) { }
+    }, 0);
+  }
+
+  window.chrome.webview.addEventListener("message", e => {
+    const m = e.data;
+    if (m.type === "skin") viewer.loadSkin(m.data, { model: m.slim ? "slim" : "default" }).then(() => {
+      jslog("skin loaded");
+      try { window.chrome.webview.postMessage("skin loaded"); } catch (e) { }   // 宿主触发录制的信号（勿走 jslog，其带 [js] 前缀）
+      drawFrame();
+    });
+    else if (m.type === "walk") { viewer.animation = m.on ? newWalkAnim() : null; drawFrame(); }
+    else if (m.type === "size") { viewer.width = m.w; viewer.height = m.h; drawFrame(); }
+    else if (m.type === "tick") renderAtPhase(m.k);
+    else if (m.type === "spin") {
+      // 拖拽旋转：水平位移驱动模型自转，垂直位移微调相机俯仰；不推进走路相位
+      if (viewer.playerObject) viewer.playerObject.rotation.y += m.dx * 0.018;
+      viewer.camera.position.y = Math.max(camY0 - 10, Math.min(camY0 + 10, viewer.camera.position.y - m.dy * 0.08));
+      viewer.camera.lookAt(0, 0, 0);
+      drawFrame();   // 立即出帧（相位冻结，由拖拽结束后重录恢复）
+    }
+  });
+  jslog("script ready");
+</script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.AccountsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:beh="using:Starcloud.Launcher.Uno.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:rows="using:Starcloud.Launcher.Uno.Views.Rows"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Enabled">
+
+    <!-- 账户页（一级）：Starcloud ID 卡 + 游戏账户卡片流。
+         交互按下载页那套「列表 → 二级页」来：卡片只负责「进详情」，
+         皮肤库、账户信息、删除这些重活全在 AccountDetailPage（二级页）里，不再弹窗。
+         3D 形象也搬到详情页 —— 一级页保持「一屏看清有哪些账户」。
+         移植自桌面 Starcloud.App.Views.AccountsPage.xaml（结构与样式 1:1，仅改命名空间）。 -->
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="220" />
+        </Grid.RowDefinitions>
+
+        <!-- 状态条 -->
+        <StackPanel Grid.Row="0" Spacing="8">
+            <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
+            <InfoBar x:Name="StatusInfo" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
+        </StackPanel>
+
+        <!-- Starcloud ID 卡：未登录=登录/注册表单（都在卡内，不弹窗），已登录=会话管理 -->
+        <Border Grid.Row="1"
+                Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="20">
+            <Grid>
+                <StackPanel x:Name="ScLoginPanel" Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <!-- Nova / Starcloud ID 的身份图标 = 品牌标记（多色，字形画不出来） -->
+                        <ctrl:BrandMark Small="True" Width="16" Height="16" VerticalAlignment="Center" />
+                        <TextBlock loc:Loc.Text="Starcloud ID" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" />
+                        <TextBlock loc:Loc.Text="登录后可使用邀请 / 时刻等在线功能" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="ScIdBox" loc:Loc.Placeholder="Starcloud ID（用户名或邮箱）" Width="250" />
+                        <PasswordBox x:Name="ScPwdBox" loc:Loc.Placeholder="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
+                        <ComboBox x:Name="ScChannelBox" SelectedIndex="0" Width="128" SelectionChanged="ScChannelBox_SelectionChanged">
+                            <ComboBoxItem loc:Loc.Text="测试通道" />
+                            <ComboBoxItem loc:Loc.Text="云端通道" />
+                        </ComboBox>
+                        <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource AccentButtonStyle}"
+                                FontWeight="Medium" Click="ScLogin_Click" />
+                        <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
+                                      IsActive="False" VerticalAlignment="Center" />
+                        <HyperlinkButton x:Name="ScToRegisterBtn" loc:Loc.Text="没有账号？注册" Padding="4,0"
+                                         VerticalAlignment="Center" Click="ScToRegister_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="ScErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                </StackPanel>
+
+                <!-- 注册：同一张卡内展开，不再弹一层对话框 -->
+                <StackPanel x:Name="ScRegisterPanel" Spacing="12" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <ctrl:BrandMark Small="True" Width="16" Height="16" VerticalAlignment="Center" />
+                        <TextBlock loc:Loc.Text="注册 Starcloud ID" FontSize="15" FontWeight="Medium"
+                                   VerticalAlignment="Center" />
+                        <TextBlock loc:Loc.Text="注册后回到登录即可使用在线功能" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="ScRegIdBox" loc:Loc.Placeholder="用户名或邮箱" Width="250" />
+                        <PasswordBox x:Name="ScRegPwdBox" loc:Loc.Placeholder="至少 6 位" Width="150" />
+                        <PasswordBox x:Name="ScRegPwd2Box" loc:Loc.Placeholder="再次输入密码" Width="150" />
+                        <Button x:Name="ScRegisterBtn" loc:Loc.Text="创建账户"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Click="ScRegister_Click" />
+                        <ctrl:GlowButton loc:Loc.Text="取消" Click="ScCancelRegister_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="ScRegErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                </StackPanel>
+
+                <StackPanel x:Name="ScUserPanel" Spacing="12" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Border Width="40" Height="40" CornerRadius="20"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}">
+                            <TextBlock x:Name="ScAvatarText" FontSize="17" FontWeight="Medium"
+                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock x:Name="ScNameText" FontWeight="Medium" />
+                            <TextBlock x:Name="ScUserSubText" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ctrl:GlowButton loc:Loc.Text="退出登录" Height="30" Padding="12,0" Click="ScLogout_Click"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 游戏账户：一行一个账户（头像 / 名字 / 类型 / 正在用的皮肤 / 进详情）。
+             列表直接坐在页面上、不做"卡中卡"：行自己就是可点的表面，
+             一屏能看清有几个账户、默认的是哪个。
+             分区不再自带 20 的上边距：按钮行在标题行上方已经起了分隔作用，
+             再叠一层上边距会把 ID 卡与标题行之间拉出一条空带。 -->
+        <Grid Grid.Row="2" RowSpacing="6">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" MinHeight="200" />
+            </Grid.RowDefinitions>
+
+            <!-- 主操作：添加账户（贴在本分区标题行上方、右对齐，动作与它作用的列表挨着） -->
+            <Grid Grid.Row="0" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="1" loc:Loc.Text="添加账户" VerticalAlignment="Center"
+                        Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                        Click="AddAccount_Click" />
+            </Grid>
+
+            <Grid Grid.Row="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Style="{StaticResource ScSectionSpine}" />
+                <TextBlock Grid.Column="1" loc:Loc.Text="游戏账户" FontWeight="Medium"
+                           Style="{StaticResource ScSectionTitle}" />
+                <Border x:Name="AccountCountChip" Grid.Column="2" Style="{StaticResource ScChip}"
+                        Margin="2,0,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="AccountCountText" Style="{StaticResource ScChipText}" />
+                </Border>
+            </Grid>
+
+            <ctrl:EmptyStateView x:Name="AccountEmptyText" Grid.Row="2"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Glyph="&#xEB8F;"
+                                  loc:Loc.Title="还没有游戏账户"
+                                  loc:Loc.ActionText="添加账户"
+                                  ActionClick="AddAccount_Click" />
+            <ListView x:Name="AccountList" Grid.Row="2" Margin="0,6,0,0"
+                      SelectionMode="None" IsItemClickEnabled="True" ItemClick="AccountList_ItemClick"
+                      Visibility="Collapsed">
+                <ListView.Resources>
+                    <!-- 悬停/选中反馈只由控件模板里那三层表达，框架整行底色一律关掉
+                         （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
+                    <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                </ListView.Resources>
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem" BasedOn="{StaticResource ScPlainListItem}" />
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="rows:AccountRow">
+                        <Grid CornerRadius="10"
+                              Background="{ThemeResource ScRowShadeBrush}"
+                              beh:RowHoverBehavior.IsEnabled="True"
+                              beh:RowHoverBehavior.Overlay="{Binding ElementName=AccountRowHover}"
+                              beh:HoverShadowBehavior.IsEnabled="True"
+                              beh:HoverShadowBehavior.Carrier="{Binding ElementName=AccountRowShadow}">
+                            <Border x:Name="AccountRowHover" CornerRadius="10" Opacity="0"
+                                    IsHitTestVisible="False"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}" />
+                            <Border x:Name="AccountRowShadow" CornerRadius="10"
+                                    Opacity="0" IsHitTestVisible="False">
+                                <Border.Background>
+                                    <RadialGradientBrush Center="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                                        <GradientStop Color="#28000000" Offset="0" />
+                                        <GradientStop Color="#1F000000" Offset="0.18" />
+                                        <GradientStop Color="#16000000" Offset="0.40" />
+                                        <GradientStop Color="#0D000000" Offset="0.62" />
+                                        <GradientStop Color="#05000000" Offset="0.82" />
+                                        <GradientStop Color="#00000000" Offset="1" />
+                                    </RadialGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Grid Padding="12,10" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Width="40" Height="40" CornerRadius="8"
+                                        VerticalAlignment="Center"
+                                        Background="{ThemeResource AccentFillColorDefaultBrush}">
+                                    <Grid>
+                                        <TextBlock Text="{x:Bind Initial}" FontSize="17" FontWeight="Medium"
+                                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <!-- 皮肤头像覆盖在色块上；加载失败不渲染，即露出下面的首字母 -->
+                                        <Image Source="{x:Bind Avatar}" Stretch="UniformToFill" />
+                                    </Grid>
+                                </Border>
+                                <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Username}" FontWeight="Medium"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Border Style="{StaticResource ScChip}">
+                                            <TextBlock Text="{x:Bind TypeText}"
+                                                       Style="{StaticResource ScChipText}" />
+                                        </Border>
+                                        <Border Style="{StaticResource ScChipAccent}"
+                                                Visibility="{x:Bind DefaultBadgeVisibility}">
+                                            <TextBlock loc:Loc.Text="首选"
+                                                       Style="{StaticResource ScChipAccentText}" />
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                                <!-- 行尾数据列：这个账户正在用的皮肤（没指定时不占位） -->
+                                <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center"
+                                            MinWidth="96" Visibility="{x:Bind SkinVisibility}">
+                                    <TextBlock loc:Loc.Text="皮肤" Style="{StaticResource ScMetaLabel}" />
+                                    <TextBlock Text="{x:Bind SkinText}" MaxWidth="160"
+                                               Style="{StaticResource ScMetaValue}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <!-- 只有「一键启动用哪个账户」留在一级页，其余操作进详情。
+                                     措辞随账户类型走（设为首选微软/离线/第三方账户） -->
+                                <ctrl:GlowButton Grid.Column="3" Content="{x:Bind DefaultActionText}"
+                                        Height="30" Padding="12,0"
+                                        VerticalAlignment="Center"
+                                        Tag="{x:Bind Uuid}" Click="SetDefault_Click"
+                                        Visibility="{x:Bind DefaultBtnVisibility}" />
+                                <FontIcon Grid.Column="4" FontFamily="{StaticResource ScIconFont}"
+                                          Glyph="&#xE904;" FontSize="12" Opacity="0.5"
+                                          VerticalAlignment="Center"
+                                          loc:Loc.Name="查看账户详情" />
+                            </Grid>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Grid>
+    </Grid>
+</Page>

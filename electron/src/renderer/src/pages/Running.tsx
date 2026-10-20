@@ -1,13 +1,25 @@
 /// 运行状态页：对齐 Win 端 RunningPage ——
 /// 无运行时居中空态卡（图标 + 文案 + 去首页按钮）；有运行时展示会话卡 + 实时日志。
-import { EmptyState } from '../ui'
+import { request } from '../bridge'
+import { EmptyState, useToasts } from '../ui'
 import type { GameSessionApi } from '../state/session'
 
 export default function RunningPage(props: {
   session: GameSessionApi
   onGoHome: () => void
 }): JSX.Element {
+  const { push, host } = useToasts()
   const session = props.session
+
+  async function killGame(): Promise<void> {
+    if (session.sessionId === undefined) return
+    try {
+      await request('game.kill', { sessionId: session.sessionId })
+      push('info', '已结束游戏进程')
+    } catch (e) {
+      push('error', `结束失败：${String(e)}`)
+    }
+  }
   const running = session.pid !== undefined && session.pid > 0
   const hasLogs = session.logs.length > 0
 
@@ -70,6 +82,11 @@ export default function RunningPage(props: {
                       : '在首页选择版本与账户后启动游戏'}
                 </div>
               </div>
+              {running && (
+                <button className="btn btn-danger" onClick={() => void killGame()}>
+                  结束游戏
+                </button>
+              )}
               {hasLogs && (
                 <button className="btn btn-subtle" onClick={session.clearLogs}>
                   ✕ 清空日志
@@ -104,6 +121,7 @@ export default function RunningPage(props: {
           </div>
         </>
       )}
+      {host}
     </div>
   )
 }

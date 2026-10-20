@@ -1,0 +1,11 @@
+{
+  // 与 src/Starcloud.Launcher.Uno/global.json 保持一致：
+  // slnx 全解决方案构建时 Uno.Sdk 解析以解决方案目录为基准，工程目录里的钉版不被看到，
+  // 故在 android 根再钉一次（就近原则下工程级文件优先生效，两处版本必须同步修改）。
+  "msbuild-sdks": {
+    "Uno.Sdk": "6.7.30"
+  },
+  "sdk": {
+    "allowPrerelease": false
+  }
+}

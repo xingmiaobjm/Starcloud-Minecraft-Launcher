@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  整合包页：整合包导入（CurseForge / 本地 zip）与已安装整合包管理。
+  v1 骨架阶段为静态示例数据，M2 接入 Core 整合包导入流程。
+-->
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Starcloud.Android.Maui.Views.ModpacksPage"
+             Title="整合包"
+             Shell.NavBarIsVisible="False">
+    <ScrollView>
+        <VerticalStackLayout Padding="20,16" Spacing="16" MaximumWidthRequest="760">
+
+            <Label Text="整合包" Style="{StaticResource PageTitleStyle}" />
+
+            <!-- 导入入口 -->
+            <Border Style="{StaticResource CardStyle}">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="获取整合包" Style="{StaticResource SectionTitleStyle}" />
+                    <Button Text="从 CurseForge 浏览导入" Style="{StaticResource PrimaryButtonStyle}" />
+                    <Button Text="从本地 zip 文件导入" Style="{StaticResource OutlineButtonStyle}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- 已安装列表 -->
+            <Border Style="{StaticResource CardStyle}">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="已安装整合包 (1)" Style="{StaticResource SectionTitleStyle}" />
+
+                    <VerticalStackLayout Spacing="0" Margin="0,8,0,0">
+                        <!-- 示例行：M2 换真实整合包列表 -->
+                        <Grid ColumnDefinitions="44,*,Auto" Padding="0,8">
+                            <Border WidthRequest="44" HeightRequest="44" StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 10" BackgroundColor="#2F7D4F">
+                                <Label Text="包" FontSize="16" FontAttributes="Bold" TextColor="White"
+                                       HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Margin="12,0" Spacing="3" VerticalOptions="Center">
+                                <Label Text="示例生存整合包" FontSize="15" FontAttributes="Bold" />
+                                <HorizontalStackLayout Spacing="8">
+                                    <Border Style="{StaticResource ChipStyle}">
+                                        <Label Text="Forge" Style="{StaticResource ChipTextStyle}" />
+                                    </Border>
+                                    <Label Text="MC 1.12.2 · v1.0.0" Style="{StaticResource SecondaryLabelStyle}"
+                                           FontSize="11" VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+                            </VerticalStackLayout>
+                            <Button Grid.Column="2" Text="启动" Style="{StaticResource OutlineButtonStyle}"
+                                    Padding="12,6" VerticalOptions="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <Label Text="导入后自动安装对应 MC 版本与模组加载器" Style="{StaticResource SecondaryLabelStyle}" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

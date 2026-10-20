@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 内置 Microsoft 登录页（正版登录）：设备码流程的验证页装在应用内，不再跳系统浏览器。
+     结构 = 抬头（验证码 + 复制 + 关闭）+ 网页 + 底栏（等待状态 + 改用浏览器兜底）。
+     移植自桌面 Starcloud.App.Views.Dialogs.MsLoginWindow.xaml（三行结构 1:1）：
+     桌面是独立 Window，安卓没有多窗口语义，改为全屏覆盖页（AppNavigation.PushOverlay 承载），
+     系统标题栏由覆盖页顶部自绘（标题在抬头里，右侧补一颗关闭按钮替代窗口叉）。 -->
+<UserControl
+    x:Class="Starcloud.Launcher.Uno.Views.Dialogs.MsLoginDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization">
+
+    <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 抬头：验证码（网页里已自动填好，这里给用户对照与兜底复制）+ 关闭 -->
+        <Grid Grid.Row="0" Padding="16,12" ColumnSpacing="12"
+              Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="2">
+                <TextBlock loc:Loc.Text="登录 Microsoft 账户" FontWeight="Medium" />
+                <TextBlock x:Name="CodeText" FontFamily="monospace" FontSize="20"
+                           FontWeight="Medium" IsTextSelectionEnabled="True" />
+                <TextBlock loc:Loc.Text="验证码已自动填入下方页面，登录完成后窗口会自动关闭。"
+                           Style="{StaticResource ScCardHint}" />
+            </StackPanel>
+            <ctrl:GlowButton x:Name="CopyBtn" Grid.Column="1" loc:Loc.Text="复制验证码"
+                    VerticalAlignment="Center" />
+            <ctrl:GlowButton x:Name="CloseBtn" Grid.Column="2" loc:Loc.Name="关闭登录窗口"
+                    VerticalAlignment="Center" Background="Transparent" BorderThickness="0"
+                    Padding="8,4" Click="CloseBtn_Click">
+                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE947;" FontSize="14" />
+            </ctrl:GlowButton>
+        </Grid>
+
+        <!-- 网页：Microsoft 账户验证页 -->
+        <Grid Grid.Row="1">
+            <!-- Uno Skia 无 WebView/WebView2：换原生 Android WebView 宿主（见 NativeWebViewer.cs） -->
+            <ctrl:NativeWebViewer x:Name="Web" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+            <ProgressRing x:Name="LoadRing" Width="36" Height="36" IsActive="True" />
+        </Grid>
+
+        <!-- 底栏：后台轮询状态 + 兜底改用系统浏览器 -->
+        <Grid Grid.Row="2" Padding="16,10" ColumnSpacing="12"
+              Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ProgressRing x:Name="WaitRing" Width="18" Height="18" IsActive="True"
+                          VerticalAlignment="Center" />
+            <TextBlock x:Name="StatusText" Grid.Column="1" VerticalAlignment="Center"
+                       FontSize="12" TextWrapping="Wrap"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <ctrl:GlowButton x:Name="BrowserBtn" Grid.Column="2" loc:Loc.Text="改用浏览器打开"
+                    VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,9 @@
+{
+  // 钉 Uno.Sdk 版本（与 spike 验证所用一致，真机已过工具链验证）
+  "msbuild-sdks": {
+    "Uno.Sdk": "6.7.30"
+  },
+  "sdk": {
+    "allowPrerelease": false
+  }
+}

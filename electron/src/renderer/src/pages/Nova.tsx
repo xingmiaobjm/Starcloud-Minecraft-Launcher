@@ -30,6 +30,13 @@ function SectionCard(props: {
   )
 }
 
+/** 最近一条带 plan 的消息 id（只有它能执行/放弃）。 */
+interface PlanState {
+  planId: string
+  items: NovaPlanItem[]
+  title?: string
+}
+
 interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
@@ -46,6 +53,8 @@ export default function NovaPage(): JSX.Element {
   const [useCloud, setUseCloud] = useState(false)
   const [overlay, setOverlay] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [plan, setPlan] = useState<PlanState | null>(null)
+  const [planBusy, setPlanBusy] = useState(false)
 
   // 对话状态
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -102,14 +111,17 @@ export default function NovaPage(): JSX.Element {
         setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, tool } : m)))
       } else if (event === 'nova.done') {
         const text = String(params.text ?? '')
-        const plan = params.plan as NovaPlanItem[] | undefined
+        const planItems = params.plan as NovaPlanItem[] | undefined
+        if (planItems !== undefined && planItems.length > 0 && params.planId != null) {
+          setPlan({ planId: String(params.planId), items: planItems, title: params.planTitle != null ? String(params.planTitle) : undefined })
+        }
         const id = streamingId.current
         streamingId.current = null
         setBusy(false)
         setMessages((prev) =>
           prev.map((m) =>
             m.id === id
-              ? { ...m, content: text !== '' ? text : m.content, streaming: false, plan }
+              ? { ...m, content: text !== '' ? text : m.content, streaming: false, plan: planItems }
               : m
           )
         )
@@ -350,6 +362,43 @@ export default function NovaPage(): JSX.Element {
                       {p.detail !== '' ? ` — ${p.detail}` : ''}
                     </div>
                   ))}
+                  {plan !== null && plan.items === m.plan && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={planBusy}
+                        onClick={async () => {
+                          setPlanBusy(true)
+                          try {
+                            const r = await request<{ ok: boolean; message?: string }>(
+                              'nova.plan.execute',
+                              { id: plan.planId }
+                            )
+                            push('success', r.message ?? '已应用')
+                            setPlan(null)
+                          } catch (e) {
+                            push('error', String(e))
+                          } finally {
+                            setPlanBusy(false)
+                          }
+                        }}
+                      >
+                        {planBusy ? '执行中…' : '执行'}
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        disabled={planBusy}
+                        onClick={async () => {
+                          try {
+                            await request('nova.plan.discard', { id: plan.planId })
+                          } catch { /* 忽略 */ }
+                          setPlan(null)
+                        }}
+                      >
+                        放弃
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

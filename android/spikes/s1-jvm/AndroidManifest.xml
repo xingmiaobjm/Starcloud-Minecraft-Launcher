@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 最小清单：包名/版本号由 csproj 注入；spike 无图标、无权限要求 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application android:label="S1 JVM Spike" />
+</manifest>

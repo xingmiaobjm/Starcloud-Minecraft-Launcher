@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Starcloud.Launcher.Uno/Starcloud.Launcher.Uno.csproj" />
+    <Project Path="src/Starcloud.Launcher.Phone/Starcloud.Launcher.Phone.csproj" />
+    <Project Path="src/Starcloud.Android.Host/Starcloud.Android.Host.csproj" />
+    <Project Path="src/Starcloud.Android.Core/Starcloud.Android.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Starcloud.Android.Core.Tests/Starcloud.Android.Core.Tests.csproj" />
+  </Folder>
+</Solution>

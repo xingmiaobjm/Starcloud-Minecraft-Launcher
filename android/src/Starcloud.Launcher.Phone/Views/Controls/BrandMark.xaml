@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Starcloud.Launcher.Phone.Views.Controls.BrandMark"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Starcloud 品牌标记：直接渲染品牌手册 mark/export 的两个主标记文件
+         （浅底 starcloud-mark-light.svg 黑线 / 深底 starcloud-mark-dark.svg 浅线），
+         主题切换由 code-behind 换源，见 BrandMark.xaml.cs。
+         尺寸给足：三格描边是 9/400 单位，16–24px 下会糊，标题栏用 22px 起步。 -->
+    <Image x:Name="MarkImage" Stretch="Uniform" />
+</UserControl>

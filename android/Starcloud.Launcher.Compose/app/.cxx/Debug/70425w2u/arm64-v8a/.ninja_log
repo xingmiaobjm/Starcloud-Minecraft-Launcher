@@ -1,0 +1,5 @@
+# ninja log v5
+1	251	8132104107938901	CMakeFiles/starcloudjvm.dir/starcloud_jvm.c.o	6e9dc2f0b20d8ff
+253	470	8132104110609568	C:/Users/xingmiao/Documents/trae_projects/starcloud-minecraft-launcher/android/Starcloud.Launcher.Compose/app/build/intermediates/cxx/Debug/70425w2u/obj/arm64-v8a/libstarcloudjvm.so	b489f265a3a3570c
+7	326	8132163275631550	CMakeFiles/starcloudjvm.dir/starcloud_jvm.c.o	6e9dc2f0b20d8ff
+328	548	8132163277798611	C:/Users/xingmiao/Documents/trae_projects/starcloud-minecraft-launcher/android/Starcloud.Launcher.Compose/app/build/intermediates/cxx/Debug/70425w2u/obj/arm64-v8a/libstarcloudjvm.so	b489f265a3a3570c

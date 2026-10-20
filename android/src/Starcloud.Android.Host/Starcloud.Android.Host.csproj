@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 安卓端宿主层：JVM 拉起（P/Invoke libjvm）、Surface/EGL、渲染链、输入桥。
+       M0-S1/S2/S3 spike 与 M3 填充（设计稿 §6）。 -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>28.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <!-- JNI 函数表与 so 回调使用函数指针，需要非安全代码 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 宿主 dex 必须提供 com.bytedance.android.bytehook.ByteHook（libbytehook.so 的
+         JNI_OnLoad 契约类），该全限定名不可更改；绑定生成器会因此报 BG8403
+         （类型名与所在命名空间末段同名），属必然误报，此处显式豁免。
+         CS1572/CS1573：SDL 胶水的 javadoc param 标记与绑定器生成的重载签名不一致，
+         由 generator 产物带来，无法在 Java 源侧修复，豁免之 -->
+    <NoWarn>$(NoWarn);BG8403;CS8766;CS1572;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 宿主 dex Java 类：CallbackBridge 裁剪版 + 键码三件套 + 最小 JREUtils + SDL3 胶水。
+         C# 侧一律经 JNIEnv 按类名字符串调用，不需要绑定生成（Bind=false）：SDL 胶水含
+         大量包级私有顶层类（SDLHapticHandler 等），绑定器只认 public 类会报 CS0234 -->
+    <AndroidJavaSource Include="Platforms\Android\Java\**\*.java" Bind="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Starcloud.Android.Core\Starcloud.Android.Core.csproj" />
+  </ItemGroup>
+
+  <!-- JvmHost / JavaBridge 对壳开放（壳负责启动编排与输入投递）；
+       平板壳与手机壳两个 UI 程序集都开放 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Starcloud.Android.Maui" />
+    <InternalsVisibleTo Include="Starcloud.Launcher.Uno" />
+    <InternalsVisibleTo Include="Starcloud.Launcher.Phone" />
+  </ItemGroup>
+
+  <!-- Release 构建经 R8 裁剪时保留被 so 反调的 Java 类（无 Java 侧引用） -->
+  <ItemGroup>
+    <ProguardConfiguration Include="proguard.txt" />
+  </ItemGroup>
+
+</Project>

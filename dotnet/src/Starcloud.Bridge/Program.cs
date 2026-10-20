@@ -272,7 +272,7 @@ public static class Program
             or "version.checkUpdates" or "version.updateMod" or "version.checkDependencies"
             or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
             or "nova.plan.execute"
-            or "lab.load" or "lab.worldEater"
+            or "lab.load" or "lab.worldEater" or "lab.assets"
             or "projections.scan" or "projections.copy" or "projections.move"
             or "projections.delete"
             or "plugins.invoke";
@@ -717,6 +717,32 @@ public static class Program
                     stats = stats.Take(60),
                     preview,
                     previewTruncated = preview.Count < voxels.Blocks.Count,
+                };
+            }
+
+            case "lab.assets":
+            {
+                // 投影预览用 Win 端同一套渲染器（three.js + deepslate）。
+                // 它需要的不只是方块坐标，还有 blockstates / models / textures，
+                // 这些由 Core 的 ProjectionAssetCollector 从客户端 jar 里抽（Win 端也是这条路）。
+                var assetsPath = LabSafePath(p.GetProperty("path").GetString()!);
+                var budget = LabInt(p, "budget", VoxelExporter.MaxBlocks);
+                var assets = new MinecraftAssets(() => _settings);
+                var voxels = VoxelExporter.Read(assetsPath, budget, assets);
+                var pack = ProjectionAssetCollector.Collect(voxels.BlockIds, assets.Read);
+                return new
+                {
+                    sizeX = voxels.SizeX,
+                    sizeY = voxels.SizeY,
+                    sizeZ = voxels.SizeZ,
+                    truncated = voxels.Truncated,
+                    assetSource = assets.SourceLabel ?? "",
+                    blocks = voxels.Blocks.Select(b => new object[] { b.X, b.Y, b.Z, b.State }),
+                    states = pack.BlockStates,
+                    models = pack.Models,
+                    textures = pack.Textures.ToDictionary(
+                        kv => kv.Key,
+                        kv => "data:image/png;base64," + Convert.ToBase64String(kv.Value)),
                 };
             }
 

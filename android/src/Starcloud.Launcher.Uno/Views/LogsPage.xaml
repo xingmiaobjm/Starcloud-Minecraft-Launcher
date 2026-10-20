@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.LogsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:beh="using:Starcloud.Launcher.Uno.Views.Behaviors"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Enabled">
+
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
+        <!-- 内容行必须是 * ：日志卡片落在 Auto 行上时 ScrollViewer 的视口等于内容高度，
+             整页会被父容器裁掉且滚不动（删掉页面抬头后漏改过这里） -->
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 来源切换（选项文案在 code-behind 按语言重建，见 LogsPage.xaml.cs） -->
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <RadioButtons x:Name="LogSource" MaxColumns="2"
+                          SelectionChanged="LogSource_SelectionChanged">
+            </RadioButtons>
+            <ComboBox x:Name="GameLogCombo" MinWidth="240" Visibility="Collapsed"
+                      loc:Loc.Placeholder="选择一局游戏日志" SelectionChanged="GameLogCombo_SelectionChanged" />
+            <ctrl:GlowButton x:Name="OpenLogDirBtn" loc:Loc.Text="打开日志目录" Click="OpenLogDir_Click" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="{ThemeResource GlassCardBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="16" Padding="12">
+            <!-- 日志正文不换行：一行日志就是一行（时间戳 / 类别 / 正文三列才对得齐），
+                长行走横向滚动。顺带省掉换行排版——400 行折行文本的测量是这类页面的主要开销。 -->
+            <ScrollViewer x:Name="LogScroll" HorizontalScrollBarVisibility="Auto">
+                <TextBlock x:Name="LogText" FontFamily="Cascadia Code" FontSize="12"
+                           IsTextSelectionEnabled="True" TextWrapping="NoWrap" />
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Page>

@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.RunningStatusPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:beh="using:Starcloud.Launcher.Uno.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Disabled">
+
+    <!-- 运行状态（一级页）：当前这一局游戏的即时快照。
+         数据全部来自 Core 的 GameRuntimeMonitor（跨启动器重启靠锁文件恢复），
+         本页只负责把不可变快照渲染出来：
+           1) Hero        —— 这一局是谁、跑了多久、几个动作（结束 / 重启 / 复制命令…）
+           2) 性能三卡    —— CPU / 内存 / GPU 大数字 + 60 点 sparkline
+           3) 双栏        —— 左：启动配置与 JVM（落盘上下文，缺失时按当前配置降级）
+                            右：内容计数与实时日志尾（自动吸底，上滚即暂停吸底）
+         刷新分层是刻意的：只有"这一局的归属变了"（换 pid / 起止）才整页重建，
+         每秒的采样回调只更新数字与曲线，避免列表与日志每秒钟闪一下。 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled"
+                  HorizontalContentAlignment="Stretch">
+        <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16" Padding="0,0,0,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- ══ 页头：只留右侧动作，页面由左侧导航指示 ══ -->
+            <Grid Grid.Row="0" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Top">
+                    <ctrl:GlowButton x:Name="RetryBtn" Height="32" Padding="12,0" Visibility="Collapsed"
+                            Click="Retry_Click"
+                            loc:Loc.Text="重试" loc:Loc.Tip="重新开始采样" />
+                    <ctrl:GlowButton x:Name="RefreshBtn" Padding="6" MinWidth="32" MinHeight="32"
+                            Background="Transparent" BorderThickness="0"
+                            Click="Retry_Click"
+                            loc:Loc.Name="刷新" loc:Loc.Tip="重新开始采样">
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE918;"
+                                  FontSize="14" />
+                    </ctrl:GlowButton>
+                    <DropDownButton x:Name="SampleBtn" Height="32" Padding="12,0"
+                                    loc:Loc.Text="采样设置">
+                        <DropDownButton.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <RadioMenuFlyoutItem x:Name="Interval1s" Tag="1000"
+                                                     GroupName="sampleInterval"
+                                                     Click="Interval_Click"
+                                                     loc:Loc.Text="每 1 秒采样" />
+                                <RadioMenuFlyoutItem x:Name="Interval2s" Tag="2000"
+                                                     GroupName="sampleInterval"
+                                                     Click="Interval_Click"
+                                                     loc:Loc.Text="每 2 秒采样" />
+                                <RadioMenuFlyoutItem x:Name="Interval5s" Tag="5000"
+                                                     GroupName="sampleInterval"
+                                                     Click="Interval_Click"
+                                                     loc:Loc.Text="每 5 秒采样" />
+                                <MenuFlyoutSeparator />
+                                <ToggleMenuFlyoutItem x:Name="GpuToggle" Click="GpuToggle_Click"
+                                                      loc:Loc.Text="采集 GPU 占用" />
+                            </MenuFlyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                </StackPanel>
+            </Grid>
+
+            <!-- ══ 1. Hero：当前这一局 ══ -->
+            <Border x:Name="HeroCard" Grid.Row="1" Style="{StaticResource ScCard}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Border Style="{StaticResource ScChipAccent}">
+                                <TextBlock loc:Loc.Text="运行中" FontWeight="Bold"
+                                           Style="{StaticResource ScChipAccentText}" />
+                            </Border>
+                            <!-- 多开：这里选要看哪一局（同一个版本多开时靠 PID 区分）；选项由 RebuildInstanceCombo 填 -->
+                            <ComboBox x:Name="HeroInstanceCombo" MinWidth="260" VerticalAlignment="Center"
+                                      SelectionChanged="HeroInstanceCombo_SelectionChanged"
+                                      loc:Loc.Name="运行中的实例" loc:Loc.Tip="切换要查看的实例" />
+                            <TextBlock x:Name="HeroInstanceCount" VerticalAlignment="Center"
+                                       Style="{StaticResource ScMetaLabel}" Visibility="Collapsed" />
+                            <TextBlock x:Name="HeroUptime" VerticalAlignment="Center"
+                                       Style="{StaticResource ScMetaValue}"
+                                       FontFamily="Cascadia Code" />
+                            <Border x:Name="RecoveredChip" Style="{StaticResource ScChipCaution}"
+                                    Visibility="Collapsed">
+                                <TextBlock loc:Loc.Text="上一轮启动器启动"
+                                           Style="{StaticResource ScChipCautionText}" />
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="24">
+                            <StackPanel Spacing="2">
+                                <TextBlock loc:Loc.Text="实例模式" Style="{StaticResource ScMetaLabel}" />
+                                <TextBlock x:Name="HeroIsolation" Style="{StaticResource ScMetaValue}" />
+                            </StackPanel>
+                            <StackPanel Spacing="2">
+                                <TextBlock loc:Loc.Text="内存" Style="{StaticResource ScMetaLabel}" />
+                                <TextBlock x:Name="HeroMemory" Style="{StaticResource ScMetaValue}" />
+                            </StackPanel>
+                            <StackPanel Spacing="2">
+                                <TextBlock loc:Loc.Text="启动时间" Style="{StaticResource ScMetaLabel}" />
+                                <TextBlock x:Name="HeroStarted" Style="{StaticResource ScMetaValue}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <ctrl:GlowButton x:Name="OpenLogsBtn" Height="32" Padding="12,0"
+                                Click="OpenLogs_Click" loc:Loc.Text="打开日志" />
+                        <ctrl:GlowButton x:Name="DiagnoseBtn" Height="32" Padding="12,0"
+                                Click="Diagnose_Click" loc:Loc.Text="诊断" />
+                        <ctrl:GlowButton x:Name="CopyCmdBtn" Height="32" Padding="12,0"
+                                Click="CopyCommand_Click" loc:Loc.Text="复制命令" />
+                        <ctrl:GlowButton x:Name="RestartBtn" Height="32" Padding="12,0"
+                                Click="Restart_Click" loc:Loc.Text="重启" />
+                        <ctrl:GlowButton x:Name="KillBtn" Height="32" Padding="12,0"
+                                Foreground="{ThemeResource DangerBrush}"
+                                Click="Kill_Click" loc:Loc.Text="结束进程" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ══ 无游戏时的占位 ══ -->
+            <Border x:Name="EmptyCard" Grid.Row="2" Style="{StaticResource ScCard}"
+                    Visibility="Collapsed">
+                <ctrl:EmptyStateView HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     Glyph="&#xEC70;"
+                                     loc:Loc.Text="现在没有游戏在运行"
+                                     loc:Loc.Subtitle="去首页启动一个版本"
+                                     loc:Loc.ActionText="去首页"
+                                     ActionClick="GoHome_Click" />
+            </Border>
+
+            <!-- ══ 2. 性能三卡 ══ -->
+            <Grid x:Name="PerfGrid" Grid.Row="3" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition Width="1*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <TextBlock loc:Loc.Text="处理器占用" Style="{StaticResource ScMetaLabel}" />
+                            <Border x:Name="CpuPaused" Style="{StaticResource ScChipCaution}"
+                                    HorizontalAlignment="Right" Visibility="Collapsed">
+                                <TextBlock loc:Loc.Text="采样已暂停"
+                                           Style="{StaticResource ScChipCautionText}" />
+                            </Border>
+                        </Grid>
+                        <TextBlock x:Name="CpuValue" Text="--" FontSize="30" FontWeight="SemiBold"
+                                   FontFamily="Cascadia Code" />
+                        <Canvas x:Name="CpuSparkArea" Height="44"
+                                SizeChanged="SparkArea_SizeChanged">
+                            <Polyline x:Name="CpuSpark"
+                                      Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                      StrokeThickness="1.5" />
+                        </Canvas>
+                        <TextBlock x:Name="CpuSub" Style="{StaticResource ScMetaValue}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <TextBlock loc:Loc.Text="内存占用" Style="{StaticResource ScMetaLabel}" />
+                            <Border x:Name="MemPaused" Style="{StaticResource ScChipCaution}"
+                                    HorizontalAlignment="Right" Visibility="Collapsed">
+                                <TextBlock loc:Loc.Text="采样已暂停"
+                                           Style="{StaticResource ScChipCautionText}" />
+                            </Border>
+                        </Grid>
+                        <TextBlock x:Name="MemValue" Text="--" FontSize="30" FontWeight="SemiBold"
+                                   FontFamily="Cascadia Code" />
+                        <Canvas x:Name="MemSparkArea" Height="44"
+                                SizeChanged="SparkArea_SizeChanged">
+                            <Polyline x:Name="MemSpark"
+                                      Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                      StrokeThickness="1.5" />
+                        </Canvas>
+                        <TextBlock x:Name="MemSub" Style="{StaticResource ScMetaValue}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <TextBlock loc:Loc.Text="显卡占用" Style="{StaticResource ScMetaLabel}" />
+                            <Border x:Name="GpuPaused" Style="{StaticResource ScChipCaution}"
+                                    HorizontalAlignment="Right" Visibility="Collapsed">
+                                <TextBlock loc:Loc.Text="采样已暂停"
+                                           Style="{StaticResource ScChipCautionText}" />
+                            </Border>
+                        </Grid>
+                        <TextBlock x:Name="GpuValue" Text="--" FontSize="30" FontWeight="SemiBold"
+                                   FontFamily="Cascadia Code" />
+                        <Canvas x:Name="GpuSparkArea" Height="44"
+                                SizeChanged="SparkArea_SizeChanged">
+                            <Polyline x:Name="GpuSpark"
+                                      Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                      StrokeThickness="1.5" />
+                        </Canvas>
+                        <TextBlock x:Name="GpuSub" Style="{StaticResource ScMetaValue}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- ══ 3. 双栏：启动配置与 JVM / 内容与实时日志 ══ -->
+            <Grid x:Name="DetailGrid" Grid.Row="4" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition Width="1*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="启动配置与 JVM"
+                                       Style="{StaticResource ScSectionTitle}" />
+                            <Border x:Name="ConfigFallbackChip" Style="{StaticResource ScChipCaution}"
+                                    Visibility="Collapsed">
+                                <TextBlock loc:Loc.Text="启动参数按当前版本配置显示"
+                                           Style="{StaticResource ScChipCautionText}" />
+                            </Border>
+                        </StackPanel>
+                        <StackPanel x:Name="ConfigRows" Spacing="8" />
+                        <InfoBar x:Name="DiagBar" IsOpen="False" IsClosable="True" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="内容与实时日志"
+                                       Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Border Style="{StaticResource ScChip}">
+                                <TextBlock x:Name="ChipMods" Style="{StaticResource ScChipText}" />
+                            </Border>
+                            <Border Style="{StaticResource ScChip}">
+                                <TextBlock x:Name="ChipShaders" Style="{StaticResource ScChipText}" />
+                            </Border>
+                            <Border Style="{StaticResource ScChip}">
+                                <TextBlock x:Name="ChipPacks" Style="{StaticResource ScChipText}" />
+                            </Border>
+                        </StackPanel>
+                        <Grid>
+                            <Border CornerRadius="8" Padding="8"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                <ScrollViewer x:Name="LogScroll" Height="180"
+                                              HorizontalScrollBarVisibility="Auto"
+                                              ViewChanged="LogScroll_ViewChanged">
+                                    <TextBlock x:Name="LogText" FontFamily="Cascadia Code"
+                                               FontSize="12" TextWrapping="NoWrap"
+                                               IsTextSelectionEnabled="True" />
+                                </ScrollViewer>
+                            </Border>
+                            <ctrl:GlowButton x:Name="ToBottomBtn" HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom" Margin="0,0,8,8"
+                                    Height="28" Padding="10,0" Visibility="Collapsed"
+                                    Click="ToBottom_Click" loc:Loc.Text="回到底部" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+        </Grid>
+    </ScrollViewer>
+</Page>
