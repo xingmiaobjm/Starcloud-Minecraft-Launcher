@@ -190,6 +190,8 @@ public sealed class AppServices
         };
         SaveSync = new SaveSyncService(() => Settings, StarcloudId, DeviceLink, Saves,
             msg => LauncherLog.Write("devlink", msg));
+        Kernel.Register(BuiltinSaveSyncPlugin.Descriptor, _ => new BuiltinSaveSyncPlugin(SaveSync));
+        Kernel.ActivateAsync(BuiltinSaveSyncPlugin.PluginId).GetAwaiter().GetResult();
         Download.PeerSource = () => DeviceLink;
         Projections = Kernel.Get<IProjectionEngine>();
         LlmGateway = Kernel.Get<ILlmGateway>();
@@ -201,6 +203,9 @@ public sealed class AppServices
         DeviceLink.RegisterProbe("星闪（NearLink）", LinkProbes.NearLinkAsync);
         // 皮肤库（多皮肤管理）+ 离线皮肤注入：账户指向库内条目，启动器按需起本机纹理服务
         Skins = new SkinLibraryService();
+        // 内核已启动：实例建好后立即注册并激活（引擎面板要能看到这条能力）
+        Kernel.Register(BuiltinSkinPlugin.Descriptor, _ => new BuiltinSkinPlugin(Skins));
+        Kernel.ActivateAsync(BuiltinSkinPlugin.PluginId).GetAwaiter().GetResult();
         SkinUpload = new SkinUploadService();
         SkinStation = new SkinStationService();
         OfflineSkins.Configure(Accounts, Skins);

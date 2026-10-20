@@ -15,8 +15,9 @@ public sealed class SaveSyncService(
     StarcloudIdService identity,
     DeviceLinkService link,
     SaveService saves,
-    Action<string>? log = null)
+    Action<string>? log = null) : Starcloud.Core.Kernel.Contracts.ISaveSync
 {
+    public string DisplayName => "跨设备存档同步";
     /// <summary>把本地一个世界推送到对端设备（含所属版本配置）。</summary>
     public async Task<SaveSyncResult> PushAsync(
         PeerInfo peer, SaveInfo save, CancellationToken ct = default)

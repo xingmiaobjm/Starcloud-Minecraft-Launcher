@@ -107,8 +107,9 @@ public static class SkinTexture
 /// 皮肤库：<c>%APPDATA%/starcloud-launcher/skins/</c>（一皮肤一 PNG + library.json 索引）。
 /// 无状态服务（每次读索引），可安全地跨线程使用。
 /// </summary>
-public sealed class SkinLibraryService
+public sealed class SkinLibraryService : Starcloud.Core.Kernel.Contracts.ISkinLibrary
 {
+    public string DisplayName => "本地皮肤库";
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
