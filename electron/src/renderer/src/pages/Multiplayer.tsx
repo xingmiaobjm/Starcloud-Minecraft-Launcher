@@ -1,660 +1,345 @@
-/// 联机页：内置陶瓦联机 + 第三方联机 SDK。
-/// 设计：docs/designs/2026-09-21-multiplayer-sdk-design.md
-///
-/// 这一页只做两件事：把快照画出来、把点击翻译成一次桥接调用。
-/// 状态来源有两个：进页拉一次 `multiplayer.state`，之后靠 `multiplayer.changed` 事件实时刷新。
-/// 核心安装是长任务：调用只回 accepted，进度与终态分别走 `multiplayer.progress`
-/// 和 `multiplayer.install.done` / `multiplayer.install.failed`。
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { onBridgeEvent, request } from '../bridge'
-import type {
-  MultiplayerProviderInfo,
-  MultiplayerSnapshot
-} from '../bridge'
-import { EmptyState, Modal, PageShell, ProgressBar, SkeletonList, useToasts } from '../ui'
+/// 联机页：对齐 Win 端 MultiplayerPage ——
+/// 右上「联机方案」下拉 → 状态卡（核心/会话/状态 + 高级选项）→ 操作卡（创建/加入/日志）
+/// → 可展开行（核心日志/使用步骤/第三方 SDK）→ 底部署名。
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-/** 阶段 key（与桥接 PhaseKey 一一对应）→ 中文文案。 */
+import { onBridgeEvent, request } from '../bridge'
+import type { MultiplayerSnapshot } from '../bridge'
+import { Modal, ProgressBar, useToasts } from '../ui'
+
+/** 可展开行（Win 端 Expander 样式：一行标题 + 右侧箭头）。 */
+function Expander(props: {
+  title: string
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="card" style={{ padding: 0, marginBottom: 10, overflow: 'hidden' }}>
+      <button
+        className="nav-item"
+        style={{ height: 52, width: '100%', borderRadius: 0, justifyContent: 'space-between' }}
+        onClick={props.onToggle}
+      >
+        <span className="t-body" style={{ color: 'var(--text-primary)', fontSize: 14 }}>
+          {props.title}
+        </span>
+        <span style={{ opacity: 0.55, transform: props.open ? 'rotate(90deg)' : 'none' }}>
+          ›
+        </span>
+      </button>
+      {props.open && (
+        <div style={{ padding: '4px 16px 14px' }}>{props.children}</div>
+      )}
+    </div>
+  )
+}
+
 const PHASE_LABEL: Record<string, string> = {
   idle: '空闲',
-  hostScanning: '创建房间中',
-  hostStarting: '房间启动中',
-  hostReady: '房间已创建',
-  guestConnecting: '连接房间中',
-  guestEntering: '已进入虚拟局域网',
-  guestReady: '联机成功',
-  failed: '联机异常'
+  hosting: '房间已创建',
+  joining: '正在加入',
+  connected: '已连接',
+  failed: '出错',
+  stopping: '正在停止'
 }
 
-/** 阶段 → 状态点颜色：就绪绿、进行中黄、异常红、其余灰。 */
-function phaseColor(phase: string): string {
-  if (phase === 'hostReady' || phase === 'guestReady') return 'var(--success)'
-  if (phase === 'failed') return 'var(--danger)'
-  if (phase === 'idle') return 'var(--text-tertiary)'
-  return 'var(--accent)'
-}
-
-/** 状态下那行"下一步要做什么"；没事可做时返回空串（整行不占位）。 */
-function phaseHint(phase: string): string {
-  switch (phase) {
-    case 'hostScanning':
-      return '请先在游戏内开启「对局域网开放」，核心会自动接上那个世界。'
-    case 'guestConnecting':
-      return '打洞进行中，稍等片刻，状态会自动更新。'
-    case 'guestEntering':
-      return '已打洞成功，可先在游戏里打开「多人游戏」。'
-    case 'guestReady':
-      return '打开游戏里的「多人游戏」，在局域网世界列表中进入房主的世界。'
-    case 'failed':
-      return '可以「回到空闲重试」，或展开下方日志看核心报了什么。'
-    default:
-      return ''
-  }
-}
-
-const DIFFICULTY_LABEL: Record<string, string> = {
-  easiest: '最简单',
-  simple: '简单',
-  medium: '中等',
-  tough: '困难'
-}
-
-/** 节点地区：与 Windows 端 MultiplayerPage 的下拉保持一致。 */
-const NODE_REGIONS: Array<{ value: string; label: string }> = [
-  { value: 'auto', label: '自动' },
-  { value: 'cn', label: '优先大陆节点' },
-  { value: 'global', label: '仅国际节点' }
-]
-
-interface InstallProgress {
-  stage: string
-  bytes: number
-  total: number
-}
-
-function formatSize(bytes: number): string {
-  if (bytes <= 0) return '0 B'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`
-  return `${(bytes / 1073741824).toFixed(2)} GB`
-}
-
-export default function MultiplayerPage() {
+export default function MultiplayerPage(): JSX.Element {
   const { push, host } = useToasts()
-
-  const [snapshot, setSnapshot] = useState<MultiplayerSnapshot | undefined>()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [snap, setSnap] = useState<MultiplayerSnapshot | null>(null)
   const [busy, setBusy] = useState(false)
-  const [nickname, setNickname] = useState('')
-  const [room, setRoom] = useState('')
+  const [logs, setLogs] = useState<string[]>([])
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [stepsOpen, setStepsOpen] = useState(false)
+  const [sdkOpen, setSdkOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [joinOpen, setJoinOpen] = useState(false)
   const [joinCode, setJoinCode] = useState('')
-  const [confirmStop, setConfirmStop] = useState(false)
-  const [logs, setLogs] = useState<string[]>([])
-  const [progress, setProgress] = useState<InstallProgress | undefined>()
-  const [installing, setInstalling] = useState(false)
+  const [nickname, setNickname] = useState('')
+  const [installProgress, setInstallProgress] = useState<number | null>(null)
+  const pollRef = useRef<number | null>(null)
 
-  // ── 数据：进页拉一次，之后全靠事件 ──────────────────────────────────
-
-  const reload = useCallback(async () => {
+  const load = useCallback(async (): Promise<void> => {
     try {
-      const snap = await request<MultiplayerSnapshot>('multiplayer.state')
-      setSnapshot(snap)
-      setNickname(snap.nickname)
-      setError('')
+      const s = await request<MultiplayerSnapshot>('multiplayer.state')
+      setSnap(s)
+      setNickname((prev) => (prev === '' ? s.nickname : prev))
     } catch (e) {
-      setError(String(e))
-    } finally {
-      setLoading(false)
+      push('error', `读取联机状态失败：${String(e)}`)
     }
-  }, [])
+  }, [push])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    void load()
+    pollRef.current = window.setInterval(() => void load(), 2500)
+    return () => {
+      if (pollRef.current !== null) window.clearInterval(pollRef.current)
+    }
+  }, [load])
 
   useEffect(() => {
     onBridgeEvent((event, params) => {
       if (event === 'multiplayer.changed') {
-        // params 就是完整快照对象，直接换掉整份状态（无需重新拉）
-        const snap = params as unknown as MultiplayerSnapshot
-        setSnapshot(snap)
-        setLoading(false)
-      } else if (event === 'multiplayer.progress') {
-        setProgress({
-          stage: String(params.stage ?? '下载中…'),
-          bytes: Number(params.bytes ?? 0),
-          total: Number(params.total ?? 0)
-        })
-      } else if (event === 'multiplayer.install.done') {
-        setInstalling(false)
-        setProgress(undefined)
-        push('success', '联机核心安装完成。')
-        void reload()
-      } else if (event === 'multiplayer.install.failed') {
-        setInstalling(false)
-        setProgress(undefined)
-        push('error', `安装失败：${String(params.error ?? '未知错误')}`)
-        void reload()
+        void load()
+      } else if (event === 'multiplayer.install') {
+        const pct = Number(params.percent ?? 0)
+        setInstallProgress(pct > 0 ? pct : null)
+      } else if (event === 'multiplayer.installed') {
+        setInstallProgress(null)
+        push('success', '联机核心已安装')
+        void load()
       }
     })
-  }, [push, reload])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const loadLogs = useCallback(async () => {
+  async function run(method: string, params: object, hint: string): Promise<void> {
+    if (busy) return
+    setBusy(true)
     try {
-      const result = await request<{ logs: string[] }>('multiplayer.logs')
-      setLogs(result.logs)
+      await request(method, params)
+      push('info', hint)
+      await load()
+    } catch (e) {
+      push('error', String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function openLogs(): Promise<void> {
+    try {
+      const r = await request<{ logs: string[] }>('multiplayer.logs')
+      setLogs(r.logs)
+      setLogsOpen(true)
     } catch (e) {
       push('error', `日志读取失败：${String(e)}`)
     }
-  }, [push])
-
-  // ── 操作：把点击翻译成一次桥接调用 ──────────────────────────────────
-
-  /** 统一的调用包装：忙 → 成功/失败提示 → 刷新快照。 */
-  const run = useCallback(
-    async (method: string, params: Record<string, unknown>, okText?: string) => {
-      setBusy(true)
-      setError('')
-      try {
-        const snap = await request<MultiplayerSnapshot>(method, params)
-        if (snap?.providers) setSnapshot(snap)
-        if (okText) push('success', okText)
-        await loadLogs()
-      } catch (e) {
-        setError(String(e))
-        push('error', String(e))
-      } finally {
-        setBusy(false)
-      }
-    },
-    [push, loadLogs]
-  )
-
-  const core = snapshot?.core
-  const state = snapshot?.state
-  const phase = state?.phase ?? 'idle'
-  const providers = useMemo(() => snapshot?.providers ?? [], [snapshot])
-
-  const canPlay = core?.installed === true && !busy && !state?.isBusy
-  const hasSession = core?.sessionRunning === true || phase !== 'idle'
-
-  const installCore = async () => {
-    setInstalling(true)
-    setProgress({ stage: '正在准备安装…', bytes: 0, total: 0 })
-    try {
-      // 只回执 accepted，真正的进度/终态走事件
-      await request<{ accepted: boolean }>('multiplayer.install')
-      push('info', '已开始下载联机核心，进度会实时刷新。')
-    } catch (e) {
-      setInstalling(false)
-      setProgress(undefined)
-      push('error', String(e))
-    }
   }
 
-  const joinRoom = () => {
-    const code = joinCode.trim()
-    if (code.length === 0) return
-    setJoinOpen(false)
-    setJoinCode('')
-    void run('multiplayer.join', { room: code }, '已提交进房请求。')
-  }
-
-  const phaseText = PHASE_LABEL[phase] ?? '未知状态'
-  const hint = phaseHint(phase)
-  const percent =
-    progress && progress.total > 0
-      ? Math.max(0, Math.min(100, (progress.bytes / progress.total) * 100))
-      : undefined
+  const providers = snap?.providers ?? []
+  const activeId = snap?.activeId ?? ''
+  const active = providers.find((p) => p.id === activeId)
+  const coreVersion =
+    snap?.core.installed === true && snap.core.version !== undefined ? snap.core.version : '未安装'
+  const phase = snap?.state.phase ?? 'idle'
 
   return (
-    <>
-      {/* 两栏布局：窄窗口降级成单栏（winui.css 里没有这一档，写在页面内） */}
-      <style>{`.mp-cards{grid-template-columns:minmax(0,1fr)}
-@media (min-width:1081px){.mp-cards{grid-template-columns:minmax(0,1.25fr) minmax(320px,0.85fr)}}`}</style>
-      <PageShell
-        title="联机"
-        subtitle="内置陶瓦联机 + 第三方联机 SDK：先装核心，再建房或进房。"
-        actions={
-          <button
-            className="btn btn-subtle"
-            title="刷新"
-            onClick={() => void reload()}
-          >
-            ↻
-          </button>
-        }
-      >
-        {loading && <SkeletonList rows={4} />}
+    <div className="page">
+      <div className="page-head">
+        <div style={{ flex: 1 }} />
+        <span className="t-cap">联机方案</span>
+        <select
+          className="input"
+          style={{ width: 220 }}
+          value={activeId}
+          disabled={busy || snap?.state.isBusy === true}
+          onChange={(e) => void run('multiplayer.selectProvider', { id: e.target.value }, '已切换联机方案')}
+        >
+          {providers.length === 0 && <option value="">（无可用方案）</option>}
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.displayName}
+            </option>
+          ))}
+        </select>
+      </div>
 
-        {!loading && error !== '' && (
-          <div className="info info-danger" style={{ marginBottom: 12 }}>
-            <span aria-hidden style={{ fontSize: 16 }}>✕</span>
-            <div className="info-body" style={{ fontSize: 12 }}>
-              {error}
+      <div className="page-body">
+        {/* 状态卡 */}
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
+            <div>
+              <div className="t-cap">联机核心</div>
+              <div className="t-body" style={{ color: 'var(--text-primary)' }}>
+                v{coreVersion}
+              </div>
+            </div>
+            <div>
+              <div className="t-cap">核心会话</div>
+              <div className="t-body" style={{ color: 'var(--text-primary)' }}>
+                {snap?.core.sessionRunning === true ? '运行中' : '已停止'}
+              </div>
+            </div>
+            <div>
+              <div className="t-cap">当前状态</div>
+              <div className="t-body" style={{ color: 'var(--text-primary)' }}>
+                {PHASE_LABEL[phase] ?? phase}
+                {snap?.state.isBusy === true ? '（处理中）' : ''}
+              </div>
             </div>
           </div>
-        )}
 
-        {!loading && snapshot == null && (
-          <div className="card">
-            <EmptyState
-              title="暂时拿不到联机状态"
-              hint="桥接进程可能还没起来，稍等一下再刷新。"
-              action={
-                <button className="btn" onClick={() => void reload()}>
-                  ↻ 重新加载
-                </button>
-              }
-            />
-          </div>
-        )}
-
-        {!loading && snapshot != null && (
-          <>
-            <div
-              style={{ display: 'grid', gap: 14, alignItems: 'start' }}
-              className="mp-cards"
-            >
-              {/* ── 状态卡 ── */}              <div
-                className="card"
-                style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 16 }}>⚯</span>
-                  <span className="t-strong">联机状态</span>
-                  <div style={{ flex: 1 }} />
-                  {state?.isBusy === true && <div className="spinner" />}
-                </div>
-
-                {/* 阶段徽标：一点状态色 + 一行字，占位小但一眼可辨 */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '12px 14px',
-                    borderRadius: 'var(--r-card)',
-                    background: 'var(--surface-subtle)',
-                    border: '1px solid var(--stroke-subtle)',
-                    animation: 'fadeIn var(--t-enter) var(--e-enter) both'
-                  }}
-                >
-                  <div
-                    className="dot"
-                    style={{
-                      width: 10,
-                      height: 10,
-                      background: phaseColor(phase),
-                      animation:
-                        state?.isBusy === true ? 'pulse 1.4s infinite' : undefined
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="t-strong">{phaseText}</div>
-                    {hint !== '' && <div className="t-cap">{hint}</div>}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                    gap: 8
-                  }}
-                >
-                  {[
-                    {
-                      label: '核心版本',
-                      value: core?.installed ? `v${core.version ?? '未知'}` : '未安装'
-                    },
-                    { label: '核心会话', value: core?.sessionRunning ? '运行中' : '已停止' },
-                    { label: '对应地址', value: state?.address ?? '—' },
-                    {
-                      label: '难度',
-                      value: state?.difficulty
-                        ? (DIFFICULTY_LABEL[state.difficulty] ?? '未知')
-                        : '—'
-                    }
-                  ].map((cell) => (
-                    <div
-                      key={cell.label}
-                      style={{
-                        padding: '9px 11px',
-                        borderRadius: 'var(--r-card)',
-                        background: 'var(--surface-subtle)',
-                        border: '1px solid var(--stroke-subtle)',
-                        minWidth: 0
-                      }}
-                    >
-                      <div className="t-meta" style={{ display: 'block' }}>
-                        {cell.label}
-                      </div>
-                      <div className="t-strong truncate">{cell.value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {phase === 'hostReady' && state?.room && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '12px 14px',
-                      borderRadius: 'var(--r-card)',
-                      border: `1.2px dashed var(--accent)`,
-                      background: 'color-mix(in srgb, var(--accent) 8%, transparent)'
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="t-meta" style={{ display: 'block' }}>
-                        邀请码（发给好友）
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: 20,
-                          fontWeight: 700,
-                          letterSpacing: 3,
-                          color: 'var(--accent)',
-                          userSelect: 'all'
-                        }}
-                      >
-                        {state.room}
-                      </div>
-                    </div>
-                    <button
-                      className="btn btn-subtle"
-                      onClick={() => {
-                        void navigator.clipboard
-                          ?.writeText(state.room ?? '')
-                          .then(() => push('success', '邀请码已复制。'))
-                          .catch(() => push('error', '复制失败，请手动选中。'))
-                      }}
-                    >
-                      复制
-                    </button>
-                  </div>
-                )}
-
-                {state?.players != null && state.players.length > 0 && (
-                  <div>
-                    <div className="t-cap" style={{ display: 'block', marginBottom: 6 }}>
-                      房间成员（{state.players.length}）
-                    </div>
-                    {state.players.map((name, index) => (
-                      <div
-                        key={`${name}-${index}`}
-                        className="row row-static"
-                        style={{
-                          padding: '7px 10px',
-                          margin: '0 4px',
-                          animationDelay: `${index * 39}ms`
-                        }}
-                      >
-                        <div
-                          className="dot"
-                          style={{ width: 7, height: 7, background: 'var(--accent)' }}
-                        />
-                        <span className="t-body truncate">{name}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {(state?.players == null || state.players.length === 0) && phase === 'idle' && (
-                  <EmptyState
-                    title="还没有联机会话"
-                    hint="先在下面填玩家名，然后创建房间或输入好友的邀请码。"
-                  />
-                )}
-
-                {phase === 'failed' && (
-                  <div className="info info-danger">
-                    <span aria-hidden>✕</span>
-                    <div className="info-body t-body">
-                      联机异常：{state?.error ?? '未知错误'}
-                    </div>
-                  </div>
-                )}
-
-                {snapshot?.lastError != null && snapshot.lastError.length > 0 && (
-                  <div className="info info-warning">
-                    <span aria-hidden>⚠</span>
-                    <div className="info-body t-body">
-                      状态查询失败：{snapshot.lastError}
-                    </div>
+          {snap?.core.installed === false && (
+            <div className="info info-warning" style={{ marginTop: 12 }}>
+              <span aria-hidden>⚠</span>
+              <div className="info-body" style={{ flex: 1 }}>
+                联机核心未安装。
+                {installProgress !== null && (
+                  <div style={{ marginTop: 6 }}>
+                    <ProgressBar value={installProgress} />
                   </div>
                 )}
               </div>
-
-              {/* ── 操作卡 ── */}
-              <div
-                className="card"
-                style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}
+              <button
+                className="btn btn-sm"
+                disabled={installProgress !== null}
+                onClick={() =>
+                  void request('multiplayer.install')
+                    .then(() => push('info', '已开始下载联机核心'))
+                    .catch((e) => push('error', String(e)))
+                }
               >
-                <span className="t-strong">操作</span>
+                安装
+              </button>
+            </div>
+          )}
 
-                {core?.installed !== true && (
-                  <>
-                    <div className="t-body" style={{ opacity: 0.7 }}>
-                      首次使用需下载陶瓦联机核心（约 8 MB，国内镜像优先）；核心由启动器在首次使用时从
-                      官方 Releases 下载，不随安装包分发。
-                    </div>
-                    <button
-                      className="btn btn-primary btn-lg"
-                      disabled={installing}
-                      onClick={() => void installCore()}
-                    >
-                      ↻ {installing ? '安装中…' : '安装联机核心'}
-                    </button>
-                    {installing && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <ProgressBar
-                          value={percent}
-                          indeterminate={percent === undefined}
-                        />
-                        <div className="t-meta">
-                          {progress
-                            ? `${progress.stage} · ${formatSize(progress.bytes)}${
-                                progress.total > 0
-                                  ? ` / ${formatSize(progress.total)}`
-                                  : ''
-                              }`
-                            : '正在准备安装…'}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                <div>
-                  <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-                    玩家名
-                  </div>
+          <button
+            className="nav-item"
+            style={{
+              width: '100%',
+              marginTop: 12,
+              background: 'var(--surface-subtle)',
+              justifyContent: 'space-between',
+              paddingLeft: 12
+            }}
+            onClick={() => setAdvancedOpen((v) => !v)}
+          >
+            <span className="t-body" style={{ color: 'var(--text-primary)' }}>
+              高级选项
+            </span>
+            <span style={{ opacity: 0.55, transform: advancedOpen ? 'rotate(90deg)' : 'none' }}>
+              ›
+            </span>
+          </button>
+          {advancedOpen && (
+            <div style={{ marginTop: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <label style={{ flex: 1, minWidth: 220 }}>
+                <div className="t-cap" style={{ marginBottom: 4 }}>
+                  昵称
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
                   <input
                     className="input"
-                    style={{ width: '100%' }}
+                    style={{ flex: 1 }}
                     value={nickname}
-                    maxLength={24}
-                    placeholder="在房间里显示的名字"
                     onChange={(e) => setNickname(e.target.value)}
-                    onBlur={() =>
-                      nickname.trim().length > 0 &&
-                      void run('multiplayer.setNickname', {
-                        name: nickname.trim()
-                      })
-                    }
                   />
-                </div>
-
-                <div>
-                  <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-                    节点地区
-                  </div>
-                  <select
-                    className="input"
-                    style={{ width: '100%' }}
-                    value={snapshot?.nodeRegion ?? 'auto'}
-                    onChange={(e) =>
-                      void run('multiplayer.setNodeRegion', { region: e.target.value })
-                    }
-                  >
-                    {NODE_REGIONS.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <button
-                    className="btn btn-primary btn-lg"
-                    disabled={!canPlay}
+                    className="btn"
+                    disabled={busy || nickname.trim() === ''}
                     onClick={() =>
-                      void run(
-                        'multiplayer.host',
-                        {},
-                        '已开始创建房间，等状态变成「房间已创建」后把邀请码发给好友。'
-                      )
+                      void run('multiplayer.setNickname', { name: nickname.trim() }, '昵称已更新')
                     }
                   >
-                    ▶ 创建房间
-                  </button>
-
-                  <button
-                    className="btn"
-                    disabled={!canPlay}
-                    onClick={() => setJoinOpen(true)}
-                  >
-                    ⚯ 加入房间
-                  </button>
-
-                  <button
-                    className="btn"
-                    disabled={!canPlay || phase === 'idle'}
-                    onClick={() => void run('multiplayer.idle', {}, '已回到空闲。')}
-                  >
-                    ↻ 回到空闲重试
-                  </button>
-
-                  {/* 破坏性操作：先走 Modal 二次确认再停会话 */}
-                  <button
-                    className="btn btn-subtle btn-danger"
-                    disabled={!hasSession}
-                    onClick={() => setConfirmStop(true)}
-                  >
-                    ✕ 停止联机会话
+                    保存
                   </button>
                 </div>
-
-                <div>
-                  <div className="t-cap" style={{ display: 'block', marginBottom: 4 }}>
-                    联机方案
-                  </div>
-                  {providers.length === 0 ? (
-                    <div className="t-cap" style={{ opacity: 0.55 }}>
-                      没有可用的联机方案。
-                    </div>
-                  ) : (
-                    providers.map((p: MultiplayerProviderInfo, index: number) => {
-                      const active = p.id === snapshot?.activeId
-                      return (
-                        <div
-                          key={p.id}
-                          className={`row${active ? ' row-active' : ''}`}
-                          style={{
-                            alignItems: 'flex-start',
-                            padding: '9px 10px',
-                            margin: '0 4px',
-                            animationDelay: `${index * 39}ms`
-                          }}
-                          onClick={() => {
-                            if (!active) void run('multiplayer.selectProvider', { id: p.id })
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: 15,
-                              height: 15,
-                              borderRadius: '50%',
-                              border: `1.6px solid ${
-                                active ? 'var(--accent)' : 'var(--stroke-strong)'
-                              }`,
-                              marginTop: 2,
-                              flexShrink: 0,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center'
-                            }}
-                          >
-                            {active && (
-                              <div
-                                style={{
-                                  width: 7,
-                                  height: 7,
-                                  borderRadius: '50%',
-                                  background: 'var(--accent)'
-                                }}
-                              />
-                            )}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div className="t-body truncate" style={{ fontWeight: 600 }}>
-                              {/* 第三方方案在名字后缀上署名，一眼看出这条是谁家的 */}
-                              {p.displayName}
-                              {!p.builtIn ? ` · ${p.vendor}` : ''}
-                            </div>
-                            {p.description != null && p.description.length > 0 && (
-                              <div className="t-meta">{p.description}</div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })
-                  )}
+              </label>
+              <label style={{ minWidth: 180 }}>
+                <div className="t-cap" style={{ marginBottom: 4 }}>
+                  节点地区
                 </div>
-              </div>
+                <select
+                  className="input"
+                  value={snap?.nodeRegion ?? 'auto'}
+                  onChange={(e) =>
+                    void run('multiplayer.setNodeRegion', { region: e.target.value }, '节点已切换')
+                  }
+                >
+                  <option value="auto">自动</option>
+                  <option value="cn">中国</option>
+                  <option value="overseas">海外</option>
+                </select>
+              </label>
             </div>
+          )}
+        </div>
 
-            {/* ── 联机日志：需要时再看，不占首屏 ── */}
-            <div
-              className="card card-flush"
-              style={{ height: 200, marginTop: 14, display: 'flex', flexDirection: 'column' }}
-            >
-              <div className="card-head">
-                <div
-                  className="dot"
-                  style={{ background: hasSession ? 'var(--accent)' : 'var(--text-tertiary)' }}
-                />
-                <span className="card-title">联机日志</span>
-                <div style={{ flex: 1 }} />
-                <button className="btn btn-subtle" onClick={() => void loadLogs()}>
-                  ↻ 刷新
-                </button>
-              </div>
-              <div className="log" style={{ paddingTop: 0 }}>
-                {logs.length === 0 ? (
-                  <span style={{ opacity: 0.5 }}>暂无日志。</span>
-                ) : (
-                  logs.map((line, index) => <div key={index}>{line}</div>)
-                )}
-              </div>
-            </div>
-          </>
-        )}
-        {host}
-      </PageShell>
+        {/* 操作卡 */}
+        <div className="card" style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary"
+            disabled={busy || snap?.core.installed === false}
+            onClick={() =>
+              void run('multiplayer.host', {}, '已开始创建房间，等状态变成「房间已创建」')
+            }
+          >
+            创建房间
+          </button>
+          <button
+            className="btn"
+            disabled={busy || snap?.core.installed === false}
+            onClick={() => setJoinOpen(true)}
+          >
+            加入好友的房间
+          </button>
+          <button className="btn" onClick={() => void openLogs()}>
+            查看日志
+          </button>
+          {(phase === 'hosting' || phase === 'joining' || phase === 'connected') && (
+            <>
+              <button
+                className="btn"
+                disabled={busy}
+                onClick={() => void run('multiplayer.stop', {}, '已停止联机会话')}
+              >
+                停止会话
+              </button>
+              <button
+                className="btn btn-subtle"
+                disabled={busy}
+                onClick={() => void run('multiplayer.idle', {}, '已回到空闲')}
+              >
+                ↻ 回到空闲
+              </button>
+            </>
+          )}
+          <div style={{ flex: 1 }} />
+          {snap?.state.room !== undefined && snap.state.room !== '' && (
+            <span className="chip chip-accent">邀请码 {snap.state.room}</span>
+          )}
+        </div>
 
-      {/* ── 加入房间：邀请码收在弹窗里，点了才出现 ── */}
+        {/* 可展开行 */}
+        <Expander title="联机核心日志" open={logsOpen} onToggle={() => setLogsOpen((v) => !v)}>
+          <div className="log" style={{ maxHeight: 240 }}>
+            {logs.length === 0 ? '暂无日志' : logs.join('\n')}
+          </div>
+        </Expander>
+
+        <Expander title="使用步骤" open={stepsOpen} onToggle={() => setStepsOpen((v) => !v)}>
+          <ol className="t-body" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.9 }}>
+            <li>点「创建房间」，等状态变成「房间已创建」</li>
+            <li>把邀请码发给好友</li>
+            <li>好友点「加入好友的房间」填邀请码</li>
+            <li>双方启动游戏，在多人游戏里连接本地房间</li>
+          </ol>
+        </Expander>
+
+        <Expander title="第三方联机 SDK" open={sdkOpen} onToggle={() => setSdkOpen((v) => !v)}>
+          <div className="t-body">
+            {active === undefined
+              ? '当前没有可用的联机方案。'
+              : `${active.displayName}（${active.vendor}）—— ${active.description}`}
+            {active?.vendorUrl !== undefined && active.vendorUrl !== '' && (
+              <div className="t-meta" style={{ marginTop: 6 }}>
+                {active.vendorUrl}
+              </div>
+            )}
+          </div>
+        </Expander>
+
+        <div className="t-cap" style={{ textAlign: 'center', marginTop: 16 }}>
+          联机由 Terracotta | 陶瓦联机 提供技术支持
+        </div>
+      </div>
+
+      {/* 加入房间 */}
       <Modal
         open={joinOpen}
-        title="加入房间"
-        width={460}
+        title="加入好友的房间"
         onClose={() => setJoinOpen(false)}
         footer={
           <>
@@ -663,58 +348,38 @@ export default function MultiplayerPage() {
             </button>
             <button
               className="btn btn-primary"
-              disabled={joinCode.trim().length === 0 || busy}
-              onClick={joinRoom}
+              disabled={joinCode.trim() === '' || busy}
+              onClick={() => {
+                setJoinOpen(false)
+                void run('multiplayer.join', { room: joinCode.trim() }, '已提交进房请求')
+                setJoinCode('')
+              }}
             >
               加入
             </button>
           </>
         }
       >
-        <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-          邀请码
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span className="t-cap">邀请码</span>
+          <input
+            className="input"
+            autoFocus
+            value={joinCode}
+            placeholder="粘贴好友发来的邀请码"
+            onChange={(e) => setJoinCode(e.target.value)}
+          />
         </div>
-        <input
-          className="input"
-          style={{ width: '100%' }}
-          value={joinCode}
-          placeholder="房主给你的那串邀请码"
-          onChange={(e) => setJoinCode(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') joinRoom()
-          }}
-        />
       </Modal>
 
-      {/* 停止会话会断掉整个房间，属于不可逆操作：必须二次确认 */}
-      <Modal
-        open={confirmStop}
-        title="停止联机会话？"
-        width={460}
-        onClose={() => setConfirmStop(false)}
-        footer={
-          <>
-            <button className="btn" onClick={() => setConfirmStop(false)}>
-              取消
-            </button>
-            <button
-              className="btn btn-primary"
-              style={{ background: 'var(--danger)', color: '#fff' }}
-              disabled={busy}
-              onClick={() => {
-                setConfirmStop(false)
-                void run('multiplayer.stop', {}, '已停止联机会话。')
-              }}
-            >
-              确认停止
-            </button>
-          </>
-        }
-      >
-        <div className="t-body">
-          停止后房间会立刻关闭，正在游戏里的其他成员会被踢出。此操作不可撤销。
+      {/* 日志浮层 */}
+      <Modal open={logsOpen && false} title="联机核心日志" onClose={() => setLogsOpen(false)}>
+        <div className="log" style={{ maxHeight: '50vh' }}>
+          {logs.length === 0 ? '暂无日志' : logs.join('\n')}
         </div>
       </Modal>
-    </>
+
+      {host}
+    </div>
   )
 }

@@ -1,52 +1,61 @@
-/// Nova AI 助手：对话页 + 模型设置。
-///
-/// 桥接约定很关键：`nova.chat` 不阻塞等结果，只回 `{accepted:true}`，
-/// 正文靠事件流回来 —— `nova.delta` 追加文本、`nova.tool` 显示"正在调用工具"、
-/// `nova.done` 收尾（带最终文本和可选的确认清单 plan[]）、`nova.failed` 报错。
-/// 所以这一页的模型是"先插一条空的 AI 气泡，再靠事件往里灌"。
+/// Nova 页：对齐 Win 端 NovaPage —— 这是**模型设置页**，不是聊天页。
+/// 卡片顺序：Nova 账户 → 云端模型 → 模型设置 → 游戏内辅助浮窗。
+/// 对话按 Win 端的交互放在独立浮层里，由「打开 Nova 对话」按钮唤起。
 import { useCallback, useEffect, useRef, useState } from 'react'
+
 import { onBridgeEvent, request } from '../bridge'
 import type { NovaConfig, NovaPlanItem } from '../bridge'
-import { EmptyState, Modal, PageShell, useToasts } from '../ui'
+import { Modal, Toggle, useToasts } from '../ui'
 
-type Role = 'user' | 'ai'
+/** 分组卡标题（黄色竖条 + 标题 + 右侧附加操作）。 */
+function SectionCard(props: {
+  title: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span
+          style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--accent)', flexShrink: 0 }}
+        />
+        <span className="t-strong" style={{ fontSize: 15 }}>
+          {props.title}
+        </span>
+        <div style={{ flex: 1 }} />
+        {props.action}
+      </div>
+      {props.children}
+    </div>
+  )
+}
 
 interface ChatMessage {
   id: number
-  role: Role
+  role: 'user' | 'assistant'
   content: string
-  /** 正在流式输出的那条：气泡做呼吸动画 */
-  streaming?: boolean
-  /** 正在调用的工具名 */
   tool?: string
-  /** 确认清单（只展示，不执行） */
+  streaming?: boolean
   plan?: NovaPlanItem[]
-  /** 清单标题，桥接侧随 plan 一起给 */
-  planTitle?: string
-  /** 本地能力算出来的回复，不走云端模型 */
-  fromCloud?: boolean
-  error?: boolean
 }
 
-export default function NovaPage() {
+export default function NovaPage(): JSX.Element {
   const { push, host } = useToasts()
+  const [config, setConfig] = useState<NovaConfig>({ baseUrl: '', apiKey: '', model: '' })
+  const [draft, setDraft] = useState<NovaConfig>({ baseUrl: '', apiKey: '', model: '' })
+  const [useCloud, setUseCloud] = useState(false)
+  const [overlay, setOverlay] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
 
+  // 对话状态
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [config, setConfig] = useState<NovaConfig>({ baseUrl: '', apiKey: '', model: '' })
-  const [configOpen, setConfigOpen] = useState(false)
-  const [draft, setDraft] = useState<NovaConfig>({ baseUrl: '', apiKey: '', model: '' })
-
-  // 自增 id：流式更新只改末尾那条，不需要按内容比对
   const seq = useRef(1)
-  // 当前正在接收增量的那条 AI 消息 id
   const streamingId = useRef<number | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
 
-  // ── 模型配置 ────────────────────────────────────────────────────────
-
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (): Promise<void> => {
     try {
       const value = await request<NovaConfig>('nova.config.get')
       setConfig(value)
@@ -60,8 +69,9 @@ export default function NovaPage() {
     void loadConfig()
   }, [loadConfig])
 
-  /** 三项都空 = 清除配置（桥接侧就是这么约定的）。 */
-  const saveConfig = async () => {
+  const configured = config.baseUrl.length > 0 && config.model.length > 0
+
+  async function saveConfig(): Promise<void> {
     try {
       const value = await request<NovaConfig>('nova.config.set', {
         baseUrl: draft.baseUrl.trim(),
@@ -69,405 +79,301 @@ export default function NovaPage() {
         model: draft.model.trim()
       })
       setConfig(value)
-      setConfigOpen(false)
-      const configured = value.baseUrl.length > 0 && value.model.length > 0
-      push(configured ? 'success' : 'info', configured ? '模型配置已保存。' : '已清除模型配置。')
+      const ok = value.baseUrl.length > 0 && value.model.length > 0
+      push(ok ? 'success' : 'info', ok ? '模型配置已保存。' : '已清除模型配置。')
     } catch (e) {
       push('error', String(e))
     }
   }
 
-  // ── 流式事件 ────────────────────────────────────────────────────────
-
+  // 流式事件（nova.chat 只回 accepted，正文走事件）
   useEffect(() => {
     onBridgeEvent((event, params) => {
       if (event === 'nova.delta') {
         const text = String(params.text ?? '')
-        if (text.length === 0) return
+        if (text === '') return
         const id = streamingId.current
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === id ? { ...m, content: m.content + text, streaming: true } : m
-          )
+          prev.map((m) => (m.id === id ? { ...m, content: m.content + text, streaming: true } : m))
         )
       } else if (event === 'nova.tool') {
         const tool = String(params.tool ?? '')
         const id = streamingId.current
         setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, tool } : m)))
       } else if (event === 'nova.done') {
-        // 桥接侧 nova.done 的 params 就是平铺的 {text, fromCloud, plan}
         const text = String(params.text ?? '')
         const plan = params.plan as NovaPlanItem[] | undefined
-        const planTitle =
-          params.planTitle != null
-            ? String(params.planTitle)
-            : plan != null && plan.length > 0
-              ? plan[0].title
-              : undefined
-        const fromCloud = Boolean(params.fromCloud)
         const id = streamingId.current
         streamingId.current = null
         setBusy(false)
         setMessages((prev) =>
           prev.map((m) =>
             m.id === id
-              ? {
-                  ...m,
-                  // 增量已经写进去了，done 只在整段没回时兜底
-                  content: text.length > 0 ? text : m.content,
-                  tool: undefined,
-                  streaming: false,
-                  fromCloud,
-                  plan,
-                  planTitle
-                }
+              ? { ...m, content: text !== '' ? text : m.content, streaming: false, plan }
               : m
           )
         )
       } else if (event === 'nova.failed') {
-        const message = String(params.error ?? '未知错误')
+        const error = String(params.error ?? '未知错误')
         const id = streamingId.current
         streamingId.current = null
         setBusy(false)
         setMessages((prev) =>
           prev.map((m) =>
             m.id === id
-              ? { ...m, streaming: false, tool: undefined, error: true, content: message }
+              ? { ...m, content: `请求失败：${error}`, streaming: false }
               : m
           )
         )
-        push('error', message)
       }
     })
-  }, [push])
+  }, [])
 
-  // 增量很密（可能每秒几十条），合并成一次贴底
   useEffect(() => {
-    const body = bodyRef.current
-    if (body != null) body.scrollTop = body.scrollHeight
+    if (bodyRef.current !== null) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+    }
   }, [messages])
 
-  // ── 发送 ────────────────────────────────────────────────────────────
-
-  const send = async () => {
+  async function send(): Promise<void> {
     const text = input.trim()
-    if (text.length === 0 || busy) return
-
-    const userMsg: ChatMessage = { id: seq.current++, role: 'user', content: text }
-    const aiMsg: ChatMessage = {
-      id: seq.current++,
-      role: 'ai',
-      content: '',
-      streaming: true
+    if (text === '' || busy) return
+    if (!configured) {
+      push('info', '先在「模型设置」里填好 Base URL 与模型名')
+      return
     }
-    streamingId.current = aiMsg.id
-    setMessages((prev) => [...prev, userMsg, aiMsg])
     setInput('')
     setBusy(true)
-
-    // 历史带上前面所有轮次（流式中的那条只带已收到的部分）
-    const history = messages.map((m) => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.content
-    }))
-
+    const userId = seq.current++
+    const assistantId = seq.current++
+    streamingId.current = assistantId
+    setMessages((prev) => [
+      ...prev,
+      { id: userId, role: 'user', content: text },
+      { id: assistantId, role: 'assistant', content: '', streaming: true }
+    ])
     try {
-      // 只回 accepted，正文靠上面的事件流
-      await request<{ accepted: boolean }>('nova.chat', {
-        message: text,
-        history
-      })
+      await request<{ accepted: boolean }>('nova.chat', { message: text })
     } catch (e) {
       streamingId.current = null
       setBusy(false)
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === aiMsg.id
-            ? { ...m, streaming: false, content: `发送失败：${String(e)}`, error: true }
-            : m
+          m.id === assistantId ? { ...m, content: `请求失败：${String(e)}`, streaming: false } : m
         )
       )
-      push('error', String(e))
     }
   }
 
-  const clear = () => {
-    if (busy) return
-    setMessages([])
-    streamingId.current = null
-  }
-
-  const configured = config.baseUrl.length > 0 && config.model.length > 0
-
   return (
-    <>
-      <PageShell
-        title="Nova"
-        subtitle="能读启动器状态、能调用本地工具的助手；没配模型时仍可回答本地能力范围内的问题。"
-        actions={
-          <div style={{ display: 'flex', gap: 8 }}>
+    <div className="page">
+      <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Nova 账户 */}
+        <SectionCard
+          title="Nova 账户"
+          action={
             <button
-              className="btn btn-subtle"
-              onClick={() => {
-                setDraft(config)
-                setConfigOpen(true)
-              }}
+              className="btn btn-sm"
+              onClick={() => push('info', 'Starcloud ID 登录：内核能力接入后可用')}
             >
-              ⚙ 模型设置
+              登录
             </button>
-            <button className="btn btn-subtle" disabled={busy} onClick={clear}>
-              ✕ 清空
-            </button>
-          </div>
-        }
-      >
-        {!configured && (
-          <div
-            className="info info-warning"
-            style={{ marginBottom: 12 }}
-          >
-            <span aria-hidden style={{ fontSize: 16 }}>ⓘ</span>
-            <div className="info-body t-body">
-              当前未配置模型：本地能力无需模型，可直接提问版本/存档/联机这类问题；
-              需要联网推理时点右上角「模型设置」。
-            </div>
-          </div>
-        )}
-
-        <div
-          className="card card-flush"
-          style={{ height: 'calc(100% - 46px)', display: 'flex', flexDirection: 'column' }}
+          }
         >
-          <div
-            ref={bodyRef}
-            style={{
-              flex: 1,
-              minHeight: 0,
-              overflowY: 'auto',
-              padding: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12
-            }}
-          >
-            {messages.length === 0 && (
-              <EmptyState
-                title="和 Nova 聊点什么"
-                hint="试试：「有哪些已安装版本」「帮我把 1.20.1 的内存调到 4G」「现在联机是什么状态」。"
-                action={
-                  <button
-                    className="btn"
-                    onClick={() => setInput('现在联机是什么状态？')}
-                  >
-                    ✳ 来一句
-                  </button>
-                }
-              />
-            )}
+          <div className="t-cap" style={{ marginBottom: 10 }}>
+            登录后可用云端模型与邀请、时刻等在线能力；凭据只保存在本机。
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18, color: 'var(--accent)' }}>✦</span>
+            <div style={{ flex: 1 }}>
+              <div className="t-body">未登录</div>
+              <div className="t-meta">当前使用下面接入的本地模型</div>
+            </div>
+          </div>
+        </SectionCard>
 
-            {messages.map((m, index) => (
-              <div
-                key={m.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
-                  animation: `slideUp var(--t-enter) var(--e-enter) both`,
-                  animationDelay: `${Math.min(index, 8) * 39}ms`
-                }}
-              >
-                {m.role === 'user' ? (
-                  // 用户气泡：品牌黄实心，右侧
-                  <div className="nova-bubble-user">{m.content}</div>
-                ) : (
-                  // AI 气泡：暗色卡 + 左侧，形状上就分得开
-                  <div
-                    className="nova-bubble-ai"
-                    style={{
-                      borderColor: m.error === true ? 'color-mix(in srgb, var(--danger) 45%, transparent)' : undefined,
-                      // 流式输出中：整块气泡轻微呼吸，告诉用户"还在写"
-                      animation:
-                        m.streaming === true
-                          ? 'pulse 1.5s ease-in-out infinite'
-                          : undefined
-                    }}
-                  >
-                    <div className="nova-meta">
-                      <span>Nova</span>
-                      {m.fromCloud === true && <span>· 云端模型</span>}
-                      {m.fromCloud === false && m.streaming !== true && <span>· 本地能力</span>}
-                    </div>
+        {/* 云端模型 */}
+        <SectionCard
+          title="云端模型"
+          action={
+            <button className="btn btn-sm" onClick={() => void loadConfig()}>
+              刷新
+            </button>
+          }
+        >
+          <div className="t-cap" style={{ marginBottom: 10 }}>
+            登录 Starcloud ID 后 Nova 默认走云端模型，不用自己填 Key；用量记在账号上。
+          </div>
+          <div className="t-body" style={{ marginBottom: 6 }}>
+            使用云端模型
+          </div>
+          <Toggle
+            checked={useCloud}
+            disabled={true}
+            label="使用云端模型"
+            onChange={setUseCloud}
+          />
+          <div className="t-cap" style={{ marginTop: 10 }}>
+            未登录时不可用；关掉后 Nova 只用下面接入的模型。
+          </div>
+        </SectionCard>
 
-                    {m.tool != null && m.tool.length > 0 && (
-                      <div className="nova-tool">
-                        ⚒ 正在调用工具：{m.tool}
-                      </div>
-                    )}
-
-                    {m.content.length > 0 ? (
-                      <span>{m.content}</span>
-                    ) : (
-                      m.streaming === true && (
-                        <span>
-                          <span className="nova-typing-dot" />
-                          <span className="nova-typing-dot" />
-                          <span className="nova-typing-dot" />
-                        </span>
-                      )
-                    )}
-
-                    {/* 确认清单：只展示，不代用户执行 */}
-                    {m.plan != null && m.plan.length > 0 && (
-                      <div className="nova-plan">
-                        <div className="nova-plan-head">
-                          <span style={{ color: 'var(--accent)' }}>▤</span>
-                          <span className="t-body truncate" style={{ fontWeight: 600 }}>
-                            {m.planTitle ?? '建议的执行清单'}
-                          </span>
-                          <span className="t-meta">{m.plan.length} 项</span>
-                        </div>
-                        {m.plan.map((item, planIndex) => (
-                          <div
-                            key={`${m.id}-plan-${planIndex}`}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'flex-start',
-                              gap: 8,
-                              padding: '7px 11px',
-                              borderBottom:
-                                planIndex === m.plan!.length - 1
-                                  ? 'none'
-                                  : '1px solid var(--stroke-divider)',
-                              animation: `rowIn var(--t-enter) var(--e-enter) both`,
-                              animationDelay: `${planIndex * 39}ms`
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: 2,
-                                background: 'var(--accent)',
-                                marginTop: 6,
-                                flexShrink: 0
-                              }}
-                            />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div className="t-body" style={{ fontWeight: 600 }}>
-                                {item.title}
-                              </div>
-                              {item.detail != null && item.detail.length > 0 && (
-                                <div className="t-meta">{item.detail}</div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+        {/* 模型设置 */}
+        <SectionCard
+          title="模型设置"
+          action={
+            <button className="btn btn-sm" onClick={() => void saveConfig()}>
+              保存
+            </button>
+          }
+        >
+          <div className="t-cap" style={{ marginBottom: 12 }}>
+            接入任意 OpenAI 兼容服务：填 Base URL、Key 与模型名。Key 只保存在本机。
           </div>
 
-          <div className="nova-composer">
-            <textarea
-              className="input nova-textarea"
-              value={input}
-              placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void send()
-                }
-              }}
-            />
-            <button
-              className="btn btn-primary"
-              style={{ height: 38, padding: '0 18px' }}
-              disabled={input.trim().length === 0 || busy}
-              onClick={() => void send()}
+          {configured && (
+            <div
+              className="row row-static"
+              style={{ background: 'var(--surface-subtle)', marginBottom: 12 }}
             >
-              {busy ? <span className="spinner" /> : '➤'}
-              {busy ? '思考中…' : '发送'}
-            </button>
-          </div>
-        </div>
-        {host}
-      </PageShell>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="t-strong truncate">{config.model}</span>
+                  <span className="chip chip-accent">当前使用</span>
+                </div>
+                <div className="t-meta truncate">
+                  {config.baseUrl} · Key {config.apiKey === '' ? '未设置' : config.apiKey.slice(0, 8) + '…'}
+                </div>
+              </div>
+            </div>
+          )}
 
-      {/* ── 模型设置 ── */}
-      <Modal
-        open={configOpen}
-        title="模型设置"
-        width={560}
-        onClose={() => setConfigOpen(false)}
-        footer={
-          <>
-            <button className="btn" onClick={() => setConfigOpen(false)}>
-              取消
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="t-cap">Base URL</span>
+              <input
+                className="input"
+                value={draft.baseUrl}
+                placeholder="例如 https://api.example.com/v1"
+                onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="t-cap">API Key</span>
+              <input
+                className="input"
+                type="password"
+                value={draft.apiKey}
+                placeholder="sk-…"
+                onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="t-cap">模型名</span>
+              <input
+                className="input"
+                value={draft.model}
+                placeholder="例如 gpt-4o-mini / deepseek-chat"
+                onChange={(e) => setDraft({ ...draft, model: e.target.value })}
+              />
+            </label>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <button className="btn btn-primary" onClick={() => setChatOpen(true)}>
+              打开 Nova 对话
             </button>
-            <button className="btn btn-primary" onClick={() => void saveConfig()}>
-              {!configured && '⚠ '}保存
-            </button>
-          </>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="t-body" style={{ opacity: 0.7 }}>
-            三项都留空即可清除配置，回到纯本地能力模式。API Key 只保存在本机设置里。
           </div>
-          <div>
-            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-              Base URL
+        </SectionCard>
+
+        {/* 游戏内辅助浮窗 */}
+        <SectionCard title="游戏内辅助浮窗">
+          <div className="t-cap" style={{ marginBottom: 10 }}>
+            启动游戏时自动弹出浮窗，游戏内随时查资料；与顶栏 Nova 共用同一份对话。
+          </div>
+          <Toggle
+            checked={overlay}
+            onChange={(v) => {
+              setOverlay(v)
+              if (v) push('info', '游戏内浮窗：内核能力接入后可用')
+            }}
+            label="游戏内辅助浮窗"
+          />
+        </SectionCard>
+      </div>
+
+      {/* Nova 对话浮层 */}
+      <Modal open={chatOpen} title="Nova" onClose={() => setChatOpen(false)} width={720}>
+        <div
+          ref={bodyRef}
+          style={{ maxHeight: '52vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}
+        >
+          {messages.length === 0 && (
+            <div className="t-cap" style={{ padding: '16px 0' }}>
+              {configured
+                ? '问点什么吧：查版本、算配置、写指令都可以。'
+                : '先在「模型设置」里填好 Base URL 与模型名。'}
             </div>
-            <input
-              className="input"
-              style={{ width: '100%' }}
-              value={draft.baseUrl}
-              placeholder="https://api.example.com/v1"
-              onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
-            />
-          </div>
-          <div>
-            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-              API Key
+          )}
+          {messages.map((m) => (
+            <div
+              key={m.id}
+              style={{
+                alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                maxWidth: '78%',
+                padding: '8px 12px',
+                borderRadius: 12,
+                background:
+                  m.role === 'user' ? 'var(--accent)' : 'var(--surface-subtle)',
+                color: m.role === 'user' ? 'var(--text-on-accent)' : 'var(--text-primary)',
+                border: m.role === 'user' ? 'none' : '1px solid var(--stroke-subtle)',
+                whiteSpace: 'pre-wrap',
+                fontSize: 13,
+                animation: m.streaming ? 'pulse 1.5s infinite' : undefined
+              }}
+            >
+              {m.tool !== undefined && (
+                <div className="t-meta" style={{ marginBottom: 4, opacity: 0.8 }}>
+                  正在调用：{m.tool}
+                </div>
+              )}
+              {m.content}
+              {m.plan !== undefined && m.plan.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {m.plan.map((p) => (
+                    <div
+                      key={p.title}
+                      className="t-meta"
+                      style={{ padding: '6px 8px', borderRadius: 8, background: 'var(--surface-hover)' }}
+                    >
+                      <b>{p.title}</b>
+                      {p.detail !== '' ? ` — ${p.detail}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <input
-              className="input"
-              style={{ width: '100%' }}
-              type="password"
-              value={draft.apiKey}
-              placeholder="sk-..."
-              onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
-            />
-          </div>
-          <div>
-            <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
-              模型
-            </div>
-            <input
-              className="input"
-              style={{ width: '100%' }}
-              value={draft.model}
-              placeholder="例如 gpt-4o-mini"
-              onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-            />
-          </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input
+            className="input"
+            style={{ flex: 1 }}
+            value={input}
+            placeholder="给 Nova 发消息…"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) void send()
+            }}
+          />
+          <button className="btn btn-primary" disabled={busy || input.trim() === ''} onClick={() => void send()}>
+            {busy ? '回复中…' : '发送'}
+          </button>
         </div>
       </Modal>
-      {/* 气泡 / 输入条的形状写在 winui.css 之外（对话布局专用），就地声明一次 */}
-      <style>{`
-.nova-bubble-user{max-width:68%;padding:10px 14px;border-radius:var(--r-card);border-bottom-right-radius:4px;background:var(--accent);color:var(--text-on-accent);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 10px rgba(255,194,31,0.18)}
-.nova-bubble-ai{max-width:76%;padding:12px 15px;border-radius:var(--r-card);border-bottom-left-radius:4px;background:var(--surface-card);border:1px solid var(--stroke-subtle);font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
-.nova-meta{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:10.5px;opacity:0.55}
-.nova-tool{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:var(--r-pill);background:var(--surface-subtle);border:1px solid var(--stroke-default);font-size:11px;opacity:0.85;margin-bottom:6px;animation:fadeIn var(--t-enter) var(--e-enter) both}
-.nova-plan{margin-top:10px;border-radius:var(--r-card);border:1.2px solid color-mix(in srgb, var(--accent) 35%, transparent);background:color-mix(in srgb, var(--accent) 6%, transparent);overflow:hidden}
-.nova-plan-head{display:flex;align-items:center;gap:6px;padding:8px 11px;border-bottom:1px solid var(--stroke-divider);background:color-mix(in srgb, var(--accent) 8%, transparent)}
-.nova-composer{display:flex;align-items:flex-end;gap:10px;padding:12px 14px;border-top:1px solid var(--stroke-divider)}
-.nova-textarea{flex:1;height:auto;min-height:38px;max-height:180px;padding:8px 10px;resize:none;line-height:1.5;font-family:inherit}
-.nova-typing-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:pulse 1.2s infinite}
-`}</style>
-    </>
+
+      {host}
+    </div>
   )
 }
