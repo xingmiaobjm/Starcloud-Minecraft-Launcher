@@ -81,6 +81,10 @@ Var hBmpUninstall
 Var hBmpUninstalling
 Var hBmpChkOn
 Var hBmpChkOff
+Var BmpFile
+Var BmpW
+Var BmpH
+Var BmpOut
 
 Var hDrag
 Var hMin
@@ -210,68 +214,142 @@ FunctionEnd
   IntOp $R3 $R3 / 100
 !macroend
 
+; 位图按「目标尺寸」加载：GetDpiForWindow 只报整档 DPI，用户的缩放却可能是
+; 125% / 175% 这类中间值 —— 只准备 100/150/200 三档素材的话，底图和按缩放摆位的
+; 控件就会错位（底图贴不满窗口、控件悬在空白上）。LoadImage 传非零宽高会把图
+; 直接缩放到目标大小，素材选「不小于目标的最近一档」保证是缩小而不是放大。
+Function LoadBmpScaled
+  System::Call 'user32::LoadImageW(i 0, w $BmpFile, i 0, i $BmpW, i $BmpH, i 0x2010) i .r0'
+  StrCpy $BmpOut $0
+FunctionEnd
+
 Function LoadUiAssets
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
-  ${If} $Scale >= 190
-    File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
-  ${ElseIf} $Scale >= 140
+  ${If} $Scale <= 100
+    File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+  ${ElseIf} $Scale <= 150
     File /r "${__FILEDIR__}\installer-assets\ui\150\*.*"
   ${Else}
-    File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+    File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
   ${EndIf}
 
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-install.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpInstall $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-progress.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpProgress $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-done.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpDone $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-on.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpChkOn $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-off.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpChkOff $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-title.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpTitle $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-min.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpMin $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-close.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpClose $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-folder.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpFolder $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-btn-install.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpBtnInstall $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-btn-done.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpBtnDone $0
+  StrCpy $BmpFile "$PLUGINSDIR\bg-install.bmp"
+  StrCpy $BmpW $WinW
+  StrCpy $BmpH $WinH
+  Call LoadBmpScaled
+  StrCpy $hBmpInstall $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\bg-progress.bmp"
+  Call LoadBmpScaled
+  StrCpy $hBmpProgress $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\bg-done.bmp"
+  Call LoadBmpScaled
+  StrCpy $hBmpDone $BmpOut
+
+  !insertmacro Sc 0 0 18 18
+  StrCpy $BmpFile "$PLUGINSDIR\chk-on.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call LoadBmpScaled
+  StrCpy $hBmpChkOn $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\chk-off.bmp"
+  Call LoadBmpScaled
+  StrCpy $hBmpChkOff $BmpOut
+
+  !insertmacro Sc ${UI_DRAG_X} ${UI_DRAG_Y} ${UI_DRAG_W} ${UI_DRAG_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-title.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call LoadBmpScaled
+  StrCpy $hBmpTitle $BmpOut
+  !insertmacro Sc ${UI_MIN_X} ${UI_MIN_Y} ${UI_MIN_W} ${UI_MIN_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-min.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call LoadBmpScaled
+  StrCpy $hBmpMin $BmpOut
+  !insertmacro Sc ${UI_CLOSE_X} ${UI_CLOSE_Y} ${UI_CLOSE_W} ${UI_CLOSE_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-close.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call LoadBmpScaled
+  StrCpy $hBmpClose $BmpOut
+  !insertmacro Sc ${UI_PATH_BTN_X} ${UI_PATH_BTN_Y} ${UI_PATH_BTN_W} ${UI_PATH_BTN_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-folder.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call LoadBmpScaled
+  StrCpy $hBmpFolder $BmpOut
+  !insertmacro Sc ${UI_BTN_X} ${UI_BTN_Y} ${UI_BTN_W} ${UI_BTN_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-btn-install.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call LoadBmpScaled
+  StrCpy $hBmpBtnInstall $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\hit-btn-done.bmp"
+  Call LoadBmpScaled
+  StrCpy $hBmpBtnDone $BmpOut
+FunctionEnd
+
+Function un.LoadBmpScaled
+  System::Call 'user32::LoadImageW(i 0, w $BmpFile, i 0, i $BmpW, i $BmpH, i 0x2010) i .r0'
+  StrCpy $BmpOut $0
 FunctionEnd
 
 Function un.LoadUninstallAssets
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
-  ${If} $Scale >= 190
-    File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
-  ${ElseIf} $Scale >= 140
+  ${If} $Scale <= 100
+    File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+  ${ElseIf} $Scale <= 150
     File /r "${__FILEDIR__}\installer-assets\ui\150\*.*"
   ${Else}
-    File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+    File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
   ${EndIf}
 
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-uninstall.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpUninstall $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\bg-uninstalling.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpUninstalling $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-on.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpChkOn $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\chk-off.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpChkOff $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-title.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpTitle $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-min.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpMin $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-close.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpClose $0
-  System::Call 'user32::LoadImageW(i 0, w "$PLUGINSDIR\hit-btn-uninstall.bmp", i 0, i 0, i 0, i 0x2010) i .r0'
-  StrCpy $hBmpBtnUninstall $0
+  StrCpy $BmpFile "$PLUGINSDIR\bg-uninstall.bmp"
+  StrCpy $BmpW $WinW
+  StrCpy $BmpH $WinH
+  Call un.LoadBmpScaled
+  StrCpy $hBmpUninstall $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\bg-uninstalling.bmp"
+  Call un.LoadBmpScaled
+  StrCpy $hBmpUninstalling $BmpOut
+
+  !insertmacro Sc 0 0 18 18
+  StrCpy $BmpFile "$PLUGINSDIR\chk-on.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call un.LoadBmpScaled
+  StrCpy $hBmpChkOn $BmpOut
+  StrCpy $BmpFile "$PLUGINSDIR\chk-off.bmp"
+  Call un.LoadBmpScaled
+  StrCpy $hBmpChkOff $BmpOut
+
+  !insertmacro Sc ${UI_DRAG_X} ${UI_DRAG_Y} ${UI_DRAG_W} ${UI_DRAG_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-title.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call un.LoadBmpScaled
+  StrCpy $hBmpTitle $BmpOut
+  !insertmacro Sc ${UI_MIN_X} ${UI_MIN_Y} ${UI_MIN_W} ${UI_MIN_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-min.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call un.LoadBmpScaled
+  StrCpy $hBmpMin $BmpOut
+  !insertmacro Sc ${UI_CLOSE_X} ${UI_CLOSE_Y} ${UI_CLOSE_W} ${UI_CLOSE_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-close.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call un.LoadBmpScaled
+  StrCpy $hBmpClose $BmpOut
+  !insertmacro Sc ${UI_BTN_X} ${UI_BTN_Y} ${UI_BTN_W} ${UI_BTN_H}
+  StrCpy $BmpFile "$PLUGINSDIR\hit-btn-uninstall.bmp"
+  StrCpy $BmpW $R2
+  StrCpy $BmpH $R3
+  Call un.LoadBmpScaled
+  StrCpy $hBmpBtnUninstall $BmpOut
 FunctionEnd
 ; ── 控件创建 ──
 
