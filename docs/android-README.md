@@ -27,6 +27,21 @@ components/                    fetch-components.ps1：按需下载 JRE / LWJGL /
 tests/                         安卓内核单测
 ```
 
+## 组件包（游戏运行时）
+
+`launch.start` 需要 `app/src/main/assets/components/` 里的 9 个组件包（JRE / LWJGL / Mesa），
+它们**不入库**（体积大且来自第三方 APK），需现场生成：
+
+```powershell
+# 需要先把两个 APK 放进 components/pkgs/
+#   fcl-1.3.3.6-arm64.apk      （同源组件，哈希已核对）
+#   zalith2-2.6.1-arm64.apk    （补 jre25）
+powershell -ExecutionPolicy Bypass -File components/fetch-components.ps1
+# 产出 components/out/manifest.json + 9 个包，拷进 app/src/main/assets/components/ 后重新构建
+```
+
+没有这步，APK 能装能开 UI，但 `launch.start` 会报 `components/manifest.json` 缺失。
+
 ## 构建
 
 前置：JDK 17、Android SDK（`compileSdk 36`）、NDK（`libstarcloudjvm.so` 需要 CMake 3.22.1）。

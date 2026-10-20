@@ -59,16 +59,24 @@ if (-not (Test-Path -LiteralPath $apk)) {
     throw "APK not found: $apk`nBuild it first: cd Starcloud.Launcher.Compose; gradle :app:assembleDebug"
 }
 
-# 2. install
+# 2. component bundles: launch.start needs assets/components in the APK
+$assets = Join-Path $root 'Starcloud.Launcher.Compose/app/src/main/assets/components'
+if (-not (Test-Path -LiteralPath $assets)) {
+    Write-Host 'WARN: assets/components is missing - launch.start will fail with components/manifest.json.'
+    Write-Host '      Run: powershell -ExecutionPolicy Bypass -File components/fetch-components.ps1'
+    Write-Host '      then rebuild: gradle :app:assembleDebug (needs pkgs/fcl-*.apk and pkgs/zalith2-*.apk)'
+}
+
+# 3. install
 Write-Host 'Installing APK ...'
 Invoke-Adb @('install', '-r', '-d', $apk) | Out-Host
 
-# 3. launch the web shell
+# 4. launch the web shell
 Write-Host 'Starting Web UI shell ...'
 Invoke-Adb @('shell', 'am', 'start', '-n', $activity) | Out-Host
 Start-Sleep -Seconds 4
 
-# 4. screenshot + bridge logs
+# 5. screenshot + bridge logs
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $shot = Join-Path $root "tools/walkthrough-$stamp.png"
 $bytes = & $adb -s $Serial exec-out screencap -p
