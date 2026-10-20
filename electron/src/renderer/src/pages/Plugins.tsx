@@ -1,43 +1,88 @@
-/// 插件页：外部插件（v2 沙箱）安装/启停/卸载 + 面板入口。
-import { useEffect, useState } from 'react'
+/// 插件页：对齐 Win 端 PluginsPage ——
+/// 顶部「安装插件…」；卡 1 内核插件（内置能力与耗时）；卡 2 已安装（开关 + 卸载）；
+/// 底部提示 .mclplug 的放置方式。
+import { useCallback, useEffect, useState } from 'react'
+
 import { request } from '../bridge'
 import type { ExternalPlugin, PluginList } from '../bridge'
-import { EmptyState, Modal, PageShell, SkeletonList, useToasts } from '../ui'
+import { Modal, SkeletonList, Toggle, useToasts } from '../ui'
 
-export default function PluginsPage() {
+/// 内核内置插件（与 Win 端内核注册表一致）。
+/// 这些是编译进内核的固定能力，不来自 plugins.list，所以在这里静态展示。
+const CORE_PLUGINS = [
+  {
+    kind: '引擎',
+    name: '图标缓存',
+    version: '1.0.0',
+    desc: '把远程图标/封面落到本地磁盘并复用（走下载引擎）',
+    provides: 'IIconCache'
+  },
+  {
+    kind: '引擎',
+    name: '多线程下载引擎',
+    version: '1.0.0',
+    desc: '多文件批量下载 + 多源分片竞速 + 重试 + 断点续传；可在局域网内复用同账号设备的已下载文件',
+    provides: 'IDownloadEngine'
+  },
+  {
+    kind: '引擎',
+    name: '搜索词翻译',
+    version: '1.0.0',
+    desc: '中文搜索词 → 英文项目名（内置词典 → MC 百科 → 机器翻译，带缓存）',
+    provides: 'ITranslationEngine'
+  },
+  {
+    kind: '功能',
+    name: '投影管理',
+    version: '1.0.0',
+    desc: '扫描全局与各版本实例的投影文件，可把投影复制/移动到指定版本',
+    provides: 'IProjectionLibrary'
+  },
+  {
+    kind: '功能',
+    name: '版本管理',
+    version: '1.0.0',
+    desc: '官方版本清单拉取与缓存、本地已安装版本枚举、版本删除',
+    provides: 'IVersionCatalog'
+  }
+]
+
+export default function PluginsPage(): JSX.Element {
   const { push, host } = useToasts()
   const [plugins, setPlugins] = useState<ExternalPlugin[]>([])
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<string | null>(null)
+  const [installOpen, setInstallOpen] = useState(false)
   const [installPath, setInstallPath] = useState('')
-  const [confirm, setConfirm] = useState<ExternalPlugin | null>(null)
-  const [disclaimer, setDisclaimer] = useState<ExternalPlugin | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [pendingUninstall, setPendingUninstall] = useState<ExternalPlugin | null>(null)
+  const [pendingDisclaimer, setPendingDisclaimer] = useState<ExternalPlugin | null>(null)
 
-  async function reload(): Promise<void> {
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true)
     try {
       const r = await request<PluginList>('plugins.list')
       setPlugins(r.plugins)
     } catch (e) {
-      push('error', `读取插件列表失败：${String(e)}`)
-    } finally {
-      setLoading(false)
+      push('error', `读取插件失败：${String(e)}`)
     }
-  }
+    setLoading(false)
+  }, [push])
 
   useEffect(() => {
-    void reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void load()
+  }, [load])
 
   async function install(): Promise<void> {
     if (installPath.trim() === '') return
     setBusy('__install__')
     try {
-      const p = await request<ExternalPlugin>('plugins.install', { path: installPath.trim() })
-      push('success', `已安装 ${p.name} v${p.version}`)
+      const p = await request<ExternalPlugin>('plugins.install', {
+        path: installPath.trim()
+      })
+      push('success', `已安装插件 ${p.name} ${p.version}`)
+      setInstallOpen(false)
       setInstallPath('')
-      await reload()
+      await load()
     } catch (e) {
       push('error', `安装失败：${String(e)}`)
     } finally {
@@ -45,32 +90,16 @@ export default function PluginsPage() {
     }
   }
 
-  async function toggle(p: ExternalPlugin, enabled: boolean): Promise<void> {
+  async function togglePlugin(p: ExternalPlugin, enabled: boolean): Promise<void> {
+    // 第三方插件首次启用需要确认免责声明
     if (enabled && !p.official && !p.disclaimerAccepted) {
-      setDisclaimer(p)
+      setPendingDisclaimer(p)
       return
     }
     setBusy(p.id)
     try {
       await request('plugins.setEnabled', { id: p.id, enabled })
-      push('success', enabled ? `已启用 ${p.name}` : `已停用 ${p.name}`)
-      await reload()
-    } catch (e) {
-      push('error', String(e))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function confirmEnable(): Promise<void> {
-    const p = disclaimer
-    setDisclaimer(null)
-    if (!p) return
-    setBusy(p.id)
-    try {
-      await request('plugins.setEnabled', { id: p.id, enabled: true, acceptDisclaimer: true })
-      push('success', `已启用 ${p.name}`)
-      await reload()
+      await load()
     } catch (e) {
       push('error', String(e))
     } finally {
@@ -83,7 +112,8 @@ export default function PluginsPage() {
     try {
       await request('plugins.uninstall', { id: p.id })
       push('success', `已卸载 ${p.name}`)
-      await reload()
+      setPendingUninstall(null)
+      await load()
     } catch (e) {
       push('error', String(e))
     } finally {
@@ -91,150 +121,185 @@ export default function PluginsPage() {
     }
   }
 
-  async function openFolder(p: ExternalPlugin): Promise<void> {
-    try {
-      await request('plugins.openFolder', { id: p.id })
-    } catch (e) {
-      push('error', String(e))
-    }
-  }
-
   return (
-    <>
-      <PageShell
-        title="插件"
-        subtitle="外部插件（v2 沙箱）：.mclplug 安装、JS / Python / 声明式运行时"
-        actions={
-          <button className="btn btn-subtle" onClick={() => void reload()}>
-            ↻ 刷新
-          </button>
-        }
-      >
-        <div className="card" style={{ padding: 16, marginBottom: 12 }}>
-          <div className="t-strong" style={{ display: 'block', marginBottom: 10 }}>
-            安装插件
+    <div className="page">
+      <div className="page-head">
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-primary" onClick={() => setInstallOpen(true)}>
+          安装插件…
+        </button>
+      </div>
+
+      <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* 内核插件 */}
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+            <span className="t-strong" style={{ fontSize: 15 }}>
+              内核插件
+            </span>
+            <span className="t-cap">共 {CORE_PLUGINS.length} 个 · 内核 1.0.0</span>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <input
-              className="input"
-              style={{ flex: 1 }}
-              value={installPath}
-              placeholder=".mclplug 安装包绝对路径"
-              onChange={(e) => setInstallPath(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void install()
-              }}
-            />
-            <button
-              className="btn btn-primary"
-              disabled={busy !== null}
-              onClick={() => void install()}
+          {CORE_PLUGINS.map((p) => (
+            <div
+              key={p.name}
+              className="row row-static"
+              style={{ alignItems: 'flex-start', minHeight: 0, paddingTop: 10, paddingBottom: 10 }}
             >
-              {busy === '__install__' ? '安装中…' : '安装'}
-            </button>
-          </div>
+              <span className="chip" style={{ marginTop: 2 }}>
+                {p.kind}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span className="t-strong">{p.name}</span>
+                  <span className="t-meta">{p.version}</span>
+                </div>
+                <div className="t-cap">
+                  {p.desc}　提供：{p.provides}
+                </div>
+              </div>
+              <span className="t-cap" style={{ flexShrink: 0 }}>
+                运行中
+              </span>
+            </div>
+          ))}
         </div>
 
-        {loading ? (
-          <SkeletonList rows={3} />
-        ) : plugins.length === 0 ? (
-          <EmptyState title="还没有安装外部插件" hint="从 .mclplug 安装包安装第三方插件。" />
-        ) : (
-          plugins.map((p, index) => (
+        {/* 已安装（第三方 / 用户插件） */}
+        <div className="card">
+          <div className="t-strong" style={{ fontSize: 15, marginBottom: 6 }}>
+            已安装
+          </div>
+          {loading && <SkeletonList rows={2} />}
+          {!loading && plugins.length === 0 && (
+            <div className="t-cap" style={{ padding: '12px 0' }}>
+              还没有安装第三方插件。
+            </div>
+          )}
+          {plugins.map((p) => (
             <div
               key={p.id}
-              className="card"
-              style={{
-                padding: 16,
-                marginBottom: 8,
-                animation: `slideUp var(--t-enter) var(--e-enter) both`,
-                animationDelay: `${index * 39}ms`
-              }}
+              className="row row-static"
+              style={{ alignItems: 'flex-start', minHeight: 0, paddingTop: 12, paddingBottom: 12 }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div
-                  className="icon32"
-                  style={{
-                    fontSize: 22,
-                    color: p.enabled ? 'var(--accent)' : 'var(--text-tertiary)',
-                    background: p.enabled
-                      ? 'color-mix(in srgb, var(--accent) 14%, transparent)'
-                      : 'var(--surface-subtle)'
-                  }}
-                >
-                  ◫
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span className="t-strong">{p.name}</span>
+                  <span className="t-meta">{p.version}</span>
+                  {!p.official && <span className="chip chip-accent">第三方未验证</span>}
+                  <span className="chip">API {p.apiVersion}</span>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      flexWrap: 'wrap'
-                    }}
-                  >
-                    <span className="t-strong truncate">
-                      {p.name} {p.version}
-                    </span>
-                    <span className="chip">{p.id}</span>
-                    {p.official && <span className="chip">官方</span>}
-                    {p.enabled && <span className="chip chip-accent">已启用</span>}
-                    {p.loaded && <span className="chip chip-accent">运行中</span>}
-                  </div>
-                  <div className="t-cap">{p.description}</div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                    {p.permissions.slice(0, 6).map((perm) => (
-                      <span key={perm} className="chip">
-                        {perm}
-                      </span>
-                    ))}
-                  </div>
+                <div className="t-cap">{p.description}</div>
+                <div className="t-meta" style={{ opacity: 0.8 }}>
+                  作者 {p.author === '' ? '未知' : p.author}
+                  {p.permissions.length > 0 && ` · 能力：${p.permissions.join(' · ')}`}
                 </div>
-                <button
-                  className={`btn${p.enabled ? '' : ' btn-primary'}`}
-                  disabled={busy !== null}
-                  onClick={() => void toggle(p, !p.enabled)}
-                >
-                  {p.enabled ? '停用' : '启用'}
-                </button>
-                <button
-                  className="btn btn-subtle"
-                  disabled={busy !== null}
-                  onClick={() => void openFolder(p)}
-                >
-                  ▤ 目录
-                </button>
-                <button
-                  className="btn btn-subtle btn-danger"
-                  disabled={busy !== null}
-                  onClick={() => setConfirm(p)}
-                >
-                  ✕ 卸载
-                </button>
               </div>
+              <button
+                className="btn btn-sm"
+                disabled={busy !== null}
+                onClick={() => setPendingUninstall(p)}
+              >
+                卸载
+              </button>
+              <Toggle
+                checked={p.enabled}
+                disabled={busy !== null}
+                label={`启用 ${p.name}`}
+                onChange={(v) => void togglePlugin(p, v)}
+              />
             </div>
-          ))
-        )}
-        {host}
-      </PageShell>
+          ))}
+        </div>
 
+        <div className="t-cap">
+          把 .mclplug 文件放到这里：点「安装插件…」选择插件包，安装后打开开关启用。
+        </div>
+      </div>
+
+      {/* 安装插件 */}
       <Modal
-        open={confirm !== null}
-        title={`卸载 ${confirm?.name}？`}
-        width={460}
-        onClose={() => setConfirm(null)}
+        open={installOpen}
+        title="安装插件"
+        onClose={() => setInstallOpen(false)}
         footer={
           <>
-            <button className="btn" onClick={() => setConfirm(null)}>
+            <button className="btn" onClick={() => setInstallOpen(false)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={installPath.trim() === '' || busy !== null}
+              onClick={() => void install()}
+            >
+              安装
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span className="t-cap">插件包路径（.mclplug 或已解压目录）</span>
+          <input
+            className="input"
+            autoFocus
+            value={installPath}
+            placeholder="例如 /home/user/Downloads/demo.mclplug"
+            onChange={(e) => setInstallPath(e.target.value)}
+          />
+        </div>
+      </Modal>
+
+      {/* 第三方免责声明 */}
+      <Modal
+        open={pendingDisclaimer !== null}
+        title="启用第三方插件？"
+        onClose={() => setPendingDisclaimer(null)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setPendingDisclaimer(null)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                const p = pendingDisclaimer
+                setPendingDisclaimer(null)
+                if (p === null) return
+                void request('plugins.setEnabled', {
+                  id: p.id,
+                  enabled: true,
+                  acceptDisclaimer: true
+                })
+                  .then(() => load())
+                  .catch((e) => push('error', String(e)))
+              }}
+            >
+              我了解风险，启用
+            </button>
+          </>
+        }
+      >
+        <div className="dialog-body">
+          该插件不是 Starcloud 官方发布，未经审核。插件可以访问它声明过的能力，
+          请确认来源可信后再启用。
+        </div>
+      </Modal>
+
+      {/* 卸载确认 */}
+      <Modal
+        open={pendingUninstall !== null}
+        title="卸载插件？"
+        onClose={() => setPendingUninstall(null)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setPendingUninstall(null)}>
               取消
             </button>
             <button
               className="btn btn-primary"
               style={{ background: 'var(--danger)', color: '#fff' }}
               onClick={() => {
-                const t = confirm
-                setConfirm(null)
-                if (t) void uninstall(t)
+                const p = pendingUninstall
+                if (p !== null) void uninstall(p)
               }}
             >
               卸载
@@ -242,27 +307,12 @@ export default function PluginsPage() {
           </>
         }
       >
-        <div className="t-body">插件目录与启用状态会被删除，不可恢复。</div>
+        <div className="dialog-body">
+          将删除插件 <b>{pendingUninstall?.name}</b> 的目录与配置。
+        </div>
       </Modal>
 
-      <Modal
-        open={disclaimer !== null}
-        title="启用第三方插件？"
-        width={460}
-        onClose={() => setDisclaimer(null)}
-        footer={
-          <>
-            <button className="btn" onClick={() => setDisclaimer(null)}>
-              取消
-            </button>
-            <button className="btn btn-primary" onClick={() => void confirmEnable()}>
-              确认并启用
-            </button>
-          </>
-        }
-      >
-        <div className="t-body">插件由第三方独立开发，启动器不对其内容与合法性负责。</div>
-      </Modal>
-    </>
+      {host}
+    </div>
   )
 }

@@ -103,7 +103,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
       case 'nova':
         return <NovaPage />
       case 'logs':
-        return <LogsPage />
+        return <LogsPage session={session} />
       case 'settings':
         return <SettingsPage />
       default:
