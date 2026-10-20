@@ -71,8 +71,10 @@ adb logcat -s StarcloudWeb
 | `app.info` | — | `{name,version,platform,sdk,root}` |
 | `versions.list` | — | `{versions:[{id,sizeBytes}]}` |
 | `versions.install` | `{id}` | `{ok,id}`；过程推 `install.progress` 事件 |
-| `launch.start` | `{id,player}` | `{ok,exitCode}`；过程推 `game.log` / `game.progress` |
+| `launch.start` | `{id,player?}` | `{ok,exitCode}`；`player` 省略时取 `settings.playerName`；过程推 `game.log` / `game.progress` |
 | `install.cancel` | — | `{}` |
+| `settings.get` | — | `{gameDir,javaExecutable,maxMemoryMb,downloadSource,playerName,theme,platform}` |
+| `settings.apply` | 同上的子集 | 写入后的完整快照 |
 | `ui.log` | `{message}` | `{}` |
 
 后续按能力补齐（括号内是首版要接的）：
@@ -88,7 +90,7 @@ adb logcat -s StarcloudWeb
 | --- | --- | --- |
 | P0（已完成） | WebView 容器 + 桥 + 占位页 | 真机能进页面、能列出已装版本 |
 | P1（已完成） | 复用 `electron/out/renderer` 构建产物，拷进 `assets/web/app/`；补 `bridge.js` 适配层 | 同一份 bundle 在浏览器、Electron、WebView 都能跑（浏览器已截图验证） |
-| P2（代码已就位，待真机） | 桥补齐 `versions.install` / `launch.start` / `install.cancel`，复用 `VersionDownloader` 与 `GameLauncher` | 真机跑通「装一个版本 → 启动」 |
+| P2（代码已就位，待真机） | 桥补齐 `versions.install` / `launch.start` / `install.cancel` / `settings.get|apply`；`player` 接到 `LauncherPrefs`（Compose 壳与 Web 壳共用一份） | 真机跑通「装一个版本 → 启动」 |
 | P3 | Web 壳设为默认入口，Compose 保留为「兼容界面」开关 | 用户可切回 Compose |
 | P4 | 移除 Compose 界面代码 | — |
 

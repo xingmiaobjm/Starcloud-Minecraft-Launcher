@@ -37,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.starcloud.launcher.compose.data.VersionsRepository
+import cn.starcloud.launcher.compose.data.LauncherPrefs
 import cn.starcloud.launcher.compose.game.GameLauncher
 import cn.starcloud.launcher.compose.screens.DownloadScreen
 import cn.starcloud.launcher.compose.screens.HomeScreen
@@ -72,7 +73,7 @@ class MainActivity : ComponentActivity() {
 private fun startLaunch(context: android.content.Context, versionId: String, onState: (String) -> Unit) {
     onState("启动中…")
     Thread {
-        GameLauncher.launch(context, versionId, "Player", object : GameLauncher.Listener {
+        GameLauncher.launch(context, versionId, LauncherPrefs.playerName(context), object : GameLauncher.Listener {
             override fun onLog(line: String) {
                 android.util.Log.i("StarcloudFlow", line)
             }

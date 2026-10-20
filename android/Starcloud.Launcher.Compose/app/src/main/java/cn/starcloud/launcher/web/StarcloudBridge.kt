@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import android.webkit.JavascriptInterface
 import cn.starcloud.launcher.compose.data.InstallState
+import cn.starcloud.launcher.compose.data.LauncherPrefs
 import cn.starcloud.launcher.compose.data.ManifestRepository
 import cn.starcloud.launcher.compose.data.VersionDownloader
 import cn.starcloud.launcher.compose.game.GameLauncher
@@ -57,6 +58,8 @@ class StarcloudBridge(
             when (method) {
                 "app.info" -> appInfo()
                 "versions.list" -> versions()
+                "settings.get" -> settingsGet()
+                "settings.set", "settings.apply" -> settingsWrite(params)
                 "ui.log" -> {
                     val msg = runCatching { JSONObject(paramsJson).optString("message") }.getOrNull()
                     if (!msg.isNullOrEmpty()) Log.i(TAG, msg)
@@ -69,6 +72,32 @@ class StarcloudBridge(
             errorJson("internal", t.message ?: t.javaClass.simpleName)
         }
         invokeJs("window.__sc&&window.__sc.reply(${JSONObject.quote(id)},${JSONObject.quote(result)})")
+    }
+
+    // ── settings：字段名与 electron 渲染层的 SettingsSnapshot 对齐（camelCase） ──
+    private fun settingsGet(): String = JSONObject().apply {
+        put("gameDir", File(filesRoot, ".minecraft").absolutePath)
+        put("javaExecutable", "")            // 安卓的 JVM 由组件包拉起，没有独立可执行路径
+        put("maxMemoryMb", LauncherPrefs.maxMemoryMb(context))
+        put("downloadSource", "bmclapi")     // 与桌面端默认源一致
+        // 安卓侧额外字段（桌面端没有，页面按需读取）
+        put("playerName", LauncherPrefs.playerName(context))
+        put("theme", LauncherPrefs.theme(context))
+        put("platform", "android")
+    }.toString()
+
+    /** 写回：认识的键落盘，其余忽略；返回写入后的完整快照 */
+    private fun settingsWrite(params: JSONObject): String {
+        if (params.has("playerName")) {
+            LauncherPrefs.setPlayerName(context, params.optString("playerName"))
+        }
+        if (params.has("theme")) {
+            LauncherPrefs.setTheme(context, params.optString("theme"))
+        }
+        if (params.has("maxMemoryMb")) {
+            LauncherPrefs.setMaxMemoryMb(context, params.optInt("maxMemoryMb"))
+        }
+        return settingsGet()
     }
 
     // ── versions.install：复用 VersionDownloader，进度走 InstallState 轮询 ──
@@ -116,7 +145,9 @@ class StarcloudBridge(
     private fun launchGame(callId: String, params: JSONObject) {
         val versionId = params.optString("id")
         if (versionId.isEmpty()) { reply(callId, errorJson("bad-request", "缺少版本 id")); return }
-        val player = params.optString("player").ifEmpty { "Player" }
+        // 页面没传就用设置里的离线用户名（与 Compose 壳同一份偏好）
+        val player = params.optString("player").trim()
+            .ifEmpty { LauncherPrefs.playerName(context) }
         try {
             GameLauncher.launch(context, versionId, player, object : GameLauncher.Listener {
                 override fun onLog(line: String) = emit("game.log", JSONObject().put("line", line).toString())
