@@ -52,7 +52,8 @@ public sealed record Contribution(
     string? PageId = null,
     int Order = 100,
     string? Glyph = null,
-    object? Payload = null);
+    object? Payload = null,
+    string? IconUri = null);
 
 public enum ContributionChangeKind { Added, Removed }
 

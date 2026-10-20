@@ -28,6 +28,10 @@ public sealed partial class MainWindow : Window
     // 插件导航组（contributes.navItems）：Nova 之后一条分隔线 + 最多 3 项，运行时按贡献重建
     private const int MaxPluginNavItems = 3;
     private readonly List<NavigationViewItem> _pluginNavItems = [];
+    /// <summary>「运行状态」右侧圆点（代码建导航，XAML 里不再有名字）</summary>
+    private Microsoft.UI.Xaml.Shapes.Ellipse? _runningDot;
+    /// <summary>自绘 SVG 导航图标：按 tag 持有，主题切换时换源</summary>
+    private readonly Dictionary<string, ImageIcon> _navImageIcons = new(StringComparer.Ordinal);
     private NavigationViewItemSeparator? _pluginNavSeparator;
     private bool _pluginNavHooked;
 
@@ -103,8 +107,9 @@ public sealed partial class MainWindow : Window
         RefreshAccountButton();
         Activated += (_, _) => RefreshAccountButton();
 
-        Nav.SelectedItem = Nav.MenuItems[0];
-        ContentFrame.Navigate(typeof(HomePage), null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
+        // 导航项在 Loaded 时按贡献点生成；选中项由 BuildNavFromContributions 落第一项。
+        // 首屏直接进首页（页面类型同样来自贡献点，这里保留常量只为启动即有内容）。
+        ContentFrame.Navigate(ResolvePageType("home"), null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
         ContentFrame.NavigationFailed += (_, e) =>
             LauncherLog.Error("nav", $"导航到 {e.SourcePageType.Name} 失败", e.Exception);
         Closed += (_, _) =>
@@ -159,6 +164,9 @@ public sealed partial class MainWindow : Window
         // （挂到根元素而不是 Window —— WinUI 3 的 Window 没有 Loaded 事件）
         root.Loaded += (_, _) =>
         {
+            BuildNavFromContributions();           // 内置页面 / 导航项来自贡献点
+            // 切语言后导航文案要跟着变（标题在构建时经 Loc.T 解析）
+            Loc.LanguageChanged += () => DispatcherQueue.TryEnqueue(BuildNavFromContributions);
             ApplyNavIconTheme(root.ActualTheme);   // 挂进可视树后 ActualTheme 才确定
             if (_pluginNavHooked) return;
             _pluginNavHooked = true;
@@ -259,7 +267,7 @@ public sealed partial class MainWindow : Window
     /// <summary>导航项「运行状态」右侧圆点：有游戏在跑就点亮（静态，不做呼吸动画）</summary>
     private void UpdateRunningDot(bool running)
     {
-        var dot = RunningDot;
+        var dot = _runningDot;
         if (dot is null) return;
         if (running == (dot.Visibility == Visibility.Visible)) return;   // 状态没变不碰 XAML
         dot.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
@@ -360,22 +368,8 @@ public sealed partial class MainWindow : Window
             Nav.IsPaneOpen = false;
             return;
         }
-        Type page = tag switch
-        {
-            "versions" => typeof(VersionsPage),
-            "saves" => typeof(SavesPage),
-            "multiplayer" => typeof(MultiplayerPage),
-            "lab" => typeof(LabPage),
-            "projections" => typeof(ProjectionManagerPage),
-            "running" => typeof(RunningStatusPage),
-            "download" => typeof(DownloadPage),
-            "accounts" => typeof(AccountsPage),
-            "ai" => typeof(NovaPage),
-            "settings" => typeof(SettingsPage),
-            "plugins" => typeof(PluginsPage),
-            "logs" => typeof(LogsPage),
-            _ => typeof(HomePage),
-        };
+        // 页面类型来自贡献点（Kind.Page，Payload = Type）；找不到就回落首页
+        var page = ResolvePageType(tag);
         if (ContentFrame.CurrentSourcePageType != page)
         {
             LauncherLog.Write("nav", $"导航 {ContentFrame.CurrentSourcePageType?.Name} → {page.Name}（tag={tag}）");
@@ -395,6 +389,83 @@ public sealed partial class MainWindow : Window
         if (target is not null && !ReferenceEquals(Nav.SelectedItem, target))
             Nav.SelectedItem = target;
     }
+
+    // ── 内置导航：由贡献点（BuiltinShellPlugin）生成，外壳不再认识具体页面 ──
+
+    /// <summary>按贡献点重建左侧导航：页面项插在本体菜单，Target=footer 的进底部区</summary>
+    private void BuildNavFromContributions()
+    {
+        try
+        {
+            Nav.MenuItems.Clear();
+            Nav.FooterMenuItems.Clear();
+            _navImageIcons.Clear();
+            _runningDot = null;
+
+            foreach (var c in AppServices.Instance.Kernel.Contributions.Of(Starcloud.Core.Kernel.ContributionKind.NavItem))
+            {
+                if (c.Target == "separator")
+                {
+                    Nav.MenuItems.Add(new NavigationViewItemSeparator());
+                    continue;
+                }
+
+                var item = new NavigationViewItem { Tag = c.PageId };
+                if (c.PageId == "running")
+                {
+                    // 运行状态：文案 + 运行中圆点（圆点由 UpdateRunningDot 控制）
+                    var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+                    {
+                        Width = 6,
+                        Height = 6,
+                        Margin = new Thickness(8, 0, 0, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Visibility = Visibility.Collapsed,
+                    };
+                    dot.Fill = ThemedBrush("SystemFillColorSuccessBrush");
+                    _runningDot = dot;
+                    var panel = new StackPanel { Orientation = Orientation.Horizontal };
+                    panel.Children.Add(new TextBlock { Text = Loc.T(c.Title), VerticalAlignment = VerticalAlignment.Center });
+                    panel.Children.Add(dot);
+                    item.Content = panel;
+                }
+                else
+                {
+                    item.Content = new TextBlock { Text = Loc.T(c.Title), VerticalAlignment = VerticalAlignment.Center };
+                }
+
+                if (!string.IsNullOrEmpty(c.IconUri))
+                {
+                    var icon = new ImageIcon { Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(c.IconUri)) };
+                    item.Icon = icon;
+                    if (c.PageId is { } tag) _navImageIcons[tag] = icon;
+                }
+                else if (!string.IsNullOrEmpty(c.Glyph))
+                {
+                    item.Icon = new FontIcon { FontFamily = IconFont.Family, Glyph = c.Glyph };
+                }
+
+                if (c.Target == "footer") Nav.FooterMenuItems.Add(item);
+                else Nav.MenuItems.Add(item);
+            }
+
+            // 选中项落在第一项（首页）
+            if (Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault() is { } first &&
+                Nav.SelectedItem is null)
+                Nav.SelectedItem = first;
+            LauncherLog.Write("nav", $"内置导航：{Nav.MenuItems.Count} 项 + 底部 {Nav.FooterMenuItems.Count} 项（来自贡献点）");
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("nav", "按贡献点重建导航失败", ex);
+        }
+    }
+
+    /// <summary>tag → 页面类型：只认 Kind.Page 贡献，没有就回落首页</summary>
+    private static Type ResolvePageType(string? tag) =>
+        AppServices.Instance.Kernel.Contributions.Of(Starcloud.Core.Kernel.ContributionKind.Page)
+            .FirstOrDefault(c => c.PageId == tag)?.Payload as Type
+        ?? typeof(HomePage);
 
     /// <summary>
     /// 重建「插件导航组」：Nova 之后一条分隔线 + 最多 3 项。
@@ -986,10 +1057,12 @@ public sealed partial class MainWindow : Window
     private void ApplyNavIconTheme(ElementTheme theme)
     {
         var suffix = theme == ElementTheme.Dark ? "-dark" : "";
-        LabNavIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
-            new Uri($"ms-appx:///Assets/Brand/lab-nav{suffix}.svg"));
-        ProjectionNavIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
-            new Uri($"ms-appx:///Assets/Brand/projection-nav{suffix}.svg"));
+        foreach (var (tag, file) in new[] { ("lab", "lab-nav"), ("projections", "projection-nav") })
+        {
+            if (_navImageIcons.TryGetValue(tag, out var icon))
+                icon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
+                    new Uri($"ms-appx:///Assets/Brand/{file}{suffix}.svg"));
+        }
     }
 
     private void UpdateMaximizeGlyph()

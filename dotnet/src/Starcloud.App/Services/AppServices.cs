@@ -2,6 +2,7 @@
 
 using Starcloud.Core.Kernel.Plugins;
 using Starcloud.Core.Plugins;
+using Starcloud.App.Shell;
 using Starcloud.Core.Kernel.Contracts;
 using Starcloud.Core.Services;
 using Starcloud.Core.Services.Lab;
@@ -141,6 +142,7 @@ public sealed class AppServices
         Kernel.Register(BuiltinTranslatePlugin.Descriptor, _ => new BuiltinTranslatePlugin());
         Kernel.Register(BuiltinIconCachePlugin.Descriptor, _ => new BuiltinIconCachePlugin(() => Settings));
         Kernel.Register(BuiltinProjectionPlugin.Descriptor, _ => new BuiltinProjectionPlugin(() => Settings));
+        Kernel.Register(BuiltinShellPlugin.Descriptor, _ => new BuiltinShellPlugin());
         Kernel.Register(BuiltinProjectionEnginePlugin.Descriptor, _ => new BuiltinProjectionEnginePlugin(() => Settings));
         Kernel.Register(BuiltinLlmGatewayPlugin.Descriptor, _ => new BuiltinLlmGatewayPlugin(() => Settings));
         // 内置插件的 InitializeAsync 都是纯内存构造，同步启动即可（有 I/O 的插件应声明 lazy）
