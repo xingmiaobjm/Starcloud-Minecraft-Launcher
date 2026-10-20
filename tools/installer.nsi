@@ -85,6 +85,9 @@ Var BmpFile
 Var BmpW
 Var BmpH
 Var BmpOut
+Var Tier
+Var SrcW
+Var SrcH
 
 Var hDrag
 Var hMin
@@ -215,12 +218,39 @@ FunctionEnd
 !macroend
 
 ; 位图按「目标尺寸」加载：GetDpiForWindow 只报整档 DPI，用户的缩放却可能是
-; 125% / 175% 这类中间值 —— 只准备 100/150/200 三档素材的话，底图和按缩放摆位的
-; 控件就会错位（底图贴不满窗口、控件悬在空白上）。LoadImage 传非零宽高会把图
-; 直接缩放到目标大小，素材选「不小于目标的最近一档」保证是缩小而不是放大。
+; 125% / 175% 这类中间值 —— 只准备 100/150/200 三档素材再 1:1 贴上去的话，
+; 非整档机器会拿到偏小的底图贴在偏大的窗口里，控件却按缩放摆位，于是整个界面错位。
+; LoadImage 传非零宽高在 NSIS 里会失败（实测返回 0），所以用 GDI StretchBlt 自己缩：
+;   目标尺寸 = 当前 DPI 下的实际像素（$BmpW/$BmpH）
+;   源尺寸   = 目标 × 素材档位 / 当前缩放（$SrcW/$SrcH，永远不小于目标，是缩小）
+Function ScaleSrc
+  IntOp $0 $BmpW * $Tier
+  IntOp $0 $0 / $Scale
+  StrCpy $SrcW $0
+  IntOp $0 $BmpH * $Tier
+  IntOp $0 $0 / $Scale
+  StrCpy $SrcH $0
+FunctionEnd
+
 Function LoadBmpScaled
-  System::Call 'user32::LoadImageW(i 0, w $BmpFile, i 0, i $BmpW, i $BmpH, i 0x2010) i .r0'
-  StrCpy $BmpOut $0
+  Call ScaleSrc
+  System::Call 'user32::LoadImageW(i 0, w "$BmpFile", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $1 $0
+  ${If} $1 == 0
+    StrCpy $BmpOut 0
+    Return
+  ${EndIf}
+  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r2'
+  System::Call 'gdi32::SelectObject(i r2, i r1) i .r3'
+  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r4'
+  System::Call 'gdi32::CreateCompatibleBitmap(i r2, i $BmpW, i $BmpH) i .r5'
+  System::Call 'gdi32::SelectObject(i r4, i r5) i .r6'
+  System::Call 'gdi32::SetStretchBltMode(i r4, i 4)'   ; HALFTONE：缩小不糊
+  System::Call 'gdi32::StretchBlt(i r4, i 0, i 0, i $BmpW, i $BmpH, i r2, i 0, i 0, i $SrcW, i $SrcH, i 0x00CC0020) i .r7'
+  System::Call 'gdi32::DeleteDC(i r4)'
+  System::Call 'gdi32::DeleteDC(i r2)'
+  System::Call 'gdi32::DeleteObject(i r1)'
+  StrCpy $BmpOut $5
 FunctionEnd
 
 Function LoadUiAssets
@@ -228,10 +258,13 @@ Function LoadUiAssets
   SetOutPath "$PLUGINSDIR"
   ${If} $Scale <= 100
     File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+    StrCpy $Tier 100
   ${ElseIf} $Scale <= 150
     File /r "${__FILEDIR__}\installer-assets\ui\150\*.*"
+    StrCpy $Tier 150
   ${Else}
     File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
+    StrCpy $Tier 200
   ${EndIf}
 
   StrCpy $BmpFile "$PLUGINSDIR\bg-install.bmp"
@@ -291,9 +324,34 @@ Function LoadUiAssets
   StrCpy $hBmpBtnDone $BmpOut
 FunctionEnd
 
+Function un.ScaleSrc
+  IntOp $0 $BmpW * $Tier
+  IntOp $0 $0 / $Scale
+  StrCpy $SrcW $0
+  IntOp $0 $BmpH * $Tier
+  IntOp $0 $0 / $Scale
+  StrCpy $SrcH $0
+FunctionEnd
+
 Function un.LoadBmpScaled
-  System::Call 'user32::LoadImageW(i 0, w $BmpFile, i 0, i $BmpW, i $BmpH, i 0x2010) i .r0'
-  StrCpy $BmpOut $0
+  Call un.ScaleSrc
+  System::Call 'user32::LoadImageW(i 0, w "$BmpFile", i 0, i 0, i 0, i 0x2010) i .r0'
+  StrCpy $1 $0
+  ${If} $1 == 0
+    StrCpy $BmpOut 0
+    Return
+  ${EndIf}
+  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r2'
+  System::Call 'gdi32::SelectObject(i r2, i r1) i .r3'
+  System::Call 'gdi32::CreateCompatibleDC(i 0) i .r4'
+  System::Call 'gdi32::CreateCompatibleBitmap(i r2, i $BmpW, i $BmpH) i .r5'
+  System::Call 'gdi32::SelectObject(i r4, i r5) i .r6'
+  System::Call 'gdi32::SetStretchBltMode(i r4, i 4)'
+  System::Call 'gdi32::StretchBlt(i r4, i 0, i 0, i $BmpW, i $BmpH, i r2, i 0, i 0, i $SrcW, i $SrcH, i 0x00CC0020) i .r7'
+  System::Call 'gdi32::DeleteDC(i r4)'
+  System::Call 'gdi32::DeleteDC(i r2)'
+  System::Call 'gdi32::DeleteObject(i r1)'
+  StrCpy $BmpOut $5
 FunctionEnd
 
 Function un.LoadUninstallAssets
@@ -301,10 +359,13 @@ Function un.LoadUninstallAssets
   SetOutPath "$PLUGINSDIR"
   ${If} $Scale <= 100
     File /r "${__FILEDIR__}\installer-assets\ui\100\*.*"
+    StrCpy $Tier 100
   ${ElseIf} $Scale <= 150
     File /r "${__FILEDIR__}\installer-assets\ui\150\*.*"
+    StrCpy $Tier 150
   ${Else}
     File /r "${__FILEDIR__}\installer-assets\ui\200\*.*"
+    StrCpy $Tier 200
   ${EndIf}
 
   StrCpy $BmpFile "$PLUGINSDIR\bg-uninstall.bmp"
@@ -397,7 +458,6 @@ Function UiPage
   ${If} $hPage == error
     Abort
   ${EndIf}
-  WriteRegStr HKCU "Software\Starcloud\ui-debug" "prep" "scale=$Scale w=$WinW h=$WinH page=$hPage"
   Call FillPage
   Call LoadUiAssets
   Call CreateChrome
