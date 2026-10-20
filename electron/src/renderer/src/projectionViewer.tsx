@@ -37,12 +37,13 @@ export default function ProjectionViewer(props: {
   const [status, setStatus] = useState('等待投影数据…')
   const pathRef = useRef<string | undefined>(props.path)
 
-  // 监听预览页发来的消息（就绪 / 提示）
+  // 就绪信号：Win 端由 WebView2 的 postMessage('ready') 触发；Electron 里没有
+  // window.chrome.webview，预览页不会发 ready —— 改用它自己的 load 事件。
+  // 预览页同时监听自身 window 的 message，所以直接 post 进 contentWindow 即可。
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
       const data = e.data as { type?: string } | null
-      if (data === null || typeof data !== 'object') return
-      if (data.type === 'ready') setReady(true)
+      if (data !== null && typeof data === 'object' && data.type === 'ready') setReady(true)
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -112,6 +113,7 @@ export default function ProjectionViewer(props: {
         ref={frameRef}
         title="投影预览"
         src="./lab/projection-viewer.html"
+        onLoad={() => setReady(true)}
         style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
       />
       {(loading || status !== '') && (

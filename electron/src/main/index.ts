@@ -202,6 +202,20 @@ function createWindow(): BrowserWindow {
           `)
           await new Promise((r) => setTimeout(r, 1200))
         }
+        // 取证用：按可见文本点第一个匹配的按钮（列表行没有 title）
+        const clickText = process.env.STARCLOUD_SCREENSHOT_CLICK_TEXT
+        if (clickText !== undefined && clickText !== '') {
+          await win.webContents.executeJavaScript(`
+            (() => {
+              const el = [...document.querySelectorAll('button, .row')]
+                .find((n) => (n.textContent ?? '').includes(${JSON.stringify(clickText)}))
+              if (el) el.click()
+              return el !== undefined
+            })()
+          `)
+          // 投影解析 + 资源抽取（读客户端 jar）可能要十几秒
+          await new Promise((r) => setTimeout(r, 22000))
+        }
         const diag = await win.webContents.executeJavaScript(`
           JSON.stringify({
             htmlLen: document.documentElement.outerHTML.length,
