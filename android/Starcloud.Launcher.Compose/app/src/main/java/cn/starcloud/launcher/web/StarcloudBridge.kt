@@ -394,7 +394,9 @@ class StarcloudBridge(
         try {
             val cache = File(filesRoot, "cache/version_manifest.json")
             val repo = ManifestRepository(cache)
-            val entries = repo.cached() ?: repo.fetch()
+            val entries = if (cn.starcloud.launcher.compose.data.DownloadDebug.manifestUrl != null)
+                repo.fetch()          // 自检：强制按覆盖的清单拉，不吃旧缓存
+            else repo.cached() ?: repo.fetch()
             val entry = entries.firstOrNull { it.id == versionId }
                 ?: run { reply(callId, errorJson("not-found", "清单里没有 $versionId")); return }
 

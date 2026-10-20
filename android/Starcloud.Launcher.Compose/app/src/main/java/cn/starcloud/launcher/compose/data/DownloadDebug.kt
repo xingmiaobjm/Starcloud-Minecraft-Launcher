@@ -10,4 +10,8 @@ package cn.starcloud.launcher.compose.data
 object DownloadDebug {
     @Volatile
     var proxyBase: String? = null
+
+    /** 非空时清单只从这个 URL 拉（自检用本地假仓库 tools/fake-repo） */
+    @Volatile
+    var manifestUrl: String? = null
 }

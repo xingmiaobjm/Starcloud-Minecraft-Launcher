@@ -319,6 +319,8 @@ class VersionDownloader(private val filesRoot: File) {
                 val idx = JSONObject(idxText)
                 objects = idx.optJSONObject("objects") ?: org.json.JSONObject()
                 virtual = idx.optBoolean("virtual", false)
+                // 首次安装（或索引为空的全新目录）时 indexes/ 还不存在，must mkdirs
+                File(assetsDir, "indexes").mkdirs()
                 File(assetsDir, "indexes/${assetIndex.optString("id", "legacy")}.json").writeText(idxText)
                 InstallState.done = 1
             }

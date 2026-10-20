@@ -15,10 +15,11 @@ data class ManifestEntry(
 class ManifestRepository(private val cacheFile: File) {
 
     /** 与 Core DownloadSource 同口径：镜像优先 */
-    private val urls = listOf(
-        "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json",
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
-    )
+    private val urls: List<String>
+        get() = DownloadDebug.manifestUrl?.let { listOf(it) } ?: listOf(
+            "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json",
+            "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+        )
 
     /** 读缓存清单（无缓存/损坏返回 null）——进页面先上屏缓存，网络刷新随后覆盖 */
     fun cached(): List<ManifestEntry>? = try {
