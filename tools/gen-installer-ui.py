@@ -40,7 +40,7 @@ SCALES = [(100, 1.0), (150, 1.5), (200, 2.0)]
 WIN_W, WIN_H = 960, 660
 TITLE_MIN = (852, 8, 40, 40)
 TITLE_CLOSE = (892, 8, 44, 40)
-PATH_EDIT = (176, 418, 700, 36)
+PATH_EDIT = (176, 424, 700, 24)
 PATH_BTN = (864, 414, 48, 44)
 BTN_INSTALL = (40, 492, 880, 64)
 CHK_AGREE = (40, 584, 18, 18)
@@ -119,9 +119,9 @@ def draw_title(c: Canvas):
     icon = Image.open(ICON_DARK).convert("RGBA")
     n = c.px(32)
     icon = icon.resize((n, n), Image.LANCZOS)
-    c.img.paste(icon, (c.px(40), c.px(16)), icon)
-    c.latin((84, 22), "Starcloud", 17, INK)
-    c.text((84, 43), "星云创新 · Minecraft 启动器", 10.5, SUB, bold=False)
+    c.img.paste(icon, (c.px(40), c.px(22)), icon)
+    c.latin((84, 21), "Starcloud", 17, INK)
+    c.text((84, 42), "星云创新 · Minecraft 启动器", 10.5, SUB, bold=False)
 
     # 最小化
     x, y, w, h = TITLE_MIN

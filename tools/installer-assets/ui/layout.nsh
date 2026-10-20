@@ -10,9 +10,9 @@
 !define UI_CLOSE_W 44
 !define UI_CLOSE_H 40
 !define UI_PATH_EDIT_X 176
-!define UI_PATH_EDIT_Y 418
+!define UI_PATH_EDIT_Y 424
 !define UI_PATH_EDIT_W 700
-!define UI_PATH_EDIT_H 36
+!define UI_PATH_EDIT_H 24
 !define UI_PATH_BTN_X 864
 !define UI_PATH_BTN_Y 414
 !define UI_PATH_BTN_W 48
