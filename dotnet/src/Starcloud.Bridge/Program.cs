@@ -154,7 +154,7 @@ public static class Program
         _nova = new NovaService(
             _modrinth, diagnostics, conflicts,
             novaPermissions, novaLog, novaMoments, novaInvites, _saves,
-            novaTools, null, translation);
+            novaTools, _starcloudId, translation, new NovaLlmGateway(() => _settings));
 
         // v2 插件运行时：JS（Jint）/ Python（python3 子进程）/ 纯声明式（Noop）。
         _pluginHost = new PluginHost(
@@ -1289,6 +1289,7 @@ public static class Program
                     baseUrl = profile?.BaseUrl ?? "",
                     apiKey = profile?.ApiKey ?? "",
                     model = profile?.Model ?? "",
+                    gatewayEnabled = _settings.NovaGatewayEnabled,
                 };
             }
 
@@ -1324,8 +1325,11 @@ public static class Program
                     _settings.NovaLlmProfiles.Add(profile);
                     _settings.NovaLlmActiveId = profile.Id;
                 }
+                if (p.TryGetProperty("gatewayEnabled", out var gw) &&
+                    gw.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    _settings.NovaGatewayEnabled = gw.GetBoolean();
                 _settings.Save();
-                return new { baseUrl, apiKey, model };
+                return new { baseUrl, apiKey, model, gatewayEnabled = _settings.NovaGatewayEnabled };
             }
 
             case "nova.plan.execute":
