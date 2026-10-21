@@ -15,6 +15,9 @@ using Xunit;
 
 namespace Starcloud.Core.Tests;
 
+/// <summary>下载链路会往进程内单例 TaskCenterService 写聚合任务，
+/// 与 TaskCenterServiceTests 抢同一个单例 —— 必须同集合串行。</summary>
+[Collection("进程内单例")]
 public class ChunkedFileDownloaderTests
 {
     private const long MiB = 1024 * 1024;
