@@ -54,6 +54,7 @@ public static class Program
     private static CurseForgePackInstaller _cfPacks = null!;
     private static MultiMcPackService _multiMcPacks = null!;
     private static VersionBackupService _versionBackup = null!;
+    private static ProjectionCommunityService _projectionCommunity = null!;
     private static NovaService _nova = null!;
     private static PluginHost _pluginHost = null!;
     private static Task? _novaTask;
@@ -100,6 +101,7 @@ public static class Program
         _cfPacks = new CurseForgePackInstaller(_download, _curseForge);
         _multiMcPacks = new MultiMcPackService();
         _versionBackup = new VersionBackupService();
+        _projectionCommunity = new ProjectionCommunityService(() => _settings, _download);
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
         _projections = new ProjectionLibrary(() => _settings);
@@ -297,6 +299,8 @@ public static class Program
             or "projections.scan" or "projections.copy" or "projections.move"
             or "projections.delete"
             or "plugins.invoke"
+            or "lab.colorText" or "lab.commands" or "lab.buildCommand"
+            or "lab.communitySearch" or "lab.communityFiles" or "lab.communityDownload"
             or "versions.rename" or "versions.copy" or "versions.exportProbe"
             or "versions.exportModpack" or "versions.resolvePackLink"
             or "versions.downloadPack" or "versions.packPreview" or "versions.importPack"
@@ -1683,6 +1687,13 @@ public static class Program
                 return new { ok = true, path = dir };
             }
 
+            case "app.paths":
+                return new
+                {
+                    dataDir = LauncherPaths.DataDir,
+                    logDir = LauncherPaths.LogsDir,
+                    logFile = LauncherLog.CurrentFile,
+                };
             case "settings.get":
                 return SnapshotSettings();
 
@@ -2332,7 +2343,7 @@ public static class Program
                 }
                 var includeSaves = !p.TryGetProperty("includeSaves", out var isEl) || isEl.GetBoolean();
                 var backupName = p.TryGetProperty("name", out var bnEl) && bnEl.ValueKind == JsonValueKind.String
-                    && bnEl.GetString() is { Length: > 0 } bn ? bn : $"备份-{DateTime.Now:yyyy-MM-dd_HHmmss}";
+                    && bnEl.GetString() is { Length: > 0 } bn ? bn : "备份";
                 var status = new Progress<string>(st =>
                     Emit(stdout, "modpack.progress", new { stage = st, percent = -1 }));
                 var entry = await _versionBackup.BackupAsync(_settings.DotMinecraft,
@@ -2361,6 +2372,100 @@ public static class Program
 
             case "versions.backupRebuild":
                 return new { ok = true, entries = _versionBackup.RebuildIndex(_settings.DotMinecraft) };
+            case "lab.palette":
+                return new
+                {
+                    colors = McText.LegacyColors.Select(c => new { code = c.Code.ToString(), name = c.Name, hex = c.Hex }),
+                };
+
+            case "lab.colorText":
+            {
+                var text = p.TryGetProperty("text", out var tEl) ? tEl.GetString() ?? "" : "";
+                var mode = p.TryGetProperty("mode", out var mEl) ? mEl.GetString() ?? "solid" : "solid";
+                var hex = p.TryGetProperty("hexColor", out var hEl) ? hEl.GetString() ?? "#FFD322" : "#FFD322";
+                var fromHex = p.TryGetProperty("fromHex", out var fEl) ? fEl.GetString() ?? "#FFD322" : "#FFD322";
+                var toHex = p.TryGetProperty("toHex", out var toEl) ? toEl.GetString() ?? "#00AAFF" : "#00AAFF";
+                var legacy = p.TryGetProperty("legacyPalette", out var lEl) && lEl.GetBoolean();
+                var exact = !p.TryGetProperty("exact", out var eEl) || eEl.GetBoolean();
+                var segment = p.TryGetProperty("segmentLength", out var sEl) && sEl.ValueKind == JsonValueKind.Number
+                    ? Math.Max(1, sEl.GetInt32())
+                    : 1;
+                var bold = p.TryGetProperty("bold", out var bEl) && bEl.GetBoolean();
+                var italic = p.TryGetProperty("italic", out var iEl) && iEl.GetBoolean();
+                var underline = p.TryGetProperty("underline", out var uEl) && uEl.GetBoolean();
+                var strike = p.TryGetProperty("strikethrough", out var stEl) && stEl.GetBoolean();
+                var magic = p.TryGetProperty("obfuscated", out var obEl) && obEl.GetBoolean();
+                var style = McText.StyleCodes(bold, italic, underline, strike, magic);
+                var result = mode switch
+                {
+                    "gradient" => McText.Gradient(text, fromHex, toHex, exact, segment, style),
+                    "rainbow" => McText.Rainbow(text, exact, segment, style),
+                    _ => McText.Solid(text, hex, legacy, style),
+                };
+                return new { ok = true, text = result };
+            }
+
+            case "lab.commands":
+                return new
+                {
+                    categories = CommandHelper.Categories,
+                    templates = CommandHelper.Templates.Select(t => new
+                    {
+                        t.Id, t.Category, t.Name, t.Template, t.Note,
+                        @params = t.Params.Select(x => new
+                        {
+                            x.Key, x.Label, defaultValue = x.Default, x.Suggestions, x.Required,
+                        }),
+                    }),
+                };
+
+            case "lab.buildCommand":
+            {
+                var templateId = p.GetProperty("templateId").GetString()!;
+                var template = CommandHelper.Templates.FirstOrDefault(t => t.Id == templateId)
+                    ?? throw new Exception($"未知指令模板：{templateId}");
+                var values = new Dictionary<string, string>();
+                if (p.TryGetProperty("values", out var vEl) && vEl.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var kv in vEl.EnumerateObject())
+                        values[kv.Name] = kv.Value.ValueKind == JsonValueKind.String ? kv.Value.GetString() ?? "" : kv.Value.ToString();
+                }
+                var command = CommandHelper.Build(template, values);
+                return new
+                {
+                    ok = true,
+                    command,
+                    hasUnfilled = CommandHelper.HasUnfilled(command),
+                    error = CommandHelper.Validate(command),
+                };
+            }
+
+            case "lab.communitySearch":
+            {
+                var query = p.TryGetProperty("query", out var qEl) ? qEl.GetString() ?? "" : "";
+                var force = p.TryGetProperty("forceRefresh", out var frEl) && frEl.GetBoolean();
+                var (items, failed) = await _projectionCommunity.SearchAsync(query, force);
+                return new { items, failedSources = failed, sources = _projectionCommunity.SourceNames };
+            }
+
+            case "lab.communityFiles":
+            {
+                var item = ReadCommunityItem(p.GetProperty("item"));
+                var files = await _projectionCommunity.ListFilesAsync(item);
+                return new { files };
+            }
+
+            case "lab.communityDownload":
+            {
+                var file = new CommunityFile(
+                    p.GetProperty("fileName").GetString() ?? "projection.litematic",
+                    p.TryGetProperty("sizeBytes", out var szEl) && szEl.ValueKind == JsonValueKind.Number ? szEl.GetInt64() : 0,
+                    p.GetProperty("downloadUrl").GetString()!);
+                var dir = Path.Combine(_settings.DotMinecraft, "schematics");
+                Directory.CreateDirectory(dir);
+                var saved = await _projectionCommunity.DownloadAsync(file, dir);
+                return new { ok = true, path = saved };
+            }
             default:
                 throw new Exception($"未知方法：{method}");
         }
@@ -2702,6 +2807,19 @@ public static class Program
         else if (deps.TryGetValue("forge", out var forge) && forge.Length > 0) id = $"{mc}-forge-{forge}";
         else if (deps.TryGetValue("neoforge", out var neo) && neo.Length > 0) id = $"neoforge-{neo}";
         return id is not null && File.Exists(Path.Combine(dotMc, "versions", id, $"{id}.json")) ? id : null;
+    }
+    private static CommunityProjection ReadCommunityItem(JsonElement e)
+    {
+        string S(string key, string fallback = "") =>
+            e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? fallback : fallback;
+        int I(string key) =>
+            e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+        DateTime D(string key) =>
+            e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String &&
+            DateTime.TryParse(v.GetString(), out var at) ? at : DateTime.MinValue;
+        return new CommunityProjection(
+            S("source"), S("name"), S("author"), S("description"), I("stars"), D("updatedAt"),
+            S("fullName"), S("htmlUrl"), S("imageUrl"));
     }
     private static bool IsBool(JsonElement e) =>
         e.ValueKind == JsonValueKind.True || e.ValueKind == JsonValueKind.False;
