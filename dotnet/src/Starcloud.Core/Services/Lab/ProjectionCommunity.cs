@@ -326,7 +326,7 @@ public sealed class ProjectionCommunityService(Func<LauncherSettings> settings, 
     {
         List<IProjectionSource> sources = [GitHub];
         var custom = settings().ProjectionCustomSources ?? "";
-        foreach (var line in custom.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var line in custom.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (!line.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
             try

@@ -253,7 +253,7 @@ public sealed class SearchTranslationService
     {
         if (!Regex.IsMatch(query, "[A-Za-z]{2,}")) return null;
         var tokens = query
-            .Split([' ', '\t', ',', '，', '、', '/', '|'], StringSplitOptions.RemoveEmptyEntries)
+            .Split(new[] { ' ', '\t', ',', '，', '、', '/', '|' }, StringSplitOptions.RemoveEmptyEntries)
             .Where(t => t.Any(char.IsAsciiLetter))
             .ToArray();
         if (tokens.Length == 0) return null;
