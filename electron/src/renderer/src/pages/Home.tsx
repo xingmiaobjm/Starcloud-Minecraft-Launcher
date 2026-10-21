@@ -494,24 +494,6 @@ export default function HomePage(props: {
                     {selected ?? '未选择版本'}
                   </span>
                 </button>
-                <button
-                  className="btn btn-primary"
-                  disabled={!canLaunch}
-                  title="更多启动方式"
-                  style={{
-                    width: 52,
-                    height: 62,
-                    borderRadius: 'var(--r-control)',
-                    background: 'var(--accent-pressed)',
-                    color: 'var(--text-on-accent)',
-                    fontSize: 16
-                  }}
-                  onClick={() =>
-                    push('info', '更多启动方式：调试启动 / 演示模式等，接入后可用')
-                  }
-                >
-                  <IconChevronDown size={15} />
-                </button>
               </div>
             </div>
           </div>
