@@ -341,8 +341,11 @@
                                             <Grid Padding="10,8" ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
+                                                    <!-- 名称列定宽，徽标列紧随其后：徽标要贴着版本名，
+                                                         读得出「这个名字 → 这个状态」的关联；推到右边缘就成了一列互不相干的字。
+                                                         名称列不能是 * —— 那样徽标会被推到最右，与版本名脱开。 -->
+                                                    <ColumnDefinition Width="320" />
+                                                    <ColumnDefinition Width="Auto" MinWidth="72" />
                                                 </Grid.ColumnDefinitions>
                                                 <!-- 版本方块图标块：与主页同款（取不到图标时留空底块） -->
                                                 <Border x:Name="RowIconHost" Width="32" Height="32" CornerRadius="8"
@@ -355,15 +358,17 @@
                                                                Stretch="Uniform" />
                                                     </Grid>
                                                 </Border>
-                                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center"
+                                                    HorizontalAlignment="Left">
                                                     <TextBlock Text="{x:Bind Id}" FontSize="14" FontWeight="Medium"
                                                                TextTrimming="CharacterEllipsis" />
                                                     <TextBlock Text="{x:Bind TimeText}" FontSize="11"
                                                                TextTrimming="CharacterEllipsis"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                 </StackPanel>
-                                                <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="11"
+                                                <TextBlock Grid.Column="2" Text="{x:Bind Badge}" FontSize="12"
                                                            VerticalAlignment="Center" Margin="8,0,2,0"
+                                                           HorizontalAlignment="Right"
                                                            Foreground="{x:Bind BadgeBrush}" />
                                             </Grid>
                                         </Grid>
