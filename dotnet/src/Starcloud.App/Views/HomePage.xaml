@@ -104,27 +104,23 @@
                             </Border>
                         </StackPanel>
                         <!-- 数据列：标签 + 数值跨行成列 -->
-                        <Grid Grid.Column="3" ColumnSpacing="8" VerticalAlignment="Center"
-                              HorizontalAlignment="Right">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="64" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" HorizontalAlignment="Right"
-                                       loc:Loc.Text="上次启动" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Right"
-                                       Text="{x:Bind LastPlayedText}"
-                                       Style="{StaticResource ScMetaValue}" />
-                            <TextBlock Grid.Row="1" Grid.Column="0" HorizontalAlignment="Right"
-                                       loc:Loc.Text="大小" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right"
-                                       Text="{x:Bind SizeText}"
-                                       Style="{StaticResource ScMetaValue}" />
-                        </Grid>
+                        <!-- 元信息：两行各自「标签 + 数值」横向成组。
+                             原先用两列 Grid 跨行对齐，但「上次启动」四个 12px 中文比「大小」宽，
+                             定宽列装不下就换行、标签与数值就对不齐；改成每行自己一组后
+                             两行互不干扰，标签紧贴数值、行高也稳。 -->
+                        <StackPanel Grid.Column="3" Spacing="2" VerticalAlignment="Center"
+                                    HorizontalAlignment="Right">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock loc:Loc.Text="上次启动" Style="{StaticResource ScMetaLabel}" />
+                                <TextBlock Text="{x:Bind LastPlayedText}"
+                                           Style="{StaticResource ScMetaValue}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock loc:Loc.Text="大小" Style="{StaticResource ScMetaLabel}" />
+                                <TextBlock Text="{x:Bind SizeText}"
+                                           Style="{StaticResource ScMetaValue}" />
+                            </StackPanel>
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </Border>
@@ -171,6 +167,8 @@
              版本卡就被推下去一截，与右栏账户卡的上边缘对不齐。 -->
         <Grid Grid.Column="0" Margin="0,0,24,0">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <!-- 状态摘要条：只在收起态露面（展开态由版本卡自己占满整列） -->
                 <RowDefinition Height="Auto" />
                 <!-- 插件挂载区（home.top）：无贡献时整行高度为 0，版本卡的位置与从前一致 -->
                 <RowDefinition Height="Auto" />
@@ -257,12 +255,50 @@
                 </Border>
             </StackPanel>
 
+            <!-- 状态摘要条：版本 / 账户 / Java 三项一行。收起态下左列顶部本来是死区，
+                 把它填上而不是留白；展开态则收起来，让展开的版本卡占满整列。 -->
+            <Border x:Name="SummaryBar" Grid.Row="1" Visibility="Collapsed"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="12" Padding="14,10" Margin="0,0,0,16">
+                <!-- 三项各占一格平分宽度：卡宽跟着左列走，数字与标签左对齐成一列，
+                     分隔线落在格与格之间，三段读起来是一整条而不是三个散块 -->
+                <Grid ColumnSpacing="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                        <TextBlock x:Name="SummaryVersionText" FontSize="20" FontWeight="Medium" />
+                        <TextBlock loc:Loc.Text="已安装版本" FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <Rectangle Grid.Column="1" Width="1" HorizontalAlignment="Left"
+                               Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center"
+                                Margin="18,0,0,0">
+                        <TextBlock x:Name="SummaryAccountText" FontSize="20" FontWeight="Medium" />
+                        <TextBlock loc:Loc.Text="游戏账户" FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <Rectangle Grid.Column="2" Width="1" HorizontalAlignment="Left"
+                               Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center"
+                                Margin="18,0,0,0">
+                        <TextBlock x:Name="SummaryJavaText" FontSize="20" FontWeight="Medium" />
+                        <TextBlock loc:Loc.Text="Java 运行时" FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
             <!-- 插件挂载区（home.top）：装在左列通知区与版本卡之间，没贡献时不占高度 -->
-            <ctrl:PluginContributionPanel Grid.Row="1" Point="home.top" Margin="0,0,0,16" />
+            <ctrl:PluginContributionPanel Grid.Row="2" Point="home.top" Margin="0,0,0,16" />
 
             <!-- 插件首页卡片带（homeCards）：固定 120 高、最多 3 张，可收起成一条窄条。
                  没装插件时整块 Collapsed，版本卡的上边缘与从前一致。 -->
-            <ctrl:HomeCardStrip x:Name="HomeCards" Grid.Row="2" Margin="0,0,0,16" />
+            <ctrl:HomeCardStrip x:Name="HomeCards" Grid.Row="3" Margin="0,0,0,16" />
 
             <!-- 版本库：卡片撑满左列余下的整格（上边缘与右栏账户卡齐平、下边缘贴列底），列表在卡内滚动。
                  卡片可收起：收起后只剩当前选中那一版的图标与版本名，卡收成 280 宽的窄条，
@@ -280,7 +316,7 @@
                  必须 Bottom 对齐 + 显式高 —— 收起态窄条沉在列底、与右栏启动卡底边齐平，
                  Stretch 会让环带绷满整列，Top 则会把它顶到列顶去。横向与卡片同为 Right 对齐，
                  负右边距的右移量也照抄卡片（见 ApplyVersionTerminal）。 -->
-            <Grid x:Name="VersionCardShadow" Grid.Row="3" Visibility="Collapsed" IsHitTestVisible="False"
+            <Grid x:Name="VersionCardShadow" Grid.Row="4" Visibility="Collapsed" IsHitTestVisible="False"
                   HorizontalAlignment="Left" VerticalAlignment="Bottom">
                 <Border Margin="-4" CornerRadius="20" Background="Transparent"
                         BorderThickness="4" BorderBrush="#0F000000" />
@@ -292,7 +328,7 @@
                         BorderThickness="4" BorderBrush="#04000000" />
             </Grid>
 
-            <Border x:Name="VersionCard" Grid.Row="3"
+            <Border x:Name="VersionCard" Grid.Row="4"
                     Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="16"
@@ -611,19 +647,58 @@
                     <ctrl:GlowButton x:Name="NoAccountBtn" Height="32"
                             HorizontalAlignment="Stretch" Visibility="Collapsed"
                             Click="NoAccountBtn_Click" />
-                    <!-- 切换账号：PCL2 那颗「平时藏着、指上去才浮出来」的按钮。
-                         基态就写在 XAML 上（Opacity=0），动画只把它抬起来，不会先闪一下；
-                         透明度不影响命中测试，所以指针落在这一条（含按钮两侧的空白，
-                         故外层铺 Transparent 底）就会淡入，离开再淡出。 -->
+                    <!-- 切换账号：常驻可见，不再靠悬停才浮现。
+                         原来 Opacity=0 + 悬停淡入（PCL2 那套"平时藏着"的玩法）在触屏与
+                         键盘操作下等于没有这个按钮；卡片中部也正因此空一大块。
+                         仍保留 PointerEntered/Exited 的微调：基态 0.72，悬停 1。 -->
                     <Grid Height="32" Background="Transparent"
                           PointerEntered="SwitchAccountArea_Entered"
                           PointerExited="SwitchAccountArea_Exited">
-                        <ctrl:GlowButton x:Name="SwitchAccountBtn" Opacity="0"
+                        <ctrl:GlowButton x:Name="SwitchAccountBtn" Opacity="0.72"
                                 MinWidth="0" Height="32" Padding="16,0"
                                 HorizontalAlignment="Center" CornerRadius="8"
                                 loc:Loc.Text="切换账号" loc:Loc.Name="切换账号"
                                 Click="SwitchAccount_Click" />
                     </Grid>
+
+                    <!-- 账户明细：类型 / UUID / 皮肤。头像与名字之外，账户卡原本中段空一大块，
+                         这几行既填掉空白，也把"这个账户到底是什么"说清楚。 -->
+                    <StackPanel x:Name="AccountDetail" Spacing="6" Margin="0,4,0,0"
+                                HorizontalAlignment="Stretch">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock loc:Loc.Text="类型" Style="{StaticResource ScMetaLabel}" />
+                            <TextBlock x:Name="AccountTypeText" Grid.Column="1"
+                                       Style="{StaticResource ScMetaValue}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock loc:Loc.Text="UUID" Style="{StaticResource ScMetaLabel}" />
+                            <TextBlock x:Name="AccountUuidText" Grid.Column="1"
+                                       Style="{StaticResource ScMetaValue}"
+                                       FontFamily="Consolas" FontSize="11"
+                                       HorizontalAlignment="Left"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock loc:Loc.Text="皮肤" Style="{StaticResource ScMetaLabel}" />
+                            <TextBlock x:Name="AccountSkinText" Grid.Column="1"
+                                       Style="{StaticResource ScMetaValue}"
+                                       MaxWidth="180" HorizontalAlignment="Left"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- 启动行：主按钮 + 右侧收起/展开刻度按钮，同一行等高拼在一起（间隙 8）。

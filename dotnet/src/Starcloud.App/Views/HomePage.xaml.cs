@@ -524,6 +524,27 @@ public sealed partial class HomePage : Page
         AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
         AvatarImage.Source = ResolveAvatar(acc, name);
+
+        // 账户明细：没有账户就整块收起来
+        AccountDetail.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
+        if (acc is not null)
+        {
+            AccountTypeText.Text = acc.Type switch
+            {
+                AccountStore.OfflineType => Loc.T("离线账户"),
+                "external" => Loc.T("第三方账户"),
+                _ => Loc.T("微软正版账户"),
+            };
+            // UUID 32 位全放会把卡片撑破（实测溢出到卡片外）：只显示前 8 位
+            var uuid = acc.Uuid ?? "";
+            AccountUuidText.Text = uuid.Length <= 8
+                ? (uuid.Length == 0 ? Loc.T("—") : uuid)
+                : uuid[..8] + "…";
+            AccountSkinText.Text = string.IsNullOrEmpty(acc.SkinId)
+                ? Loc.T("默认头像")
+                : (acc.SkinModel is { Length: > 0 } m && m != "auto"
+                    ? $"{acc.SkinId}（{m}）" : acc.SkinId);
+        }
     }
 
     /// <summary>
@@ -565,16 +586,19 @@ public sealed partial class HomePage : Page
     private void SwitchAccountArea_Exited(object sender, PointerRoutedEventArgs e) =>
         ShowSwitchAccount(false);
 
-    /// <summary>切换账号按钮的显隐。动效关闭时直接切透明度，不留动画尾巴（基态就是 XAML 里的 Opacity=0）。</summary>
+    /// <summary>切换账号按钮的显隐。按钮改为常驻（基态 0.72），这里只做悬停时的微调；
+    /// 动效关闭时直接切透明度，不留动画尾巴。</summary>
     private void ShowSwitchAccount(bool show)
     {
+        const double RestOpacity = 0.72;
         if (!_s.Motion.Enabled)
         {
-            SwitchAccountBtn.Opacity = show ? 1 : 0;
+            SwitchAccountBtn.Opacity = show ? 1 : RestOpacity;
             return;
         }
         if (show) MotionFx.FadeIn(SwitchAccountBtn, MotionFx.HoverFadeInMs);
-        else MotionFx.FadeOut(SwitchAccountBtn, MotionFx.HoverFadeOutMs);
+        // 淡出不是回到 0（按钮常驻），而是回到 0.72 的静息态
+        else MotionFx.FadeTo(SwitchAccountBtn, RestOpacity, MotionFx.HoverFadeOutMs);
     }
 
     /// <summary>切换账号：去账户页（与右上角账户入口同一处）</summary>
@@ -1005,6 +1029,8 @@ public sealed partial class HomePage : Page
 
         _versionsCollapsed = collapsed;
         PersistHomeLayout(); // 同上：版本卡的收起态也跨页面切换保留
+        // 收起态左列顶部本来是死区：把状态摘要条放出来；展开态由版本卡占满整列，收回去
+        SummaryBar.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
 
         double cardTo, widthTo, headerTo, gapTo, compactTo, shiftTo;
         if (collapsed)
@@ -2129,6 +2155,7 @@ public sealed partial class HomePage : Page
         CheckTextJava.Text = "Java：检测中…";
         _ = CheckJavaAsync();
         UpdateCheckCardVisibility();
+        RefreshSummaryBar();
     }
 
     private async Task CheckJavaAsync()
@@ -2141,6 +2168,7 @@ public sealed partial class HomePage : Page
             SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, ok, "Java",
                 ok ? (runtimes.Count > 0 ? $"就绪（检测到 {runtimes.Count} 个）" : "就绪（使用手动指定路径）") : "未检测到",
                 "前往设置");
+            RefreshSummaryBar();
         }
         catch
         {
@@ -2148,6 +2176,16 @@ public sealed partial class HomePage : Page
             SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, false, "Java", "检测失败", "前往设置");
         }
         UpdateCheckCardVisibility();
+    }
+
+    /// <summary>收起态下左列顶部的状态摘要：版本数 / 账户 / Java，一眼看清缺什么</summary>
+    private void RefreshSummaryBar()
+    {
+        var hasInstalled = _rows.Count > 0;
+        var accounts = _s.Accounts.Accounts.Count;
+        SummaryVersionText.Text = hasInstalled ? _rows.Count.ToString() : "0";
+        SummaryAccountText.Text = accounts > 0 ? accounts.ToString() : "0";
+        SummaryJavaText.Text = _javaOk switch { true => "就绪", false => "缺失", _ => "检测中" };
     }
 
     private void UpdateCheckCardVisibility()

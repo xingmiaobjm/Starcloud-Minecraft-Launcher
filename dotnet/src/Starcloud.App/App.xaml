@@ -508,6 +508,9 @@
             <Style x:Key="ScChipText" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
                 <Setter Property="FontSize" Value="11" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <!-- 芯片里的文字必须自己垂直居中：Border 的 VerticalAlignment=Center 只管边框，
+                     里面的 TextBlock 默认贴顶，11px 文字在 4px 圆角底里看着是歪的 -->
+                <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
             <!-- 强调芯片：品牌色底 + 黑字（品牌色亮度高，白字对比不足） -->
@@ -530,13 +533,15 @@
 
             <!-- 行尾数据列：标签（上/左）与数值（下/右）成对出现，跨行左对齐成列 -->
             <Style x:Key="ScMetaLabel" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
-                <Setter Property="FontSize" Value="11" />
+                <Setter Property="FontSize" Value="12" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
             <Style x:Key="ScMetaValue" TargetType="TextBlock" BasedOn="{StaticResource ScText}">
-                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontSize" Value="13" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
             <!-- Nova 品牌色（nebula 紫，仅 Nova 专属视觉使用；状态色见状态栏规格） -->

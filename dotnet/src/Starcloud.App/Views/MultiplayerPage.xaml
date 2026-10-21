@@ -171,8 +171,11 @@
                                            Style="{StaticResource ScSectionTitle}" />
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <Border Style="{StaticResource ScChip}" Padding="10,6">
+                                        <!-- 等宽大字，自带 VerticalAlignment：字号比常规芯片大，
+                                             不用 ScChipText（11px 次要色）那套 -->
                                         <TextBlock x:Name="RoomCodeText" FontFamily="Consolas" FontSize="14"
-                                                   IsTextSelectionEnabled="True" />
+                                                   IsTextSelectionEnabled="True"
+                                                   VerticalAlignment="Center" />
                                     </Border>
                                     <ctrl:GlowButton x:Name="CopyRoomBtn" loc:Loc.Text="复制邀请码" Click="CopyRoom_Click" />
                                 </StackPanel>

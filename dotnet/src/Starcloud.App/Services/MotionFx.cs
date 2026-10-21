@@ -294,6 +294,33 @@ public static class MotionFx
     }
 
     /// <summary>只做淡入、不做位移：用于"高度已经在动，再叠位移就会显得多余/拖尾"的场景。</summary>
+    /// <summary>淡到指定不透明度（常驻元素收起时用：不是回到 0，只是退回静息态）</summary>
+    public static void FadeTo(FrameworkElement element, double to, int durationMs = EnterMs)
+    {
+        if (element is null) return;
+        try
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(element);
+            if (!AppServices.Instance.Motion.Enabled)
+            {
+                visual.StopAnimation("Opacity");
+                visual.Opacity = (float)to;
+                element.Opacity = to;
+                return;
+            }
+            var compositor = visual.Compositor;
+            var ease = ExitEase(compositor);
+            var fade = compositor.CreateScalarKeyFrameAnimation();
+            fade.Duration = TimeSpan.FromMilliseconds(durationMs);
+            fade.InsertKeyFrame(1f, (float)to, ease);
+            visual.StartAnimation("Opacity", fade);
+        }
+        catch
+        {
+            // 静默
+        }
+    }
+
     public static void FadeIn(FrameworkElement element, int durationMs = EnterMs, int delayMs = 0)
     {
         try

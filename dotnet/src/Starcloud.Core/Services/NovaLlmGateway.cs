@@ -32,11 +32,11 @@ public sealed class NovaLlmGateway(Func<LauncherSettings> settings) : ILlmGatewa
         NovaGatewayClient.ChatAsync(apiKey, messages, model, maxTokens, ct);
 
     public IAsyncEnumerable<string> StreamDeltasAsync(string apiKey, IReadOnlyList<object> messages,
-        int? maxTokens = null, [EnumeratorCancellation] CancellationToken ct = default) =>
+        int? maxTokens = null, CancellationToken ct = default) =>
         NovaGatewayClient.StreamDeltasAsync(apiKey, messages, maxTokens, ct);
 
     public IAsyncEnumerable<SseEvent> StreamChatAsync(string apiKey, IReadOnlyList<object> messages,
         object? tools = null, string? model = null, int? maxTokens = null,
-        [EnumeratorCancellation] CancellationToken ct = default) =>
+        CancellationToken ct = default) =>
         NovaGatewayClient.StreamChatAsync(apiKey, messages, tools, model, maxTokens, ct);
 }

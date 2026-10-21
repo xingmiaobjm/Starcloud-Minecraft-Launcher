@@ -5,7 +5,6 @@
 //   自接模型 = 用户把自己的 OpenAI 兼容服务填进来，不经我们的中转。
 // 调用点只认这个契约，换实现（换中转地址、换协议、加本地推理）不动上层。
 
-using System.Runtime.CompilerServices;
 using Starcloud.Core.Services;
 
 namespace Starcloud.Core.Kernel.Contracts;
@@ -36,10 +35,10 @@ public interface ILlmGateway
 
     /// <summary>流式对话的纯文本投影（不带工具的问答走这条）</summary>
     IAsyncEnumerable<string> StreamDeltasAsync(string apiKey, IReadOnlyList<object> messages,
-        int? maxTokens = null, [EnumeratorCancellation] CancellationToken ct = default);
+        int? maxTokens = null, CancellationToken ct = default);
 
     /// <summary>流式对话（文本增量 + 工具调用增量）</summary>
     IAsyncEnumerable<SseEvent> StreamChatAsync(string apiKey, IReadOnlyList<object> messages,
         object? tools = null, string? model = null, int? maxTokens = null,
-        [EnumeratorCancellation] CancellationToken ct = default);
+        CancellationToken ct = default);
 }
