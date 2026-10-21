@@ -84,6 +84,7 @@ function Slider(props: {
   step?: number
   onChange: (v: number) => void
 }): JSX.Element {
+  const pct = ((props.value - props.min) / (props.max - props.min)) * 100
   return (
     <input
       type="range"
@@ -92,7 +93,12 @@ function Slider(props: {
       step={props.step ?? 1}
       value={props.value}
       onChange={(e) => props.onChange(Number(e.target.value))}
-      style={{ width: '100%', accentColor: 'var(--accent)' }}
+      style={
+        {
+          width: '100%',
+          '--fill': `${pct}%`
+        } as React.CSSProperties
+      }
     />
   )
 }

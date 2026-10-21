@@ -1116,6 +1116,56 @@ select.input:focus:not(:focus-visible) {
 /* ═══ 焦点可见 ═══ */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* ═══ 滑块（对齐 Win 端 SliderStyle：4px 细轨 + 16px 圆钮 + 品牌黄填充） ═══
+   用 --fill 百分比画出已填充段；焦点不再画外框。 */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']:focus,
+input[type='range']:focus-visible {
+  outline: none;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--fill, 50%),
+    var(--surface-hover) var(--fill, 50%)
+  );
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--surface-window);
+  box-shadow: var(--shadow-2);
+}
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-hover);
+}
+input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--surface-window);
+}
+
 /* ═══ 背景层（设置 → 通用 → 背景与外观） ═══════════════════════════════
    mode=image 用用户选的本地图片；builtin 用内置渐变壁纸；none 不显示。
    模糊与不透明度由 --bg-blur / --bg-opacity（设置页即时写入）。 */
@@ -1148,3 +1198,11 @@ select.input:focus:not(:focus-visible) {
   animation-delay: 0ms !important;
   transition-duration: 0.01ms !important;
 }
+
+/* 调度中心抽屉的滑入 */
+@keyframes slideInRight {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* 图标任务（调度中心）：三条横线 */

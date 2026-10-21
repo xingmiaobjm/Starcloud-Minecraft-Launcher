@@ -50,6 +50,8 @@ export default function AccountsPage(): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [failedAvatars, setFailedAvatars] = useState<Set<string>>(new Set())
   const [pendingRemove, setPendingRemove] = useState<GameAccount | null>(null)
+  /** 账户详情弹层（Win 端 AccountDetailPage 的模态等价） */
+  const [detailFor, setDetailFor] = useState<GameAccount | null>(null)
 
   // ── 添加账户弹窗 ──
   const [addOpen, setAddOpen] = useState(false)
@@ -379,7 +381,7 @@ export default function AccountsPage(): JSX.Element {
                 key={a.uuid}
                 className="row"
                 style={{ minHeight: 72 }}
-                onClick={() => void setAsCurrent(a)}
+                onClick={() => setDetailFor(a)}
               >
                 <div
                   className="icon32"
@@ -648,6 +650,116 @@ export default function AccountsPage(): JSX.Element {
         <div className="dialog-body">
           将从启动器移除账户 <b>{pendingRemove?.name}</b>（不会删除游戏内的玩家数据）。
         </div>
+      </Modal>
+
+      {/* 账户详情（Win 端 AccountDetailPage 的模态等价）：点行打开，操作都在这里 */}
+      <Modal
+        open={detailFor !== null}
+        title={detailFor?.name ?? ''}
+        width={480}
+        onClose={() => setDetailFor(null)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setDetailFor(null)}>
+              返回账户列表
+            </button>
+            {detailFor !== null && detailFor.uuid !== current && (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  const a = detailFor
+                  setDetailFor(null)
+                  if (a !== null) void setAsCurrent(a)
+                }}
+              >
+                设为首选
+              </button>
+            )}
+          </>
+        }
+      >
+        {detailFor !== null && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div
+                className="icon32"
+                style={{ width: 72, height: 72, borderRadius: 8, overflow: 'hidden' }}
+              >
+                {failedAvatars.has(detailFor.uuid) ? (
+                  <span style={{ fontSize: 28 }}>{detailFor.name[0]?.toUpperCase()}</span>
+                ) : (
+                  <img
+                    src={avatarUrl(detailFor)}
+                    alt=""
+                    width={72}
+                    height={72}
+                    style={{ objectFit: 'cover' }}
+                    onError={() =>
+                      setFailedAvatars((prev) => new Set(prev).add(detailFor.uuid))
+                    }
+                  />
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 17, fontWeight: 600 }} className="truncate">
+                    {detailFor.name}
+                  </span>
+                  {detailFor.uuid === current && <span className="chip chip-accent">首选</span>}
+                </div>
+                <div className="t-cap">
+                  {TYPE_LABEL[detailFor.type] ?? detailFor.type}
+                  {detailFor.serverName !== undefined && detailFor.serverName !== ''
+                    ? ` · ${detailFor.serverName}`
+                    : ''}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="t-cap">
+                UUID：<span className="t-mono">{detailFor.uuid}</span>
+              </div>
+              {detailFor.skinId !== undefined && detailFor.skinId !== '' && (
+                <div className="t-cap">
+                  皮肤：<span className="t-mono">{detailFor.skinId}</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {(detailFor.type === 'microsoft' || detailFor.type === 'external') && (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setDetailFor(null)
+                    setAddKind(detailFor.type === 'microsoft' ? 'microsoft' : 'external')
+                    setAddOpen(true)
+                  }}
+                >
+                  重新登录该账号
+                </button>
+              )}
+              <button className="btn" onClick={() => setDetailFor(null)}>
+                前往换肤
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() => {
+                  const a = detailFor
+                  setDetailFor(null)
+                  if (a !== null) setPendingRemove(a)
+                }}
+              >
+                删除账户
+              </button>
+            </div>
+
+            <div className="t-cap">
+              删除只移除本机保存的身份信息，不动游戏存档与版本文件。
+            </div>
+          </div>
+        )}
       </Modal>
 
       {host}

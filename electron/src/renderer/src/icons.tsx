@@ -260,3 +260,13 @@ export function IconTheme(props: IconProps & { mode: 'system' | 'light' | 'dark'
     </Svg>
   )
 }
+
+/** 任务列表（调度中心）。 */
+export function IconTasks(props: IconProps): JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M4 6.5h10M4 12h16M4 17.5h16" />
+      <path d="M4 6.5h.01" />
+    </Svg>
+  )
+}

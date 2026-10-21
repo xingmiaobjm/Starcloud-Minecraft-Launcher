@@ -11,6 +11,9 @@ import TitleBar from './titlebar'
 import LaunchOverlay from './launchOverlay'
 import { ErrorBoundary } from './ui'
 import { useGameSession } from './state/session'
+import { useInstallTasks } from './state/tasks'
+import TaskDrawer from './TaskDrawer'
+import { IconUser, IconTasks } from './icons'
 import HomePage from './pages/Home'
 import VersionsPage from './pages/Versions'
 import DownloadPage from './pages/Download'
@@ -26,12 +29,14 @@ import SettingsPage from './pages/Settings'
 import LogsPage from './pages/Logs'
 
 import brandMark from './assets/brand/starcloud-mark-small.svg'
-import { IconUser } from './icons'
+
 
 export default function App(props: { initialTheme: import("./theme").ResolvedTheme }): JSX.Element {
   const theme = useTheme(props.initialTheme)
   const [page, setPage] = useState<PageKey>('home')
   const session = useGameSession()
+  const installTasks = useInstallTasks()
+  const [tasksOpen, setTasksOpen] = useState(false)
 
   // 启动时应用一次视觉设置（动效档位 / 背景），之后由设置页即时更新
   useEffect(() => {
@@ -128,7 +133,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
         onCycleTheme={theme.cycle}
         actions={
           <>
-            {/* 自绘标题栏快捷入口（Win 端：Nova / 账户 / 主题） */}
+            {/* 自绘标题栏快捷入口（Win 端：Nova / 调度中心 / 账户） */}
             <button
               className="tb-action-btn"
               title="Nova 助手"
@@ -137,6 +142,14 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
             >
               {/* Nova = 品牌标记（多色，画不出字形） */}
               <img src={brandMark} alt="" width={16} height={16} />
+            </button>
+            <button
+              className="tb-action-btn"
+              title="调度中心"
+              aria-label="调度中心"
+              onClick={() => setTasksOpen(true)}
+            >
+              <IconTasks size={16} />
             </button>
             <button
               className="tb-action-btn"
