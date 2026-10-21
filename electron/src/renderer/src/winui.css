@@ -903,7 +903,12 @@ textarea.input { height: auto; min-height: 64px; padding: 8px 10px; resize: vert
   flex-shrink: 0;
   overflow: hidden;
 }
-.icon32 img { width: 32px; height: 32px; object-fit: cover; }
+.icon32 img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 /* 行尾两行数据列：标签与数值跨行左对齐成列 */
 .meta {
