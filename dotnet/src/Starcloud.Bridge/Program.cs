@@ -1531,6 +1531,8 @@ public static class Program
                 var account = _accounts.AddOrUpdateMicrosoft(result.Uuid, result.Username);
                 _accounts.SetSession(result.Uuid,
                     new AccountSession(result.AccessToken, result.RefreshToken, result.Xuid));
+                if (result.RefreshToken is { Length: > 0 } bridgeRefresh)
+                    MicrosoftTokenStore.SaveNew(result.Uuid, bridgeRefresh);
                 return new
                 {
                     state = "success",
@@ -1624,6 +1626,19 @@ public static class Program
                 return new { ok = true, bytes = total };
             }
 
+            case "shell.openPath":
+            {
+                // 打开目录 / 在文件夹中显示。Linux 下走 xdg-open，Windows 走 explorer。
+                var target = p.GetProperty("path").GetString()!;
+                if (string.IsNullOrWhiteSpace(target)) throw new Exception("路径为空");
+                var full = Path.GetFullPath(target);
+                var dir = Directory.Exists(full) ? full : Path.GetDirectoryName(full);
+                if (dir is null || !Directory.Exists(dir))
+                    throw new Exception($"路径不存在：${target}");
+                OpenFolder(dir);
+                return new { ok = true, path = dir };
+            }
+
             case "settings.get":
                 return SnapshotSettings();
 
@@ -1667,6 +1682,56 @@ public static class Program
                 if (p.TryGetProperty("microsoftLoginEmbedded", out var ml) &&
                     (ml.ValueKind == JsonValueKind.True || ml.ValueKind == JsonValueKind.False))
                     _settings.MicrosoftLoginEmbedded = ml.GetBoolean();
+                if (p.TryGetProperty("curseforgeApiKey", out var cf))
+                    _settings.CurseForgeApiKey = cf.GetString() ?? "";
+                if (p.TryGetProperty("windowWidth", out var ww) && ww.TryGetInt32(out var wwv))
+                    _settings.DefaultWindowWidth = Math.Clamp(wwv, 320, 7680);
+                if (p.TryGetProperty("windowHeight", out var wh) && wh.TryGetInt32(out var whv))
+                    _settings.DefaultWindowHeight = Math.Clamp(whv, 240, 4320);
+                if (p.TryGetProperty("fullscreen", out var fs2) && IsBool(fs2))
+                    _settings.DefaultFullscreen = fs2.GetBoolean();
+                if (p.TryGetProperty("globalEnvVars", out var gev) && gev.ValueKind == JsonValueKind.Object)
+                {
+                    var env = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (var kv in gev.EnumerateObject())
+                        if (kv.Value.ValueKind == JsonValueKind.String)
+                            env[kv.Name] = kv.Value.GetString() ?? "";
+                    _settings.GlobalEnvVars = env;
+                }
+                if (p.TryGetProperty("launchAutoRetry", out var lar) && IsBool(lar))
+                    _settings.LaunchAutoRetry = lar.GetBoolean();
+                if (p.TryGetProperty("showGameLogOnLaunch", out var sgl) && IsBool(sgl))
+                    _settings.ShowGameLogOnLaunch = sgl.GetBoolean();
+                if (p.TryGetProperty("novaOverlayEnabled", out var noe) && IsBool(noe))
+                    _settings.NovaOverlayEnabled = noe.GetBoolean();
+                if (p.TryGetProperty("resourceCacheEnabled", out var rce) && IsBool(rce))
+                    _settings.ResourceCacheEnabled = rce.GetBoolean();
+                if (p.TryGetProperty("motionLevel", out var mvl))
+                    _settings.UiMotionLevel = mvl.GetString() ?? "";
+                if (p.TryGetProperty("backgroundMode", out var bgm))
+                    _settings.BackgroundMode = bgm.GetString() ?? "none";
+                if (p.TryGetProperty("backgroundBuiltinId", out var bgi))
+                    _settings.BackgroundBuiltinId = bgi.GetString() ?? "";
+                if (p.TryGetProperty("backgroundImagePath", out var bgp))
+                    _settings.BackgroundImagePath = bgp.GetString() ?? "";
+                if (p.TryGetProperty("backgroundImageOpacity", out var bgo) && bgo.TryGetDouble(out var bgov))
+                    _settings.BackgroundImageOpacity = Math.Clamp(bgov, 0, 1);
+                if (p.TryGetProperty("backgroundBlurRadius", out var bgb) && bgb.TryGetDouble(out var bgbv))
+                    _settings.BackgroundBlurRadius = Math.Clamp(bgbv, 0, 64);
+                if (p.TryGetProperty("backgroundMaskOpacity", out var bgk) && bgk.TryGetDouble(out var bgkv))
+                    _settings.BackgroundMaskOpacity = Math.Clamp(bgkv, 0, 1);
+                if (p.TryGetProperty("backgroundFollowTheme", out var bgf) && IsBool(bgf))
+                    _settings.BackgroundFollowTheme = bgf.GetBoolean();
+                if (p.TryGetProperty("deviceLinkEnabled", out var dle) && IsBool(dle))
+                    _settings.DeviceLinkEnabled = dle.GetBoolean();
+                if (p.TryGetProperty("deviceName", out var dvn))
+                    _settings.DeviceName = dvn.GetString() ?? "";
+                if (p.TryGetProperty("p2pDownloadEnabled", out var p2p) && IsBool(p2p))
+                    _settings.P2pDownloadEnabled = p2p.GetBoolean();
+                if (p.TryGetProperty("autoUpdateEnabled", out var aue) && IsBool(aue))
+                    _settings.AutoUpdateEnabled = aue.GetBoolean();
+                if (p.TryGetProperty("updateManifestUrl", out var umu))
+                    _settings.UpdateManifestUrl = umu.GetString() ?? "";
                 _settings.Save();
                 return SnapshotSettings();
             }
@@ -1832,6 +1897,9 @@ public static class Program
         return manifest.Versions.FirstOrDefault(v => v.Id == versionId);
     }
 
+    private static bool IsBool(JsonElement e) =>
+        e.ValueKind == JsonValueKind.True || e.ValueKind == JsonValueKind.False;
+
     private static object SnapshotSettings() => new
     {
         gameDir = _settings.DotMinecraft,
@@ -1849,6 +1917,28 @@ public static class Program
         theme = _settings.Theme,
         accountWalkAnimation = _settings.AccountWalkAnimation,
         microsoftLoginEmbedded = _settings.MicrosoftLoginEmbedded,
+        curseforgeApiKey = _settings.CurseForgeApiKey,
+        windowWidth = _settings.DefaultWindowWidth ?? 854,
+        windowHeight = _settings.DefaultWindowHeight ?? 480,
+        fullscreen = _settings.DefaultFullscreen,
+        globalEnvVars = _settings.GlobalEnvVars,
+        launchAutoRetry = _settings.LaunchAutoRetry,
+        showGameLogOnLaunch = _settings.ShowGameLogOnLaunch,
+        novaOverlayEnabled = _settings.NovaOverlayEnabled,
+        resourceCacheEnabled = _settings.ResourceCacheEnabled,
+        motionLevel = _settings.UiMotionLevel,
+        backgroundMode = _settings.BackgroundMode,
+        backgroundBuiltinId = _settings.BackgroundBuiltinId ?? "",
+        backgroundImagePath = _settings.BackgroundImagePath ?? "",
+        backgroundImageOpacity = _settings.BackgroundImageOpacity,
+        backgroundBlurRadius = _settings.BackgroundBlurRadius,
+        backgroundMaskOpacity = _settings.BackgroundMaskOpacity ?? 0,
+        backgroundFollowTheme = _settings.BackgroundFollowTheme,
+        deviceLinkEnabled = _settings.DeviceLinkEnabled,
+        deviceName = _settings.DeviceName,
+        p2pDownloadEnabled = _settings.P2pDownloadEnabled,
+        autoUpdateEnabled = _settings.AutoUpdateEnabled,
+        updateManifestUrl = _settings.UpdateManifestUrl ?? "",
     };
 
     /// <summary>clientToken 规范是 UUID；老数据可能是不带连字符的 32 位十六进制。</summary>

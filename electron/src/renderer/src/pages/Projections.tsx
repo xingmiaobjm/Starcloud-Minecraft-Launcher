@@ -187,9 +187,12 @@ export default function ProjectionsPage(): JSX.Element {
             <button
               className="btn"
               disabled={current === null || busy}
-              onClick={() =>
-                push('info', '在文件夹中显示：需要主进程 openPath 能力，接入后可用')
-              }
+              onClick={() => {
+                if (current === null) return
+                void request('shell.openPath', { path: current.filePath }).catch((e) =>
+                  push('error', String(e))
+                )
+              }}
             >
               在文件夹中显示
             </button>

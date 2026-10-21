@@ -1,6 +1,7 @@
 /// 共用 UI 原子（纯 CSS 类，无框架依赖）。
 /// 视觉规范见 winui.css 与 DESIGN.md（WinUI 3 令牌）。
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { IconCheck, IconClose, IconInfo, IconWarning, IconChevronDown } from './icons'
 
 // ── 页面骨架 ────────────────────────────────────────────────────────────────
@@ -438,22 +439,36 @@ export function Select<T extends string>(props: {
   placeholder?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const [up, setUp] = useState(false)
+  const [rect, setRect] = useState<{ left: number; top: number; width: number; up: boolean } | null>(
+    null
+  )
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const popRef = useRef<HTMLDivElement | null>(null)
 
+  // 弹层挂到 body：卡片有 backdrop-filter，会给 position:fixed 造包含块，
+  // 直接把弹层放在卡片里会被裁切/错位（用户看到的"下拉框显示有问题"）。
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent): void => {
-      if (rootRef.current !== null && !rootRef.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (rootRef.current?.contains(t) === true) return
+      if (popRef.current?.contains(t) === true) return
+      setOpen(false)
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setOpen(false)
     }
+    const close = (): void => setOpen(false)
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', close)
+    // 页面滚动时弹层会与按钮脱节，直接关掉（和系统下拉一致）
+    window.addEventListener('scroll', close, true)
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
     }
   }, [open])
 
@@ -461,17 +476,25 @@ export function Select<T extends string>(props: {
 
   const toggle = (): void => {
     if (props.disabled === true) return
-    // 下方空间不足就向上弹（下拉比视口底部更近时）
-    const rect = rootRef.current?.getBoundingClientRect()
-    if (rect !== undefined) {
-      const estimated = Math.min(320, props.options.length * 34 + 12)
-      setUp(window.innerHeight - rect.bottom < estimated + 16)
+    if (open) {
+      setOpen(false)
+      return
     }
-    setOpen((v) => !v)
+    const r = rootRef.current?.getBoundingClientRect()
+    if (r === undefined) return
+    const itemH = 34
+    const estimated = Math.min(320, props.options.length * itemH + 12)
+    setRect({
+      left: r.left,
+      top: r.bottom + 6,
+      width: r.width,
+      up: window.innerHeight - r.bottom < estimated + 16
+    })
+    setOpen(true)
   }
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', width: props.width ?? 220 }}>
+    <div ref={rootRef} style={{ width: props.width ?? 220 }}>
       <button
         className="input"
         style={{
@@ -493,36 +516,43 @@ export function Select<T extends string>(props: {
         <IconChevronDown size={14} style={{ opacity: 0.6 }} />
       </button>
 
-      {open && (
-        <div
-          className="flyout"
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: up ? undefined : 'calc(100% + 6px)',
-            bottom: up ? 'calc(100% + 6px)' : undefined,
-            maxHeight: 320,
-            overflowY: 'auto',
-            zIndex: 700,
-            padding: 6
-          }}
-        >
-          {props.options.map((o) => (
-            <button
-              key={o.value}
-              className={`nav-item${o.value === props.value ? ' nav-active' : ''}`}
-              style={{ height: 32, width: '100%', fontSize: 13 }}
-              onClick={() => {
-                props.onChange(o.value)
-                setOpen(false)
-              }}
-            >
-              <span className="truncate">{o.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        rect !== null &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="flyout"
+            style={{
+              position: 'fixed',
+              left: rect.left,
+              width: rect.width,
+              ...(rect.up
+                ? { bottom: window.innerHeight - rect.top + 12 }
+                : { top: rect.top }),
+              maxHeight: 320,
+              overflowY: 'auto',
+              zIndex: 900,
+              padding: 6,
+              // 不透明底：半透明 + 大模糊会把下面的文字透上来，读不清
+              background: 'var(--surface-window)'
+            }}
+          >
+            {props.options.map((o) => (
+              <button
+                key={o.value}
+                className={`nav-item${o.value === props.value ? ' nav-active' : ''}`}
+                style={{ height: 32, width: '100%', fontSize: 13, flexShrink: 0 }}
+                onClick={() => {
+                  props.onChange(o.value)
+                  setOpen(false)
+                }}
+              >
+                <span className="truncate">{o.label}</span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

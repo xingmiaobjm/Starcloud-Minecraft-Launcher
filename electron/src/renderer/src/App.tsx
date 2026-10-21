@@ -6,6 +6,7 @@ import { appVersion as readAppVersion } from './bridge'
 
 import Nav, { PAGE_LABEL, type PageKey } from './nav'
 import { useTheme } from './theme'
+import { loadAndApplyVisualSettings } from './visualSettings'
 import TitleBar from './titlebar'
 import LaunchOverlay from './launchOverlay'
 import { ErrorBoundary } from './ui'
@@ -31,6 +32,11 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
   const theme = useTheme(props.initialTheme)
   const [page, setPage] = useState<PageKey>('home')
   const session = useGameSession()
+
+  // 启动时应用一次视觉设置（动效档位 / 背景），之后由设置页即时更新
+  useEffect(() => {
+    void loadAndApplyVisualSettings()
+  }, [])
   const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
@@ -115,6 +121,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
 
   return (
     <div className="win mica">
+      <div className="bg-layer" aria-hidden />
       <TitleBar
         title={PAGE_LABEL[page]}
         themeMode={theme.mode}

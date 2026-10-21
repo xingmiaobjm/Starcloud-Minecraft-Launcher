@@ -268,6 +268,30 @@ export interface SettingsSnapshot {
   theme: string
   accountWalkAnimation: boolean
   microsoftLoginEmbedded: boolean
+  curseforgeApiKey: string
+  windowWidth: number
+  windowHeight: number
+  fullscreen: boolean
+  globalEnvVars: Record<string, string>
+  launchAutoRetry: boolean
+  showGameLogOnLaunch: boolean
+  novaOverlayEnabled: boolean
+  resourceCacheEnabled: boolean
+  /** 动效档位：''（默认）/ minimal / lite / balanced / full */
+  motionLevel: string
+  /** 背景：none / builtin / image */
+  backgroundMode: string
+  backgroundBuiltinId: string
+  backgroundImagePath: string
+  backgroundImageOpacity: number
+  backgroundBlurRadius: number
+  backgroundMaskOpacity: number
+  backgroundFollowTheme: boolean
+  deviceLinkEnabled: boolean
+  deviceName: string
+  p2pDownloadEnabled: boolean
+  autoUpdateEnabled: boolean
+  updateManifestUrl: string
 }
 
 export interface NovaPlanItem {
