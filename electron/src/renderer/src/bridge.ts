@@ -255,8 +255,19 @@ export interface NovaConfig {
 export interface SettingsSnapshot {
   gameDir: string
   javaExecutable: string
+  minMemoryMb: number
   maxMemoryMb: number
   downloadSource: string
+  downloadConcurrency: number
+  downloadMaxRetries: number
+  downloadCustomMirrorUrl: string
+  versionIsolated: boolean
+  useBuiltinJvmArgs: boolean
+  extraJvmArgs: string[]
+  language: string
+  theme: string
+  accountWalkAnimation: boolean
+  microsoftLoginEmbedded: boolean
 }
 
 export interface NovaPlanItem {

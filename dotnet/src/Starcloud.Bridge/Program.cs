@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -1637,6 +1637,36 @@ public static class Program
                     _settings.DefaultMaxMemoryMb = mb;
                 if (p.TryGetProperty("downloadSource", out var ds))
                     _settings.DownloadSource = ds.GetString() ?? _settings.DownloadSource;
+                if (p.TryGetProperty("minMemoryMb", out var mn) && mn.TryGetInt32(out var mnv))
+                    _settings.DefaultMinMemoryMb = mnv;
+                if (p.TryGetProperty("downloadConcurrency", out var dc) && dc.TryGetInt32(out var dcv))
+                    _settings.DownloadConcurrency = Math.Clamp(dcv, 1, 64);
+                if (p.TryGetProperty("downloadMaxRetries", out var dr) && dr.TryGetInt32(out var drv))
+                    _settings.DownloadMaxRetries = Math.Clamp(drv, 0, 10);
+                if (p.TryGetProperty("downloadCustomMirrorUrl", out var dm))
+                    _settings.DownloadCustomMirrorUrl = dm.GetString() ?? "";
+                if (p.TryGetProperty("versionIsolated", out var vi) &&
+                    (vi.ValueKind == JsonValueKind.True || vi.ValueKind == JsonValueKind.False))
+                    _settings.VersionIsolated = vi.GetBoolean();
+                if (p.TryGetProperty("useBuiltinJvmArgs", out var uj) &&
+                    (uj.ValueKind == JsonValueKind.True || uj.ValueKind == JsonValueKind.False))
+                    _settings.UseBuiltinJvmArgs = uj.GetBoolean();
+                if (p.TryGetProperty("extraJvmArgs", out var ea) && ea.ValueKind == JsonValueKind.Array)
+                    _settings.ExtraJvmArgs = ea.EnumerateArray()
+                        .Where(x => x.ValueKind == JsonValueKind.String)
+                        .Select(x => x.GetString()!)
+                        .Where(x => x.Length > 0)
+                        .ToList();
+                if (p.TryGetProperty("language", out var lg))
+                    _settings.Language = lg.GetString() ?? _settings.Language;
+                if (p.TryGetProperty("theme", out var th))
+                    _settings.Theme = th.GetString() ?? _settings.Theme;
+                if (p.TryGetProperty("accountWalkAnimation", out var aw) &&
+                    (aw.ValueKind == JsonValueKind.True || aw.ValueKind == JsonValueKind.False))
+                    _settings.AccountWalkAnimation = aw.GetBoolean();
+                if (p.TryGetProperty("microsoftLoginEmbedded", out var ml) &&
+                    (ml.ValueKind == JsonValueKind.True || ml.ValueKind == JsonValueKind.False))
+                    _settings.MicrosoftLoginEmbedded = ml.GetBoolean();
                 _settings.Save();
                 return SnapshotSettings();
             }
@@ -1806,8 +1836,19 @@ public static class Program
     {
         gameDir = _settings.DotMinecraft,
         javaExecutable = _settings.JavaExecutable,
+        minMemoryMb = _settings.DefaultMinMemoryMb,
         maxMemoryMb = _settings.DefaultMaxMemoryMb,
         downloadSource = _settings.DownloadSource,
+        downloadConcurrency = _settings.DownloadConcurrency,
+        downloadMaxRetries = _settings.DownloadMaxRetries,
+        downloadCustomMirrorUrl = _settings.DownloadCustomMirrorUrl ?? "",
+        versionIsolated = _settings.VersionIsolated,
+        useBuiltinJvmArgs = _settings.UseBuiltinJvmArgs,
+        extraJvmArgs = _settings.ExtraJvmArgs,
+        language = _settings.Language,
+        theme = _settings.Theme,
+        accountWalkAnimation = _settings.AccountWalkAnimation,
+        microsoftLoginEmbedded = _settings.MicrosoftLoginEmbedded,
     };
 
     /// <summary>clientToken 规范是 UUID；老数据可能是不带连字符的 32 位十六进制。</summary>
@@ -1936,7 +1977,7 @@ public static class Program
     // ── 外部插件（v2 沙箱）：清单/权限/安装/启停状态 ─────────────────────────
 
     /// <summary>与 Windows 端一致的启动器版本（manifest 兼容性校验用）。</summary>
-    private const string LauncherVersion = "0.3.5";
+    private const string LauncherVersion = "0.3.7";
 
     private static readonly object PluginGate = new();
 

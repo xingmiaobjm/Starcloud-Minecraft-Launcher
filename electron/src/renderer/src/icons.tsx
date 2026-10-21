@@ -159,13 +159,12 @@ export function IconSettings(props: IconProps): JSX.Element {
   )
 }
 
-/** 用户（笑脸）。 */
+/** 用户（头 + 肩，账户入口用）。 */
 export function IconUser(props: IconProps): JSX.Element {
   return (
     <Svg {...props}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M9 10h.01M15 10h.01" />
-      <path d="M9 14.5c.8.9 1.8 1.4 3 1.4s2.2-.5 3-1.4" />
+      <circle cx="12" cy="8" r="3.6" />
+      <path d="M4.5 20.5c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
     </Svg>
   )
 }
@@ -239,6 +238,25 @@ export function IconWorld(props: IconProps): JSX.Element {
     <Svg {...props}>
       <rect x="3.5" y="3.5" width="17" height="17" rx="2" />
       <path d="M3.5 9.5h17M3.5 15h17M9.5 3.5v17M15 3.5v17" />
+    </Svg>
+  )
+}
+
+/** 主题：暗色半圆 / 亮色空心圆 / 跟随系统半明半暗。 */
+export function IconTheme(props: IconProps & { mode: 'system' | 'light' | 'dark' }): JSX.Element {
+  const mode = props.mode
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      {mode === 'dark' && <path d="M12 3.5a8.5 8.5 0 0 0 0 17z" fill="currentColor" stroke="none" />}
+      {mode === 'system' && (
+        <path
+          d="M12 3.5a8.5 8.5 0 0 1 0 17z"
+          fill="currentColor"
+          stroke="none"
+          opacity="0.55"
+        />
+      )}
     </Svg>
   )
 }

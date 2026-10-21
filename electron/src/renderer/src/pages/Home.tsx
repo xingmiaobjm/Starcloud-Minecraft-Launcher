@@ -236,11 +236,7 @@ export default function HomePage(props: {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <h1 className="page-title" style={{ flex: 1 }}>
-          首页
-        </h1>
-      </div>
+      {/* 首页不放页面大标题（Win 端首页直接从卡片开始） */}
 
       {/* 满高两栏：卡片撑满窗口高度、列表在卡内滚动（对齐 Win 端 HomePage） */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 24 }}>

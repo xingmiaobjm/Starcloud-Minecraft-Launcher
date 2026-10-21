@@ -125,22 +125,8 @@ export default function TitleBar(props: {
       onDoubleClick={maximize}
     >
       <div className="tb-lead tb-no-drag">{props.children}</div>
-      <div className="tb-title tb-no-drag">
-        {props.title}
-        {props.themeMode !== undefined && (
-          <button
-            className="tb-theme"
-            title={`主题：${THEME_LABEL[props.themeMode]}（点击切换）`}
-            aria-label="切换主题"
-            onClick={(e) => {
-              e.stopPropagation()
-              props.onCycleTheme?.()
-            }}
-          >
-            <ThemeGlyph mode={props.themeMode} />
-          </button>
-        )}
-      </div>
+      {/* 标题栏中间不放页面名（Win 端只在左侧显示产品名，标题由页面自身承担） */}
+      <div style={{ flex: 1 }} />
       {props.actions !== undefined && <div className="tb-actions">{props.actions}</div>}
       <div className="tb-actions">
         <button

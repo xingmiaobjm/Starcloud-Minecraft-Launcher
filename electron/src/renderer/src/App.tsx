@@ -25,7 +25,7 @@ import SettingsPage from './pages/Settings'
 import LogsPage from './pages/Logs'
 
 import brandMark from './assets/brand/starcloud-mark-small.svg'
-import { IconSparkle, IconUser } from './icons'
+import { IconUser } from './icons'
 
 export default function App(props: { initialTheme: import("./theme").ResolvedTheme }): JSX.Element {
   const theme = useTheme(props.initialTheme)
@@ -107,7 +107,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
       case 'logs':
         return <LogsPage session={session} />
       case 'settings':
-        return <SettingsPage />
+        return <SettingsPage theme={theme} />
       default:
         return <HomePage session={session} onNavigate={(t) => setPage(t)} />
     }
@@ -121,14 +121,15 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
         onCycleTheme={theme.cycle}
         actions={
           <>
-            {/* 自绘标题栏快捷入口（Win 端：Nova 助手 / 调度中心 / 个人中心） */}
+            {/* 自绘标题栏快捷入口（Win 端：Nova / 账户 / 主题） */}
             <button
               className="tb-action-btn"
               title="Nova 助手"
               aria-label="Nova 助手"
               onClick={() => setPage('nova')}
             >
-              <IconSparkle size={16} />
+              {/* Nova = 品牌标记（多色，画不出字形） */}
+              <img src={brandMark} alt="" width={16} height={16} />
             </button>
             <button
               className="tb-action-btn"
@@ -138,6 +139,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
             >
               <IconUser size={16} />
             </button>
+            {/* 主题切换在「设置 → 通用」里，标题栏不放 */}
           </>
         }
       >
