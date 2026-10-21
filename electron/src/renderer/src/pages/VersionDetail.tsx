@@ -16,14 +16,12 @@ import type {
   VersionDetail,
   VersionSettings
 } from '../bridge'
-import {
-  EmptyState,
+import {EmptyState,
   Modal,
   PageShell,
   Segmented,
   SkeletonList,
-  useToasts
-} from '../ui'
+  useToasts, Select } from '../ui'
 
 const KIND_LABEL: Record<ContentKind, string> = {
   mod: '模组',
@@ -788,18 +786,12 @@ function LabeledSelect(props: {
       <div className="t-meta" style={{ display: 'block', marginBottom: 4 }}>
         {props.label}
       </div>
-      <select
-        className="input"
-        style={{ width: '100%' }}
+      <Select
+        width={520}
         value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-      >
-        {props.options.map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
+        options={props.options.map(([v, label]) => ({ value: v, label }))}
+        onChange={props.onChange}
+      />
     </div>
   )
 }

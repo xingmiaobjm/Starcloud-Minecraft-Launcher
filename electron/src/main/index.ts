@@ -223,7 +223,22 @@ function createWindow(): BrowserWindow {
             bodyBg: getComputedStyle(document.body).backgroundColor,
             text: (document.getElementById('root')?.innerText ?? '').slice(0, 160),
             rows: document.querySelectorAll('.row').length,
-            navIcons: document.querySelectorAll('.nav-icon').length
+            navIcons: document.querySelectorAll('.nav-icon').length,
+            rects: (() => {
+              const pick = (sel) => {
+                const el = document.querySelector(sel)
+                if (!el) return null
+                const r = el.getBoundingClientRect()
+                return { left: Math.round(r.left), right: Math.round(r.right), w: Math.round(r.width) }
+              }
+              return {
+                content: pick('.content'),
+                page: pick('.page'),
+                head: pick('.page-head'),
+                body: pick('.page-body'),
+                card: pick('.card')
+              }
+            })()
           })
         `)
         console.log('[diag] ' + diag)

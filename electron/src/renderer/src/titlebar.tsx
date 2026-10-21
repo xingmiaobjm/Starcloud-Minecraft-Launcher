@@ -142,8 +142,7 @@ export default function TitleBar(props: {
         )}
       </div>
       {props.actions !== undefined && <div className="tb-actions">{props.actions}</div>}
-      {/* 窗口按钮单独一层：手机上整层藏掉（标题栏只留标题与功能入口） */}
-      <div className="tb-win-btns">
+      <div className="tb-actions">
         <button
           className="tb-btn"
           title="最小化"

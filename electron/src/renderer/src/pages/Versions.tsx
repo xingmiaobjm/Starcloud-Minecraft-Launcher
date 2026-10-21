@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { request } from '../bridge'
 import type { InstalledVersion } from '../bridge'
-import { EmptyState, Modal, SkeletonList, useToasts } from '../ui'
+import { EmptyState, Modal, SkeletonList, useToasts, Select } from '../ui'
 import VersionDetailPage from './VersionDetail'
 
 import grassIcon from '../assets/mc-icons/natural_grass_block.png'
@@ -246,18 +246,12 @@ export default function VersionsPage(props: {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          className="input"
-          style={{ width: 108 }}
+        <Select
+          width={110}
           value={kindFilter}
-          onChange={(e) => setKindFilter(e.target.value)}
-        >
-          {kinds.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
+          options={kinds.map((k) => ({ value: k, label: k }))}
+          onChange={setKindFilter}
+        />
         <button className="btn" onClick={() => void reload()} disabled={loading}>
           ↻ 刷新
         </button>

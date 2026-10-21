@@ -1102,83 +1102,11 @@ textarea.input { height: auto; min-height: 64px; padding: 8px 10px; resize: vert
 .t-meta { font-size: 11px; color: var(--text-tertiary); }
 .t-mono { font-family: var(--font-mono); }
 
+/* 输入类控件用下划线表达焦点，鼠标聚焦时不再叠外描边 */
+.input:focus:not(:focus-visible),
+select.input:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ═══ 焦点可见 ═══ */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   手机竖屏适配（安卓 WebView）
-   桌面布局是「48px 图标导航 + 宽内容区」，手机竖屏下宽度只有 ~400px：
-   导航挤成一条竖列、内容区被压到不足 300px、行内的多列元信息全部折行。
-   断点取 720px（覆盖绝大多数手机竖屏与小平板竖屏），命中后：
-     · 导航从左侧竖列改成底部横向标签栏（拇指可达）
-     · 标题栏压缩，隐藏拖拽区与窗口按钮（手机没有最小化/最大化）
-     · 内容区改为可纵向滚动，页面高度不再锁死 100%
-     · 触控目标放大到 44px，间距放宽
-   ═══════════════════════════════════════════════════════════════════════ */
-@media (max-width: 720px) {
-  :root { --titlebar-h: 44px; }
-
-  /* 标题栏：只留标题，窗口按钮与拖拽区在手机上没有意义 */
-  .tb { height: var(--titlebar-h); }
-  .tb-drag { display: none; }
-  .tb-win-btns { display: none !important; }
-  .tb-actions { gap: 2px; }
-  .tb-action-btn { width: 40px; height: 40px; }
-
-  /* 主体：改成纵向堆叠 —— 内容在上、导航在下 */
-  .win-body { flex-direction: column-reverse; }
-
-  /* 导航变底部标签栏：横向排列、只留图标 */
-  .nav {
-    width: 100% !important;
-    height: 60px;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-around;
-    border-right: none;
-    border-top: 1px solid var(--stroke-subtle);
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-  }
-  .nav::-webkit-scrollbar { display: none; }
-  .nav-open { width: 100% !important; }
-  .nav-label { display: none !important; }
-  .nav-item {
-    width: 52px;
-    min-width: 52px;
-    height: 48px;
-    flex: 0 0 auto;
-    justify-content: center;
-  }
-  /* 展开/收起按钮在手机上没有意义（底部标签栏常驻） */
-  .nav-mode { display: none; }
-  /* 分组容器要留：它装着导航项本身（隐藏的是分组标题，不是项） */
-  .nav-group { display: contents; }
-  .nav-sep { display: none; }
-  .nav-spacer { display: none; }
-  .nav-item::after,
-  .nav:not(.nav-open) .nav-item::after { display: none; }
-  .nav-icon { width: 24px; height: 24px; }
-  .nav-icon img { width: 22px; height: 22px; }
-
-  /* 内容区：改成纵向滚动，页面不再撑满 100% 高度 */
-  .content {
-    padding: 14px 12px 20px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
-  .page { height: auto; min-height: 100%; }
-  .page-head { flex-direction: column; align-items: stretch; gap: 10px; }
-  .page-title { font-size: 21px; }
-
-  /* 行内多列（元信息 / 类型芯片）在窄屏折行 */
-  .row { flex-wrap: wrap; row-gap: 6px; }
-  .meta { grid-template-columns: auto minmax(64px, auto); }
-
-  /* 触控目标放大到 44px */
-  .btn { min-height: 44px; }
-  .tb-action-btn,
-  .nav-item { min-width: 44px; min-height: 44px; }
-}

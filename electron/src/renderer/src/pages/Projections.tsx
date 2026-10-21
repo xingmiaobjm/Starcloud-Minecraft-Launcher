@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { request } from '../bridge'
-import { EmptyState, Modal, SkeletonList, useToasts } from '../ui'
+import { EmptyState, Modal, SkeletonList, useToasts, Select } from '../ui'
 
 export interface ProjectionFile {
   filePath: string
@@ -159,19 +159,15 @@ export default function ProjectionsPage(): JSX.Element {
           <div className="t-strong" style={{ marginBottom: 12 }}>
             目标版本
           </div>
-          <select
-            className="input"
-            style={{ width: '100%' }}
+          <Select
+            width={340}
             value={dest}
-            onChange={(e) => setDest(e.target.value)}
-          >
-            <option value="">全局（共享目录）</option>
-            {versions.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: '全局（共享目录）' },
+              ...versions.map((v) => ({ value: v, label: v }))
+            ]}
+            onChange={setDest}
+          />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
             <button

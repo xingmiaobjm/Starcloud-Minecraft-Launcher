@@ -418,3 +418,110 @@ export class ErrorBoundary extends React.Component<
     return this.props.children
   }
 }
+
+// ── 自绘下拉 ───────────────────────────────────────────────────────────────
+
+/**
+ * 下拉选择（替代原生 <select>）。
+ * 原生 select 的弹出层由系统绘制：深色主题下会出现系统蓝高亮、白底列表，
+ * 与本套视觉完全不搭（用户反馈的主要问题）。这里用 `.flyout` + `.nav-item`
+ * 画一个同风格的列表，并在空间不足时自动向上弹。
+ */
+export function Select<T extends string>(props: {
+  value: T
+  options: Array<{ value: T; label: string }>
+  onChange: (v: T) => void
+  disabled?: boolean
+  width?: number
+  /** 无选中项时的占位文案。 */
+  placeholder?: string
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [up, setUp] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (rootRef.current !== null && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const current = props.options.find((o) => o.value === props.value)
+
+  const toggle = (): void => {
+    if (props.disabled === true) return
+    // 下方空间不足就向上弹（下拉比视口底部更近时）
+    const rect = rootRef.current?.getBoundingClientRect()
+    if (rect !== undefined) {
+      const estimated = Math.min(320, props.options.length * 34 + 12)
+      setUp(window.innerHeight - rect.bottom < estimated + 16)
+    }
+    setOpen((v) => !v)
+  }
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', width: props.width ?? 220 }}>
+      <button
+        className="input"
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          cursor: props.disabled === true ? 'default' : 'pointer',
+          opacity: props.disabled === true ? 0.5 : 1,
+          textAlign: 'left'
+        }}
+        disabled={props.disabled}
+        title={current?.label ?? props.placeholder ?? ''}
+        onClick={toggle}
+      >
+        <span className="truncate" style={{ flex: 1 }}>
+          {current?.label ?? props.placeholder ?? ''}
+        </span>
+        <span style={{ opacity: 0.55, fontSize: 11 }}>⌄</span>
+      </button>
+
+      {open && (
+        <div
+          className="flyout"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: up ? undefined : 'calc(100% + 6px)',
+            bottom: up ? 'calc(100% + 6px)' : undefined,
+            maxHeight: 320,
+            overflowY: 'auto',
+            zIndex: 700,
+            padding: 6
+          }}
+        >
+          {props.options.map((o) => (
+            <button
+              key={o.value}
+              className={`nav-item${o.value === props.value ? ' nav-active' : ''}`}
+              style={{ height: 32, width: '100%', fontSize: 13 }}
+              onClick={() => {
+                props.onChange(o.value)
+                setOpen(false)
+              }}
+            >
+              <span className="truncate">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

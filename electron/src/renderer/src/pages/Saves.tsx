@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { request } from '../bridge'
 import type { SaveInfo, SaveList } from '../bridge'
-import { EmptyState, SkeletonList, useToasts } from '../ui'
+import { EmptyState, SkeletonList, useToasts, Select } from '../ui'
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B'
@@ -190,18 +190,12 @@ export default function SavesPage(): JSX.Element {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          className="input"
-          style={{ width: 140 }}
+        <Select
+          width={150}
           value={versionFilter}
-          onChange={(e) => setVersionFilter(e.target.value)}
-        >
-          {versions.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
+          options={versions.map((v) => ({ value: v, label: v }))}
+          onChange={setVersionFilter}
+        />
         <div style={{ flex: 1 }} />
         {tplBtn('导入分享包', () => push('info', '导入分享包：内核能力接入后可用'), {
           disabled: true

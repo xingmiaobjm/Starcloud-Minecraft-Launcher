@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { onBridgeEvent, request } from '../bridge'
 import type { MultiplayerSnapshot } from '../bridge'
-import { Modal, ProgressBar, useToasts } from '../ui'
+import { Modal, ProgressBar, Select, useToasts } from '../ui'
 
 /** 可展开行（Win 端 Expander 样式：一行标题 + 右侧箭头）。 */
 function Expander(props: {
@@ -129,20 +129,18 @@ export default function MultiplayerPage(): JSX.Element {
       <div className="page-head">
         <div style={{ flex: 1 }} />
         <span className="t-cap">联机方案</span>
-        <select
-          className="input"
-          style={{ width: 220 }}
+        <Select
+          width={220}
           value={activeId}
           disabled={busy || snap?.state.isBusy === true}
-          onChange={(e) => void run('multiplayer.selectProvider', { id: e.target.value }, '已切换联机方案')}
-        >
-          {providers.length === 0 && <option value="">（无可用方案）</option>}
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.displayName}
-            </option>
-          ))}
-        </select>
+          placeholder="（无可用方案）"
+          options={
+            providers.length === 0
+              ? [{ value: '', label: '（无可用方案）' }]
+              : providers.map((p) => ({ value: p.id, label: p.displayName }))
+          }
+          onChange={(id) => void run('multiplayer.selectProvider', { id }, '已切换联机方案')}
+        />
       </div>
 
       <div className="page-body">
@@ -241,17 +239,18 @@ export default function MultiplayerPage(): JSX.Element {
                 <div className="t-cap" style={{ marginBottom: 4 }}>
                   节点地区
                 </div>
-                <select
-                  className="input"
+                <Select
+                  width={160}
                   value={snap?.nodeRegion ?? 'auto'}
-                  onChange={(e) =>
-                    void run('multiplayer.setNodeRegion', { region: e.target.value }, '节点已切换')
+                  options={[
+                    { value: 'auto', label: '自动' },
+                    { value: 'cn', label: '中国' },
+                    { value: 'overseas', label: '海外' }
+                  ]}
+                  onChange={(region) =>
+                    void run('multiplayer.setNodeRegion', { region }, '节点已切换')
                   }
-                >
-                  <option value="auto">自动</option>
-                  <option value="cn">中国</option>
-                  <option value="overseas">海外</option>
-                </select>
+                />
               </label>
             </div>
           )}
