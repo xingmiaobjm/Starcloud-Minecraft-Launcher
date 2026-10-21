@@ -44,6 +44,8 @@ public static class Program
     private static SkinStationService _skinStation = null!;
     private static MultiplayerService _multiplayer = null!;
     private static ProjectionLibrary _projections = null!;
+    private static StarcloudIdService _starcloudId = null!;
+    private static FriendsService _friends = null!;
     private static NovaService _nova = null!;
     private static PluginHost _pluginHost = null!;
     private static Task? _novaTask;
@@ -79,6 +81,10 @@ public static class Program
         _accounts = AccountStore.Load();
         _msAuth = new MicrosoftAuthService();
         _yggdrasil = new YggdrasilService();
+
+        // Starcloud ID（好友/联机邀请的账号体系）：会话持久化在数据根，重启自动恢复。
+        _starcloudId = new StarcloudIdService();
+        _friends = new FriendsService(() => _starcloudId.Current?.ApiKey);
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
         _projections = new ProjectionLibrary(() => _settings);
@@ -1859,6 +1865,152 @@ public static class Program
                 return new { ok = true };
             }
 
+            case "starcloud.state":
+                return new
+                {
+                    loggedIn = _starcloudId.IsLoggedIn,
+                    userId = _starcloudId.Current?.UserId,
+                    displayName = _starcloudId.Current?.DisplayName,
+                    channel = _starcloudId.Current?.Channel,
+                    loginAt = _starcloudId.Current?.LoginAt,
+                };
+
+            case "starcloud.login":
+            {
+                var session = await _starcloudId.LoginAsync(
+                    p.GetProperty("id").GetString() ?? "",
+                    p.GetProperty("password").GetString() ?? "");
+                return new
+                {
+                    loggedIn = true,
+                    userId = session.UserId,
+                    displayName = session.DisplayName,
+                    channel = session.Channel,
+                    loginAt = session.LoginAt,
+                };
+            }
+
+            case "starcloud.sendCode":
+            {
+                var retryAfter = await _starcloudId.SendEmailCodeAsync(
+                    p.GetProperty("email").GetString() ?? "");
+                return new { retryAfter };
+            }
+
+            case "starcloud.register":
+            {
+                await _starcloudId.RegisterAsync(
+                    p.GetProperty("id").GetString() ?? "",
+                    p.GetProperty("password").GetString() ?? "",
+                    p.GetProperty("email").GetString() ?? "",
+                    p.GetProperty("code").GetString() ?? "");
+                return new { ok = true };
+            }
+
+            case "starcloud.logout":
+                _starcloudId.Logout();
+                return new { ok = true };
+
+            case "friends.list":
+                return new
+                {
+                    signedIn = _friends.IsSignedIn,
+                    friends = await _friends.GetFriendsAsync(),
+                };
+
+            case "friends.requests":
+                return new
+                {
+                    signedIn = _friends.IsSignedIn,
+                    requests = await _friends.GetRequestsAsync(),
+                };
+
+            case "friends.search":
+            {
+                var results = await _friends.SearchAsync(p.GetProperty("query").GetString() ?? "");
+                return new { results };
+            }
+
+            case "friends.sendRequest":
+            {
+                await _friends.SendRequestAsync(
+                    p.GetProperty("target").GetString() ?? "",
+                    p.TryGetProperty("message", out var reqMsg) ? reqMsg.GetString() : null);
+                return new { ok = true };
+            }
+
+            case "friends.acceptRequest":
+                await _friends.AcceptRequestAsync(p.GetProperty("requestId").GetString()!);
+                return new { ok = true };
+
+            case "friends.rejectRequest":
+                await _friends.RejectRequestAsync(p.GetProperty("requestId").GetString()!);
+                return new { ok = true };
+
+            case "friends.cancelRequest":
+                await _friends.CancelRequestAsync(p.GetProperty("requestId").GetString()!);
+                return new { ok = true };
+
+            case "friends.remove":
+                await _friends.RemoveFriendAsync(p.GetProperty("userId").GetString()!);
+                return new { ok = true };
+
+            case "friends.invites":
+                return new
+                {
+                    signedIn = _friends.IsSignedIn,
+                    invites = await _friends.GetInvitesAsync(),
+                };
+
+            case "friends.createInvite":
+            {
+                var invite = await _friends.CreateInviteAsync(
+                    p.GetProperty("userId").GetString() ?? "",
+                    p.TryGetProperty("address", out var invAddr) ? invAddr.GetString() : null,
+                    p.TryGetProperty("port", out var invPort) && invPort.ValueKind == JsonValueKind.Number
+                        ? invPort.GetInt32()
+                        : null,
+                    p.TryGetProperty("roomCode", out var invRoom) ? invRoom.GetString() : null,
+                    p.TryGetProperty("message", out var invMsg) ? invMsg.GetString() : null);
+                return new { invite };
+            }
+
+            case "friends.acceptInvite":
+                await _friends.AcceptInviteAsync(p.GetProperty("inviteId").GetString()!);
+                return new { ok = true };
+
+            case "friends.declineInvite":
+                await _friends.DeclineInviteAsync(p.GetProperty("inviteId").GetString()!);
+                return new { ok = true };
+
+            case "friends.cancelInvite":
+                await _friends.CancelInviteAsync(p.GetProperty("inviteId").GetString()!);
+                return new { ok = true };
+
+            case "friends.conversation":
+            {
+                long? beforeId = p.TryGetProperty("beforeId", out var convBefore) &&
+                                convBefore.ValueKind == JsonValueKind.Number
+                    ? convBefore.GetInt64()
+                    : null;
+                var page = await _friends.GetConversationAsync(
+                    p.GetProperty("userId").GetString()!, beforeId);
+                return new { page };
+            }
+
+            case "friends.send":
+            {
+                var message = await _friends.SendMessageAsync(
+                    p.GetProperty("userId").GetString()!,
+                    p.GetProperty("content").GetString() ?? "");
+                return new { message };
+            }
+
+            case "friends.markRead":
+            {
+                var updated = await _friends.MarkReadAsync(p.GetProperty("userId").GetString()!);
+                return new { updated };
+            }
             default:
                 throw new Exception($"未知方法：{method}");
         }
