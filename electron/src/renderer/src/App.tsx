@@ -11,7 +11,7 @@ import TitleBar from './titlebar'
 import LaunchOverlay from './launchOverlay'
 import { ErrorBoundary } from './ui'
 import { useGameSession } from './state/session'
-import { useInstallTasks } from './state/tasks'
+import { useTaskCenter } from './state/tasks'
 import TaskDrawer from './TaskDrawer'
 import { IconUser, IconTasks } from './icons'
 import HomePage from './pages/Home'
@@ -35,7 +35,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
   const theme = useTheme(props.initialTheme)
   const [page, setPage] = useState<PageKey>('home')
   const session = useGameSession()
-  const installTasks = useInstallTasks()
+  const taskCenter = useTaskCenter()
   const [tasksOpen, setTasksOpen] = useState(false)
 
   // 启动时应用一次视觉设置（动效档位 / 背景），之后由设置页即时更新
