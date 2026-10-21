@@ -77,6 +77,8 @@ public sealed partial class ProjectionManagerPage : Page
         MoveBtn.IsEnabled = has;
         RevealBtn.IsEnabled = has;
         DeleteBtn.IsEnabled = has;
+        // 四个按钮全灰时给出"先选一行"的引导，选中后收起
+        SelectHint.Visibility = has ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void SetStatus(string text) => StatusText.Text = text;

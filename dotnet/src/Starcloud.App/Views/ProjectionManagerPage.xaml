@@ -79,6 +79,18 @@
                     BorderThickness="1" CornerRadius="16" Padding="16"
                     VerticalAlignment="Top">
                 <StackPanel Spacing="12">
+                    <!-- 未选中时的引导：四个操作按钮都是灰的，页面得说明"先选一行"，
+                         否则用户只会看到一排点不动的按钮 -->
+                    <Border x:Name="SelectHint" CornerRadius="10" Padding="12,10"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                        <StackPanel Spacing="2">
+                            <TextBlock loc:Loc.Text="先在左侧选一个投影" FontSize="13" FontWeight="Medium" />
+                            <TextBlock loc:Loc.Text="选中后即可复制、移动到别的版本，或删除。"
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+
                     <TextBlock loc:Loc.Text="目标版本" FontWeight="Medium" FontSize="13" />
                     <ComboBox x:Name="TargetCombo" HorizontalAlignment="Stretch" MinHeight="34" />
 
