@@ -18,6 +18,7 @@ import type {
   MicrosoftPollResult
 } from '../bridge'
 import { EmptyState, Modal, Segmented, SkeletonList, useToasts } from '../ui'
+import { IconClose, IconChevronRight } from '../icons'
 
 /** 账户头像（与 Win 端 AvatarHelper 同规则：微软用 UUID，其它用用户名）。 */
 function avatarUrl(a: GameAccount): string {
@@ -429,7 +430,7 @@ export default function AccountsPage(): JSX.Element {
                 >
                   移除
                 </button>
-                <span style={{ opacity: 0.4 }}>›</span>
+                <IconChevronRight size={15} style={{ opacity: 0.45 }} />
               </div>
             )
           })}
@@ -497,7 +498,7 @@ export default function AccountsPage(): JSX.Element {
 
           {addError !== '' && (
             <div className="info info-danger">
-              <span aria-hidden>✕</span>
+              <IconClose size={14} />
               <div className="info-body">{addError}</div>
             </div>
           )}

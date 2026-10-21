@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { onBridgeEvent, request } from '../bridge'
+import { IconSettings, IconFolder, IconRefresh, IconClose, IconCheck, IconCube } from '../icons'
 import type {
   ContentFile,
   ContentInstallResult,
@@ -208,17 +209,17 @@ export default function VersionDetailPage(props: {
               disabled={detail === null}
               onClick={() => setShowSettings(true)}
             >
-              ⚙ 实例设置
+              <IconSettings size={14} /> 实例设置
             </button>
             <button
               className="btn btn-subtle"
               disabled={detail === null}
               onClick={() => void openFolder()}
             >
-              ▤ 打开目录
+              <IconFolder size={14} /> 打开目录
             </button>
             <button className="btn btn-subtle" onClick={() => void load()}>
-              ↻ 刷新
+              <IconRefresh size={14} /> 刷新
             </button>
           </>
         }
@@ -277,7 +278,7 @@ export default function VersionDetailPage(props: {
                     disabled={globalBusy}
                     onClick={() => void checkUpdates()}
                   >
-                    ↻ 检查更新
+                    <IconRefresh size={14} /> 检查更新
                   </button>
                   <button
                     className="btn"
@@ -346,7 +347,7 @@ export default function VersionDetailPage(props: {
                     disabled={globalBusy}
                     onClick={() => setConfirmDelete(file)}
                   >
-                    ✕ 删除
+                    <IconClose size={14} /> 删除
                   </button>
                 </div>
               ))
@@ -553,7 +554,7 @@ function DepsDialog(props: {
       <div style={{ maxHeight: 380, overflowY: 'auto', minWidth: 520 }}>
         {clean && (
           <div className="info info-success">
-            <span aria-hidden>✓</span>
+            <IconCheck size={14} />
             <div className="info-body">
               <div className="info-title">依赖完整</div>
               <div className="t-cap">
@@ -576,7 +577,7 @@ function DepsDialog(props: {
         )}
         {props.deps.incompatible.length > 0 && (
           <div className="info info-danger" style={{ marginTop: 10 }}>
-            <span aria-hidden>✕</span>
+            <IconClose size={14} />
             <div className="info-body">
               <div className="info-title">已安装但不兼容</div>
               <div className="t-cap">{props.deps.incompatible.join('、')}</div>
@@ -766,7 +767,7 @@ function InstanceSettingsDialog(props: {
         )}
         {error !== '' && (
           <div className="info info-danger" style={{ marginTop: 10 }}>
-            <span aria-hidden>✕</span>
+            <IconClose size={14} />
             <div className="info-body t-body">{error}</div>
           </div>
         )}
@@ -911,7 +912,7 @@ function SearchInstallDialog(props: {
         )}
         {installed !== null && (
           <div className="info info-success" style={{ marginBottom: 10 }}>
-            <span aria-hidden>✓</span>
+            <IconCheck size={14} />
             <div className="info-body t-body">
               已安装 {installed.installed.length} 个文件
               {installed.missing.length > 0 ? `；${installed.missing.length} 个依赖未找到` : ''}
@@ -957,7 +958,7 @@ function SearchInstallDialog(props: {
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (
-                    <span style={{ opacity: 0.6 }}>◧</span>
+                    <IconCube size={20} style={{ opacity: 0.6 }} />
                   )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>

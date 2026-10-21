@@ -25,6 +25,7 @@ import SettingsPage from './pages/Settings'
 import LogsPage from './pages/Logs'
 
 import brandMark from './assets/brand/starcloud-mark-small.svg'
+import { IconSparkle, IconUser } from './icons'
 
 export default function App(props: { initialTheme: import("./theme").ResolvedTheme }): JSX.Element {
   const theme = useTheme(props.initialTheme)
@@ -127,7 +128,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
               aria-label="Nova 助手"
               onClick={() => setPage('nova')}
             >
-              ✦
+              <IconSparkle size={16} />
             </button>
             <button
               className="tb-action-btn"
@@ -135,7 +136,7 @@ export default function App(props: { initialTheme: import("./theme").ResolvedThe
               aria-label="账户"
               onClick={() => setPage('accounts')}
             >
-              ☺
+              <IconUser size={16} />
             </button>
           </>
         }

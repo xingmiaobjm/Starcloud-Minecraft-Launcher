@@ -1,6 +1,7 @@
 /// 共用 UI 原子（纯 CSS 类，无框架依赖）。
 /// 视觉规范见 winui.css 与 DESIGN.md（WinUI 3 令牌）。
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { IconCheck, IconClose, IconInfo, IconWarning, IconChevronDown } from './icons'
 
 // ── 页面骨架 ────────────────────────────────────────────────────────────────
 
@@ -101,11 +102,11 @@ export interface ToastItem {
   text: string
 }
 
-const TOAST_ICON: Record<ToastKind, string> = {
-  success: '✓',
-  error: '✕',
-  info: 'ⓘ',
-  warning: '⚠'
+const TOAST_ICON: Record<ToastKind, JSX.Element> = {
+  success: <IconCheck size={14} />,
+  error: <IconClose size={14} />,
+  info: <IconInfo size={14} />,
+  warning: <IconWarning size={14} />
 }
 
 export function InfoBar(props: {
@@ -123,7 +124,7 @@ export function InfoBar(props: {
       </div>
       {props.onDismiss !== undefined && (
         <button className="btn btn-subtle btn-sm" onClick={props.onDismiss}>
-          ✕
+          <IconClose size={13} />
         </button>
       )}
     </div>
@@ -155,7 +156,7 @@ export function useToasts(): {
             className="btn btn-subtle btn-sm"
             onClick={() => setItems((prev) => prev.filter((t) => t.id !== item.id))}
           >
-            ✕
+            <IconClose size={13} />
           </button>
         </div>
       ))}
@@ -199,7 +200,7 @@ export function Checkbox(props: {
       disabled={props.disabled}
       onClick={() => props.onChange(!props.checked)}
     >
-      {props.checked ? '✓' : ''}
+      {props.checked ? <IconCheck size={13} /> : null}
     </button>
   )
 }
@@ -489,7 +490,7 @@ export function Select<T extends string>(props: {
         <span className="truncate" style={{ flex: 1 }}>
           {current?.label ?? props.placeholder ?? ''}
         </span>
-        <span style={{ opacity: 0.55, fontSize: 11 }}>⌄</span>
+        <IconChevronDown size={14} style={{ opacity: 0.6 }} />
       </button>
 
       {open && (

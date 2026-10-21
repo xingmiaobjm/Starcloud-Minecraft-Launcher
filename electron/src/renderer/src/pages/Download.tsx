@@ -11,6 +11,7 @@ import grassIcon from '../assets/mc-icons/natural_grass_block.png'
 import amethystIcon from '../assets/mc-icons/block_of_amethyst.png'
 import cobbleIcon from '../assets/mc-icons/masonry_cobblestone.png'
 import dirtIcon from '../assets/mc-icons/natural_dirt.png'
+import { IconHome, IconCube, IconList, IconFolder, IconSparkle, IconRefresh, IconChevronRight } from '../icons'
 
 interface InstallProgress {
   versionId: string
@@ -164,13 +165,13 @@ export default function DownloadPage(): JSX.Element {
     })
   }, [catalog.remote, channel, keyword])
 
-  const subNav: Array<{ id: string; label: string; icon: string; group?: string }> = [
-    { id: 'vanilla', label: '原版游戏', icon: '▣' },
-    { id: 'mod', label: 'Mod', icon: '▦', group: '社区资源' },
-    { id: 'modpack', label: '整合包', icon: '▤' },
-    { id: 'datapack', label: '数据包', icon: '▥' },
-    { id: 'resourcepack', label: '资源包', icon: '🖼' },
-    { id: 'shader', label: '光影包', icon: '☀' }
+  const subNav: Array<{ id: string; label: string; icon: React.ReactNode; group?: string }> = [
+    { id: 'vanilla', label: '原版游戏', icon: <IconHome size={15} /> },
+    { id: 'mod', label: 'Mod', icon: <IconCube size={15} />, group: '社区资源' },
+    { id: 'modpack', label: '整合包', icon: <IconList size={15} /> },
+    { id: 'datapack', label: '数据包', icon: <IconList size={15} /> },
+    { id: 'resourcepack', label: '资源包', icon: <IconFolder size={15} /> },
+    { id: 'shader', label: '光影包', icon: <IconSparkle size={15} /> }
   ]
 
   return (
@@ -262,7 +263,7 @@ export default function DownloadPage(): JSX.Element {
                       <div className="t-strong truncate">{v.id}</div>
                       <div className="t-meta">发布于 {releaseDateTime(v.releaseTime)}</div>
                     </div>
-                    <span style={{ opacity: 0.5 }}>›</span>
+                    <IconChevronRight size={15} style={{ opacity: 0.5 }} />
                   </div>
                 )
               )}
@@ -306,7 +307,7 @@ export default function DownloadPage(): JSX.Element {
                   }
                   action={
                     <button className="btn" onClick={() => void load()}>
-                      ↻ 重新拉取
+                      <IconRefresh size={14} /> 重新拉取
                     </button>
                   }
                 />

@@ -5,15 +5,16 @@ import { useCallback, useEffect, useState } from 'react'
 import { request } from '../bridge'
 import type { SettingsSnapshot } from '../bridge'
 import { SkeletonList, useToasts } from '../ui'
+import { IconHome, IconCube, IconImport, IconSettings, IconLink } from '../icons'
 
 type Section = 'game' | 'java' | 'download' | 'general' | 'crossdevice'
 
-const SECTIONS: Array<{ id: Section; label: string; icon: string }> = [
-  { id: 'game', label: '游戏', icon: '▣' },
-  { id: 'java', label: 'Java', icon: '☕' },
-  { id: 'download', label: '下载与资源', icon: '⤓' },
-  { id: 'general', label: '通用', icon: '⚙' },
-  { id: 'crossdevice', label: '跨设备', icon: '⇄' }
+const SECTIONS: Array<{ id: Section; label: string; icon: React.ReactNode }> = [
+  { id: 'game', label: '游戏', icon: <IconHome size={15} /> },
+  { id: 'java', label: 'Java', icon: <IconCube size={15} /> },
+  { id: 'download', label: '下载与资源', icon: <IconImport size={15} /> },
+  { id: 'general', label: '通用', icon: <IconSettings size={15} /> },
+  { id: 'crossdevice', label: '跨设备', icon: <IconLink size={15} /> }
 ]
 
 /** 分组卡标题：左侧黄色竖条 + 标题（Win 端 SectionHeader 样式）。 */

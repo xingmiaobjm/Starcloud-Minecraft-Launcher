@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { onBridgeEvent, request } from '../bridge'
 import type { MultiplayerSnapshot } from '../bridge'
 import { Modal, ProgressBar, Select, useToasts } from '../ui'
+import { IconWarning, IconRefresh, IconChevronRight } from '../icons'
 
 /** 可展开行（Win 端 Expander 样式：一行标题 + 右侧箭头）。 */
 function Expander(props: {
@@ -24,9 +25,10 @@ function Expander(props: {
         <span className="t-body" style={{ color: 'var(--text-primary)', fontSize: 14 }}>
           {props.title}
         </span>
-        <span style={{ opacity: 0.55, transform: props.open ? 'rotate(90deg)' : 'none' }}>
-          ›
-        </span>
+        <IconChevronRight
+          size={15}
+          style={{ opacity: 0.55, transform: props.open ? 'rotate(90deg)' : 'none' }}
+        />
       </button>
       {props.open && (
         <div style={{ padding: '4px 16px 14px' }}>{props.children}</div>
@@ -170,7 +172,7 @@ export default function MultiplayerPage(): JSX.Element {
 
           {snap?.core.installed === false && (
             <div className="info info-warning" style={{ marginTop: 12 }}>
-              <span aria-hidden>⚠</span>
+              <IconWarning size={14} />
               <div className="info-body" style={{ flex: 1 }}>
                 联机核心未安装。
                 {installProgress !== null && (
@@ -208,7 +210,7 @@ export default function MultiplayerPage(): JSX.Element {
               高级选项
             </span>
             <span style={{ opacity: 0.55, transform: advancedOpen ? 'rotate(90deg)' : 'none' }}>
-              ›
+              <IconChevronRight size={15} />
             </span>
           </button>
           {advancedOpen && (
@@ -291,7 +293,7 @@ export default function MultiplayerPage(): JSX.Element {
                 disabled={busy}
                 onClick={() => void run('multiplayer.idle', {}, '已回到空闲')}
               >
-                ↻ 回到空闲
+                <IconRefresh size={14} /> 回到空闲
               </button>
             </>
           )}

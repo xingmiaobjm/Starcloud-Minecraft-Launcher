@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { request } from '../bridge'
 import type { SaveInfo, SaveList } from '../bridge'
 import { EmptyState, SkeletonList, useToasts, Select } from '../ui'
+import { IconRefresh, IconWorld } from '../icons'
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B'
@@ -202,7 +203,7 @@ export default function SavesPage(): JSX.Element {
         })}
         {tplBtn('打开存档目录', () => void openFolder())}
         <button className="btn btn-subtle" onClick={() => void load()} disabled={loading}>
-          ↻
+          <IconRefresh size={15} />
         </button>
       </div>
 
@@ -220,7 +221,7 @@ export default function SavesPage(): JSX.Element {
               }
               action={
                 <button className="btn" onClick={() => void load()}>
-                  ↻ 重新扫描
+                  <IconRefresh size={14} /> 重新扫描
                 </button>
               }
             />
@@ -242,7 +243,7 @@ export default function SavesPage(): JSX.Element {
                   {icon !== undefined ? (
                     <img src={icon} alt="" width={64} height={64} style={{ objectFit: 'cover' }} />
                   ) : (
-                    <span style={{ fontSize: 22, opacity: 0.45 }}>▧</span>
+                    <IconWorld size={22} style={{ opacity: 0.45 }} />
                   )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>

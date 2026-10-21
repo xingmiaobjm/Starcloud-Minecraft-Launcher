@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { onBridgeEvent, request } from '../bridge'
 import type { NovaConfig, NovaPlanItem } from '../bridge'
 import { Modal, Toggle, useToasts } from '../ui'
+import { IconSparkle } from '../icons'
 
 /** 分组卡标题（黄色竖条 + 标题 + 右侧附加操作）。 */
 function SectionCard(props: {
@@ -196,7 +197,7 @@ export default function NovaPage(): JSX.Element {
             登录后可用云端模型与邀请、时刻等在线能力；凭据只保存在本机。
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18, color: 'var(--accent)' }}>✦</span>
+            <IconSparkle size={18} style={{ color: 'var(--accent)' }} />
             <div style={{ flex: 1 }}>
               <div className="t-body">未登录</div>
               <div className="t-meta">当前使用下面接入的本地模型</div>

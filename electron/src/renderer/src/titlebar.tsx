@@ -137,7 +137,7 @@ export default function TitleBar(props: {
               props.onCycleTheme?.()
             }}
           >
-            {props.themeMode === 'dark' ? '◐' : props.themeMode === 'light' ? '○' : '◑'}
+            <ThemeGlyph mode={props.themeMode} />
           </button>
         )}
       </div>
@@ -182,5 +182,18 @@ export default function TitleBar(props: {
         </button>
       </div>
     </div>
+  )
+}
+
+/** 主题指示：暗色半圆 / 亮色空心圆 / 跟随系统半明半暗。 */
+function ThemeGlyph(props: { mode: 'system' | 'light' | 'dark' }): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      {props.mode === 'dark' && <path d="M12 3.5a8.5 8.5 0 0 0 0 17z" fill="currentColor" />}
+      {props.mode === 'system' && (
+        <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" opacity="0.55" />
+      )}
+    </svg>
   )
 }

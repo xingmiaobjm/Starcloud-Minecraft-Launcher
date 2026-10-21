@@ -15,6 +15,7 @@ import neoforgeIcon from '../assets/mc-icons/neoforge.png'
 import forgeIcon from '../assets/mc-icons/forge.png'
 import fabricIcon from '../assets/mc-icons/fabric.png'
 import quiltIcon from '../assets/mc-icons/quilt.png'
+import { IconFolder, IconImport, IconRefresh, IconMore, IconTrash } from '../icons'
 
 const LOADER_ICONS: Record<string, string> = {
   neoforge: neoforgeIcon,
@@ -218,9 +219,7 @@ export default function VersionsPage(props: {
           style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
           title={gameDir}
         >
-          <span aria-hidden style={{ opacity: 0.55 }}>
-            📁
-          </span>
+          <IconFolder size={15} style={{ opacity: 0.6 }} />
           <span className="truncate" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
             {gameDir === '' ? '游戏目录' : gameDir}
           </span>
@@ -230,7 +229,7 @@ export default function VersionsPage(props: {
           onClick={() => push('info', '整合包导入：内核能力接入后可用')}
           title="导入整合包"
         >
-          ⤓ 导入整合包
+          <IconImport size={15} /> 导入整合包
         </button>
         <button
           className="btn"
@@ -253,10 +252,10 @@ export default function VersionsPage(props: {
           onChange={setKindFilter}
         />
         <button className="btn" onClick={() => void reload()} disabled={loading}>
-          ↻ 刷新
+          <IconRefresh size={14} /> 刷新
         </button>
         <button className="btn" onClick={() => void openFolder()}>
-          📁 打开游戏目录
+          <IconFolder size={15} /> 打开游戏目录
         </button>
       </div>
 
@@ -310,7 +309,7 @@ export default function VersionsPage(props: {
                   setMenuFor(v)
                 }}
               >
-                ⋮
+                <IconMore size={16} />
               </button>
               <button
                 className="btn btn-subtle btn-sm btn-danger"
@@ -321,7 +320,7 @@ export default function VersionsPage(props: {
                   setConfirm(v)
                 }}
               >
-                🗑
+                <IconTrash size={15} />
               </button>
             </div>
           ))}

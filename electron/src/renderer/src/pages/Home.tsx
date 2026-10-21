@@ -18,6 +18,7 @@ import neoforgeIcon from '../assets/mc-icons/neoforge.png'
 import forgeIcon from '../assets/mc-icons/forge.png'
 import fabricIcon from '../assets/mc-icons/fabric.png'
 import quiltIcon from '../assets/mc-icons/quilt.png'
+import { IconRefresh, IconChevronUp, IconChevronDown, IconPlay, IconUser, IconClose } from '../icons'
 
 
 type Mode = 'microsoft' | 'external' | 'offline'
@@ -274,13 +275,13 @@ export default function HomePage(props: {
                   title={versionsCollapsed ? '展开版本列表' : '收起版本列表'}
                   onClick={() => setVersionsCollapsed((v) => !v)}
                 >
-                  {versionsCollapsed ? '⌄' : '⌃'}
+                  {versionsCollapsed ? <IconChevronDown size={15} /> : <IconChevronUp size={15} />}
                 </button>
                 <button
                   className="btn btn-subtle btn-sm"
                   onClick={() => void reload()}
                 >
-                  ↻ 刷新
+                  <IconRefresh size={14} /> 刷新
                 </button>
               </div>
               <div
@@ -422,7 +423,7 @@ export default function HomePage(props: {
                       onError={() => setAvatarFailed(true)}
                     />
                   ) : (
-                    account?.name[0]?.toUpperCase() ?? '☺'
+                    account?.name[0]?.toUpperCase() ?? <IconUser size={36} />
                   )}
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>
@@ -505,7 +506,7 @@ export default function HomePage(props: {
                   }}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    ▶{' '}
+                    <IconPlay size={15} />{' '}
                     {session.launching
                       ? '启动中…'
                       : running
@@ -530,7 +531,7 @@ export default function HomePage(props: {
                   }}
                   onClick={() => setAccountCollapsed((v) => !v)}
                 >
-                  {accountCollapsed ? '⌃' : '⌄'}
+                  {accountCollapsed ? <IconChevronUp size={15} /> : <IconChevronDown size={15} />}
                 </button>
               </div>
             </div>
@@ -577,7 +578,7 @@ export default function HomePage(props: {
               <span className="t-strong truncate" style={{ flex: 1, textAlign: 'left' }}>
                 {selected ?? '未选择版本'}
               </span>
-              <span style={{ opacity: 0.6 }}>⌄</span>
+              <IconChevronDown size={15} style={{ opacity: 0.6 }} />
             </button>
 
             {pickerOpen && (
@@ -637,7 +638,7 @@ export default function HomePage(props: {
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                ▶ {session.launching ? '启动中…' : running ? '游戏运行中' : '启动游戏'}
+                <IconPlay size={15} /> {session.launching ? '启动中…' : running ? '游戏运行中' : '启动游戏'}
               </span>
               <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.72 }}>
                 {selected ?? '未选择版本'}
@@ -649,7 +650,7 @@ export default function HomePage(props: {
               style={{ width: 62, height: 62, borderRadius: 'var(--r-control)', fontSize: 16 }}
               onClick={expandCards}
             >
-              ⌃
+              <IconChevronUp size={16} />
             </button>
           </div>
         </div>
@@ -661,7 +662,7 @@ export default function HomePage(props: {
         {error !== '' && (
           <div style={{ marginTop: 12 }}>
             <div className="info info-danger">
-              <span aria-hidden>✕</span>
+              <IconClose size={14} />
               <div className="info-body">{error}</div>
             </div>
           </div>

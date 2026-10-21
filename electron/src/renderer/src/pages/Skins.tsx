@@ -19,6 +19,7 @@ import type {
   SkinResult
 } from '../bridge'
 import { EmptyState, Modal, Segmented, SkeletonList, Spinner, useToasts } from '../ui'
+import { IconRefresh, IconUser, IconChevronRight, IconInfo } from '../icons'
 
 /** 型号三档（与内核 SkinModels 的 auto / classic / slim 一一对应）。 */
 const MODEL_OPTIONS: Array<{ value: SkinModel; label: string }> = [
@@ -302,7 +303,7 @@ export default function SkinsPage(): JSX.Element {
           从链接导入…
         </button>
         <button className="btn btn-primary" onClick={() => void load()} disabled={loading}>
-          ↻ 刷新
+          <IconRefresh size={15} /> 刷新
         </button>
       </div>
 
@@ -352,7 +353,7 @@ export default function SkinsPage(): JSX.Element {
                           style={{ objectFit: 'cover' }}
                         />
                       ) : failed ? (
-                        <span style={{ fontSize: 18, opacity: 0.5 }}>▧</span>
+                        <IconUser size={18} style={{ opacity: 0.5 }} />
                       ) : (
                         <span className="spinner" />
                       )}
@@ -379,7 +380,7 @@ export default function SkinsPage(): JSX.Element {
                       <span className="meta-k">加入时间</span>
                       <span className="meta-v">{addedText(skin.addedAt)}</span>
                     </div>
-                    <span style={{ opacity: 0.4 }}>›</span>
+                    <IconChevronRight size={15} style={{ opacity: 0.45 }} />
                   </div>
                 )
               })}
@@ -421,7 +422,7 @@ export default function SkinsPage(): JSX.Element {
                           style={{ objectFit: 'cover' }}
                         />
                       ) : (
-                        <span style={{ fontSize: 22, opacity: 0.45 }}>▧</span>
+                        <IconUser size={22} style={{ opacity: 0.45 }} />
                       )}
                     </div>
                     <div style={{ minWidth: 0 }}>
@@ -525,7 +526,7 @@ export default function SkinsPage(): JSX.Element {
             </div>
 
             <div className="info info-info" style={{ marginTop: 12 }}>
-              <span aria-hidden>ⓘ</span>
+              <IconInfo size={14} />
               <div className="info-body">
                 外置（第三方）账户的皮肤由皮肤站决定，本地皮肤库对它们不生效 ——
                 在皮肤站更换即可。

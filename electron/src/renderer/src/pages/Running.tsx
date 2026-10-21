@@ -3,6 +3,7 @@
 import { request } from '../bridge'
 import { EmptyState, useToasts } from '../ui'
 import type { GameSessionApi } from '../state/session'
+import { IconRefresh, IconChevronDown, IconClose } from '../icons'
 
 export default function RunningPage(props: {
   session: GameSessionApi
@@ -28,10 +29,10 @@ export default function RunningPage(props: {
       <div className="page-head">
         <div style={{ flex: 1 }} />
         <button className="btn btn-subtle" title="刷新" onClick={() => window.location.reload()}>
-          ↻
+          <IconRefresh size={15} />
         </button>
         <button className="btn" title="采样设置">
-          采样设置 ⌄
+          采样设置 <IconChevronDown size={14} />
         </button>
       </div>
 
@@ -89,7 +90,7 @@ export default function RunningPage(props: {
               )}
               {hasLogs && (
                 <button className="btn btn-subtle" onClick={session.clearLogs}>
-                  ✕ 清空日志
+                  <IconClose size={13} /> 清空日志
                 </button>
               )}
             </div>

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { onBridgeEvent } from '../bridge'
 import { useToasts } from '../ui'
+import { IconClose } from '../icons'
 
 interface LogLine {
   id: number
@@ -120,7 +121,7 @@ export default function LogsPage(props: {
             else setGameLines([])
           }}
         >
-          ✕ 清空
+          <IconClose size={13} /> 清空
         </button>
       </div>
 

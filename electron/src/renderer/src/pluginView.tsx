@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 
 import { request } from './bridge'
+import { IconClose } from './icons'
 
 export interface PluginViewBinding {
   scope: string
@@ -366,7 +367,7 @@ export function PluginPanelView(props: {
   if (!result.ok) {
     return (
       <div className="info info-danger">
-        <span aria-hidden>✕</span>
+        <IconClose size={14} />
         <div className="info-body">
           <div className="t-strong">面板定义不合法</div>
           {(result.errors ?? []).map((e) => (

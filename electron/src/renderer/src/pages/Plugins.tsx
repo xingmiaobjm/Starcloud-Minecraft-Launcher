@@ -7,6 +7,7 @@ import { request } from '../bridge'
 import type { ExternalPlugin, PluginList } from '../bridge'
 import { Modal, SkeletonList, Toggle, useToasts } from '../ui'
 import { PluginPanelView } from '../pluginView'
+import { IconWarning } from '../icons'
 
 /// 内核内置插件（与 Win 端内核注册表一致）。
 /// 这些是编译进内核的固定能力，不来自 plugins.list，所以在这里静态展示。
@@ -380,7 +381,7 @@ export default function PluginsPage(): JSX.Element {
             <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
               {panels.find((x) => x.id === activePanelId)?.declarative === false ? (
                 <div className="info info-warning">
-                  <span aria-hidden>⚠</span>
+                  <IconWarning size={14} />
                   <div className="info-body">
                     HTML 面板需要主进程文件 IPC，当前版本暂以声明式面板为准。
                   </div>

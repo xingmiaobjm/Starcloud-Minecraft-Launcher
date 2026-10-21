@@ -9,6 +9,7 @@ import { request } from '../bridge'
 import type { ProjectionPreview } from '../bridge'
 import ProjectionViewer from '../projectionViewer'
 import { EmptyState, PageShell, SkeletonList, useToasts } from '../ui'
+import { IconList, IconSettings, IconWorld, IconImport, IconClose, IconWarning, IconRefresh } from '../icons'
 
 /** 统计列表最多展示这么多条（桥接侧本身也只给 60 条）。 */
 const MAX_STATS_ROWS = 30
@@ -261,10 +262,10 @@ export default function LabPage() {
           {/* 左栏：实验室工具（Win 端四项） */}
           <div className="card" style={{ width: 220, flexShrink: 0, padding: 8, alignSelf: 'flex-start' }}>
             {[
-              { id: 'workshop', label: '投影工坊', icon: '▤' },
-              { id: 'color', label: '彩色文字', icon: '⚙' },
-              { id: 'community', label: '投影社区', icon: '◴' },
-              { id: 'command', label: '指令助手', icon: '⤓' }
+              { id: 'workshop', label: '投影工坊', icon: <IconList size={15} /> },
+              { id: 'color', label: '彩色文字', icon: <IconSettings size={15} /> },
+              { id: 'community', label: '投影社区', icon: <IconWorld size={15} /> },
+              { id: 'command', label: '指令助手', icon: <IconImport size={15} /> }
             ].map((t) => (
               <button
                 key={t.id}
@@ -317,7 +318,7 @@ export default function LabPage() {
                   disabled={generating}
                   onClick={() => void generateWorldEater()}
                 >
-                  ▤ {generating ? '生成中…' : '生成世吞模板'}
+                  <IconList size={14} /> {generating ? '生成中…' : '生成世吞模板'}
                 </button>
               </div>
 
@@ -364,7 +365,7 @@ export default function LabPage() {
 
         {error !== '' && (
           <div className="info info-danger" style={{ marginBottom: 12 }}>
-            <span aria-hidden style={{ fontSize: 16 }}>✕</span>
+            <IconClose size={15} />
             <div className="info-body" style={{ fontSize: 12 }}>
               {error}
             </div>
@@ -374,7 +375,7 @@ export default function LabPage() {
 
         {preview != null && preview.unsupported != null && preview.unsupported.length > 0 && (
           <div className="info info-warning" style={{ marginBottom: 14 }}>
-            <span aria-hidden style={{ fontSize: 16 }}>⚠</span>
+            <IconWarning size={15} />
             <div className="info-body t-body">
               不支持的投影格式：{preview.unsupported}
             </div>
@@ -454,7 +455,7 @@ export default function LabPage() {
                 <span className="t-strong">等距预览</span>
                 <div style={{ flex: 1 }} />
                 <button className="btn btn-subtle" onClick={resetView}>
-                  ↻ 复位视图
+                  <IconRefresh size={14} /> 复位视图
                 </button>
               </div>
               {/* 画布容器固定 420px：预览高度跟内容无关，切换文件时布局不跳 */}
@@ -551,7 +552,7 @@ export default function LabPage() {
               hint="填一个 .litematic 的绝对路径点「加载预览」，或直接生成一份世吞模板试手气。"
               action={
                 <button className="btn" onClick={() => void generateWorldEater()}>
-                  ▤ 生成世吞模板
+                  <IconList size={14} /> 生成世吞模板
                 </button>
               }
             />
