@@ -186,7 +186,7 @@
                                         <TextBlock loc:Loc.Text="启动失败自动重试一次" Style="{StaticResource PclLabel}"
                                                    Width="Auto" />
                                         <ToggleSwitch x:Name="LaunchAutoRetrySwitch"
-                                                      Toggled="LaunchAutoRetrySwitch_Toggled" />
+                                                      Toggled="LaunchAutoRetrySwitch_Toggled" OnContent="" OffContent="" />
                                     </StackPanel>
                                     <TextBlock loc:Loc.Text="游戏启动后 8 秒内异常退出时，自动重试一次（不重复环境体检）。"
                                                FontSize="12" TextWrapping="Wrap"
@@ -195,7 +195,7 @@
                                         <TextBlock loc:Loc.Text="启动页默认展开实时日志" Style="{StaticResource PclLabel}"
                                                    Width="Auto" />
                                         <ToggleSwitch x:Name="ShowGameLogSwitch"
-                                                      Toggled="ShowGameLogSwitch_Toggled" />
+                                                      Toggled="ShowGameLogSwitch_Toggled" OnContent="" OffContent="" />
                                     </StackPanel>
                                     <TextBlock loc:Loc.Text="启动时在启动页显示游戏实时输出，便于排查启动问题。"
                                                FontSize="12" TextWrapping="Wrap"
@@ -224,7 +224,7 @@
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock loc:Loc.Text="全屏启动" Style="{StaticResource PclLabel}" />
-                                        <ToggleSwitch x:Name="DefaultFullscreenSwitch" />
+                                        <ToggleSwitch x:Name="DefaultFullscreenSwitch" OnContent="" OffContent="" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -240,7 +240,7 @@
                                              Height="72" PlaceholderText="-Xss1M" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock loc:Loc.Text="内置 JVM 参数" Style="{StaticResource PclLabel}" />
-                                        <ToggleSwitch x:Name="UseBuiltinJvmSwitch" />
+                                        <ToggleSwitch x:Name="UseBuiltinJvmSwitch" OnContent="" OffContent="" />
                                         <TextBlock loc:Loc.Text="关闭后将不再自动附加官方推荐 JVM 参数"
                                                    FontSize="12" VerticalAlignment="Center"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -376,7 +376,7 @@
                                         </StackPanel>
                                         <ToggleSwitch x:Name="ResourceCacheSwitch" Grid.Column="1"
                                                       VerticalAlignment="Center"
-                                                      loc:Loc.Name="资源列表缓存开关" />
+                                                      loc:Loc.Name="资源列表缓存开关" OnContent="" OffContent="" />
                                     </Grid>
                                     <ctrl:GlowButton loc:Loc.Text="清空缓存" Click="ClearCache_Click" />
                                 </StackPanel>
@@ -406,7 +406,7 @@
                                                 </StackPanel>
                                                 <ToggleSwitch x:Name="DeviceLinkSwitch" Grid.Column="1" VerticalAlignment="Center"
                                                               loc:Loc.Name="跨设备同步开关"
-                                                              Toggled="DeviceLinkSwitch_Toggled" />
+                                                              Toggled="DeviceLinkSwitch_Toggled" OnContent="" OffContent="" />
                                             </Grid>
 
                                             <!-- 未登录引导：同步能力整体压在 Starcloud ID 之下 -->
@@ -437,7 +437,7 @@
                                                 </StackPanel>
                                                 <ToggleSwitch x:Name="P2pSwitch" Grid.Column="1" VerticalAlignment="Center"
                                                               loc:Loc.Name="P2P 加速开关"
-                                                              Toggled="P2pSwitch_Toggled" />
+                                                              Toggled="P2pSwitch_Toggled" OnContent="" OffContent="" />
                                             </Grid>
 
                                             <TextBlock x:Name="ChannelStatusText" FontSize="12" TextWrapping="Wrap"
@@ -621,7 +621,7 @@
                                         </StackPanel>
                                         <ToggleSwitch x:Name="WalkAnimSwitch" Grid.Column="1" VerticalAlignment="Center"
                                                       loc:Loc.Name="账户页走路动画开关"
-                                                      Toggled="WalkAnimSwitch_Toggled" />
+                                                      Toggled="WalkAnimSwitch_Toggled" OnContent="" OffContent="" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -641,7 +641,7 @@
                                     </StackPanel>
                                     <ToggleSwitch x:Name="EmbeddedLoginSwitch" Grid.Column="1" VerticalAlignment="Center"
                                                   loc:Loc.Name="内置登录窗口开关"
-                                                  Toggled="EmbeddedLoginSwitch_Toggled" />
+                                                  Toggled="EmbeddedLoginSwitch_Toggled" OnContent="" OffContent="" />
                                 </Grid>
                             </Border>
 
@@ -660,7 +660,7 @@
                                     </StackPanel>
                                     <ToggleSwitch x:Name="OverlaySwitch" Grid.Column="1" VerticalAlignment="Center"
                                                   loc:Loc.Name="Nova 游戏内浮窗开关"
-                                                  Toggled="OverlaySwitch_Toggled" />
+                                                  Toggled="OverlaySwitch_Toggled" OnContent="" OffContent="" />
                                 </Grid>
                             </Border>
 
@@ -684,7 +684,7 @@
                                         </StackPanel>
                                         <ToggleSwitch x:Name="AutoUpdateSwitch" Grid.Column="1" VerticalAlignment="Center"
                                                       loc:Loc.Name="自动检查更新开关"
-                                                      Toggled="AutoUpdateSwitch_Toggled" />
+                                                      Toggled="AutoUpdateSwitch_Toggled" OnContent="" OffContent="" />
                                     </Grid>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
