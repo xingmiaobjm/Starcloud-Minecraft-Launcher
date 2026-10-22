@@ -67,7 +67,13 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
 
     private string PortFilePath => Path.Combine(RunDir, _p.PortFile);
 
-    private string ExecutablePath => Path.Combine(CoreDir, _p.ExecutableName);
+    /// <summary>Windows 用包内声明的 terracotta.exe；其它平台同名二进制不带扩展名。</summary>
+    private string EffectiveExecutableName =>
+        OperatingSystem.IsWindows()
+            ? _p.ExecutableName
+            : Path.GetFileNameWithoutExtension(_p.ExecutableName);
+
+    private string ExecutablePath => Path.Combine(CoreDir, EffectiveExecutableName);
 
     public bool Installed => InstalledVersion == _p.Version && File.Exists(ExecutablePath);
 
@@ -261,20 +267,50 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
     /// </summary>
     private void NormalizeExecutable()
     {
-        if (File.Exists(ExecutablePath)) return;
+        if (File.Exists(ExecutablePath))
+        {
+            EnsureExecutableBit(ExecutablePath);
+            return;
+        }
         var stem = Path.GetFileNameWithoutExtension(_p.ExecutableName);
         var ext = Path.GetExtension(_p.ExecutableName);
-        var candidate = Directory.EnumerateFiles(CoreDir, "*", SearchOption.AllDirectories)
-            .FirstOrDefault(f =>
+        var files = Directory.EnumerateFiles(CoreDir, "*", SearchOption.AllDirectories);
+        var candidate = OperatingSystem.IsWindows()
+            ? files.FirstOrDefault(f =>
                 f.EndsWith(ext, StringComparison.OrdinalIgnoreCase) &&
                 Path.GetFileName(f).StartsWith(stem, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(Path.GetFileName(f), _p.ExecutableName, StringComparison.OrdinalIgnoreCase));
+                !string.Equals(Path.GetFileName(f), _p.ExecutableName, StringComparison.OrdinalIgnoreCase))
+            : files.FirstOrDefault(f =>
+            {
+                var name = Path.GetFileName(f);
+                // Linux/macOS 包内是 terracotta-<ver>-<platform>-<arch>（无扩展名）
+                return name.StartsWith(stem, StringComparison.OrdinalIgnoreCase) &&
+                       !name.EndsWith(".so", StringComparison.OrdinalIgnoreCase) &&
+                       !name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
+                       !name.EndsWith(".dylib", StringComparison.OrdinalIgnoreCase) &&
+                       !name.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+            });
         if (candidate is null)
-            throw new InvalidOperationException($"联机核心包缺少可执行文件 {_p.ExecutableName}");
-        if (!string.Equals(Path.GetDirectoryName(candidate), CoreDir, StringComparison.OrdinalIgnoreCase))
-            File.Move(candidate, ExecutablePath);
-        else
-            File.Move(candidate, ExecutablePath);
+            throw new InvalidOperationException($"联机核心包缺少可执行文件 {EffectiveExecutableName}");
+        File.Move(candidate, ExecutablePath);
+        EnsureExecutableBit(ExecutablePath);
+    }
+
+    /// <summary>Unix 下从 tar.gz 解出来的文件默认没有执行位，启动前补上。</summary>
+    private static void EnsureExecutableBit(string path)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        try
+        {
+            File.SetUnixFileMode(path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch
+        {
+            // 文件系统不支持（如挂载的 NTFS）时忽略，交给运行时自行判断
+        }
     }
 
     // ── 会话 ─────────────────────────────────────────────────────────────
