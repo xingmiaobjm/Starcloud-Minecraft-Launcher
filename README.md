@@ -107,4 +107,7 @@ dotnet build dotnet/Starcloud.slnx -c Release -p:CurseForgeApiKey=<key>
 
 ## 许可证
 
-本项目采用 [MIT 许可证](LICENSE)。
+本项目采用 [MIT 许可证](LICENSE)，并附带署名条款：使用、复制、修改本项目源码或在
+其基础上实质衍生的产品与项目，需在面向用户的位置（产品关于页 / 设置页，或文档与
+README）注明灵感或模块来源为「星云创新 (Nebula Innovation)」，并写明项目名称
+「Starcloud Minecraft Launcher」。完整条款见 [LICENSE](LICENSE)。
