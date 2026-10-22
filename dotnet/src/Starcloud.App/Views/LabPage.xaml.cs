@@ -52,6 +52,11 @@ public sealed partial class LabPage : Page
             InitRichEditor();
             // 子导航的初始选中在 XAML 解析期就触发了（那时各 Section 还不存在，处理器直接返回），
             // 这里补一次分区初始化——否则首次进入实验室时 3D 预览的 WebView2 永远不导航，预览区一片空白
+            if (!ShowCommunityAndCommands)
+            {
+                ToolCommunity.Visibility = Visibility.Collapsed;
+                ToolCommands.Visibility = Visibility.Collapsed;
+            }
             ApplySection(CurrentToolTag());
             _ = ShowDevNoticeAsync();
         };
@@ -79,6 +84,12 @@ public sealed partial class LabPage : Page
             // 页面已离开或已有其他弹层：提示失败不影响使用
         }
     }
+
+    /// <summary>
+    /// 临时隐藏「投影社区」与「指令助手」：内容尚未打磨完，先不放出。
+    /// 改回 true 即恢复（分区与逻辑都还在，只是入口不显示）。
+    /// </summary>
+    private static readonly bool ShowCommunityAndCommands = false;
 
     private string CurrentToolTag() =>
         (ToolList.SelectedItem as FrameworkElement)?.Tag as string ?? "projection";
@@ -1240,7 +1251,7 @@ public sealed partial class LabPage : Page
         BuildEditorContextMenu();
         try
         {
-            doc.SetText(Microsoft.UI.Text.TextSetOptions.None, Loc.T("欢迎来到 Starcloud 服务器"));
+            // 进页面就是空白编辑区：用户直接粘贴要上色的文字即可
             var length = GetDocumentText(doc).Length;
             if (length > 1) ApplyGradient(doc, 0, length - 1, "#55FFFF", "#FF55FF");
         }
@@ -1371,7 +1382,7 @@ public sealed partial class LabPage : Page
         var (start, end) = SelectedRange(doc);
         if (end <= start)
         {
-            TextHint.Text = Loc.T("先选中一段文字（Ctrl+A 全选），再点色块。");
+            _ = ShowSelectionHintAsync(Loc.T("先选中一段文字（Ctrl+A 全选），再点色块。"));
             return;
         }
         ApplySolid(doc, start, end, hex);
@@ -1385,7 +1396,7 @@ public sealed partial class LabPage : Page
         var (start, end) = SelectedRange(doc);
         if (end <= start)
         {
-            TextHint.Text = Loc.T("先选中一段文字（Ctrl+A 全选），再点「应用渐变」。");
+            _ = ShowSelectionHintAsync(Loc.T("先选中一段文字（Ctrl+A 全选），再点「应用渐变」。"));
             return;
         }
         ApplyGradient(doc, start, end, PaintFromBox.Text, PaintToBox.Text);
@@ -1399,12 +1410,26 @@ public sealed partial class LabPage : Page
         var (start, end) = SelectedRange(doc);
         if (end <= start)
         {
-            TextHint.Text = Loc.T("先选中一段文字（Ctrl+A 全选），再点「应用彩虹」。");
+            _ = ShowSelectionHintAsync(Loc.T("先选中一段文字（Ctrl+A 全选），再点「应用彩虹」。"));
             return;
         }
         ApplyRainbow(doc, start, end);
         UpdateTextOutput();
         SetRangeHint(start, end);
+    }
+
+    /// <summary>没有选区就点色块时的提示：弹一次窗，不再常驻占位一行小字</summary>
+    private async Task ShowSelectionHintAsync(string message)
+    {
+        if (XamlRoot is null) return;
+        var dialog = new ContentDialog
+        {
+            Title = Loc.T("先选中文字"),
+            Content = message,
+            CloseButtonText = Loc.T("知道了"),
+            XamlRoot = XamlRoot,
+        };
+        try { await dialog.ShowAsync(); } catch { /* 已有弹窗在同页显示时忽略 */ }
     }
 
     private void SetRangeHint(int start, int end) =>

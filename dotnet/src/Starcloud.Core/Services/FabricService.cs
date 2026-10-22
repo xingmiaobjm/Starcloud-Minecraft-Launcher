@@ -1,4 +1,4 @@
-// Fabric / Quilt 加载器版本查询（meta.fabricmc.net / meta.quiltmc.org，两个 meta 协议同构）
+﻿// Fabric / Quilt 加载器版本查询（meta.fabricmc.net / meta.quiltmc.org，两个 meta 协议同构）
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -18,7 +18,7 @@ public sealed class FabricService
     public async Task<List<FabricLoaderEntry>> ListLoadersAsync(string mcVersion,
         CancellationToken ct = default)
     {
-        var json = await _downloader.GetStringAsync($"{DownloadSourceUrl}/{mcVersion}", ct);
+        var json = await _downloader.GetStringAsync($"{DownloadSourceUrl}/{mcVersion}", headers: null, ct: ct, trackSourceHealth: false);
         return JsonSerializer.Deserialize<List<FabricLoaderEntry>>(json) ?? [];
     }
 
@@ -26,7 +26,7 @@ public sealed class FabricService
     public async Task<List<FabricLoaderEntry>> ListQuiltLoadersAsync(string mcVersion,
         CancellationToken ct = default)
     {
-        var json = await _downloader.GetStringAsync($"{QuiltSourceUrl}/{mcVersion}", ct);
+        var json = await _downloader.GetStringAsync($"{QuiltSourceUrl}/{mcVersion}", headers: null, ct: ct, trackSourceHealth: false);
         return JsonSerializer.Deserialize<List<FabricLoaderEntry>>(json) ?? [];
     }
 }

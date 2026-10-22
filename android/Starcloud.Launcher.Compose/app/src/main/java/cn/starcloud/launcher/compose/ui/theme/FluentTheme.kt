@@ -4,12 +4,15 @@
 package cn.starcloud.launcher.compose.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -95,11 +98,17 @@ private fun fluentLight() = lightColorScheme(
     error = FluentColors.Danger,
 )
 
-/** 跟随系统深浅色（对齐桌面端 AppearanceService 跟随系统） */
+/** 深浅色主题：mode = system / light / dark（对齐桌面端设置 → 外观 → 主题） */
 @Composable
-fun FluentTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) fluentDark() else fluentLight(),
-        content = content,
-    )
+fun FluentTheme(mode: String = "system", content: @Composable () -> Unit) {
+    val dark = mode == "dark" || (mode != "light" && isSystemInDarkTheme())
+    MaterialTheme(colorScheme = if (dark) fluentDark() else fluentLight()) {
+        // Surface 提供 LocalContentColor（否则默认黑色，深色模式下漏网的无色 Text 会变黑字）
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            content()
+        }
+    }
 }

@@ -56,6 +56,7 @@ private fun fmtSize(bytes: Long): String = when {
 @Composable
 fun HomeScreen(
     filesRoot: File,
+    playerName: String,
     probeVersions: () -> String,
     probeStorage: () -> String,
     onNavigate: (String) -> Unit,
@@ -74,12 +75,6 @@ fun HomeScreen(
     val selected = versions.firstOrNull { it.id == selectedId } ?: versions.firstOrNull()
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-        // ── 启动自检行（对齐 Win 端自检卡：版本/存储 就绪态） ──
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CheckChip(label = "游戏版本", value = probeVersions())
-            CheckChip(label = "存储", value = probeStorage())
-        }
 
         // ── 双列主体：左 = 版本库卡（撑满）；右 = 启动卡（固定宽，对齐 Win 端右栏启动卡） ──
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -142,6 +137,11 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text("启动", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        "账户：$playerName",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    )
                     Spacer(Modifier.weight(1f))
                     Button(
                         onClick = {
@@ -179,15 +179,4 @@ fun HomeScreen(
     }
 }
 
-@Composable
-private fun CheckChip(label: String, value: String) {
-    Card(
-        colors = CardDefaults.cardColors(),
-        shape = RoundedCornerShape(FluentDimens.CornerRadiusCard),
-    ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label + "：", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-            Text(value, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        }
-    }
-}
+

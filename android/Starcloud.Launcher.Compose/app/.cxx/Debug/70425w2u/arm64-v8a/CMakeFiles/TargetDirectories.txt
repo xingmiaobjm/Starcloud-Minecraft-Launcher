@@ -1,3 +1,0 @@
-C:/Users/xingmiao/Documents/trae_projects/starcloud-minecraft-launcher/android/Starcloud.Launcher.Compose/app/.cxx/Debug/70425w2u/arm64-v8a/CMakeFiles/starcloudjvm.dir
-C:/Users/xingmiao/Documents/trae_projects/starcloud-minecraft-launcher/android/Starcloud.Launcher.Compose/app/.cxx/Debug/70425w2u/arm64-v8a/CMakeFiles/edit_cache.dir
-C:/Users/xingmiao/Documents/trae_projects/starcloud-minecraft-launcher/android/Starcloud.Launcher.Compose/app/.cxx/Debug/70425w2u/arm64-v8a/CMakeFiles/rebuild_cache.dir

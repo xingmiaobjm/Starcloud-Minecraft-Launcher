@@ -50,8 +50,9 @@ public sealed class ChunkedFileDownloader
     /// <summary>连接 + 响应头超时</summary>
     private const int ConnectTimeoutSec = 20;
 
-    /// <summary>源质量预检：每个候选源试 1 字节的上限（并行做，总开销 ≤ 这个数）</summary>
-    private const int WarmupTimeoutSec = 10;
+    /// <summary>源质量预检：每个候选源试 1 字节的上限（并行做，总开销 ≤ 这个数）。
+    /// 实测不可达镜像的连接超时约 3.7 秒，取 4 秒足够；原来 10 秒会让首个文件白等一轮。</summary>
+    private const int WarmupTimeoutSec = 4;
 
     private static readonly SemaphoreSlim Budget = new(GlobalWorkerBudget, GlobalWorkerBudget);
 
@@ -110,13 +111,13 @@ public sealed class ChunkedFileDownloader
     /// 任何失败都会清理 .sc-tmp 并抛错，由调用方决定是否退化为整文件下载。
     /// </summary>
     public async Task DownloadAsync(string url, string destFile, string? sha1, long size,
-        int maxRetries, Action<long>? onBytes, CancellationToken ct)
+        int maxRetries, Action<long>? onBytes, CancellationToken ct, SourceKind? preferred = null)
     {
         if (size <= 0) throw new ArgumentOutOfRangeException(nameof(size), "分片下载需要已知文件大小");
 
         Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
         var tmp = destFile + ".sc-tmp";
-        var pool = new CandidateSet(_sources.RacingPoolFor(url));
+        var pool = new CandidateSet(_sources.RacingPoolFor(url), _sources.IsDegraded, preferred);
         if (pool.Count == 0) throw new IOException($"没有可用的下载源: {Path.GetFileName(destFile)}");
 
         // 首次分片前做一次源质量预检（进程内一次）
@@ -247,9 +248,14 @@ public sealed class ChunkedFileDownloader
         catch (Exception ex)
         {
             _sources.MarkDegraded(kind);
-            Log?.Invoke($"源预检：{label} 不可用（{ex.Message}），本进程内靠后使用");
+            // 官方兜底永远在池里；预检失败的镜像本次直接不参与，避免每片都白等一次超时
+            if (pool.Count > 1) pool.Remove(kind);
+            Log?.Invoke($"源预检：{label} 不可用（{ex.Message}），本次不再参与分片");
         }
     }
+
+    /// <summary>单个分片的结果：是否支持 Range + 实测样本（用于按速度选源）</summary>
+    private readonly record struct ChunkFetchResult(bool Ranged, long Bytes, long ElapsedMs);
 
     /// <summary>取下一片，失败换源重试（同一片累计重试上限 = maxRetries）</summary>
     private async Task FetchChunkAsync(SafeFileHandle handle, string url, (long Start, long Length) chunk,
@@ -273,16 +279,19 @@ public sealed class ChunkedFileDownloader
                 continue;
             }
 
-            bool ranged;
+            ChunkFetchResult result;
             try
             {
-                ranged = await FetchRangeAsync(handle, target, kind, host, label, channel, chunk, usage,
+                result = await FetchRangeAsync(handle, target, kind, host, label, channel, chunk, usage,
                     onBytes, token, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
             {
                 _sources.RecordFailure(kind);
-                Log?.Invoke($"{label} 分片失败（{ex.Message}）→ 换源重试");
+                // 本文件内直接摘掉这个坏源：否则 8 个 worker 会轮流撞它，每片都先超时再换源
+                pool.ReleaseProbe(kind);
+                if (pool.Count > 1) pool.Remove(kind);
+                Log?.Invoke($"{label} 分片失败（{ex.Message}）→ 本文件内换源重试");
                 if (++failed >= attempts) throw;
                 // 退避：平方增长；被限流时按主机的冷却时间等（限流不会因为立刻重试就消失）
                 var backoff = TimeSpan.FromMilliseconds(400 * failed * failed);
@@ -291,10 +300,11 @@ public sealed class ChunkedFileDownloader
                 continue;
             }
 
-            if (ranged)
+            if (result.Ranged)
             {
                 _sources.RecordSuccess(kind);
                 ParallelGovernor.ReportSuccess(host);
+                pool.ReportSpeed(kind, result.Bytes, result.ElapsedMs);
                 return;
             }
             // 源忽略 Range 返回整文件：已退出分片池，立即换源且不消耗重试额度
@@ -303,11 +313,12 @@ public sealed class ChunkedFileDownloader
     }
 
     /// <summary>拉取单个分片并按偏移写入；返回 false 表示该源不支持 Range（已被踢出分片池）</summary>
-    private async Task<bool> FetchRangeAsync(SafeFileHandle handle, string target, SourceKind kind, string host,
-        string label, SourceChannel channel, (long Start, long Length) chunk,
+    private async Task<ChunkFetchResult> FetchRangeAsync(SafeFileHandle handle, string target,
+        SourceKind kind, string host, string label, SourceChannel channel, (long Start, long Length) chunk,
         ConcurrentDictionary<string, long> usage,
         Action<long>? onBytes, object token, CancellationToken ct)
     {
+        var started = Environment.TickCount64;
         using var req = new HttpRequestMessage(HttpMethod.Get, target);
         req.Headers.Range = new RangeHeaderValue(chunk.Start, chunk.Start + chunk.Length - 1);
         // 分片必须走 HTTP/1.1：HTTP/2 会把 8 条"并行"分片多路复用到一条 TCP 连接上，
@@ -334,7 +345,7 @@ public sealed class ChunkedFileDownloader
                 // 该源忽略 Range 回了整文件：按「源 + 通道」计数（换源，但不消耗重试额度）。
                 // 不在这里直接判死：镜像会 302 到随机节点，个别节点不认 Range 很常见。
                 _sources.RecordRangeIgnored(kind, channel);
-                return false;
+                return new ChunkFetchResult(false, 0, 0);
             }
             if (resp.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
             {
@@ -407,7 +418,7 @@ public sealed class ChunkedFileDownloader
 
         // 分片整体成功 → 按分片长度计入进度（去重，不受重试重复字节影响）
         TaskCenterService.Instance.ReportChunkDone(token, chunk.Length);
-        return true;
+        return new ChunkFetchResult(true, chunk.Length, Environment.TickCount64 - started);
     }
 
     /// <summary>整文件 SHA1 校验通过后落盘（校验失败抛错，由调用方清理临时文件）</summary>
@@ -453,32 +464,112 @@ public sealed class ChunkedFileDownloader
     };
 
     /// <summary>分片阶段的候选源集合（可并发剔除不支持 Range 的源）</summary>
-    private sealed class CandidateSet
+    /// <summary>
+    /// 分片阶段的候选源集合（可并发剔除不支持 Range / 预检失败的源）。
+    /// 选源策略：先让每个健康源各跑一片拿到实测速度，之后一直用最快的那一个；
+    /// 被降级（预检失败/连续失败）的源不参与 —— 旧实现每片轮询所有源，
+    /// 坏源/慢源也均摊 1/N 的片，慢片会把整个文件拖住。
+    /// </summary>
+    internal sealed class CandidateSet
     {
         private SourceKind[] _items;
         private int _cursor = -1;
+        private readonly Func<SourceKind, bool>? _isDegraded;
+        private SourceKind? _preferred;
+        private readonly ConcurrentDictionary<SourceKind, SpeedSample> _speeds = new();
+        private readonly ConcurrentDictionary<SourceKind, byte> _probing = new();
 
-        public CandidateSet(IEnumerable<SourceKind> items) => _items = items.ToArray();
+        private sealed class SpeedSample
+        {
+            public double Ema; // bytes / ms
+            public int Samples;
+        }
+
+        public CandidateSet(IEnumerable<SourceKind> items, Func<SourceKind, bool>? isDegraded = null,
+            SourceKind? preferred = null)
+        {
+            _items = items.ToArray();
+            _isDegraded = isDegraded;
+            _preferred = preferred;
+        }
 
         public int Count => _items.Length;
 
-        /// <summary>池内第一个源（用于按主机查并行度，不消耗轮询游标）</summary>
         public SourceKind First => _items.Length > 0 ? _items[0] : SourceKind.Official;
 
         /// <summary>当前池快照（质量预检用；数组引用读取本身是原子的）</summary>
         public IReadOnlyList<SourceKind> Snapshot() => _items;
 
-        /// <summary>轮询取下一个源</summary>
         public SourceKind Next()
         {
             var items = _items;
             if (items.Length == 0) throw new IOException("没有支持分片下载的下载源");
-            var i = Interlocked.Increment(ref _cursor);
-            return items[(int)((uint)i % (uint)items.Length)];
+
+            // 批量下载时文件被分摊到指定源：整个文件都用它，换源只在它失败/降级后发生
+            if (_preferred is { } preferred && items.Contains(preferred) &&
+                !(_isDegraded?.Invoke(preferred) ?? false))
+            {
+                return preferred;
+            }
+
+            var healthy = _isDegraded is null ? items : items.Where(k => !_isDegraded(k)).ToArray();
+            var candidates = healthy.Length > 0 ? healthy : items;
+
+            // 还没测过速度的源：每个源只放一条探测请求（多 worker 同时压同一个慢源会更慢）
+            if (candidates.Any(k => SpeedOf(k) <= 0))
+            {
+                foreach (var kind in candidates)
+                {
+                    if (SpeedOf(kind) > 0) continue;
+                    if (_probing.TryAdd(kind, 1)) return kind;
+                }
+
+                // 未测速的源都在探测中：先用已测过的；实在没有就随便挑一个
+                var sampled = candidates.Where(k => SpeedOf(k) > 0).ToArray();
+                if (sampled.Length > 0)
+                    return sampled[(int)((uint)Interlocked.Increment(ref _cursor) % (uint)sampled.Length)];
+                return candidates[(int)((uint)Interlocked.Increment(ref _cursor) % (uint)candidates.Length)];
+            }
+
+            // 都有速度样本：选实测吞吐最高的；相同速度按池内顺序（顺序已体现镜像→官方的健康度）
+            var best = candidates[0];
+            var bestSpeed = SpeedOf(best);
+            for (var i = 1; i < candidates.Length; i++)
+            {
+                var speed = SpeedOf(candidates[i]);
+                if (speed > bestSpeed)
+                {
+                    best = candidates[i];
+                    bestSpeed = speed;
+                }
+            }
+            return best;
         }
+
+        /// <summary>记录一次分片实测吞吐（bytes/ms 的 EMA）；首片直接作为初值。</summary>
+        public void ReportSpeed(SourceKind kind, long bytes, long elapsedMs)
+        {
+            _probing.TryRemove(kind, out _);
+            if (bytes <= 0 || elapsedMs <= 0) return;
+            var instant = bytes / (double)elapsedMs;
+            var sample = _speeds.GetOrAdd(kind, _ => new SpeedSample());
+            lock (sample)
+            {
+                sample.Ema = sample.Samples == 0 ? instant : sample.Ema * 0.6 + instant * 0.4;
+                sample.Samples++;
+            }
+        }
+
+        /// <summary>探测失败 / 源被剔除：释放探测占位。</summary>
+        public void ReleaseProbe(SourceKind kind) => _probing.TryRemove(kind, out _);
+
+        private double SpeedOf(SourceKind kind) =>
+            _speeds.TryGetValue(kind, out var sample) && sample.Samples > 0 ? sample.Ema : 0;
 
         public void Remove(SourceKind kind)
         {
+            if (_preferred == kind) _preferred = null;
+            ReleaseProbe(kind);
             while (true)
             {
                 var items = _items;

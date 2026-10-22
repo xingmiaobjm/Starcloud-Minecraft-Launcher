@@ -1,0 +1,6 @@
+0.3.8
+· New cross-platform bridge APIs (starcloud.* / friends.* / settings.*): friends & direct messages, version instance operations, improved modpack export/import, version backups, extended settings and shell.openPath. Linux compatibility is prepared.
+· Linux UI fully aligned with Windows 0.3.7: reworked scheduler dashboard, account detail sheet and drawer, completed settings page, Windows-style sliders and custom dropdowns replacing native selects.
+· Linux visual fixes: inline SVG icons, images filling their containers, removed home card collapse and the launch-button dropdown.
+· Fixes: download page version list alignment with the "Installed" badge; settings switches no longer show the redundant On/Off text.
+· No functional changes to the native Windows UI in this release (0.3.7 is up to date).

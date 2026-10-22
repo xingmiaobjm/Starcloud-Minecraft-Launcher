@@ -116,6 +116,12 @@ legacy/Cargo.lock.orig
 /.impeccable/
 /.superpowers/
 /.trae/
+/.zcode/
+**/.cxx/
+/.workbuddy/
+/.claude/
+/.cursor/
+/.windsurf/
 /skills-lock.json
 /MC-Icons/
 

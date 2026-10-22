@@ -26,7 +26,7 @@
             <InfoBar x:Name="StatusInfo" Severity="Success" IsOpen="False" IsClosable="True" loc:Loc.Title="完成" />
         </StackPanel>
 
-        <!-- Starcloud ID 卡：未登录=登录/注册表单（都在卡内，不弹窗），已登录=会话管理 -->
+        <!-- Starcloud ID 卡：未登录=登录表单（注册走独立小窗，与导出整合包同款），已登录=会话管理 -->
         <Border Grid.Row="1"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -52,29 +52,6 @@
                                          VerticalAlignment="Center" Click="ScToRegister_Click" />
                     </StackPanel>
                     <TextBlock x:Name="ScErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
-                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
-                </StackPanel>
-
-                <!-- 注册：同一张卡内展开，不再弹一层对话框 -->
-                <StackPanel x:Name="ScRegisterPanel" Spacing="12" Visibility="Collapsed">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <ctrl:BrandMark Small="True" Width="16" Height="16" VerticalAlignment="Center" />
-                        <TextBlock loc:Loc.Text="注册 Starcloud ID" FontSize="15" FontWeight="Medium"
-                                   VerticalAlignment="Center" />
-                        <TextBlock loc:Loc.Text="注册后回到登录即可使用在线功能" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   VerticalAlignment="Center" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox x:Name="ScRegIdBox" loc:Loc.Placeholder="用户名或邮箱" Width="250" />
-                        <PasswordBox x:Name="ScRegPwdBox" loc:Loc.Placeholder="至少 6 位" Width="150" />
-                        <PasswordBox x:Name="ScRegPwd2Box" loc:Loc.Placeholder="再次输入密码" Width="150" />
-                        <Button x:Name="ScRegisterBtn" loc:Loc.Text="创建账户"
-                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
-                                Click="ScRegister_Click" />
-                        <ctrl:GlowButton loc:Loc.Text="取消" Click="ScCancelRegister_Click" />
-                    </StackPanel>
-                    <TextBlock x:Name="ScRegErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                 </StackPanel>
 

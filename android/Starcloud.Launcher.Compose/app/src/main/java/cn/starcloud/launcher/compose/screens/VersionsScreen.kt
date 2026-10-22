@@ -1,12 +1,14 @@
 // M1 版本页：已安装版本列表 + 删除（对齐 Uno 版本页语汇的最小可用版）
 package cn.starcloud.launcher.compose.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,12 +24,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import cn.starcloud.launcher.compose.data.InstalledVersion
+import cn.starcloud.launcher.compose.data.VersionIcons
 import cn.starcloud.launcher.compose.data.VersionsRepository
+import cn.starcloud.launcher.compose.ui.theme.FluentColors
 import cn.starcloud.launcher.compose.ui.theme.FluentDimens
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -74,14 +80,37 @@ fun VersionsScreen(repo: VersionsRepository, refreshKey: Int) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column {
-                                Text(v.id, fontSize = 14.sp)
-                                Text(
-                                    v.type + " · " + fmtSize(v.sizeBytes) + " · " +
-                                        SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(v.lastModified)),
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val icon = VersionIcons.bitmap(
+                                    LocalContext.current,
+                                    VersionIcons.fileFor(v.type, v.id, v.loader ?: v.type),
                                 )
+                                if (icon != null) {
+                                    Image(
+                                        icon.asImageBitmap(),
+                                        contentDescription = v.id,
+                                        modifier = Modifier.padding(end = 8.dp).size(28.dp),
+                                    )
+                                }
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(v.id, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        if (v.loader != null) {
+                                            Text(
+                                                " · " + v.loader!!.replaceFirstChar { it.uppercase() },
+                                                fontSize = 11.sp,
+                                                color = FluentColors.Accent,
+                                                modifier = Modifier.padding(start = 6.dp),
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        v.type + " · " + fmtSize(v.sizeBytes) + " · " +
+                                            SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(v.lastModified)),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    )
+                                }
                             }
                             TextButton(onClick = { pendingDelete = v }) {
                                 Text("删除", color = MaterialTheme.colorScheme.error)

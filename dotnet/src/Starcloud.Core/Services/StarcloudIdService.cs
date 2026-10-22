@@ -2,6 +2,8 @@
 // 只保留云端通道（测试通道的本地模拟账号已移除）。
 //
 // 协议（后端 /v1/auth/*）：
+//   注册   POST /v1/auth/email/code {email} → {ok,retry_after}（同邮箱 60 秒一次、每天 5 次）
+//          POST /v1/auth/register   {id,password,email,code} → 201 空响应（验证码 6 位、10 分钟有效）
 //   登录   POST /v1/auth/login    {id,password} → {token,user_id,display_name,avatar_url}
 //   换 Key POST /v1/auth/apikeys  Bearer token  → {api_key}（幂等：已有有效 Key 直接返回旧 Key）
 //   token 只能消费一次，拿到的 api_key 才是长期凭证，必须持久化到本地。
@@ -36,6 +38,9 @@ public sealed class StarcloudIdService
 
     public StarcloudSession? Current { get; private set; }
 
+    /// <summary>登录态变化（登录 / 退出）：好友长连接等常驻服务据此启停。</summary>
+    public event Action? SessionChanged;
+
     public StarcloudIdService() => Current = LoadSession();
 
     public bool IsLoggedIn => Current is not null;
@@ -46,6 +51,7 @@ public sealed class StarcloudIdService
         Current = null;
         if (File.Exists(LauncherPaths.StarcloudIdFile))
             File.Delete(LauncherPaths.StarcloudIdFile);
+        SessionChanged?.Invoke();
     }
 
     /// <summary>登录 Starcloud ID：拿会话令牌，再换（或取回）云 AI API Key。</summary>
@@ -60,23 +66,77 @@ public sealed class StarcloudIdService
         var session = await CloudLoginAsync(starcloudId.Trim(), password, ct);
         Current = session;
         Persist();
+        SessionChanged?.Invoke();
         return session;
     }
 
-    /// <summary>注册新的 Starcloud ID（POST /v1/auth/register）。</summary>
-    public async Task RegisterAsync(string starcloudId, string password, CancellationToken ct = default)
+    /// <summary>
+    /// 发送邮箱验证码（POST /v1/auth/email/code），返回服务端建议的冷却秒数。
+    /// 邮箱归一化（全角转半角、去空格与零宽字符）由服务端负责，这里只去掉首尾空白。
+    /// </summary>
+    public async Task<int> SendEmailCodeAsync(string email, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(starcloudId))
+        email = email.Trim();
+        if (!LooksLikeEmail(email))
+            throw new InvalidOperationException("请输入有效的邮箱地址");
+
+        using var http = new HttpClient { BaseAddress = new Uri(AuthBaseUrl) };
+        var resp = await http.PostAsync("/v1/auth/email/code",
+            new StringContent(JsonSerializer.Serialize(new { email }),
+                Encoding.UTF8, "application/json"), ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await ServerErrorAsync(resp, ct, "验证码发送失败，请稍后再试");
+
+        // retry_after 只用于界面倒计时，解析不出来就按 60 秒算
+        try
+        {
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.TryGetProperty("retry_after", out var ra) &&
+                ra.TryGetInt32(out var seconds) && seconds > 0)
+                return seconds;
+        }
+        catch
+        {
+            // 响应体非 JSON：用默认冷却
+        }
+        return 60;
+    }
+
+    /// <summary>注册新的 Starcloud ID（先发邮箱验证码，再 POST /v1/auth/register）。</summary>
+    public async Task RegisterAsync(
+        string starcloudId, string password, string email, string code, CancellationToken ct = default)
+    {
+        starcloudId = starcloudId.Trim();
+        email = email.Trim();
+        code = code.Trim();
+
+        if (starcloudId.Length == 0)
             throw new InvalidOperationException("请输入 Starcloud ID");
+        if (starcloudId.Length > 64)
+            throw new InvalidOperationException("Starcloud ID 不能超过 64 个字符");
         if (password.Length < 6)
             throw new InvalidOperationException("密码至少 6 位");
+        if (!LooksLikeEmail(email))
+            throw new InvalidOperationException("请输入有效的邮箱地址");
+        if (code.Length != 6 || !code.All(char.IsAsciiDigit))
+            throw new InvalidOperationException("验证码为 6 位数字");
 
         using var http = new HttpClient { BaseAddress = new Uri(AuthBaseUrl) };
         var resp = await http.PostAsync("/v1/auth/register",
-            new StringContent(JsonSerializer.Serialize(new { id = starcloudId.Trim(), password }),
+            new StringContent(JsonSerializer.Serialize(new { id = starcloudId, password, email, code }),
                 Encoding.UTF8, "application/json"), ct);
         if (!resp.IsSuccessStatusCode)
             throw await ServerErrorAsync(resp, ct, "注册失败，请稍后再试");
+    }
+
+    /// <summary>粗校验：只挡明显不像邮箱的输入，真正的规则由服务端判定。</summary>
+    private static bool LooksLikeEmail(string email)
+    {
+        var at = email.IndexOf('@');
+        if (at <= 0 || at == email.Length - 1) return false;
+        if (email.IndexOf('@', at + 1) >= 0) return false;
+        var dot = email.IndexOf('.', at + 1);
+        return dot > at + 1 && dot < email.Length - 1;
     }
 
     // ── 登录：POST /v1/auth/login 换 token → POST /v1/auth/apikeys 换 api_key ──

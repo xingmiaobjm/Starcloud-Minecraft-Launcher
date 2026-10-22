@@ -1,4 +1,4 @@
-// MultiMC / Prism 实例包导入：解析 instance.cfg + mmc-pack.json，把游戏根内容铺到实例目录。
+﻿// MultiMC / Prism 实例包导入：解析 instance.cfg + mmc-pack.json，把游戏根内容铺到实例目录。
 //
 // 与 .mrpack / CurseForge 不同，MultiMC 实例包是**自包含**的（mod 全在包内，不需要按 id 回源下载），
 // 所以安装就是「解压 + 落位」。安装结果同样复用 <see cref="MrPackInstallResult"/>，
@@ -56,7 +56,7 @@ public sealed class MultiMcPackService
     /// <summary>读取实例包元信息（不落任何游戏文件）</summary>
     public MultiMcPackInfo ReadPackageInfo(string archivePath)
     {
-        using var zip = ZipFile.OpenRead(archivePath);
+        using var zip = PackZip.Open(archivePath);
         var probe = RequireMultiMc(zip);
         var components = ReadComponents(zip, probe);
         var contentRoot = ResolveContentRoot(zip, probe);
@@ -76,7 +76,7 @@ public sealed class MultiMcPackService
         IProgress<string>? status = null, IProgress<BatchProgress>? progress = null,
         CancellationToken ct = default)
     {
-        using var zip = ZipFile.OpenRead(archivePath);
+        using var zip = PackZip.Open(archivePath);
         var probe = RequireMultiMc(zip);
         var contentRoot = ResolveContentRoot(zip, probe);
 
@@ -180,7 +180,7 @@ public sealed class MultiMcPackService
         var entry = FindEntry(zip, probe, "mmc-pack.json");
         if (entry is null) return [];
         using var stream = entry.Open();
-        var dto = JsonSerializer.Deserialize<MmcPackFile>(stream, JsonOpts);
+        var dto = JsonSerializer.Deserialize<MmcPackFile>(PackJson.ReadText(stream), JsonOpts);
         if (dto?.Components is null) return [];
         return dto.Components
             .Where(c => !string.IsNullOrWhiteSpace(c.Uid))

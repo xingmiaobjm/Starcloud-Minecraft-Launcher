@@ -1,10 +1,10 @@
-// 登录对话框（只用于「启动游戏时就地登录」这个没有页面可承载表单的场景；
+﻿// 登录对话框（只用于「启动游戏时就地登录」这个没有页面可承载表单的场景；
 // 账户页添加账户走 AccountAddPage 的内联表单）：
 // - 微软登录：默认走内置登录窗口（WebView2 里完成验证）。内置窗口起不来就是登录失败，
 //   **不做自动降级**；要改用「验证码 + 系统浏览器」老方式，去设置里显式关掉内置窗口。
 // - 第三方（Yggdrasil）账密登录（登录动作与账户页共用 AccountFlows）
-// 合规：鉴权 token 只进内存会话（AccountStore.SetSession），绝不落盘；
-// 第三方密码只作参数传递，不落盘、不写日志。
+// 正版：refresh_token 用 DPAPI 加密保存在本机（30 天免登录，UI 不展示）；
+// 第三方：鉴权 token 只进内存会话（AccountStore.SetSession），密码不落盘、不写日志。
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -227,6 +227,9 @@ public static class AuthDialogs
                     accounts.AddOrUpdateMicrosoft(result.Uuid, result.Username);
                     accounts.SetSession(result.Uuid,
                         new AccountSession(result.AccessToken, result.RefreshToken, result.Xuid));
+                    // 正版登录 30 天免登录：refresh_token 加密保存，UI 不展示
+                    if (result.RefreshToken is { Length: > 0 } refreshToken)
+                        MicrosoftTokenStore.SaveNew(result.Uuid, refreshToken);
                     return result;
                 }
                 if (state == "error")

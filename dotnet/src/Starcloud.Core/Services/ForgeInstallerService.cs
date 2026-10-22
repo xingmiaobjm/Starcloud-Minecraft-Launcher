@@ -1,4 +1,4 @@
-// Forge / NeoForge 支持：构建列表查询 + 官方安装器静默运行（java -jar installer --installClient）
+﻿// Forge / NeoForge 支持：构建列表查询 + 官方安装器静默运行（java -jar installer --installClient）
 
 using System.Diagnostics;
 using System.Text.Json;
@@ -209,6 +209,11 @@ public sealed class ForgeInstallerService
         await _downloader.DownloadFileAsync(installerUrl, installerPath, null,
             settings.DownloadMaxRetries, ct);
 
+        // Forge 官方安装器会先读游戏目录里的 launcher_profiles.json，缺了就直接报
+        // “There is no minecraft launcher profile...” 并退出码 1。PCL/HMCL 都在跑安装器前
+        // 自动补这个文件；这里保持一致（只缺时才建，不覆盖用户已有的配置）。
+        EnsureLauncherProfiles(settings.DotMinecraft);
+
         // 3. 运行官方安装器（--installClient 会写入 versions/<id>-forge-<build> 并补齐库文件）
         Report(progress, "正在运行官方安装器（可能需要数分钟）…");
         var psi = new ProcessStartInfo
@@ -249,6 +254,33 @@ public sealed class ForgeInstallerService
                 $"安装器执行失败（exit {p.ExitCode}）：{(err.Length > 0 ? err : lastLine)}");
         }
         Report(progress, $"安装器执行完成（{mcVersion}）");
+    }
+
+    /// <summary>
+    /// 确保游戏目录里有官方启动器格式的 launcher_profiles.json（Forge/NeoForge 安装器的前置条件）。
+    /// 已存在时不动；返回是否新建。内容用最小合法结构，官方启动器读得懂、空 profiles 也不影响启动。
+    /// </summary>
+    public static bool EnsureLauncherProfiles(string dotMinecraft)
+    {
+        var path = Path.Combine(dotMinecraft, "launcher_profiles.json");
+        if (File.Exists(path)) return false;
+        Directory.CreateDirectory(dotMinecraft);
+        const string json = """
+            {
+              "profiles": {},
+              "settings": {
+                "enableSnapshots": false,
+                "keepLauncherOpen": false,
+                "showGameLog": false,
+                "soundOn": false
+              },
+              "version": 3
+            }
+            """;
+        // Forge 用 Gson 解析：带 BOM 会解析失败，必须 UTF-8 无 BOM
+        File.WriteAllText(path, json, new System.Text.UTF8Encoding(false));
+        LauncherLog.Write("install", "已创建 launcher_profiles.json（Forge 安装器前置条件）");
+        return true;
     }
 
     private async Task<string> EnsureJavaAsync(int requiredMajor,

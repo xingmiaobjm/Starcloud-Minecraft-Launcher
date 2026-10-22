@@ -1,4 +1,4 @@
-// 账户存储：微软设备码登录 + 第三方（Yggdrasil 外置登录）+ 离线账户（单人 / 局域网）。
+﻿// 账户存储：微软设备码登录 + 第三方（Yggdrasil 外置登录）+ 离线账户（单人 / 局域网）。
 // 鉴权 token（accessToken/refreshToken）仅存内存会话，绝不落盘；
 // 磁盘只保存身份信息（uuid/用户名/服务器地址/设备标识 clientToken）。
 // 离线身份的 UUID 走官方 nameUUIDFromBytes("OfflinePlayer:<name>") 算法，与各启动器互通。
@@ -226,6 +226,7 @@ public sealed class AccountStore
 
     public void Remove(string uuid)
     {
+        MicrosoftTokenStore.Remove(uuid); // 正版登录凭证一并清掉
         var type = _accounts.FirstOrDefault(a => a.Uuid == uuid)?.Type;
         _accounts.RemoveAll(a => a.Uuid == uuid);
         _sessions.Remove(uuid);
@@ -364,6 +365,39 @@ public sealed class MicrosoftAuthService
             }
             LauncherLog.Write("auth", $"登录成功 {result.Username} ({result.Uuid})");
             return ("success", "登录成功", result);
+        }
+    }
+
+    /// <summary>
+    /// 使用本地保存的 refresh_token 换一份新会话（正版登录 30 天免登录）。
+    /// 失败抛异常（invalid_grant 已被 ExplainError 翻译成“授权已失效”），由调用方清掉本地凭证。
+    /// </summary>
+    public async Task<LoginResult> RefreshAsync(string refreshToken, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(
+            TokenEndpoint,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = ClientId,
+                ["refresh_token"] = refreshToken,
+                ["grant_type"] = "refresh_token",
+                ["scope"] = MbiScope,
+            }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!TryParse(body, out var doc))
+            throw new InvalidOperationException($"微软返回了无法解析的响应（HTTP {(int)resp.StatusCode}）");
+        using (doc)
+        {
+            if (doc.RootElement.TryGetProperty("error", out var error))
+                throw new InvalidOperationException(ExplainError(error.GetString() ?? "", doc.RootElement));
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"刷新登录凭证失败（HTTP {(int)resp.StatusCode}）");
+            var accessToken = doc.RootElement.GetProperty("access_token").GetString()
+                ?? throw new InvalidOperationException("刷新响应缺少 access_token");
+            var rotated = doc.RootElement.TryGetProperty("refresh_token", out var rt)
+                ? rt.GetString() ?? refreshToken : refreshToken;
+            LauncherLog.Write("auth", "已用本地 refresh_token 续期，重新兑换 Xbox / Minecraft 令牌");
+            return await AuthenticateWithMicrosoftTokenAsync(accessToken, rotated, ct);
         }
     }
 

@@ -1,4 +1,5 @@
-// 账户页（一级）：Starcloud ID 卡（登录 / 注册 / 会话管理都在这张卡里）+ 游戏账户列表。
+﻿// 账户页（一级）：Starcloud ID 卡（登录 / 会话管理）+ 游戏账户列表。
+// 注册走独立小窗（RegisterDialog，邮箱验证码两步式），成功后回填 ID 到登录框。
 //
 // 账户列表照 HMCL 来：一行一个账户（头像 / 名字 / 类型 / 正在用的皮肤 / 进详情），
 // 首选账户排在最前，其余操作都在二级页里：
@@ -33,6 +34,7 @@ public sealed partial class AccountsPage : Page
         InitializeComponent();
         Loaded += (_, _) =>
         {
+            AvatarHelper.AvatarUpdated += OnAvatarUpdated;
             RefreshStarcloudState();
             RefreshList();
             if (PendingStatus is { Length: > 0 } pending)
@@ -41,7 +43,11 @@ public sealed partial class AccountsPage : Page
                 ShowStatus(pending);
             }
         };
+        Unloaded += (_, _) => AvatarHelper.AvatarUpdated -= OnAvatarUpdated;
     }
+
+    /// <summary>外部账户的皮肤头像在后台下载完成后刷新列表（事件来自后台线程）。</summary>
+    private void OnAvatarUpdated() => DispatcherQueue.TryEnqueue(RefreshList);
 
     // ── Starcloud ID：标题 + 登录 / 注册 / 会话管理 ──
 
@@ -49,14 +55,12 @@ public sealed partial class AccountsPage : Page
     {
         if (_s.StarcloudId.Current is not { } session)
         {
-            ScLoginPanel.Visibility = ScRegisterPanel.Visibility == Visibility.Visible
-                ? Visibility.Collapsed : Visibility.Visible;
+            ScLoginPanel.Visibility = Visibility.Visible;
             ScUserPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
         ScLoginPanel.Visibility = Visibility.Collapsed;
-        ScRegisterPanel.Visibility = Visibility.Collapsed;
         ScUserPanel.Visibility = Visibility.Visible;
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
             ? "?" : session.DisplayName[..1].ToUpperInvariant();
@@ -98,60 +102,18 @@ public sealed partial class AccountsPage : Page
         }
     }
 
-    // ── 注册：在同一张卡内展开，不再弹对话框 ──
+    // ── 注册：独立小窗（邮箱验证码 + 账密），成功后回填登录框 ──
 
-    private void ScToRegister_Click(object sender, RoutedEventArgs e)
+    private async void ScToRegister_Click(object sender, RoutedEventArgs e)
     {
-        ScLoginPanel.Visibility = Visibility.Collapsed;
-        ScRegisterPanel.Visibility = Visibility.Visible;
-        ScRegisterBtn.IsEnabled = true;
-        ScRegErrorText.Visibility = Visibility.Collapsed;
-        ScRegIdBox.Focus(FocusState.Programmatic);
         ClearBars();
-    }
+        var id = await RegisterDialog.ShowAsync(Content.XamlRoot, _s.StarcloudId);
+        if (id is null) return;
 
-    private void ScCancelRegister_Click(object sender, RoutedEventArgs e)
-    {
-        ScRegErrorText.Visibility = Visibility.Collapsed;
-        ScRegisterPanel.Visibility = Visibility.Collapsed;
-        ScLoginPanel.Visibility = Visibility.Visible;
-    }
-
-    private async void ScRegister_Click(object sender, RoutedEventArgs e)
-    {
-        string? error = null;
-        if (string.IsNullOrWhiteSpace(ScRegIdBox.Text)) error = Loc.T("Starcloud ID 不能为空");
-        else if (ScRegPwdBox.Password.Length < 6) error = Loc.T("密码至少 6 位");
-        else if (ScRegPwdBox.Password != ScRegPwd2Box.Password) error = Loc.T("两次输入的密码不一致");
-        if (error is not null)
-        {
-            ScRegErrorText.Text = error;
-            ScRegErrorText.Visibility = Visibility.Visible;
-            return;
-        }
-
-        ScRegisterBtn.IsEnabled = false;
-        try
-        {
-            await _s.StarcloudId.RegisterAsync(ScRegIdBox.Text.Trim(), ScRegPwdBox.Password);
-            ScIdBox.Text = ScRegIdBox.Text.Trim();
-            ScPwdBox.Password = "";
-            ScRegPwdBox.Password = "";
-            ScRegPwd2Box.Password = "";
-            ScRegisterPanel.Visibility = Visibility.Collapsed;
-            ScLoginPanel.Visibility = Visibility.Visible;
-            ScPwdBox.Focus(FocusState.Programmatic);
-            ShowStatus(Loc.T("注册成功，请登录"));
-        }
-        catch (Exception ex)
-        {
-            ScRegErrorText.Text = ex.Message;
-            ScRegErrorText.Visibility = Visibility.Visible;
-        }
-        finally
-        {
-            ScRegisterBtn.IsEnabled = true;
-        }
+        ScIdBox.Text = id;
+        ScPwdBox.Password = "";
+        ScPwdBox.Focus(FocusState.Programmatic);
+        ShowStatus(Loc.T("注册成功，请登录"));
     }
 
     private async void ScLogout_Click(object sender, RoutedEventArgs e)

@@ -67,19 +67,7 @@ public sealed partial class AccountsPage : Page, IShellPage
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
             ? "?" : session.DisplayName[..1].ToUpperInvariant();
         ScNameText.Text = session.DisplayName;
-        ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId,
-            session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道"));
-    }
-
-    private string SelectedChannel =>
-        (ScChannelBox.SelectedItem as ComboBoxItem)?.Content.ToString() == Loc.T("云端通道")
-            ? StarcloudIdService.CloudChannel : StarcloudIdService.TestChannel;
-
-    private void ScChannelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (ScPwdBox is null) return; // XAML 初始化期间触发
-        ScPwdBox.PlaceholderText = SelectedChannel == StarcloudIdService.CloudChannel
-            ? Loc.T("密码") : Loc.T("密码（测试通道任意内容）");
+        ScUserSubText.Text = Loc.T("{0} · {1}", session.UserId, Loc.T("云端通道"));
     }
 
     private async void ScPwdBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
@@ -97,7 +85,7 @@ public sealed partial class AccountsPage : Page, IShellPage
         ScLoginProgress.IsActive = true;
         try
         {
-            await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password, SelectedChannel);
+            await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password);
             ScPwdBox.Password = "";
             RefreshStarcloudState();
             _s.NovaRuntime.NotifyLoginChanged(); // 登录态变了：Nova 状态机/问候/Orb 面板同步
@@ -137,25 +125,29 @@ public sealed partial class AccountsPage : Page, IShellPage
 
     private async void ScRegister_Click(object sender, RoutedEventArgs e)
     {
+        ScRegErrorText.Visibility = Visibility.Collapsed;
+        var id = ScRegIdBox.Text.Trim();
+        var email = ScRegEmailBox.Text.Trim();
+        var code = ScRegCodeBox.Text.Trim();
         string? error = null;
-        if (string.IsNullOrWhiteSpace(ScRegIdBox.Text)) error = Loc.T("Starcloud ID 不能为空");
+        if (string.IsNullOrWhiteSpace(id)) error = Loc.T("Starcloud ID 不能为空");
         else if (ScRegPwdBox.Password.Length < 6) error = Loc.T("密码至少 6 位");
-        else if (ScRegPwdBox.Password != ScRegPwd2Box.Password) error = Loc.T("两次输入的密码不一致");
+        else if (!email.Contains('@') || email.Length < 5) error = Loc.T("请输入有效的邮箱地址");
+        else if (code.Length != 6) error = Loc.T("请输入 6 位验证码");
         if (error is not null)
         {
-            ScRegErrorText.Text = error;
-            ScRegErrorText.Visibility = Visibility.Visible;
+            ShowRegError(error);
             return;
         }
 
         ScRegisterBtn.IsEnabled = false;
         try
         {
-            await _s.StarcloudId.RegisterAsync(ScRegIdBox.Text.Trim(), ScRegPwdBox.Password, SelectedChannel);
-            ScIdBox.Text = ScRegIdBox.Text.Trim();
+            await _s.StarcloudId.RegisterAsync(id, ScRegPwdBox.Password, email, code);
+            ScIdBox.Text = id;
             ScPwdBox.Password = "";
             ScRegPwdBox.Password = "";
-            ScRegPwd2Box.Password = "";
+            ScRegCodeBox.Text = "";
             ScRegisterPanel.Visibility = Visibility.Collapsed;
             ScLoginPanel.Visibility = Visibility.Visible;
             ScPwdBox.Focus(FocusState.Programmatic);
@@ -163,13 +155,69 @@ public sealed partial class AccountsPage : Page, IShellPage
         }
         catch (Exception ex)
         {
-            ScRegErrorText.Text = ex.Message;
-            ScRegErrorText.Visibility = Visibility.Visible;
+            ShowRegError(ex.Message);
         }
         finally
         {
             ScRegisterBtn.IsEnabled = true;
         }
+    }
+
+    // 验证码发送 + 60 秒倒计时（对齐桌面端注册小窗）
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _codeTimer;
+    private int _codeCountdown;
+
+    private async void ScSendCode_Click(object sender, RoutedEventArgs e)
+    {
+        ScRegErrorText.Visibility = Visibility.Collapsed;
+        var email = ScRegEmailBox.Text.Trim();
+        if (!email.Contains('@') || email.Length < 5)
+        {
+            ShowRegError(Loc.T("请输入有效的邮箱地址"));
+            return;
+        }
+        ScSendCodeBtn.IsEnabled = false;
+        try
+        {
+            var retry = await _s.StarcloudId.SendEmailCodeAsync(email);
+            ScCodeHint.Text = Loc.T("验证码已发送，请查收邮箱（10 分钟内有效）");
+            StartCodeCountdown(retry);
+        }
+        catch (Exception ex)
+        {
+            ShowRegError(ex.Message);
+            ScSendCodeBtn.IsEnabled = true;
+        }
+    }
+
+    private void StartCodeCountdown(int seconds)
+    {
+        _codeCountdown = Math.Max(seconds, 30);
+        _codeTimer?.Stop();
+        _codeTimer = DispatcherQueue.CreateTimer();
+        _codeTimer.Interval = TimeSpan.FromSeconds(1);
+        _codeTimer.Tick += (_, _) =>
+        {
+            _codeCountdown--;
+            if (_codeCountdown <= 0)
+            {
+                _codeTimer!.Stop();
+                ScSendCodeBtn.IsEnabled = true;
+                ScSendCodeBtn.Content = Loc.T("发送验证码");
+                ScCodeHint.Text = "";
+            }
+            else
+            {
+                ScSendCodeBtn.Content = Loc.T("{0}s 后重发", _codeCountdown);
+            }
+        };
+        _codeTimer.Start();
+    }
+
+    private void ShowRegError(string message)
+    {
+        ScRegErrorText.Text = message;
+        ScRegErrorText.Visibility = Visibility.Visible;
     }
 
     private async void ScLogout_Click(object sender, RoutedEventArgs e)

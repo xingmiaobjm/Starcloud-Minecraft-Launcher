@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <application
         android:usesCleartextTraffic="true"
         android:label="Starcloud"
@@ -9,7 +12,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="fullSensor"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -35,10 +38,28 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
+        <!-- 触摸布局编辑器（横屏全屏，与游戏内控件层共用布局文件） -->
+        <activity
+            android:name="cn.starcloud.launcher.compose.game.TouchLayoutActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <!-- SDL 启动期读 manifest 环境变量：放行同进程活动重建，
              使游戏退出后无需杀进程即可再次启动 -->
         <meta-data
             android:name="SDL_ENV.SDL_ANDROID_ALLOW_RECREATE_ACTIVITY"
             android:value="1" />
+
+        <!-- 游戏内联机控制悬浮窗（陶瓦同形控制面 + 发邀请） -->
+        <service
+            android:name="cn.starcloud.launcher.compose.game.FloatingOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="multiplayer_overlay" />
+        </service>
     </application>
 </manifest>

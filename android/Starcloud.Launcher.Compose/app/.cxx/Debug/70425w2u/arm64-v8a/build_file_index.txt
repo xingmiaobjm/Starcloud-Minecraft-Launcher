@@ -1,1 +1,0 @@
-C:\Users\xingmiao\Documents\trae_projects\starcloud-minecraft-launcher\android\Starcloud.Launcher.Compose\app\src\main\cpp\CMakeLists.txt

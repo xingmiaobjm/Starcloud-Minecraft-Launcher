@@ -1,4 +1,4 @@
-// 内置外壳插件：把 12 个页面与左侧导航登记成贡献点。
+﻿// 内置外壳插件：把 11 个页面与左侧导航登记成贡献点（联机板块已并入好友页）。
 //
 // 以前外壳里写死两处：MainWindow.xaml 的 NavigationViewItem 列表、
 // MainWindow.xaml.cs 里 tag → Page 类型的 switch。两处都不认识插件，
@@ -14,7 +14,7 @@ using Starcloud.Core.Kernel;
 
 namespace Starcloud.App.Shell;
 
-/// <summary>内置外壳插件：12 个页面的导航与页面登记</summary>
+/// <summary>内置外壳插件：11 个页面的导航与页面登记</summary>
 public sealed class BuiltinShellPlugin : PluginBase
 {
     public const string PluginId = "starcloud.shell";
@@ -44,7 +44,7 @@ public sealed class BuiltinShellPlugin : PluginBase
         new("versions",    "版本",     typeof(VersionsPage),           20, "\uEA94"),
         new("download",    "下载",     typeof(DownloadPage),           30, "\uE90C"),
         new("saves",       "存档",     typeof(SavesPage),              40, "\uEA90"),
-        new("multiplayer", "联机",     typeof(MultiplayerPage),        50, "\uEB91"),
+        new("friends",     "好友",     typeof(FriendsPage),            45, "\uEB91"),
         new("lab",         "实验室",   typeof(LabPage),                60,
             IconUri: "ms-appx:///Assets/Brand/lab-nav.svg"),
         new("projections", "投影管理", typeof(ProjectionManagerPage),  70,

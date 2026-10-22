@@ -766,6 +766,9 @@ SectionEnd
 
 Function un.onInit
   SetShellVarContext current
+  ; 关键：卸载器工作目录必须移出安装目录。cwd 占住 $INSTDIR 时，
+  ; 后面 RMDir /r 删不掉目录，NSIS 会一直卡在删除阶段（表现为「卸载完全卡死」）
+  SetOutPath "$TEMP"
 FunctionEnd
 
 Function un.FillPage
@@ -925,15 +928,25 @@ Function un.OnUninstall
 
   Call un.DoUninstall
 
+  SetAutoClose true
   Quit
 FunctionEnd
 
 ; 真正删东西的那一段：卸载页与静默卸载（/S）共用
 Function un.DoUninstall
+  ; 静默卸载不经过卸载页，这里再兜一次 cwd
+  SetOutPath "$TEMP"
   Call un.CheckAppRunning
 
   Delete "$INSTDIR\uninstall.exe"
+  ; 大目录删除偶发被占用（杀毒扫描 / 资源管理器缩略图）：失败就稍等重试一次，
+  ; 不再无限卡在删除阶段
+  ClearErrors
   RMDir /r "$INSTDIR"
+  IfErrors 0 un_rm_ok
+    Sleep 800
+    RMDir /r "$INSTDIR"
+  un_rm_ok:
   RMDir "$INSTDIR"
 
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
@@ -971,14 +984,14 @@ Function un.UiPageLeave
 FunctionEnd
 
 Function un.CheckAppRunning
-  retry:
-  FindWindow $0 "" "${PRODUCT_NAME}"
-  StrCmp $0 0 done
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-    "检测到 Starcloud 启动器正在运行。$\r$\n请先关闭它后点「重试」，或点「取消」放弃卸载。" \
-    IDRETRY retry
-  Quit
-  done:
+  ; 旧实现：FindWindow("", "${PRODUCT_NAME}") + MessageBox 重试。卸载器窗口标题本身就是
+  ; ${PRODUCT_NAME}，FindWindow 命中卸载器自己 → 点「重试」再次命中 → 死循环卡死。
+  ; 改为直接结束启动器与桥进程（没在跑时失败无害）。
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${MAIN_EXE}"'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "Starcloud.Bridge.exe"'
+  Pop $0
+  Sleep 500
 FunctionEnd
 
 Section "Uninstall"

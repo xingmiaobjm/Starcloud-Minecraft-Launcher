@@ -99,17 +99,18 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Border Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="8" Padding="12,8">
-                <StackPanel Orientation="Horizontal" Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" FontSize="14"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock x:Name="DirText" VerticalAlignment="Center" FontSize="12"
-                               TextTrimming="CharacterEllipsis"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-            </Border>
+                    <!-- 下拉里除目录外还有一项「＋ 添加新的 .minecraft 目录」，选中它等同点添加按钮。
+                         宽度可收缩（MinWidth 小、MaxWidth 封顶）：顶部一行放不下时先压这个框，
+                         不能把右侧「导入/搜索/刷新」那排挤出可视区 -->
+                    <ComboBox x:Name="DirCombo" MinWidth="180" MaxWidth="420" Height="36"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                              CornerRadius="8" FontSize="12"
+                              loc:Loc.Name="游戏目录（可切换）"
+                              SelectionChanged="DirCombo_SelectionChanged" />
+            </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                 <ctrl:GlowButton Click="Import_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -124,9 +125,11 @@
                     </StackPanel>
                 </ctrl:GlowButton>
                 <TextBox x:Name="SearchBox" loc:Loc.Placeholder="搜索版本 / 类别"
-                         Width="180" loc:Loc.Name="搜索版本"
+                         Width="180" Height="36" VerticalAlignment="Center" CornerRadius="8"
+                         loc:Loc.Name="搜索版本"
                          TextChanged="SearchBox_TextChanged" />
-                <ComboBox x:Name="CategoryFilter" Width="130" SelectedIndex="0"
+                <ComboBox x:Name="CategoryFilter" Width="130" Height="36" VerticalAlignment="Center"
+                          CornerRadius="8" SelectedIndex="0"
                           loc:Loc.Name="按类别筛选"
                           SelectionChanged="CategoryFilter_SelectionChanged" />
                 <ctrl:GlowButton Click="Refresh_Click">

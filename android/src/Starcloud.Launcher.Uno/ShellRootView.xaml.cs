@@ -294,6 +294,7 @@ public sealed partial class ShellRootView : UserControl
             "versions" => typeof(VersionsPage),
             "versionDetail" => typeof(VersionDetailPage),
             "saves" => typeof(SavesPage),
+            "friends" => typeof(FriendsPage),
             "multiplayer" => typeof(MultiplayerPage),
             "running" => typeof(RunningStatusPage),
             "download" => typeof(DownloadPage),
@@ -522,6 +523,8 @@ public sealed partial class ShellRootView : UserControl
     private readonly DispatcherQueueTimer _taskRefresh =
         DispatcherQueue.GetForCurrentThread().CreateTimer();
     private volatile bool _taskDirty;
+
+    private void FriendsBtn_Click(object sender, RoutedEventArgs e) => AppNavigation.Navigate("friends");
 
     private void TaskCenterBtn_Click(object sender, RoutedEventArgs e) => ToggleTaskPanel();
 
@@ -1150,7 +1153,7 @@ public sealed partial class ShellRootView : UserControl
             });
             tip.Children.Add(new TextBlock
             {
-                Text = Loc.T("已登录 · {0}", session.Channel == StarcloudIdService.CloudChannel ? Loc.T("云端通道") : Loc.T("测试通道")),
+                Text = Loc.T("已登录 · {0}", Loc.T("云端通道")),
                 FontSize = 12,
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             });

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="好友申请">
+  <!-- 会话列表「好友申请」系统会话图标：人形 + 加号（白色，落在品牌色圆底上） -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="10" cy="8.2" r="3.3" />
+    <path d="M4.2 19.6c0-3.2 2.6-5.8 5.8-5.8s5.8 2.6 5.8 5.8" />
+    <path d="M18.4 7.4v5.2 M15.8 10h5.2" />
+  </g>
+</svg>

@@ -54,13 +54,8 @@
 
                         <!-- 未登录：登录表单 -->
                         <StackPanel x:Name="LoginForm" Spacing="10">
-                            <TextBox x:Name="IdBox" Header="Starcloud ID" loc:Loc.Placeholder="用户名或邮箱" />
-                            <PasswordBox x:Name="PwdBox" />
-                            <ComboBox x:Name="ChannelBox" SelectedIndex="0"
-                                      HorizontalAlignment="Stretch" SelectionChanged="ChannelBox_SelectionChanged">
-                                <ComboBoxItem loc:Loc.Text="测试通道（本地模拟，无需真实账号）" />
-                                <ComboBoxItem loc:Loc.Text="云端通道（真实账号）" />
-                            </ComboBox>
+                            <TextBox x:Name="IdBox" Header="Starcloud ID" loc:Loc.Placeholder="Starcloud ID（用户名）" />
+                            <PasswordBox x:Name="PwdBox" Header="密码" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="LoginBtn" Style="{StaticResource AccentButtonStyle}" loc:Loc.Text="登录"
                                         FontWeight="Medium" MinWidth="160" Click="Login_Click" />

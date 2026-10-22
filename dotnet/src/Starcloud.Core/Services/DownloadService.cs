@@ -108,13 +108,13 @@ public sealed class DownloadService
     /// </summary>
     private async Task DownloadOneAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
-        long size, Action<long>? onBytes)
+        long size, Action<long>? onBytes, SourceKind? preferred = null)
     {
         if (CurseForgeCdn.IsCdnUrl(url))
         {
             try
             {
-                await DownloadFromAsync(url, destFile, sha1, maxRetries, ct, size, onBytes);
+                await DownloadFromAsync(url, destFile, sha1, maxRetries, ct, size, onBytes, preferred);
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -125,11 +125,11 @@ public sealed class DownloadService
             {
                 var mirror = CurseForgeCdn.Mirror(url);
                 Log?.Invoke($"CurseForge CDN 下载失败（{ex.Message}）→ 改用 MCIM 文件镜像：{ShortName(url)}");
-                await DownloadFromAsync(mirror, destFile, sha1, maxRetries, ct, size, onBytes);
+                await DownloadFromAsync(mirror, destFile, sha1, maxRetries, ct, size, onBytes, preferred);
                 return;
             }
         }
-        await DownloadFromAsync(url, destFile, sha1, maxRetries, ct, size, onBytes);
+        await DownloadFromAsync(url, destFile, sha1, maxRetries, ct, size, onBytes, preferred);
     }
 
     /// <summary>
@@ -140,7 +140,7 @@ public sealed class DownloadService
     /// </summary>
     private async Task DownloadFromAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
-        long size, Action<long>? onBytes)
+        long size, Action<long>? onBytes, SourceKind? preferred = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
 
@@ -176,7 +176,7 @@ public sealed class DownloadService
                 {
                     onBytes?.Invoke(b);
                     TaskCenterService.Instance.ReportDownloadBytes(b);
-                }, ct);
+                }, ct, preferred);
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -190,7 +190,7 @@ public sealed class DownloadService
             }
         }
 
-        await DownloadWholeFileAsync(url, destFile, sha1, maxRetries, ct, size, onBytes);
+        await DownloadWholeFileAsync(url, destFile, sha1, maxRetries, ct, size, onBytes, preferred);
     }
 
     /// <summary>
@@ -232,10 +232,12 @@ public sealed class DownloadService
     /// <summary>整文件下载（不分片）：按竞速池顺序换源重试，官方恒为兜底</summary>
     private async Task DownloadWholeFileAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct, long size,
-        Action<long>? onBytes)
+        Action<long>? onBytes, SourceKind? preferred = null)
     {
         // 非 Mojang 域名没有任何镜像能改写它 → 池里只留官方一项（多连接并行由分片 worker 负责）
-        var pool = _sources.RacingPoolFor(url);
+        var pool = _sources.RacingPoolFor(url).ToList();
+        // 批量下载的文件分摊：整文件路径也先走分配到的源，失败再按池顺序兜底
+        if (preferred is { } pin && pool.Remove(pin)) pool.Insert(0, pin);
         // 与分片路径同一口径：重试额度至少覆盖池里全部源，保证官方兜底在预算内被轮到
         var attempts = Math.Max(Math.Max(1, maxRetries), pool.Count);
         for (int attempt = 1; ; attempt++)
@@ -453,33 +455,64 @@ public sealed class DownloadService
         bool trackSourceHealth = true)
     {
         var pool = _sources.RacingPoolFor(url);
+        var mojang = DownloadSourceRegistry.IsMojangUrl(url);
+        // 第三方接口（Fabric/Modrinth/CurseForge…）与 Mojang 镜像健康度无关，不能记进去，
+        // 否则一次第三方超时会把原版下载的源排序带偏。
+        var recordHealth = trackSourceHealth && mojang;
         Exception? last = null;
+        // 池里只有一项 = 第三方元数据（Fabric/Quilt/Modrinth…），跨境链路偶发超时/526 很常见，
+        // 多给一次机会；Mojang 镜像池本身有多个源，保持一次即换源，避免拖慢失败切换。
+        var perSourceAttempts = pool.Count == 1 ? 2 : 1;
         for (var i = 0; i < pool.Count; i++)
         {
             var kind = pool[i];
+            for (var attempt = 1; attempt <= perSourceAttempts; attempt++)
+            {
+                try
+                {
+                    var text = await FetchStringAsync(_http, _sources.Rewrite(url, kind), headers,
+                        MetadataTimeout, ct);
+                    // 镜像的"姿势不对"要当源故障处理：RainYun 之类会把站点页面（HTML）当成内容返回。
+                    if (kind != SourceKind.Official && LooksLikeHtml(text))
+                        throw new IOException("返回的是站点页面（HTML），不是数据");
+                    if (recordHealth) _sources.RecordSuccess(kind);
+                    return text;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    last = ex is OperationCanceledException
+                        ? new TimeoutException($"{MetadataTimeout.TotalSeconds:F0} 秒无响应")
+                        : ex;
+                    if (recordHealth) _sources.RecordFailure(kind);
+
+                    if (attempt < perSourceAttempts)
+                    {
+                        Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 元数据请求失败" +
+                                    $"（{last.Message}），重试 {attempt + 1}/{perSourceAttempts}：{ShortName(url)}");
+                        try { await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct); }
+                        catch (OperationCanceledException) { throw; }
+                        continue;
+                    }
+                    if (i < pool.Count - 1)
+                        Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 元数据请求失败" +
+                                    $"（{last.Message}）→ 换下一个源：{ShortName(url)}");
+                }
+            }
+        }
+
+        // 第三方元数据只剩一条路时，系统代理/加速器常把小请求掐掉：最后绕开代理直连再试一次。
+        if (!mojang)
+        {
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, _sources.Rewrite(url, kind));
-                if (headers is not null)
-                    foreach (var (key, value) in headers)
-                        req.Headers.TryAddWithoutValidation(key, value);
-                using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                conn.CancelAfter(MetadataTimeout);
-                using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
-                resp.EnsureSuccessStatusCode();
-                var text = await resp.Content.ReadAsStringAsync(conn.Token);
-                // 镜像的"姿势不对"要当源故障处理：RainYun 之类会把站点页面（HTML）当成内容返回，
-                // 200 却完全不是数据。直接换下一个源，别把 HTML 交给 JSON 解析器炸在调用方。
-                if (kind != SourceKind.Official && LooksLikeHtml(text))
-                {
-                    if (trackSourceHealth) _sources.RecordFailure(kind);
-                    last = new IOException("返回的是站点页面（HTML），不是数据");
-                    if (i < pool.Count - 1)
-                        Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 返回站点页面而非数据" +
-                                    $"→ 换下一个源：{ShortName(url)}");
-                    continue;
-                }
-                if (trackSourceHealth) _sources.RecordSuccess(kind);
+                var text = await FetchStringAsync(_directHttp, url, headers, MetadataTimeout, ct);
+                if (LooksLikeHtml(text))
+                    throw new IOException("返回的是站点页面（HTML），不是数据");
+                Log?.Invoke($"直连兜底成功：{ShortName(url)}");
                 return text;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -488,19 +521,34 @@ public sealed class DownloadService
             }
             catch (Exception ex)
             {
-                last = ex is OperationCanceledException
-                    ? new TimeoutException($"{MetadataTimeout.TotalSeconds:F0} 秒无响应")
-                    : ex;
-                if (trackSourceHealth) _sources.RecordFailure(kind);
-                // 只在还有下一个源时记日志，避免最后一条重复报错
-                if (i < pool.Count - 1)
-                    Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 元数据请求失败" +
-                                $"（{last.Message}）→ 换下一个源：{ShortName(url)}");
+                last = ex;
+                Log?.Invoke($"直连兜底失败（{ex.Message}）：{ShortName(url)}");
             }
         }
+
         throw new IOException(
-            $"元数据下载失败（{pool.Count} 个源都没拿到响应）：{ShortName(url)}", last);
+            $"元数据下载失败（{Math.Max(pool.Count, 1)} 个源都没拿到响应）：{DisplayUrl(url)}" +
+            (last?.Message is { Length: > 0 } why ? $"（{why}）" : ""), last);
     }
+
+    /// <summary>单次 GET 文本；超时用连接级 CTS（大文件下载不走这里）。</summary>
+    private static async Task<string> FetchStringAsync(HttpClient http, string url,
+        IReadOnlyDictionary<string, string>? headers, TimeSpan timeout, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        if (headers is not null)
+            foreach (var (key, value) in headers)
+                req.Headers.TryAddWithoutValidation(key, value);
+        using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        conn.CancelAfter(timeout);
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(conn.Token);
+    }
+
+    /// <summary>报错用：带主机与路径，比只有最后一段（json）有用得多。</summary>
+    private static string DisplayUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host + uri.AbsolutePath : url;
 
     /// <summary>POST JSON 并返回响应文本（Starcloud ID 接口，不做源改写）</summary>
     public Task<string> PostJsonAsync(string url, string jsonBody, CancellationToken ct = default) =>
@@ -653,12 +701,33 @@ public sealed class DownloadService
             return;
         }
 
+        // 多文件并发时把不同文件分摊到不同源：单文件靠分片并行，多文件再叠一层“源级并行”，
+        // 避免所有文件都挤在同一个最快源上（其余镜像闲着）。只有一个文件 / 一个源时不指定。
+        var assignPool = new List<SourceKind>();
+        if (pending.Count > 1)
+        {
+            foreach (var kind in _sources.RacingPool())
+                if (!_sources.IsDegraded(kind)) assignPool.Add(kind);
+            if (assignPool.Count == 0) assignPool.Add(SourceKind.Official);
+        }
+        var assignCursor = 0;
+        if (assignPool.Count > 1)
+        {
+            LauncherLog.Write("download",
+                $"批量分摊下载源：{string.Join(" / ", assignPool.Select(DownloadSourceRegistry.Name))}" +
+                $"（{pending.Count} 个文件）");
+        }
+
         using var gate = new SemaphoreSlim(Math.Max(1, concurrency));
         var tasks = pending.Select(async f =>
         {
             await gate.WaitAsync(ct);
             try
             {
+                var preferred = assignPool.Count > 1 && DownloadSourceRegistry.IsMojangUrl(f.Url)
+                    ? assignPool[(int)((uint)Interlocked.Increment(ref assignCursor) %
+                                        (uint)assignPool.Count)]
+                    : (SourceKind?)null;
                 long reported = 0;
                 await DownloadOneAsync(f.Url, f.Dest, f.Sha1, maxRetries, ct, f.Size,
                     n =>
@@ -666,7 +735,7 @@ public sealed class DownloadService
                         Interlocked.Add(ref doneBytes, n);
                         Interlocked.Add(ref reported, n);
                         Report();
-                    });
+                    }, preferred);
                 // 整文件兜底路径无增量上报，补齐差额保证进度最终到位
                 Interlocked.Add(ref doneBytes, Math.Max(0, Math.Max(f.Size, 0) - Interlocked.Read(ref reported)));
                 Interlocked.Increment(ref doneFiles);

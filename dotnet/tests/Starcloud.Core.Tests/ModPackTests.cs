@@ -522,6 +522,145 @@ public class ModPackTests
         File.WriteAllText(abs, content);
     }
 
+    [Fact]
+    public void 识别_没有清单的裸内容zip()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "raw.zip");
+            WriteZip(path, new()
+            {
+                ["MyPack/.minecraft/mods/a.jar"] = "x",
+                ["MyPack/.minecraft/config/b.txt"] = "y",
+            });
+
+            var probe = ModPackDetector.Detect(path);
+            Assert.NotNull(probe);
+            Assert.Equal(ModPackFormat.Raw, probe!.Format);
+            Assert.Equal("MyPack/.minecraft", probe.Root);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void 识别_根级mods目录的裸内容zip()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "raw2.zip");
+            WriteZip(path, new()
+            {
+                ["mods/a.jar"] = "x",
+                ["config/b.txt"] = "y",
+            });
+
+            var probe = ModPackDetector.Detect(path);
+            Assert.Equal(ModPackFormat.Raw, probe!.Format);
+            Assert.Equal("", probe.Root);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    // ── 兼容性：BOM / 入口文件名大小写 / GBK 文件名 ──────────────────────
+
+    [Fact]
+    public void 识别_manifest带BOM()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "bom.zip");
+            WriteZip(path, new()
+            {
+                ["manifest.json"] = "\uFEFF" + """{ "minecraft": { "version": "1.20.1" } }""",
+            });
+            Assert.Equal(ModPackFormat.CurseForge, ModPackDetector.Detect(path)!.Format);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void 识别_入口文件名大小写不同()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "case.zip");
+            WriteZip(path, new()
+            {
+                ["Manifest.json"] = """{ "minecraft": { "version": "1.20.1" } }""",
+            });
+            Assert.Equal(ModPackFormat.CurseForge, ModPackDetector.Detect(path)!.Format);
+
+            var installer = new CurseForgePackInstaller(null!, null!);
+            var info = installer.ReadPackageInfo(path);
+            Assert.Equal("1.20.1", info.GameVersion);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void CurseForge元信息兼容带BOM的manifest()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "bom-info.zip");
+            WriteZip(path, new()
+            {
+                ["manifest.json"] = "\uFEFF" + """{ "minecraft": { "version": "1.21.1" }, "name": "BOM 包" }""",
+            });
+
+            var info = new CurseForgePackInstaller(null!, null!).ReadPackageInfo(path);
+            Assert.Equal("1.21.1", info.GameVersion);
+            Assert.Equal("BOM 包", info.Name);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void MrPack索引带BOM也能读()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "bom.mrpack");
+            WriteZip(path, new()
+            {
+                ["modrinth.index.json"] = "\uFEFF" +
+                    """{ "formatVersion": 1, "name": "BOM Pack", "versionId": "1.0", "dependencies": { "minecraft": "1.20.1" }, "files": [] }""",
+            });
+
+            var info = new MrPackInstallerService(null!).ReadPackageInfo(path);
+            Assert.Equal("1.20.1", info.GameVersion);
+            Assert.Equal("BOM Pack", info.Name);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void GBK文件名压缩包能正确解码()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "gbk.zip");
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Create, Encoding.GetEncoding(936)))
+            {
+                var entry = zip.CreateEntry("中文目录/说明.txt");
+                using var stream = entry.Open();
+                stream.Write(Encoding.UTF8.GetBytes("hi"));
+            }
+
+            using var read = PackZip.Open(path);
+            Assert.Contains(read.Entries, e => e.FullName == "中文目录/说明.txt");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static void WriteZip(string path, Dictionary<string, string> entries)
     {
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);

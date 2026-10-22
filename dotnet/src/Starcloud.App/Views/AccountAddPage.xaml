@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Starcloud.App.Views.AccountAddPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -83,7 +83,7 @@
                     BorderThickness="1" CornerRadius="16" Padding="20">
                 <StackPanel Spacing="12">
                     <TextBlock loc:Loc.Text="Microsoft 正版账户（在线验证）" FontWeight="Medium" />
-                    <TextBlock loc:Loc.Text="登录后即可进入正版服务器；身份只保存在本机，令牌不写入磁盘。"
+                    <TextBlock loc:Loc.Text="登录后即可进入正版服务器；登录凭证加密保存在本机，30 天内启动游戏无需重复登录。"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                     <TextBlock loc:Loc.Text="登录会打开内置登录窗口，在里面完成微软验证即可（也可以在「设置 → 通用 → 使用内置登录窗口」改为浏览器方式）。"
                                FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"

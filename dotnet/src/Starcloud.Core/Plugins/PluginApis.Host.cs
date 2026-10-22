@@ -1,4 +1,4 @@
-// 插件能力层（续）：设置 / 账户 / 日志 / 任务 / 存档 / 联机 / 外观 / 更新 / 存储 / 系统 / 事件。
+﻿// 插件能力层（续）：设置 / 账户 / 日志 / 任务 / 存档 / 联机 / 外观 / 更新 / 存储 / 系统 / 事件。
 // 与 PluginApis.cs 同一套规则：权限两道门、身份不可触碰、复杂动作转交共用执行层。
 
 using System.Text.Json;
@@ -526,7 +526,7 @@ public sealed class PluginSystemApi(PluginApiCore c)
 
     /// <summary>
     /// 切到启动器的某个页面（launcher:ui_panel）：
-    /// home / versions / download / accounts / saves / logs / settings / nova / multiplayer / plugins
+    /// home / versions / download / accounts / saves / logs / settings / nova / friends / multiplayer / plugins
     /// </summary>
     public string OpenPage(string page)
     {
@@ -534,7 +534,7 @@ public sealed class PluginSystemApi(PluginApiCore c)
         var allowed = new[]
         {
             "home", "versions", "download", "accounts", "saves", "logs",
-            "settings", "nova", "multiplayer", "plugins",
+            "settings", "nova", "friends", "multiplayer", "plugins",
         };
         var target = (page ?? "").Trim().ToLowerInvariant();
         if (!allowed.Contains(target))

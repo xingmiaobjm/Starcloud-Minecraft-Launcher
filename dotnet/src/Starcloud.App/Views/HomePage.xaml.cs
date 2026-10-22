@@ -1,4 +1,4 @@
-// 首页：PCL2 式左卡（版本列表 → 启动 → 账户），版本条目支持右键菜单
+﻿// 首页：PCL2 式左卡（版本列表 → 启动 → 账户），版本条目支持右键菜单
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -73,7 +73,12 @@ public sealed partial class HomePage : Page
         _stageTimer.Tick += (_, _) => StageTimer_Tick();
         _windowTimer.Tick += (_, _) => WindowTimer_Tick();
         _logTimer.Tick += (_, _) => FlushLogBuffer();
-        Loaded += (_, _) => Initialize();
+        Loaded += (_, _) =>
+        {
+            AvatarHelper.AvatarUpdated += OnAvatarUpdated;
+            Initialize();
+        };
+        Unloaded += (_, _) => AvatarHelper.AvatarUpdated -= OnAvatarUpdated;
         SizeChanged += OnPageSizeChanged;
         // 三张通知条的开关与自检卡的显隐都汇到一处（左列通知区整块收起 / 展开，版本卡才能与右栏卡上边缘齐平）。
         // 用属性回调而不是在每个赋值点插一句：通知条自己那颗关闭按钮也会改 IsOpen，这样一并覆盖到。
@@ -92,6 +97,9 @@ public sealed partial class HomePage : Page
     }
 
     private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp) => RefreshLeftNoticeArea();
+
+    /// <summary>外部账户皮肤头像下载完成后刷新右侧账户卡（事件来自后台线程）。</summary>
+    private void OnAvatarUpdated() => _dq.TryEnqueue(RefreshAccounts);
 
     /// <summary>
     /// 左列通知区（三张通知条 + 启动自检卡）的整块显隐，以及它到版本卡之间的那点间距。
@@ -524,27 +532,6 @@ public sealed partial class HomePage : Page
         AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
         AvatarImage.Source = ResolveAvatar(acc, name);
-
-        // 账户明细：没有账户就整块收起来
-        AccountDetail.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
-        if (acc is not null)
-        {
-            AccountTypeText.Text = acc.Type switch
-            {
-                AccountStore.OfflineType => Loc.T("离线账户"),
-                "external" => Loc.T("第三方账户"),
-                _ => Loc.T("微软正版账户"),
-            };
-            // UUID 32 位全放会把卡片撑破（实测溢出到卡片外）：只显示前 8 位
-            var uuid = acc.Uuid ?? "";
-            AccountUuidText.Text = uuid.Length <= 8
-                ? (uuid.Length == 0 ? Loc.T("—") : uuid)
-                : uuid[..8] + "…";
-            AccountSkinText.Text = string.IsNullOrEmpty(acc.SkinId)
-                ? Loc.T("默认头像")
-                : (acc.SkinModel is { Length: > 0 } m && m != "auto"
-                    ? $"{acc.SkinId}（{m}）" : acc.SkinId);
-        }
     }
 
     /// <summary>
@@ -586,19 +573,17 @@ public sealed partial class HomePage : Page
     private void SwitchAccountArea_Exited(object sender, PointerRoutedEventArgs e) =>
         ShowSwitchAccount(false);
 
-    /// <summary>切换账号按钮的显隐。按钮改为常驻（基态 0.72），这里只做悬停时的微调；
+    /// <summary>切换账号按钮的显隐：基态完全隐藏，指针进这一条才浮出来。
     /// 动效关闭时直接切透明度，不留动画尾巴。</summary>
     private void ShowSwitchAccount(bool show)
     {
-        const double RestOpacity = 0.72;
         if (!_s.Motion.Enabled)
         {
-            SwitchAccountBtn.Opacity = show ? 1 : RestOpacity;
+            SwitchAccountBtn.Opacity = show ? 1 : 0;
             return;
         }
         if (show) MotionFx.FadeIn(SwitchAccountBtn, MotionFx.HoverFadeInMs);
-        // 淡出不是回到 0（按钮常驻），而是回到 0.72 的静息态
-        else MotionFx.FadeTo(SwitchAccountBtn, RestOpacity, MotionFx.HoverFadeOutMs);
+        else MotionFx.FadeTo(SwitchAccountBtn, 0, MotionFx.HoverFadeOutMs);
     }
 
     /// <summary>切换账号：去账户页（与右上角账户入口同一处）</summary>

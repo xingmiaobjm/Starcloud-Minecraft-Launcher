@@ -1,4 +1,4 @@
-// 共享服务单例（对应旧 Tauri AppState）
+﻿// 共享服务单例（对应旧 Tauri AppState）
 
 using Starcloud.Core.Kernel.Plugins;
 using Starcloud.Core.Plugins;
@@ -64,6 +64,12 @@ public sealed class AppServices
     public MultiplayerService Multiplayer { get; }
 
     public StarcloudIdService StarcloudId { get; }
+
+    /// <summary>好友：好友列表 / 申请 / 搜索 / 联机邀请 + 实时事件</summary>
+    public FriendsService Friends { get; }
+
+    /// <summary>登录后常驻的好友事件长连接（后台线程）</summary>
+    public FriendsRuntime FriendsRuntime { get; }
 
     /// <summary>
     /// 跨设备链路（设计：2026-10-14-cross-device-sync-design.md）：同 Starcloud ID 设备发现、
@@ -175,7 +181,7 @@ public sealed class AppServices
         VersionBackup = new VersionBackupService();
         Saves = new SaveService();
         SaveLibrary = new SaveLibraryService(Manifest, Saves);
-        LaunchAccount = new LaunchAccountService(Accounts, () => Settings);
+        LaunchAccount = new LaunchAccountService(Accounts, () => Settings, MicrosoftAuth);
         // 联机：默认玩家名跟随当前账户（没单独设联机昵称时），与启动身份同名才不会在游戏里认错人
         Multiplayer = new MultiplayerService(
             Download,
@@ -184,6 +190,9 @@ public sealed class AppServices
                 ?? Accounts.Accounts.FirstOrDefault()?.Username,
             SaveSettings);
         StarcloudId = new StarcloudIdService();
+        Friends = new FriendsService(() => StarcloudId.Current?.ApiKey);
+        FriendsRuntime = new FriendsRuntime(Friends, StarcloudId);
+        FriendsRuntime.Start();
         // 跨设备链路：需要 SaveLibrary / Saves / StarcloudId（都已在上面就位）；
         // 下载管线从这里拿 P2P 对等源（PeerCount=0 时管线零开销跳过）
         DeviceLink = new DeviceLinkService(() => Settings, StarcloudId, SaveLibrary, Saves)

@@ -1,4 +1,4 @@
-// 安装器：原版（客户端 jar + 库 + 资源）与 Fabric（loader profile 合并）
+﻿// 安装器：原版（客户端 jar + 库 + 资源）与 Fabric（loader profile 合并）
 
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -117,28 +117,31 @@ public sealed class InstallerService
 
     /// <summary>安装 Fabric：拉 loader profile 合并保存，再装全量内容</summary>
     public Task InstallFabricAsync(string mcVersion, string loaderVersion,
-        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default) =>
+        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default,
+        string? targetId = null) =>
         InstallLoaderProfileAsync(mcVersion, loaderVersion, settings, progress, ct,
-            "meta.fabricmc.net", "v2");
+            "meta.fabricmc.net", "v2", targetId);
 
     /// <summary>安装 Quilt：meta v3 profile 与 Fabric v2 同构，复用同一合并管线</summary>
     public Task InstallQuiltAsync(string mcVersion, string loaderVersion,
-        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default) =>
+        LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default,
+        string? targetId = null) =>
         InstallLoaderProfileAsync(mcVersion, loaderVersion, settings, progress, ct,
-            "meta.quiltmc.org", "v3");
+            "meta.quiltmc.org", "v3", targetId);
 
     private async Task InstallLoaderProfileAsync(string mcVersion, string loaderVersion,
         LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct,
-        string metaHost, string metaApi)
+        string metaHost, string metaApi, string? targetId = null)
     {
         var profileUrl = $"https://{metaHost}/{metaApi}/versions/loader/{mcVersion}/{loaderVersion}/profile/json";
-        var profileJson = await _downloader.GetStringAsync(profileUrl, ct);
+        var profileJson = await _downloader.GetStringAsync(profileUrl, headers: null, ct: ct, trackSourceHealth: false);
         var profile = JsonSerializer.Deserialize<FabricProfile>(profileJson)
                       ?? throw new InvalidOperationException("Fabric profile 解析失败");
 
         var dotMc = settings.DotMinecraft;
         // 同名版本并存：id 冲突时自动追加 -2、-3…（merged 元数据沿用新 id）
-        var id = UniqueVersionId(dotMc, profile.Id);
+        // 补全/重装已有实例时沿用原目录名覆盖，不再生成 -2 副本
+        var id = targetId ?? UniqueVersionId(dotMc, profile.Id);
         Directory.CreateDirectory(VersionDir(dotMc, id));
 
         // 读取原版版本 JSON 并合并
@@ -174,9 +177,11 @@ public sealed class InstallerService
         foreach (var lib in version.Libraries.Where(l => RulesAllow(l.Rules)))
         {
             var dl = lib.Downloads;
-            if (dl?.Artifact is { Url: not "" } artifact)
+            // Mojang 库带 downloads.artifact；Fabric/Quilt 只有 Maven 坐标（name + url），
+            // 两种情况都要落到 libraries 下并加入下载队列，否则启动时 classpath 缺 loader。
+            if (MavenArtifacts.Resolve(lib) is { } artifact)
             {
-                files.Add((artifact.Url, Path.Combine(dotMc, "libraries", artifact.Path ?? ""),
+                files.Add((artifact.Url, Path.Combine(dotMc, "libraries", (artifact.Path ?? "").Replace('/', Path.DirectorySeparatorChar)),
                     artifact.Sha1, artifact.Size));
             }
             if (NativesOf(dl) is { } native)

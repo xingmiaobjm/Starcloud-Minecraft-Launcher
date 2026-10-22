@@ -1,0 +1,17 @@
+0.3.9
+
+New
+· Multiple .minecraft folders. The directory path on the Versions page is now a dropdown: switch between previously used folders, or add a new folder from the last entry. The game-directory setting has been removed from Settings and is managed here.
+· Cross-platform bridge APIs. Friends and direct messages, version instance operations, modpack import/export, version backups, settings fields and system path handling are exposed for the Linux build and the web front-end to reuse the same core.
+
+Changes
+· The memory allocation slider now ranges from 1 GB to the machine's physical memory, with the upper bound read from the device. The equivalent slider on the version detail page matches.
+· Lab and Projection Manager navigation icons now follow the theme: dark strokes in light mode, white strokes in dark mode, at the same size as other navigation icons.
+· The Lab temporarily hides the "Projection Community" and "Command Helper" entries until they are finished.
+· The Colored Text generator no longer shows the description line above the toolbar or sample text in the editor; the "select text first" hint is now a dialog.
+
+Fixes
+· Fixed the uninstaller hanging. The old prompt could match the uninstaller's own window when the launcher was still running, leaving no way forward; processes are now terminated automatically, the uninstaller moves its working directory out of the install folder and directory deletion is retried once.
+· Fixed uneven control heights at the top of the Versions page; the directory dropdown shrinks with the window and no longer squeezes the buttons to its right.
+· Fixed the alignment of the version list and the "Installed" badge on the download page.
+· Removed the redundant "Off / On / Off" text from settings switches.

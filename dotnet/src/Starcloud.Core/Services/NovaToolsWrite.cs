@@ -1,4 +1,4 @@
-// Nova 工具 · 写操作部分：装版本 / 装资源 / 改设置 / 启动游戏 / 备份 / 联机 / 录屏…
+﻿// Nova 工具 · 写操作部分：装版本 / 装资源 / 改设置 / 启动游戏 / 备份 / 联机 / 录屏…
 // 这些工具**不会被直接执行**：NovaAgentLoop 只拿它们的参数攒成 NovaPlan 确认清单，
 // 用户在气泡里点头之后才真正跑（信任边界的第二层）。
 
@@ -244,7 +244,7 @@ public sealed partial class NovaToolRegistry
             // 只把界面切过去，不改任何配置：立即执行，不需要用户点头（登录等手动步骤靠它引导）
             yield return new("open_page", "打开启动器页面",
                 "把启动器界面切到指定页面，用于引导用户做只有界面能完成的事（如登录账户、看皮肤）。",
-                """{"type":"object","properties":{"page":{"type":"string","enum":["home","versions","download","saves","multiplayer","accounts","plugins","ai","logs","settings"]}},"required":["page"]}""",
+                """{"type":"object","properties":{"page":{"type":"string","enum":["home","versions","download","saves","friends","multiplayer","accounts","plugins","ai","logs","settings"]}},"required":["page"]}""",
                 true, (args, _) => Task.FromResult(_c.Host!.OpenPage(
                     Require(Str(args, "page"), "page"))));
         }

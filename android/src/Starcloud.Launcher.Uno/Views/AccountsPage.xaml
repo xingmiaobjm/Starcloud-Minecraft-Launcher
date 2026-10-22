@@ -43,12 +43,8 @@
                                    VerticalAlignment="Center" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox x:Name="ScIdBox" loc:Loc.Placeholder="Starcloud ID（用户名或邮箱）" Width="250" />
+                        <TextBox x:Name="ScIdBox" loc:Loc.Placeholder="Starcloud ID（用户名）" Width="250" />
                         <PasswordBox x:Name="ScPwdBox" loc:Loc.Placeholder="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
-                        <ComboBox x:Name="ScChannelBox" SelectedIndex="0" Width="128" SelectionChanged="ScChannelBox_SelectionChanged">
-                            <ComboBoxItem loc:Loc.Text="测试通道" />
-                            <ComboBoxItem loc:Loc.Text="云端通道" />
-                        </ComboBox>
                         <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource AccentButtonStyle}"
                                 FontWeight="Medium" Click="ScLogin_Click" />
                         <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
@@ -71,13 +67,19 @@
                                    VerticalAlignment="Center" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox x:Name="ScRegIdBox" loc:Loc.Placeholder="用户名或邮箱" Width="250" />
-                        <PasswordBox x:Name="ScRegPwdBox" loc:Loc.Placeholder="至少 6 位" Width="150" />
-                        <PasswordBox x:Name="ScRegPwd2Box" loc:Loc.Placeholder="再次输入密码" Width="150" />
-                        <Button x:Name="ScRegisterBtn" loc:Loc.Text="创建账户"
+                        <TextBox x:Name="ScRegIdBox" loc:Loc.Placeholder="Starcloud ID（用户名）" Width="200" />
+                        <TextBox x:Name="ScRegEmailBox" loc:Loc.Placeholder="邮箱" Width="220" />
+                        <TextBox x:Name="ScRegCodeBox" loc:Loc.Placeholder="6 位验证码" Width="120" MaxLength="6" />
+                        <Button x:Name="ScSendCodeBtn" loc:Loc.Text="发送验证码" Click="ScSendCode_Click" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PasswordBox x:Name="ScRegPwdBox" loc:Loc.Placeholder="密码（至少 6 位）" Width="200" />
+                        <Button x:Name="ScRegisterBtn" loc:Loc.Text="注册"
                                 Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
                                 Click="ScRegister_Click" />
                         <ctrl:GlowButton loc:Loc.Text="取消" Click="ScCancelRegister_Click" />
+                        <TextBlock x:Name="ScCodeHint" FontSize="12" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
                     <TextBlock x:Name="ScRegErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}" />

@@ -30,7 +30,7 @@ public sealed partial class VersionsPage : Page
 
     private void RefreshList()
     {
-        DirText.Text = _s.Settings.DotMinecraft;
+        RefreshDirCombo();
         var dotMc = _s.Settings.DotMinecraft;
         var store = new InstanceSettingsStore(dotMc);
         try
@@ -88,6 +88,99 @@ public sealed partial class VersionsPage : Page
     private void Refresh_Click(object s, RoutedEventArgs e) => RefreshList();
     private void SearchBox_TextChanged(object s, TextChangedEventArgs e) => ApplyFilter();
     private void CategoryFilter_SelectionChanged(object s, SelectionChangedEventArgs e) => ApplyFilter();
+
+    // ── 游戏目录：多目录下拉切换（列表存 Settings.KnownDotMinecraftDirs；末项 = 添加新目录） ──
+
+    /// <summary>下拉项：目录（Path 非空）或末项「添加新的 .minecraft 目录」（Path = null）</summary>
+    private sealed record DirOption(string Display, string? Path)
+    {
+        public override string ToString() => Display;
+    }
+
+    private bool _suppressDirChange;
+
+    /// <summary>刷新下拉：当前目录 + 历史目录 + 默认目录（去重、当前在首位），末尾挂「添加新的目录」</summary>
+    private void RefreshDirCombo()
+    {
+        var current = _s.Settings.DotMinecraft;
+        var dirs = new List<string> { current };
+        foreach (var d in _s.Settings.KnownDotMinecraftDirs)
+            if (!string.IsNullOrWhiteSpace(d) && !dirs.Contains(d, StringComparer.OrdinalIgnoreCase))
+                dirs.Add(d);
+        var fallback = PlatformInfo.DefaultDotMinecraft;
+        if (!dirs.Contains(fallback, StringComparer.OrdinalIgnoreCase)) dirs.Add(fallback);
+        // 只保留存在或当前的那个：用户删掉的目录不再占位
+        dirs = dirs.Where(d => string.Equals(d, current, StringComparison.OrdinalIgnoreCase)
+                               || Directory.Exists(d)).ToList();
+
+        var items = dirs.Select(d => new DirOption(d, d)).ToList();
+        items.Add(new DirOption(Loc.T("＋ 添加新的 .minecraft 目录"), null));
+
+        _suppressDirChange = true;
+        DirCombo.ItemsSource = items;
+        DirCombo.SelectedItem = items.FirstOrDefault(i =>
+            string.Equals(i.Path, current, StringComparison.OrdinalIgnoreCase)) ?? items.FirstOrDefault();
+        _suppressDirChange = false;
+    }
+
+    private async void DirCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressDirChange) return;
+        if (DirCombo.SelectedItem is not DirOption opt) return;
+        if (opt.Path is null)
+        {
+            // 选中了末项「添加新的目录」：先恢复原选中，再弹选择器
+            RefreshDirCombo();
+            await PickAndAddDirAsync();
+            return;
+        }
+        if (string.Equals(opt.Path, _s.Settings.DotMinecraft, StringComparison.OrdinalIgnoreCase)) return;
+        SwitchGameDir(opt.Path);
+    }
+
+    /// <summary>选一个新目录并切过去（同时记入历史列表）</summary>
+    private async Task PickAndAddDirAsync()
+    {
+        var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.ComputerFolder };
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        picker.FileTypeFilter.Add("*");
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is null) return;
+        SwitchGameDir(folder.Path);
+    }
+
+    /// <summary>切换当前游戏目录：记入历史列表 + 保存 + 当前页刷新（其他页下次进入时按新目录重建）</summary>
+    private void SwitchGameDir(string dir)
+    {
+        try
+        {
+            var full = Path.GetFullPath(dir);
+            Directory.CreateDirectory(full);
+            var settings = _s.Settings;
+            settings.DotMinecraft = full;
+            var known = settings.KnownDotMinecraftDirs
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .ToList();
+            if (!known.Contains(full, StringComparer.OrdinalIgnoreCase)) known.Insert(0, full);
+            settings.KnownDotMinecraftDirs = known;
+            settings.Save();
+            RefreshList();
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("versions", "切换游戏目录失败", ex);
+            RefreshDirCombo();
+            var dialog = new ContentDialog
+            {
+                Title = Loc.T("无法切换游戏目录"),
+                Content = ex.Message,
+                CloseButtonText = Loc.T("好"),
+                XamlRoot = XamlRoot,
+            };
+            _ = dialog.ShowAsync();
+        }
+    }
 
     private void OpenDir_Click(object s, RoutedEventArgs e)
     {

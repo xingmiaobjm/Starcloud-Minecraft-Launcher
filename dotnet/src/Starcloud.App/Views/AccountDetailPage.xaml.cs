@@ -1,4 +1,4 @@
-// 账户详情（二级页）：左侧「形象与皮肤 / 账户信息」分区，右侧对应内容。
+﻿// 账户详情（二级页）：左侧「形象与皮肤 / 账户信息」分区，右侧对应内容。
 //
 // 皮肤区的版式照主流启动器的"皮肤选择器"来：
 //   左：3D 形象（可拖拽转视角） + 当前皮肤信息 + 导入 / 应用 / 取消
@@ -53,7 +53,15 @@ public sealed partial class AccountDetailPage : Page
         ModelBox.Items.Add(new ComboBoxItem { Content = Loc.T("自动（按纹理判断）"), Tag = SkinModels.Auto });
         ModelBox.Items.Add(new ComboBoxItem { Content = Loc.T("经典（粗手臂）"), Tag = SkinModels.Classic });
         ModelBox.Items.Add(new ComboBoxItem { Content = Loc.T("纤细（细手臂）"), Tag = SkinModels.Slim });
+        Loaded += (_, _) => AvatarHelper.AvatarUpdated += OnAvatarUpdated;
+        Unloaded += (_, _) => AvatarHelper.AvatarUpdated -= OnAvatarUpdated;
     }
+
+    /// <summary>外部账户皮肤头像下载完成：只刷新顶部头像，不动其他状态。</summary>
+    private void OnAvatarUpdated() => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (Account is { } account) FillHeader(account);
+    });
 
     private StoredAccount? Account => _s.Accounts.Accounts.FirstOrDefault(a => a.Uuid == _uuid);
 
@@ -800,7 +808,7 @@ public sealed partial class AccountDetailPage : Page
         var token = _s.Accounts.GetSession(account.Uuid)?.AccessToken;
         if (string.IsNullOrWhiteSpace(token))
         {
-            StationStatus.Text = Loc.T("需要先登录该账号：令牌不落盘，点「重新登录该账号」后再试。");
+            StationStatus.Text = Loc.T("需要先登录该账号：点「重新登录该账号」后再试。");
             return;
         }
 
@@ -837,7 +845,7 @@ public sealed partial class AccountDetailPage : Page
         var token = _s.Accounts.GetSession(account.Uuid)?.AccessToken;
         if (string.IsNullOrWhiteSpace(token))
         {
-            StationStatus.Text = Loc.T("本次运行还没有该账号的登录凭证（令牌不落盘）：点「重新登录该账号」后就能读取皮肤站上的皮肤。");
+            StationStatus.Text = Loc.T("本次运行还没有该账号的登录凭证：点「重新登录该账号」后就能读取皮肤站上的皮肤。");
             return;
         }
 
@@ -930,9 +938,13 @@ public sealed partial class AccountDetailPage : Page
     {
         if (account.Type == AccountStore.OfflineType)
             return Loc.T("离线身份不需要登录");
-        return _s.Accounts.GetSession(account.Uuid) is { AccessToken.Length: > 0 }
-            ? Loc.T("本次运行已登录，可直接启动游戏")
-            : Loc.T("本次运行未登录，启动游戏时会要求就地登录（令牌不落盘，重启应用即失效）");
+        if (_s.Accounts.GetSession(account.Uuid) is { AccessToken.Length: > 0 })
+            return account.Type == "microsoft"
+                ? Loc.T("已登录（30 天内启动游戏免登录）")
+                : Loc.T("本次运行已登录，可直接启动游戏");
+        if (account.Type == "microsoft" && MicrosoftTokenStore.HasValid(account.Uuid))
+            return Loc.T("已保存登录，启动游戏时自动恢复（30 天内有效）");
+        return Loc.T("登录已过期，启动游戏时需要重新登录");
     }
 
     private void AddInfoRow(string label, string value, bool mono = false)

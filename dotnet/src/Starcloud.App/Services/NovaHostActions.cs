@@ -1,4 +1,4 @@
-// Nova 宿主能力适配器：把「只有 UI 层才有」的启动器功能（录屏 / 插件 / 外观 / 启动后收尾）
+﻿// Nova 宿主能力适配器：把「只有 UI 层才有」的启动器功能（录屏 / 插件 / 外观 / 启动后收尾）
 // 通过 Core 定义的 INovaHostActions 交给工具层。接口在 Core、实现在这里：
 // Core 的单元测试不依赖 WinUI；缺了这份实现，对应工具自动不注册（不会给模型一个必然失败的工具）。
 //
@@ -136,7 +136,8 @@ internal sealed class NovaHostActions(AppServices s) : INovaHostActions
             "versions" => "版本",
             "download" => "下载",
             "saves" => "存档",
-            "multiplayer" => "联机",
+            "friends" => "好友",
+            "multiplayer" => "好友（联机）",
             "accounts" => "账户",
             "plugins" => "插件",
             "ai" => "Nova",
@@ -144,9 +145,10 @@ internal sealed class NovaHostActions(AppServices s) : INovaHostActions
             "settings" => "设置",
             _ => throw new InvalidOperationException($"没有「{page}」这个页面"),
         };
+        var target = tag == "multiplayer" ? "friends" : tag;
         RunOnUi(() =>
         {
-            (App.MainWindow as MainWindow)?.NavigateTo(tag);
+            (App.MainWindow as MainWindow)?.NavigateTo(target);
             return true;
         });
         return $"已打开{name}页面。";

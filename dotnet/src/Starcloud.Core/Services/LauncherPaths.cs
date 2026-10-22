@@ -1,4 +1,4 @@
-// 路径与设置持久化（数据根/starcloud-launcher；Windows 与历史版本共用 %APPDATA% 数据根）
+﻿// 路径与设置持久化（数据根/starcloud-launcher；Windows 与历史版本共用 %APPDATA% 数据根）
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -22,6 +22,9 @@ public static class LauncherPaths
 
     /// <summary>Starcloud ID 会话（含云 AI 助手 API Key）</summary>
     public static string StarcloudIdFile => Path.Combine(DataDir, "starcloud-id.json");
+
+    /// <summary>正版登录的 refresh_token（DPAPI 加密、30 天有效；UI 不展示）</summary>
+    public static string MicrosoftTokensFile => Path.Combine(DataDir, "microsoft.tokens.json");
 
     /// <summary>Nova 动手许可层三档开关</summary>
     public static string NovaPermissionsFile => Path.Combine(DataDir, "nova.permissions.json");
@@ -149,6 +152,10 @@ public sealed class LauncherSettings
 {
     [JsonPropertyName("dot_minecraft")]
     public string DotMinecraft { get; set; } = PlatformInfo.DefaultDotMinecraft;
+
+    /// <summary>最近用过的 .minecraft 目录（版本页顶部下拉切换用；<see cref="DotMinecraft"/> 是当前生效的那个）</summary>
+    [JsonPropertyName("known_dot_minecraft_dirs")]
+    public List<string> KnownDotMinecraftDirs { get; set; } = [];
 
     [JsonPropertyName("language")]
     public string Language { get; set; } = "zh_CN";

@@ -1,4 +1,4 @@
-// 游戏启动器：参数构建（新旧两代格式）+ 进程启动与退出监控
+﻿// 游戏启动器：参数构建（新旧两代格式）+ 进程启动与退出监控
 
 using System.Diagnostics;
 using System.Text;
@@ -100,15 +100,25 @@ public sealed class GameLauncher
         if (string.IsNullOrEmpty(ov?.Classpath))
         {
             // 类路径：windows 内的库（规则过滤；NeoForge 版本 JSON 有重复库条目，需保序去重）
+            // 库条目可能是 Mojang 的 downloads.artifact，也可能是 Fabric/Quilt 的 Maven 坐标；
+            // 统一解析后再拼 libraries 路径（缺 loader jar 会表现为“找不到主类”）。
             var classpathEntries = version.Libraries
                 .Where(l => InstallerService.RulesAllow(l.Rules, ov?.OsName))
-                .Where(l => l.Downloads?.Artifact is { Url: not "" })
-                .Select(l => Path.Combine(dotMc, "libraries", l.Downloads!.Artifact!.Path ?? ""))
+                .Select(MavenArtifacts.Resolve)
+                .Where(a => a?.Path is { Length: > 0 })
+                .Select(a => Path.Combine(dotMc, "libraries", a!.Path!.Replace('/', Path.DirectorySeparatorChar)))
                 .ToList();
             var ownJar = ResolveClientJar(dotMc, instanceId, versionId)
                          ?? throw new InvalidOperationException(
                              $"实例 {instanceId} 缺少客户端 jar（{instanceId}.jar）：请先在版本页执行「补全」再启动");
             classpathEntries.Add(ownJar);
+            var missing = classpathEntries.Where(p => !File.Exists(p)).ToList();
+            if (missing.Count > 0)
+            {
+                LauncherLog.Write("launch",
+                    $"classpath 缺少 {missing.Count} 个文件（先补全版本）：" +
+                    string.Join("、", missing.Select(Path.GetFileName)));
+            }
             classpath = string.Join(PlatformInfo.ClasspathSeparator,
                 classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
         }
@@ -205,6 +215,15 @@ public sealed class GameLauncher
                 AppendValue(jvmArgs, item, Substitute);
             foreach (var item in args.Game.Where(i => RulesAllowValue(i, ov?.OsName)))
                 AppendValue(gameArgs, item, Substitute);
+        }
+
+        // 1.13 之前没有 arguments.jvm，classpath 必须由启动器自己补；
+        // 个别手写/旧整合包 JSON 也可能漏掉 -cp。缺了它 JVM 直接报「找不到主类」。
+        if (!jvmArgs.Any(a => a.Equals("-cp", StringComparison.OrdinalIgnoreCase) ||
+                              a.Equals("-classpath", StringComparison.OrdinalIgnoreCase)))
+        {
+            jvmArgs.Add("-cp");
+            jvmArgs.Add(classpath);
         }
 
         // 旧代参数字符串

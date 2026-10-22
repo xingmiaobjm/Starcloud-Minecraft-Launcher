@@ -152,14 +152,15 @@ public sealed partial class VersionDetailPage : Page
         var memMode = profile.MemoryMode ?? (profile.MemoryMaxMb is not null ? "manual" : "global");
         MemoryModeRadio.SelectedIndex = memMode switch { "auto" => 1, "manual" => 2, _ => 0 };
 
-        // 自定义内存：与「设置 → 内存分配」同款滑块（整数 GB），上界为「按物理内存自动分配」值
-        var autoGb = Math.Max(1, SystemMemory.AutoMaxMb() / 1024);
-        var memGb = Math.Max(1, (profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb) / 1024);
-        MaxMemSlider.Maximum = Math.Max(autoGb, memGb);
-        MaxMemSlider.Value = Math.Clamp(memGb, 1, MaxMemSlider.Maximum);
+        // 自定义内存：与「设置 → 内存分配」同款滑块（整数 GB）——上界 = 本机物理内存，下界 1 GB
+        var physicalGb = Math.Max(1, (int)(SystemMemory.Snapshot().TotalMb / 1024));
+        var autoGb = Math.Clamp(SystemMemory.AutoMaxMb() / 1024, 1, physicalGb);
+        var memGb = Math.Clamp((profile.MemoryMaxMb ?? settings.DefaultMaxMemoryMb) / 1024, 1, physicalGb);
+        MaxMemSlider.Maximum = physicalGb;
+        MaxMemSlider.Value = memGb;
         MaxMemText.Text = $"{(int)MaxMemSlider.Value} GB";
-        MemAutoHint.Text = Loc.T("1 ~ {0} GB（物理内存 {1} GB，自动上限 {2} GB）；最小内存固定 512 MB。",
-            (int)MaxMemSlider.Maximum, SystemMemory.Snapshot().TotalMb / 1024, autoGb);
+        MemAutoHint.Text = Loc.T("1 ~ {0} GB（本机物理内存 {1} GB，推荐约 {2} GB）。",
+            physicalGb, physicalGb, autoGb);
 
         // Java 档位
         _javaOverride = profile.JavaPath;

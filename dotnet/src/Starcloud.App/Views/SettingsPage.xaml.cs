@@ -1,4 +1,4 @@
-// 设置页
+﻿// 设置页
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -40,17 +40,16 @@ public sealed partial class SettingsPage : Page
         Loaded += async (_, _) =>
         {
             var s = _s.Settings;
-            DotMcBox.Text = s.DotMinecraft;
 
-            // 内存：单滑块（整数 GB），上界为「按物理内存自动分配」值
-            var autoGb = Math.Max(1, SystemMemory.AutoMaxMb() / 1024);
-            var existingGb = Math.Max(1, s.DefaultMaxMemoryMb / 1024);
-            MaxMemorySlider.Maximum = Math.Max(autoGb, existingGb);
-            MaxMemorySlider.Value = Math.Clamp(existingGb, 1, MaxMemorySlider.Maximum);
+            // 内存：单滑块（整数 GB）——上界 = 本机物理内存，下界 1 GB
+            var physicalGb = Math.Max(1, (int)(SystemMemory.Snapshot().TotalMb / 1024));
+            var autoGb = Math.Clamp(SystemMemory.AutoMaxMb() / 1024, 1, physicalGb);
+            var existingGb = Math.Clamp(s.DefaultMaxMemoryMb / 1024, 1, physicalGb);
+            MaxMemorySlider.Maximum = physicalGb;
+            MaxMemorySlider.Value = existingGb;
             MaxMemoryText.Text = $"{(int)MaxMemorySlider.Value} GB";
-            var physicalGb = SystemMemory.Snapshot().TotalMb / 1024;
-            MemoryAutoHint.Text = Loc.T("1 ~ {0} GB（物理内存 {1} GB，自动上限 {2} GB）；最小内存固定 512 MB。",
-                (int)MaxMemorySlider.Maximum, physicalGb, autoGb);
+            MemoryAutoHint.Text = Loc.T("1 ~ {0} GB（本机物理内存 {1} GB，推荐约 {2} GB）。",
+                physicalGb, physicalGb, autoGb);
 
             // 启动可靠性：自动重试 / 实时日志开关
             LaunchAutoRetrySwitch.IsOn = s.LaunchAutoRetry;
@@ -1051,11 +1050,37 @@ public sealed partial class SettingsPage : Page
         _bgSaveTimer.Start();
     }
 
+
+    private static async Task<Windows.Storage.StorageFolder?> PickFolderAsync()
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.ComputerFolder,
+        };
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        picker.FileTypeFilter.Add("*");
+        return await picker.PickSingleFolderAsync();
+    }
+
+    private void ShowSettingsError(string message)
+    {
+        ErrorBar.Message = message;
+        ErrorBar.IsOpen = true;
+        SavedBar.IsOpen = false;
+    }
+
+    private void ShowSettingsNotice(string message)
+    {
+        SavedBar.Title = message;
+        SavedBar.IsOpen = true;
+        ErrorBar.IsOpen = false;
+    }
+
     private void Save_Click(object s, RoutedEventArgs e)
     {
         var s0 = _s.Settings;
-        s0.DotMinecraft = string.IsNullOrWhiteSpace(DotMcBox.Text)
-            ? s0.DotMinecraft : DotMcBox.Text.Trim();
+        // 游戏目录已移到版本页顶部的下拉管理，这里不再写 DotMinecraft
 
         // 内存：最小固定 512 MB，最大取滑块（整数 GB）
         s0.DefaultMaxMemoryMb = (int)MaxMemorySlider.Value * 1024;

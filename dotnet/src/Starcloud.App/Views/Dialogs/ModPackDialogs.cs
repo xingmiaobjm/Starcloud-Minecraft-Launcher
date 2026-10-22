@@ -1,4 +1,4 @@
-// 整合包与版本资产对话框（导出 / 导入 / 备份回档）：由 VersionsPage 入口调用
+﻿// 整合包与版本资产对话框（导出 / 导入 / 备份回档）：由 VersionsPage 入口调用
 // 计划：docs/plans/2026-09-11-modpack-version-assets-plan.md T7/T8/T9
 
 using Microsoft.UI.Dispatching;
@@ -13,6 +13,7 @@ using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Windows.Storage.Pickers;
@@ -185,6 +186,7 @@ public static class ModPackDialogs
     {
         ModPackFormat.CurseForge => Loc.T("CurseForge 整合包"),
         ModPackFormat.MultiMc => Loc.T("MultiMC / Prism 实例包"),
+        ModPackFormat.Raw => Loc.T("通用压缩包"),
         _ => Loc.T("Modrinth 整合包"),
     };
 
@@ -193,7 +195,8 @@ public static class ModPackDialogs
     /// <summary>识别到的包预览（三种格式统一视图）</summary>
     private sealed record PackPreview(
         ModPackFormat Format, string Name, string GameVersion,
-        IReadOnlyDictionary<string, string> Dependencies, int FileCount, long TotalBytes);
+        IReadOnlyDictionary<string, string> Dependencies, int FileCount, long TotalBytes,
+        string ContentRoot = "");
 
     /// <summary>导入对话框：自动识别格式 → 预览 → 选版本名与隔离 → 安装 + 联动装原版/加载器</summary>
     public static async Task ImportAsync(XamlRoot root, AppServices s, string packPath)
@@ -209,12 +212,14 @@ public static class ModPackDialogs
             return;
         }
 
-        // 外层多套了一层目录的包先重打成根级包，安装器只需认根级入口文件
-        var effective = ModPackArchive.FlattenIfNested(packPath, probe);
+        // 外层多套了一层目录的包先重打成根级包（裸内容包不重打：它按内容根直接铺）
+        var effective = probe.Format == ModPackFormat.Raw
+            ? packPath
+            : ModPackArchive.FlattenIfNested(packPath, probe);
         try
         {
             PackPreview preview;
-            try { preview = ReadPreview(s, effective, probe.Format); }
+            try { preview = ReadPreview(s, effective, probe); }
             catch (Exception ex) { await InfoAsync(root, Loc.T("无法导入整合包"), ex.Message); return; }
             await RunImportAsync(root, s, effective, preview);
         }
@@ -228,9 +233,9 @@ public static class ModPackDialogs
     }
 
     /// <summary>按格式读取预览信息（CurseForge 的加载器 id 需转成统一依赖键）</summary>
-    private static PackPreview ReadPreview(AppServices s, string packPath, ModPackFormat format)
+    private static PackPreview ReadPreview(AppServices s, string packPath, ModPackProbe probe)
     {
-        switch (format)
+        switch (probe.Format)
         {
             case ModPackFormat.CurseForge:
             {
@@ -239,22 +244,91 @@ public static class ModPackDialogs
                 if (!string.IsNullOrWhiteSpace(info.GameVersion)) deps["minecraft"] = info.GameVersion;
                 if (CurseForgePackInstaller.ParseLoader(info.LoaderId) is var (name, version) && name is not null)
                     deps[name] = version ?? "";
-                return new PackPreview(format, info.Name, info.GameVersion, deps,
+                return new PackPreview(probe.Format, info.Name, info.GameVersion, deps,
                     info.FileCount + info.OverrideFileCount, info.TotalBytes);
             }
             case ModPackFormat.MultiMc:
             {
                 var info = s.MultiMc.ReadPackageInfo(packPath);
-                return new PackPreview(format, info.Name, info.GameVersion, info.Dependencies,
-                    info.FileCount, info.TotalBytes);
+                return new PackPreview(probe.Format, info.Name, info.GameVersion, info.Dependencies,
+                    info.FileCount, info.TotalBytes, probe.Root);
+            }
+            case ModPackFormat.Raw:
+            {
+                var (count, bytes) = MeasurePrefix(packPath, probe.Root);
+                return new PackPreview(probe.Format, Path.GetFileNameWithoutExtension(packPath), "",
+                    new Dictionary<string, string>(), count, bytes, probe.Root);
             }
             default:
             {
                 var info = s.MrPack.ReadPackageInfo(packPath);
-                return new PackPreview(format, info.Name, info.GameVersion, info.Dependencies,
+                return new PackPreview(probe.Format, info.Name, info.GameVersion, info.Dependencies,
                     info.DownloadFileCount + info.OverrideFileCount, info.TotalBytes);
             }
         }
+    }
+
+    /// <summary>统计裸内容包在指定内容根下的文件数 / 字节数</summary>
+    private static (int Count, long Bytes) MeasurePrefix(string packPath, string root)
+    {
+        var prefix = string.IsNullOrEmpty(root) ? "" : root + "/";
+        using var zip = PackZip.Open(packPath);
+        var count = 0;
+        long bytes = 0;
+        foreach (var entry in zip.Entries)
+        {
+            if (entry.Name.Length == 0) continue;
+            var name = entry.FullName.Replace('\\', '/');
+            if (prefix.Length > 0 && !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            count++;
+            bytes += Math.Max(entry.Length, 0);
+        }
+        return (count, bytes);
+    }
+
+    /// <summary>裸内容包：把内容根下的文件原样铺进实例目录（不联网）。</summary>
+    private static Task<MrPackInstallResult> InstallRawAsync(
+        string packPath, string contentRoot, string installRoot, string mcVersion,
+        IProgress<BatchProgress>? progress)
+    {
+        return Task.Run(() =>
+        {
+            var prefix = string.IsNullOrEmpty(contentRoot) ? "" : contentRoot + "/";
+            using var zip = PackZip.Open(packPath);
+            var done = 0;
+            long doneBytes = 0;
+            var (total, totalBytes) = (0, 0L);
+            foreach (var entry in zip.Entries)
+            {
+                if (entry.Name.Length == 0) continue;
+                var name = entry.FullName.Replace('\\', '/');
+                if (prefix.Length > 0 && !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                total++;
+                totalBytes += Math.Max(entry.Length, 0);
+            }
+
+            foreach (var entry in zip.Entries)
+            {
+                if (entry.Name.Length == 0) continue;
+                var name = entry.FullName.Replace('\\', '/');
+                if (prefix.Length > 0 && !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                var rel = prefix.Length == 0 ? name : name[prefix.Length..];
+                var dest = PackPathGuard.Resolve(installRoot, rel);
+                if (dest is null)
+                {
+                    LauncherLog.Write("pack", $"跳过非法路径条目：{entry.FullName}");
+                    continue;
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                entry.ExtractToFile(dest, overwrite: true);
+                done++;
+                doneBytes += Math.Max(entry.Length, 0);
+                if (done % 32 == 0 || done == total)
+                    progress?.Report(new BatchProgress("实例文件", done, total, doneBytes, totalBytes, 0, null));
+            }
+
+            return new MrPackInstallResult(mcVersion, new Dictionary<string, string>(), done, doneBytes);
+        });
     }
 
     /// <summary>导入对话框主体：预览 → 选版本名与隔离 → 按格式安装 → 联动装原版/加载器</summary>
@@ -265,6 +339,23 @@ public static class ModPackDialogs
         TextBox nameBox = null!;
         CheckBox isoBox = null!;
         TextBlock hint = null!;
+        TextBox? mcBox = null;
+        var typedMc = preview.GameVersion;
+
+        // 裸内容包没有清单可依，用户填的版本必须是官方清单里存在的，否则版本骨架会指向不存在的父版本
+        HashSet<string>? knownVersions = null;
+        if (preview.Format == ModPackFormat.Raw)
+        {
+            try
+            {
+                knownVersions = (await s.Manifest.GetManifestAsync(false)).Versions
+                    .Select(v => v.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                // 清单拉不到就不拦（离线也能导入）
+            }
+        }
 
         UIElement BuildPanel()
         {
@@ -311,6 +402,24 @@ public static class ModPackDialogs
             });
             panel.Children.Add(new TextBlock { Text = Loc.T("新建版本名称"), FontSize = 12, Opacity = 0.8 });
             panel.Children.Add(nameBox);
+            if (preview.Format == ModPackFormat.Raw)
+            {
+                mcBox = new TextBox { PlaceholderText = Loc.T("例如 1.20.1") };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("Minecraft 版本（必填）"),
+                    FontSize = 12,
+                    Opacity = 0.8,
+                });
+                panel.Children.Add(mcBox);
+                panel.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("这个压缩包没有整合包清单，请填写它对应的 Minecraft 版本；导入时会联动安装该原版。"),
+                    FontSize = 12,
+                    Opacity = 0.8,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            }
             panel.Children.Add(isoBox);
             panel.Children.Add(note);
             panel.Children.Add(hint);
@@ -335,6 +444,21 @@ public static class ModPackDialogs
             {
                 hint.Text = Loc.T("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
                 continue;
+            }
+            if (preview.Format == ModPackFormat.Raw)
+            {
+                var mc = mcBox?.Text.Trim() ?? "";
+                if (mc.Length == 0)
+                {
+                    hint.Text = Loc.T("请填写 Minecraft 版本，例如 1.20.1");
+                    continue;
+                }
+                if (knownVersions is { Count: > 0 } && !knownVersions.Contains(mc))
+                {
+                    hint.Text = Loc.T("官方清单里没有 {0} 这个版本，请检查后再填。", mc);
+                    continue;
+                }
+                typedMc = mc;
             }
             targetId = typed;
             break;
@@ -372,6 +496,8 @@ public static class ModPackDialogs
             {
                 ModPackFormat.CurseForge => await s.CurseForgePacks.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
                 ModPackFormat.MultiMc => await s.MultiMc.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
+                ModPackFormat.Raw => await InstallRawAsync(packPath, preview.ContentRoot, installRoot,
+                    typedMc, progress),
                 _ => await s.MrPack.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
             };
             summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, s, progress);

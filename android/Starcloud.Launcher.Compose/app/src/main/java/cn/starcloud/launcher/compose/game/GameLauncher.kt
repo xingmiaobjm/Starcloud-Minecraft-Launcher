@@ -7,6 +7,7 @@ import android.content.Intent
 import android.util.Log
 import cn.starcloud.launcher.compose.data.ComponentDeployer
 import cn.starcloud.launcher.compose.data.ComponentManifest
+import cn.starcloud.launcher.compose.data.LauncherPrefs
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
@@ -99,7 +100,7 @@ object GameLauncher {
                 gameDir = dotMc,
                 sharedDir = dotMc,
                 minMemoryMb = 512,
-                maxMemoryMb = 2048,
+                maxMemoryMb = LauncherPrefs.effectiveMaxMemoryMb(context),
                 uuid = offlineUuid,
                 accessToken = "0",
                 userType = "legacy",

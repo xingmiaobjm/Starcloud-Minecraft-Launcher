@@ -39,7 +39,6 @@ public sealed partial class NovaPage : Page, IShellPage
         InitializeComponent();
         // 输入控件 Header 无法用 XAML 附加属性本地化（Loc.Header 仅支持 ToggleSwitch/Expander）→ 在此赋值
         PwdBox.Header = Loc.T("密码");
-        ChannelBox.Header = Loc.T("通道");
         LlmPresetBox.Header = Loc.T("服务商预设");
         LlmBaseUrlBox.Header = Loc.T("接入地址（Base URL，OpenAI 兼容）");
         ProfileNameBox.Header = Loc.T("备注名");
@@ -117,7 +116,7 @@ public sealed partial class NovaPage : Page, IShellPage
         LoginForm.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
         AccountInfo.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
         if (session is { } s)
-            UserSub.Text = $"{s.UserId} · {Loc.T(s.Channel == StarcloudIdService.CloudChannel ? "云端通道" : "测试通道")} · Key {MaskKey(s.ApiKey)}";
+            UserSub.Text = $"{s.UserId} · {Loc.T("云端通道")} · Key {MaskKey(s.ApiKey)}";
         ApplyQuota(_s.Settings.CachedQuota()); // 先显示上次数值，再异步刷新
         MaybeRefreshQuota();
     }
@@ -277,16 +276,13 @@ public sealed partial class NovaPage : Page, IShellPage
     private async void Login_Click(object sender, RoutedEventArgs e)
     {
         var id = IdBox.Text.Trim();
-        var channel = ChannelBox.SelectedIndex == 1
-            ? StarcloudIdService.CloudChannel
-            : StarcloudIdService.TestChannel;
 
         LoginBtn.IsEnabled = false;
         LoginProgress.IsActive = true;
         LoginError.Visibility = Visibility.Collapsed;
         try
         {
-            await _s.StarcloudId.LoginAsync(id, PwdBox.Password, channel);
+            await _s.StarcloudId.LoginAsync(id, PwdBox.Password);
             UpdateAccountState();
             _s.NovaRuntime.NotifyLoginChanged();
         }
@@ -300,13 +296,6 @@ public sealed partial class NovaPage : Page, IShellPage
             LoginBtn.IsEnabled = true;
             LoginProgress.IsActive = false;
         }
-    }
-
-    private void ChannelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        PwdBox.PlaceholderText = ChannelBox.SelectedIndex == 1
-            ? Loc.T("云端通道密码")
-            : Loc.T("测试通道任意内容即可（至少 4 位）");
     }
 
     private async void Logout_Click(object sender, RoutedEventArgs e)

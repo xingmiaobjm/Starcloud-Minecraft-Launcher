@@ -297,6 +297,73 @@ public class ChunkedFileDownloaderTests
     /// 本地限速 HTTP 服务器：支持 Range（可选），每条连接按字节速率限速。
     /// 用裸 TcpListener 而不是 HttpListener：后者在非管理员下需要 URL ACL，测试不应依赖提权。
     /// </summary>
+    // ── 选源策略：旧实现每片轮询所有源，坏/慢源也均摊 1/N 的片 ──
+
+    [Fact]
+    public void 候选源先探测速度再选最快()
+    {
+        var pool = new ChunkedFileDownloader.CandidateSet(
+            [SourceKind.Bmclapi, SourceKind.Official]);
+
+        // 两个源都没有样本：各探测一次
+        Assert.Equal(SourceKind.Bmclapi, pool.Next());
+        Assert.Equal(SourceKind.Official, pool.Next());
+
+        // 官方快 10 倍：之后一直用官方
+        pool.ReportSpeed(SourceKind.Bmclapi, bytes: 1_000, elapsedMs: 100);
+        pool.ReportSpeed(SourceKind.Official, bytes: 10_000, elapsedMs: 10);
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(SourceKind.Official, pool.Next());
+    }
+
+    [Fact]
+    public void 降级源不参与分片()
+    {
+        var pool = new ChunkedFileDownloader.CandidateSet(
+            [SourceKind.Bmclapi, SourceKind.Official],
+            isDegraded: k => k == SourceKind.Bmclapi);
+
+        Assert.Equal(SourceKind.Official, pool.Next());
+        pool.ReportSpeed(SourceKind.Official, 1_000, 10);
+        Assert.Equal(SourceKind.Official, pool.Next());
+    }
+
+    [Fact]
+    public void 探测中的源不会被重复占用()
+    {
+        var pool = new ChunkedFileDownloader.CandidateSet(
+            [SourceKind.Bmclapi, SourceKind.Official]);
+
+        Assert.Equal(SourceKind.Bmclapi, pool.Next());
+        // BMCLAPI 探测请求还在飞：第二个 worker 不应再压同一个源
+        Assert.Equal(SourceKind.Official, pool.Next());
+    }
+
+    [Fact]
+    public void 剔除后的源不再被选中()
+    {
+        var pool = new ChunkedFileDownloader.CandidateSet(
+            [SourceKind.Bmclapi, SourceKind.Official]);
+        pool.Remove(SourceKind.Bmclapi);
+        pool.ReportSpeed(SourceKind.Official, 1_000, 10);
+        Assert.Equal(SourceKind.Official, pool.Next());
+    }
+
+    [Fact]
+    public void 批量分摊的源优先使用()
+    {
+        var pool = new ChunkedFileDownloader.CandidateSet(
+            [SourceKind.Bmclapi, SourceKind.Official],
+            preferred: SourceKind.Official);
+
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(SourceKind.Official, pool.Next());
+
+        // 指定源失败被剔除后，回落到池里其余源
+        pool.Remove(SourceKind.Official);
+        Assert.Equal(SourceKind.Bmclapi, pool.Next());
+    }
+
     private sealed class ThrottledServer : IDisposable
     {
         private const int ChunkBytes = 32 * 1024;

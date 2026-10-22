@@ -1,0 +1,9 @@
+0.3.8-RC1
+· Versions page: the .minecraft path box is now a dropdown — switch between previously used folders, or pick "＋ Add new .minecraft folder" as the last entry to choose a folder. The game-directory setting was removed from Settings (managed here now).
+· Fixed the uninstaller hanging: no more self-matching "launcher is running" retry loop (processes are terminated automatically); the uninstaller moves its working directory out of the install folder and retries deletion once.
+· Memory slider range in Settings and version details is now 1 GB .. physical RAM (read from the device).
+· Lab and Projection Manager navigation icons now follow the theme (dark strokes in light mode, white in dark) and match the size of other nav icons.
+· Lab temporarily hides the "Projection Community" and "Command Helper" entries.
+· Colored Text: removed the "Word-like" description line, no pre-filled sample text, and the "select text first" hint is now a dialog.
+· Fixed the uneven control heights at the top of the Versions page; the directory dropdown can now shrink so it no longer squeezes the buttons on the right.
+· Cross-platform bridge APIs (starcloud.* / friends.* / settings.*): friends & DMs, version instance operations, improved modpack import/export, version backups, extended settings, shell.openPath — Linux compatibility prepared.

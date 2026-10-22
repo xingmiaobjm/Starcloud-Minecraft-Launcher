@@ -91,6 +91,21 @@
                 </Grid>
             </Button>
 
+            <!-- 好友入口（顶栏固定位）：导航栏紧凑模式下不展开也能直达 -->
+            <Button x:Name="FriendsBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
+                    Padding="0" CornerRadius="8" Background="Transparent" BorderThickness="0"
+                    loc:Loc.Name="好友" loc:Loc.Tip="好友"
+                    Click="FriendsBtn_Click">
+                <Grid Width="32" Height="32">
+                    <Border CornerRadius="8"
+                            Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" />
+                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB91;" FontSize="16"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+
             <!-- 调度中心入口：个人中心入口旁，徽标 = 运行中任务数 -->
             <Button x:Name="TaskCenterBtn" Width="44" Height="36" VerticalAlignment="Center" Margin="0,0,6,0"
                     Padding="0" CornerRadius="8"
@@ -228,6 +243,11 @@
                 <NavigationViewItem loc:Loc.Text="存档" Tag="saves">
                     <NavigationViewItem.Icon>
                         <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem loc:Loc.Text="好友" Tag="friends">
+                    <NavigationViewItem.Icon>
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB91;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem loc:Loc.Text="联机" Tag="multiplayer">

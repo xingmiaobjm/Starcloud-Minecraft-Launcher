@@ -1,4 +1,4 @@
-// CurseForge 整合包安装：manifest.json → 逐文件解析直链并下载 → overrides 覆盖。
+﻿// CurseForge 整合包安装：manifest.json → 逐文件解析直链并下载 → overrides 覆盖。
 //
 // CurseForge 整合包结构与 Modrinth 的 .mrpack 不同，但对我们的下游是同一件事：
 // 都需要「装好 MC 版本 + 加载器，再把包内文件铺到实例根」。所以安装结果直接复用
@@ -43,7 +43,7 @@ public sealed class CurseForgePackInstaller
     /// <summary>读取整合包元信息（不落任何游戏文件）</summary>
     public CurseForgePackInfo ReadPackageInfo(string zipPath)
     {
-        using var zip = ZipFile.OpenRead(zipPath);
+        using var zip = PackZip.Open(zipPath);
         var manifest = ReadManifest(zip)
             ?? throw new InvalidOperationException("不是有效的 CurseForge 整合包（缺少 manifest.json）");
         var overrides = OverridePrefix(manifest);
@@ -69,7 +69,7 @@ public sealed class CurseForgePackInstaller
         IProgress<string>? status = null, IProgress<BatchProgress>? progress = null,
         CancellationToken ct = default)
     {
-        using var zip = ZipFile.OpenRead(zipPath);
+        using var zip = PackZip.Open(zipPath);
         var manifest = ReadManifest(zip)
             ?? throw new InvalidOperationException("不是有效的 CurseForge 整合包（缺少 manifest.json）");
 
@@ -160,10 +160,12 @@ public sealed class CurseForgePackInstaller
 
     private static CurseForgeManifest? ReadManifest(ZipArchive zip)
     {
-        var entry = zip.GetEntry("manifest.json");
+        // 大小写不敏感 + 去 BOM：真实整合包里 Manifest.json / 带 BOM 的 manifest.json 都出现过
+        var entry = zip.Entries.FirstOrDefault(e =>
+            e.FullName.Replace('\\', '/').Equals("manifest.json", StringComparison.OrdinalIgnoreCase));
         if (entry is null) return null;
         using var stream = entry.Open();
-        return JsonSerializer.Deserialize<CurseForgeManifest>(stream, JsonOpts);
+        return JsonSerializer.Deserialize<CurseForgeManifest>(PackJson.ReadText(stream), JsonOpts);
     }
 
     /// <summary>

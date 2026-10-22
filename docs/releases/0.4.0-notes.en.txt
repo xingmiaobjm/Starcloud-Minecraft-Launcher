@@ -1,0 +1,8 @@
+0.4.0 Beta
+- Registration now uses a two-step email verification flow: "No account? Sign up" opens a dedicated dialog where you enter your Starcloud ID, email, verification code and password. The send-code button has a 60-second countdown, and the ID is filled back into the sign-in form afterwards.
+- Home account card simplified: the type / UUID / skin rows are gone; the card now shows only the avatar, account name and the launch button.
+- "Switch account" is hover-only: hidden at rest and revealed when the pointer enters the area below the account name.
+- Narrow-screen layout for the mobile WebView shell: navigation and pages reflow in portrait instead of overflowing horizontally.
+- Settings toggles no longer show the default "Off / On / Off" text.
+- The download page's "Installed" badge no longer collides with long version names.
+- The projection manager now guides you when nothing is selected, and the projection preview ready handshake is fixed.

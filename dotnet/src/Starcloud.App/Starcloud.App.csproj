@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -16,8 +16,8 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 启动器自身版本（当前为开发版 V0.3.4）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
-    <Version>0.3.5</Version>
+    <!-- 启动器自身版本（0.3.9）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
+    <Version>0.3.9</Version>
     <!-- 应用图标（品牌标记，由 tools/gen-app-icon.ps1 生成）：嵌入 exe 资源供资源管理器/任务栏/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
@@ -56,6 +56,10 @@
     <Content Include="Assets\Brand\lab-nav-dark.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\projection-nav.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\projection-nav-dark.svg" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 好友页：系统会话图标 + 空聊天水印 -->
+    <Content Include="Assets\Brand\friends-request.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\friends-invite.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Brand\chat-empty.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Lab\projection-viewer.html" CopyToOutputDirectory="PreserveNewest" />
     <!-- 投影 3D 预览的渲染引擎：deepslate（MIT，第三方；自带模型继承/元素旋转/多部件/图集/剔除） -->
     <Content Include="Assets\Lab\vendor\deepslate.umd.js" CopyToOutputDirectory="PreserveNewest" />

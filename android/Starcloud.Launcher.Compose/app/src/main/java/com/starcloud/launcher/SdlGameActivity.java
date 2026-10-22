@@ -149,7 +149,95 @@ public class SdlGameActivity extends SDLActivity {
         // super.onCreate    loadLibraries + SDL.setupJNI    SDL_SetMainReady  
         //         SDL       /             buffer      
         sReady = !mBrokenLibraries;
+        // 触摸控件层（FCL 风格）：盖在 SDLSurface 之上，全屏接管触摸并注入 LWJGL 输入
+        mountTouchControls();
         Log.i(TAG, "onCreate 完成，sReady=" + sReady);
+    }
+
+    private void mountTouchControls() {
+        try {
+            if (!cn.starcloud.launcher.compose.data.LauncherPrefs.INSTANCE.touchControlsEnabled(this)) {
+                return;
+            }
+            final cn.starcloud.launcher.compose.game.TouchControlsView touch =
+                    new cn.starcloud.launcher.compose.game.TouchControlsView(this);
+            touch.setLayout(cn.starcloud.launcher.compose.data.TouchLayout.INSTANCE.current(this));
+            touch.setOrbClickAction(new Runnable() {
+                @Override
+                public void run() {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            showTouchPanel(touch);
+                        }
+                    });
+                }
+            });
+            addContentView(touch, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        } catch (Throwable t) {
+            Log.w(TAG, "触摸控件层挂载失败：" + t);
+        }
+    }
+
+    /** 游戏内控制面板：编辑键位 / 保存 / 切换布局 / 关闭控件层 */
+    private void showTouchPanel(final cn.starcloud.launcher.compose.game.TouchControlsView touch) {
+        String[] items = {
+                touch.getEditMode() ? "退出编辑（回到操作）" : "编辑键位（拖动调整）",
+                "保存当前布局",
+                "切换布局…",
+                "关闭控件层（本次游戏）",
+        };
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("触摸控制")
+                .setItems(items, new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        switch (which) {
+                            case 0:
+                                touch.setEditMode(!touch.getEditMode());
+                                break;
+                            case 1:
+                                cn.starcloud.launcher.compose.data.TouchLayout.INSTANCE
+                                        .save(SdlGameActivity.this, touch.snapshot());
+                                android.widget.Toast.makeText(SdlGameActivity.this,
+                                        "已保存「" + touch.snapshot().getName() + "」",
+                                        android.widget.Toast.LENGTH_SHORT).show();
+                                break;
+                            case 2:
+                                pickLayout(touch);
+                                break;
+                            case 3:
+                                touch.setVisibility(android.view.View.GONE);
+                                break;
+                        }
+                    }
+                })
+                .setNegativeButton("关闭面板", null)
+                .show();
+    }
+
+    private void pickLayout(final cn.starcloud.launcher.compose.game.TouchControlsView touch) {
+        final java.util.List<String> names = new java.util.ArrayList<>(
+                cn.starcloud.launcher.compose.data.TouchLayout.INSTANCE.list(this));
+        if (names.isEmpty()) {
+            names.add(touch.snapshot().getName());
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("选择布局")
+                .setItems(names.toArray(new String[0]), new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        String name = names.get(which);
+                        cn.starcloud.launcher.compose.data.TouchLayout.INSTANCE.setCurrent(SdlGameActivity.this, name);
+                        touch.setLayout(cn.starcloud.launcher.compose.data.TouchLayout.INSTANCE
+                                .current(SdlGameActivity.this));
+                        android.widget.Toast.makeText(SdlGameActivity.this, "已切换：" + name,
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .show();
     }
 
     /**

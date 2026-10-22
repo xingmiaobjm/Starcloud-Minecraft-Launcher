@@ -139,19 +139,7 @@
 
                         <!-- ══ 游戏 ══ -->
                         <StackPanel x:Name="SectionGame" Spacing="16">
-                            <Border Style="{StaticResource PclCard}">
-                                <StackPanel Spacing="10">
-                                    <StackPanel Style="{StaticResource PclSectionHead}">
-                                        <Border Style="{StaticResource PclSectionSpine}" />
-                                        <TextBlock loc:Loc.Text="游戏目录" Style="{StaticResource PclSectionTitle}" />
-                                    </StackPanel>
-                                    <TextBox x:Name="DotMcBox" loc:Loc.Placeholder=".minecraft 目录路径" />
-                                    <TextBlock loc:Loc.Text="版本、资源与库文件将安装到该目录"
-                                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                </StackPanel>
-                            </Border>
-
-                            <Border Style="{StaticResource PclCard}">
+                                                        <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="10">
                                     <StackPanel Style="{StaticResource PclSectionHead}">
                                         <Border Style="{StaticResource PclSectionSpine}" />

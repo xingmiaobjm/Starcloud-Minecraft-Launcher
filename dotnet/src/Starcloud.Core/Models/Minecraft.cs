@@ -1,4 +1,4 @@
-// Minecraft 清单与版本 JSON 的数据模型（System.Text.Json，蛇形命名）
+﻿// Minecraft 清单与版本 JSON 的数据模型（System.Text.Json，蛇形命名）
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -231,6 +231,13 @@ public sealed class Library
 
     [JsonPropertyName("url")]
     public string? Url { get; set; }
+
+    // Fabric/Quilt profile 的库条目没有 downloads，只在顶层给 sha1/size（Maven 坐标 + 仓库根）
+    [JsonPropertyName("sha1")]
+    public string? Sha1 { get; set; }
+
+    [JsonPropertyName("size")]
+    public long? Size { get; set; }
 }
 
 public sealed class LibraryDownloads

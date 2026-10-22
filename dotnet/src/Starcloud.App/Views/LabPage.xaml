@@ -183,10 +183,6 @@
                                         <Border Style="{StaticResource ScSectionSpine}" />
                                         <TextBlock loc:Loc.Text="彩色文字生成器" Style="{StaticResource LabSectionTitle}" />
                                     </StackPanel>
-                                    <TextBlock loc:Loc.Text="像 Word 一样：在编辑框里选中一段文字，直接点下面的色块立即上色；渐变 / 彩虹只作用于选区。右侧实时生成能直接粘贴到游戏的 § 代码。"
-                                               FontSize="12" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-
                                     <Grid ColumnSpacing="16">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />

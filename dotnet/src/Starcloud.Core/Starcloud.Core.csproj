@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -9,6 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="Jint" Version="3.1.6" />
+    <!-- 正版登录凭证本地加密（Windows DPAPI；非 Windows 平台自动退化为普通编码） -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <!-- 中文整合包常见 GBK 文件名（zip 未设 UTF-8 标志）：需要代码页提供程序回退解码 -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
 
   <!-- 皮肤预览的 GPU 光栅化（Rendering/SkinGpuRenderer.cs）：

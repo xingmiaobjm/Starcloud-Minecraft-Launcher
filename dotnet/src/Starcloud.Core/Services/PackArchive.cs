@@ -15,6 +15,8 @@ public enum ModPackFormat
     Modrinth,
     CurseForge,
     MultiMc,
+    /// <summary>没有清单文件的通用 zip：按 .minecraft / mods / config 结构直接铺进实例</summary>
+    Raw,
 }
 
 /// <summary>归档识别结果（EntryRoot 为包内根目录，根级包为 null）</summary>
@@ -35,6 +37,77 @@ public sealed record ModPackProbe(ModPackFormat Format, string? EntryRoot)
         string.IsNullOrEmpty(EntryRoot) ? relative : $"{EntryRoot}/{relative}";
 }
 
+/// <summary>
+/// 整合包 zip 的统一打开方式：
+///   · 未打 UTF-8 标志的中文包按 GBK(936) 回退解码，避免 overrides 里的中文文件名变成乱码；
+///   · 其余照常用 UTF-8（.NET 默认）。
+/// </summary>
+public static class PackZip
+{
+    static PackZip() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+    public static ZipArchive Open(string path)
+    {
+        var utf8 = ZipFile.Open(path, ZipArchiveMode.Read);
+        try
+        {
+            if (!utf8.Entries.Any(e => e.FullName.Contains('�'))) return utf8;
+        }
+        catch
+        {
+            return utf8;
+        }
+        utf8.Dispose();
+        try
+        {
+            return ZipFile.Open(path, ZipArchiveMode.Read, Encoding.GetEncoding(936));
+        }
+        catch
+        {
+            return ZipFile.Open(path, ZipArchiveMode.Read);
+        }
+    }
+
+    /// <summary>解压全部条目到目录（逐条过 PackPathGuard，拒绝 zip-slip）。</summary>
+    public static void ExtractTo(string archivePath, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        using var zip = Open(archivePath);
+        foreach (var entry in zip.Entries)
+        {
+            if (entry.Name.Length == 0) continue;
+            var dest = PackPathGuard.Resolve(destDir, entry.FullName);
+            if (dest is null)
+            {
+                LauncherLog.Write("pack", $"跳过非法压缩包路径：{entry.FullName}");
+                continue;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            entry.ExtractToFile(dest, overwrite: true);
+        }
+    }
+}
+
+/// <summary>
+/// 包内 JSON 读取：很多中文整合包的 JSON 带 UTF-8 BOM（记事本/Windows 工具产出），
+/// System.Text.Json 会把它当非法起始值。统一用 StreamReader 去 BOM 后再解析。
+/// </summary>
+public static class PackJson
+{
+    public static string ReadText(Stream stream)
+    {
+        using var reader = new StreamReader(stream, Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
+        return reader.ReadToEnd().TrimStart('﻿');
+    }
+
+    public static string ReadFileText(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return ReadText(stream);
+    }
+}
+
 /// <summary>按内容嗅探归档属于哪种整合包格式（不看扩展名，容忍嵌套根目录）</summary>
 public static class ModPackDetector
 {
@@ -49,7 +122,7 @@ public static class ModPackDetector
     public static ModPackProbe? Detect(string archivePath)
     {
         if (!File.Exists(archivePath)) return null;
-        using var zip = ZipFile.OpenRead(archivePath);
+        using var zip = PackZip.Open(archivePath);
         return Detect(zip);
     }
 
@@ -85,8 +158,69 @@ public static class ModPackDetector
             if (best.TryGetValue(format, out var hit))
                 return new ModPackProbe(format, string.IsNullOrEmpty(hit.Root) ? null : hit.Root);
         }
-        return null;
+
+        // 没有任何清单：再看是不是“裸内容” zip（PCL/HMCL 的拖入安装、手工压的 .minecraft）
+        return DetectRaw(zip);
     }
+
+    /// <summary>裸内容候选根：优先 .minecraft / minecraft，其次 mods / config 等游戏目录</summary>
+    private static ModPackProbe? DetectRaw(ZipArchive zip)
+    {
+        string? bestRoot = null;
+        var bestDepth = int.MaxValue;
+        var bestScore = 0;
+
+        foreach (var entry in zip.Entries)
+        {
+            var name = entry.FullName.Replace('\\', '/');
+            if (name.EndsWith('/')) continue;
+            var lower = name.ToLowerInvariant();
+
+            foreach (var (marker, score, includeInRoot) in RawMarkers)
+            {
+                var idx = lower.IndexOf("/" + marker, StringComparison.Ordinal);
+                string prefix;
+                if (idx >= 0)
+                    prefix = name[..idx];
+                else if (lower.StartsWith(marker, StringComparison.Ordinal))
+                    prefix = "";
+                else
+                    continue;
+
+                // .minecraft / minecraft 是内容根本身；mods、config 只是内容根下的子目录
+                var dir = marker.TrimEnd('/');
+                var root = includeInRoot
+                    ? (prefix.Length == 0 ? dir : prefix + "/" + dir)
+                    : prefix;
+                var depth = root.Length == 0 ? 0 : root.Count(c => c == '/') + 1;
+                // 先看“更像游戏根”的标记（.minecraft > minecraft > mods…），
+                // 同分时取更深的那层：Outer/MyPack/.minecraft 应取后者，而不是外层包装目录
+                if (bestRoot is null || score > bestScore || (score == bestScore && depth > bestDepth))
+                {
+                    bestRoot = root;
+                    bestDepth = depth;
+                    bestScore = score;
+                }
+                break;
+            }
+        }
+
+        if (bestRoot is null) return null;
+        return new ModPackProbe(ModPackFormat.Raw, string.IsNullOrEmpty(bestRoot) ? null : bestRoot);
+    }
+
+    private static readonly (string Marker, int Score, bool IncludeInRoot)[] RawMarkers =
+    [
+        (".minecraft/", 30, true),
+        ("minecraft/", 20, true),
+        ("mods/", 15, false),
+        ("config/", 10, false),
+        ("options.txt", 10, false),
+        ("servers.dat", 10, false),
+        ("saves/", 8, false),
+        ("resourcepacks/", 8, false),
+        ("shaderpacks/", 8, false),
+    ];
 
     /// <summary>CurseForge 的 manifest.json 必须带 minecraft 字段，否则只是同名文件</summary>
     private static bool LooksLikeCurseForge(ZipArchiveEntry entry)
@@ -94,7 +228,7 @@ public static class ModPackDetector
         try
         {
             using var stream = entry.Open();
-            using var doc = JsonDocument.Parse(stream);
+            using var doc = JsonDocument.Parse(PackJson.ReadText(stream));
             return doc.RootElement.ValueKind == JsonValueKind.Object
                    && doc.RootElement.TryGetProperty("minecraft", out _);
         }
@@ -121,7 +255,7 @@ public static class ModPackArchive
         var target = Path.Combine(dir, $"{Guid.NewGuid():N}.zip");
         var prefix = probe.EntryRoot + "/";
 
-        using (var src = ZipFile.OpenRead(archivePath))
+        using (var src = PackZip.Open(archivePath))
         using (var file = File.Create(target))
         using (var dst = new ZipArchive(file, ZipArchiveMode.Create))
         {

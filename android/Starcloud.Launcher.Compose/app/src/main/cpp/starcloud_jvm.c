@@ -118,6 +118,26 @@ static int load_native_libraries(JNIEnv *env, jobjectArray nativeDirs) {
     return 0;
 }
 
+// 启动前 so 快照：把 /proc/self/maps 里的 .so 映射与关键运行时（libc++_shared/libjvm/libart）
+// 的真实来源写进 <logPath>.preload。HotSpot 堆被宿主环境破坏时（M3 SIGSEGV），
+// 用它和 Uno 成功轮对照，定位「宿主先加载了同名/不同版本 so」这类符号冲突。
+static void write_loaded_so_snapshot(const char *logPath) {
+    char out[512];
+    snprintf(out, sizeof(out), "%s.preload", logPath);
+    FILE *fp = fopen(out, "w");
+    if (!fp) return;
+    FILE *maps = fopen("/proc/self/maps", "r");
+    if (maps) {
+        char line[1024];
+        while (fgets(line, sizeof(line), maps)) {
+            if (strstr(line, ".so")) fputs(line, fp);
+        }
+        fclose(maps);
+    }
+    fclose(fp);
+    LOGI("so 快照已写入 %s", out);
+}
+
 // 在数组第 i 个元素上取 UTF 字符串；调用方负责 ReleaseStringUTFChars
 // 数组元素 UTF 字符串对：GetString 与 Release 配对，local ref 由 release 释放
 typedef struct {
@@ -236,6 +256,7 @@ Java_cn_starcloud_launcher_compose_game_StarcloudJvm_starcloudRunJvmJli(
         (*env)->ReleaseStringUTFChars(env, jlogPath, logPath);
         return 91;
     }
+    write_loaded_so_snapshot(logPath);
     dup2(logFd, 1);
     dup2(logFd, 2);
     if (logFd > 2) close(logFd);
@@ -306,6 +327,7 @@ Java_cn_starcloud_launcher_compose_game_StarcloudJvm_starcloudRunJvm(
         (*env)->ReleaseStringUTFChars(env, jlogPath, logPath);
         return 91;
     }
+    write_loaded_so_snapshot(logPath);
     dup2(fd, 1);
     dup2(fd, 2);
     if (fd > 2) close(fd);

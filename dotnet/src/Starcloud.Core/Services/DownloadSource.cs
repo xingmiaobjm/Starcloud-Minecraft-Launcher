@@ -222,6 +222,9 @@ public sealed class DownloadSourceRegistry
         if (Interlocked.Increment(ref h.Failures) >= DegradeAfterFailures) h.Degraded = true;
     }
 
+    /// <summary>该源是否已被预检/失败计数降级（分片池据此跳过它）</summary>
+    public bool IsDegraded(SourceKind k) => Get(k).Degraded;
+
     /// <summary>该源在该通道上是否已被判定不能分片（连续 <see cref="RangeIgnoredThreshold"/> 次无视 Range）</summary>
     public bool NoRangeSupport(SourceKind k, SourceChannel channel) =>
         Get(k).RangeIgnored.TryGetValue(channel, out var hits) && hits >= RangeIgnoredThreshold;

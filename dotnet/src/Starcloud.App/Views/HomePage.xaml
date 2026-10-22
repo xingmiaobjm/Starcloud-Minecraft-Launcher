@@ -647,58 +647,16 @@
                     <ctrl:GlowButton x:Name="NoAccountBtn" Height="32"
                             HorizontalAlignment="Stretch" Visibility="Collapsed"
                             Click="NoAccountBtn_Click" />
-                    <!-- 切换账号：常驻可见，不再靠悬停才浮现。
-                         原来 Opacity=0 + 悬停淡入（PCL2 那套"平时藏着"的玩法）在触屏与
-                         键盘操作下等于没有这个按钮；卡片中部也正因此空一大块。
-                         仍保留 PointerEntered/Exited 的微调：基态 0.72，悬停 1。 -->
+                    <!-- 切换账号：平时隐形，指针移到这一条才浮出来（PCL2 那套"藏着"的玩法）。 -->
                     <Grid Height="32" Background="Transparent"
                           PointerEntered="SwitchAccountArea_Entered"
                           PointerExited="SwitchAccountArea_Exited">
-                        <ctrl:GlowButton x:Name="SwitchAccountBtn" Opacity="0.72"
+                        <ctrl:GlowButton x:Name="SwitchAccountBtn" Opacity="0"
                                 MinWidth="0" Height="32" Padding="16,0"
                                 HorizontalAlignment="Center" CornerRadius="8"
                                 loc:Loc.Text="切换账号" loc:Loc.Name="切换账号"
                                 Click="SwitchAccount_Click" />
                     </Grid>
-
-                    <!-- 账户明细：类型 / UUID / 皮肤。头像与名字之外，账户卡原本中段空一大块，
-                         这几行既填掉空白，也把"这个账户到底是什么"说清楚。 -->
-                    <StackPanel x:Name="AccountDetail" Spacing="6" Margin="0,4,0,0"
-                                HorizontalAlignment="Stretch">
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock loc:Loc.Text="类型" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock x:Name="AccountTypeText" Grid.Column="1"
-                                       Style="{StaticResource ScMetaValue}"
-                                       TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock loc:Loc.Text="UUID" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock x:Name="AccountUuidText" Grid.Column="1"
-                                       Style="{StaticResource ScMetaValue}"
-                                       FontFamily="Consolas" FontSize="11"
-                                       HorizontalAlignment="Left"
-                                       TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock loc:Loc.Text="皮肤" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock x:Name="AccountSkinText" Grid.Column="1"
-                                       Style="{StaticResource ScMetaValue}"
-                                       MaxWidth="180" HorizontalAlignment="Left"
-                                       TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                    </StackPanel>
                 </StackPanel>
 
                 <!-- 启动行：主按钮 + 右侧收起/展开刻度按钮，同一行等高拼在一起（间隙 8）。

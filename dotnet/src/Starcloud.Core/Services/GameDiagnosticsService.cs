@@ -1,4 +1,4 @@
-// 游戏自检与纠错：版本 JSON / client jar / 依赖父版本 / 资源索引完整性检查。
+﻿// 游戏自检与纠错：版本 JSON / client jar / 依赖父版本 / 资源索引完整性检查。
 // 原版与 Fabric 版本可自动修复（重装补齐文件）；Forge/NeoForge 引导到下载页重装。
 
 using System.Security.Cryptography;
@@ -61,7 +61,7 @@ public sealed class GameDiagnosticsService
             if (tail.Length < 2)
                 throw new InvalidOperationException($"无法从「{versionId}」识别 Fabric 版本号");
             await _installer.InstallFabricAsync(
-                string.Join('-', tail[1..]), tail[0], settings, null, ct);
+                string.Join('-', tail[1..]), tail[0], settings, null, ct, targetId: versionId);
             return $"已重新安装 Fabric {tail[0]}（MC {string.Join('-', tail[1..])}），客户端与依赖文件已补齐";
         }
 

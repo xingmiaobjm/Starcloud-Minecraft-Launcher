@@ -1,4 +1,4 @@
-// 启动前预检：完整性检查 + 缺失文件自动补全（对应旧 Rust ensure_installed / needs_download）
+﻿// 启动前预检：完整性检查 + 缺失文件自动补全（对应旧 Rust ensure_installed / needs_download）
 // 检查深度：jar/库/natives 存在性 + SHA1；资源仅存在性（量可达数 GB，不做内容校验）
 
 using System.Security.Cryptography;
@@ -90,10 +90,12 @@ public sealed class LaunchPreflightService
         foreach (var lib in version.Libraries.Where(l => InstallerService.RulesAllow(l.Rules)))
         {
             var dl = lib.Downloads;
-            if (dl?.Artifact is { Url: not "" } artifact && artifact.Path is not null)
+            // Mojang 用 downloads.artifact；Fabric/Quilt 只有 Maven 坐标，统一交给 MavenArtifacts
+            if (MavenArtifacts.Resolve(lib) is { Path: { Length: > 0 } relative })
             {
-                var libPath = Path.Combine(dotMinecraft, "libraries", artifact.Path);
-                if (!await Sha1MatchesAsync(libPath, artifact.Sha1, ct))
+                var libPath = Path.Combine(dotMinecraft, "libraries",
+                    relative.Replace('/', Path.DirectorySeparatorChar));
+                if (!await Sha1MatchesAsync(libPath, lib.Sha1 ?? dl?.Artifact?.Sha1, ct))
                     report.Issues.Add(new PreflightIssue("lib", libPath, null));
             }
             if (InstallerService.NativesOf(dl) is { Path: not null } native)
@@ -230,8 +232,9 @@ public sealed class LaunchPreflightService
         foreach (var lib in version.Libraries.Where(l => InstallerService.RulesAllow(l.Rules)))
         {
             var dl = lib.Downloads;
-            if (dl?.Artifact is { Url: not "" } artifact && artifact.Path is not null &&
-                Path.Combine(dotMinecraft, "libraries", artifact.Path)
+            if (MavenArtifacts.Resolve(lib) is { Path: { Length: > 0 } relative } artifact &&
+                Path.Combine(dotMinecraft, "libraries",
+                        relative.Replace('/', Path.DirectorySeparatorChar))
                     .Equals(issuePath, StringComparison.OrdinalIgnoreCase))
             {
                 files.Add((artifact.Url, issuePath, artifact.Sha1, artifact.Size));

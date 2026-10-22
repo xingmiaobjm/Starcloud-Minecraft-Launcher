@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 好友页（对齐 Win 端 FriendsPage）：左栏 = 我的资料 + 消息/好友申请/联机 三标签列表，
+     右栏 = 选中好友的聊天 / 联机邀请面板（发起邀请时房间码预填当前联机房间）。
+     行内容全部代码构建（避免 Uno DataTemplate 绑定差异），样式沿用 ScCard / ScMetaLabel 体系。 -->
+<Page
+    x:Class="Starcloud.Launcher.Uno.Views.FriendsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.Launcher.Uno.Views.Controls"
+    xmlns:loc="using:Starcloud.Launcher.Uno.Localization"
+    NavigationCacheMode="Enabled">
+
+    <Grid Padding="0,0,8,0" ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 左栏：我的资料 + 标签 + 列表 -->
+        <Border Style="{StaticResource ScCard}" Grid.Column="0">
+            <Grid RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- 我的资料 -->
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="36" Height="36" CornerRadius="18"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}">
+                        <TextBlock x:Name="MyInitial" FontSize="15" FontWeight="Medium"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock loc:Loc.Text="我" FontSize="14" FontWeight="Medium" />
+                        <TextBlock x:Name="MyUidText" Style="{StaticResource ScMetaLabel}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" loc:Loc.Text="添加好友" Click="AddFriend_Click"
+                            FontSize="12" Padding="10,4" VerticalAlignment="Center" />
+                </Grid>
+
+                <!-- 标签：消息 / 好友申请 / 联机 -->
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
+                    <RadioButton x:Name="TabMessages" GroupName="ftab" Content="消息" IsChecked="True"
+                                 Checked="Tab_Changed" FontSize="12" MinWidth="0" Padding="10,2" />
+                    <RadioButton x:Name="TabRequests" GroupName="ftab" Content="好友申请"
+                                 Checked="Tab_Changed" FontSize="12" MinWidth="0" Padding="10,2" />
+                    <RadioButton x:Name="TabInvites" GroupName="ftab" Content="联机"
+                                 Checked="Tab_Changed" FontSize="12" MinWidth="0" Padding="10,2" />
+                </StackPanel>
+
+                <!-- 列表（行代码构建） -->
+                <ListView x:Name="LeftList" Grid.Row="2" SelectionMode="Single"
+                          SelectionChanged="LeftList_SelectionChanged" />
+            </Grid>
+        </Border>
+
+        <!-- 右栏：聊天 或 联机面板 或 空态 -->
+        <Border Style="{StaticResource ScCard}" Grid.Column="1">
+            <Grid>
+                <!-- 空态 -->
+                <StackPanel x:Name="EmptyPanel" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Spacing="6">
+                    <TextBlock x:Name="EmptyTitle" loc:Loc.Text="选择一位好友开始聊天" FontSize="14"
+                               HorizontalAlignment="Center" />
+                    <TextBlock x:Name="EmptyHint" loc:Loc.Text="左侧选好友或在「联机」标签发起邀请"
+                               Style="{StaticResource ScMetaLabel}" HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- 聊天 -->
+                <Grid x:Name="ChatPanel" Visibility="Collapsed" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="PeerAvatar" Width="30" Height="30" CornerRadius="15"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}">
+                            <TextBlock x:Name="PeerInitial" FontSize="13" FontWeight="Medium"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="PeerName" FontSize="14" FontWeight="Medium" />
+                            <TextBlock x:Name="PeerId" Style="{StaticResource ScMetaLabel}" />
+                        </StackPanel>
+                        <Button Grid.Column="2" loc:Loc.Text="删除好友" FontSize="11" Padding="8,3"
+                                Click="RemoveFriend_Click" />
+                    </Grid>
+                    <ScrollViewer x:Name="ChatScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="ChatStack" Spacing="6" />
+                    </ScrollViewer>
+                    <Grid Grid.Row="2" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="MessageBox" loc:Loc.Placeholder="输入消息…" FontSize="13"
+                                 KeyDown="MessageBox_KeyDown" />
+                        <Button Grid.Column="1" loc:Loc.Text="发送"
+                                Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                Click="Send_Click" />
+                    </Grid>
+                </Grid>
+
+                <!-- 联机面板：发起邀请 + 已接受邀请 -->
+                <ScrollViewer x:Name="InvitePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="12">
+                        <TextBlock loc:Loc.Text="发起联机邀请" FontSize="14" FontWeight="Medium" />
+                        <TextBlock x:Name="InviteHint" Style="{StaticResource ScMetaLabel}" TextWrapping="Wrap" />
+                        <StackPanel x:Name="FriendPicker" Orientation="Horizontal" Spacing="6" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="InviteRoomBox" loc:Loc.Placeholder="房间邀请码（陶瓦）" Width="200" />
+                            <TextBox x:Name="InviteAddressBox" loc:Loc.Placeholder="或直连地址（IP:端口）" Width="220" />
+                            <Button x:Name="SendInviteBtn" loc:Loc.Text="发送邀请"
+                                    Style="{StaticResource AccentButtonStyle}" FontWeight="Medium"
+                                    Click="SendInvite_Click" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="收到的邀请" FontSize="13" FontWeight="Medium" />
+                        <StackPanel x:Name="IncomingInvites" Spacing="6" />
+                        <TextBlock loc:Loc.Text="发出的邀请" FontSize="13" FontWeight="Medium" />
+                        <StackPanel x:Name="OutgoingInvites" Spacing="6" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 顶部提示 -->
+        <InfoBar x:Name="NoticeBar" Grid.ColumnSpan="2" IsOpen="False" IsClosable="True"
+                 VerticalAlignment="Top" Margin="0,-4,0,0" />
+    </Grid>
+</Page>

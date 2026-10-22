@@ -32,6 +32,8 @@ public sealed partial class MainWindow : Window
     private Microsoft.UI.Xaml.Shapes.Ellipse? _runningDot;
     /// <summary>自绘 SVG 导航图标：按 tag 持有，主题切换时换源</summary>
     private readonly Dictionary<string, ImageIcon> _navImageIcons = new(StringComparer.Ordinal);
+    /// <summary>图标随主题切换需要整对象替换（ImageIcon 只换 Source 不一定重绘）</summary>
+    private readonly Dictionary<string, NavigationViewItem> _navIconHosts = new();
     private NavigationViewItemSeparator? _pluginNavSeparator;
     private bool _pluginNavHooked;
 
@@ -400,6 +402,7 @@ public sealed partial class MainWindow : Window
             Nav.MenuItems.Clear();
             Nav.FooterMenuItems.Clear();
             _navImageIcons.Clear();
+            _navIconHosts.Clear();
             _runningDot = null;
 
             foreach (var c in AppServices.Instance.Kernel.Contributions.Of(Starcloud.Core.Kernel.ContributionKind.NavItem))
@@ -438,7 +441,11 @@ public sealed partial class MainWindow : Window
                 {
                     var icon = new ImageIcon { Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(c.IconUri)) };
                     item.Icon = icon;
-                    if (c.PageId is { } tag) _navImageIcons[tag] = icon;
+                    if (c.PageId is { } tag)
+                    {
+                        _navImageIcons[tag] = icon;
+                        _navIconHosts[tag] = item;
+                    }
                 }
                 else if (!string.IsNullOrEmpty(c.Glyph))
                 {
@@ -1059,9 +1066,15 @@ public sealed partial class MainWindow : Window
         var suffix = theme == ElementTheme.Dark ? "-dark" : "";
         foreach (var (tag, file) in new[] { ("lab", "lab-nav"), ("projections", "projection-nav") })
         {
-            if (_navImageIcons.TryGetValue(tag, out var icon))
-                icon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
-                    new Uri($"ms-appx:///Assets/Brand/{file}{suffix}.svg"));
+            var uri = new Uri($"ms-appx:///Assets/Brand/{file}{suffix}.svg");
+            if (!_navImageIcons.TryGetValue(tag, out var icon))
+                continue;
+            // 直接改 SvgImageSource.UriSource（同一实例触发重载）；换对象/换 Source 在 WinUI 下
+            // 偶发不重绘，表现为切主题后图标仍是第一张（深色下黑图标看不见）
+            if (icon.Source is Microsoft.UI.Xaml.Media.Imaging.SvgImageSource svg)
+                svg.UriSource = uri;
+            else
+                icon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(uri);
         }
     }
 

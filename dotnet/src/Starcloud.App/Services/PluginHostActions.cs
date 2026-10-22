@@ -1,4 +1,4 @@
-// 插件宿主桥（App 侧）：把「只有 UI 层才有」的能力交给插件 SDK
+﻿// 插件宿主桥（App 侧）：把「只有 UI 层才有」的能力交给插件 SDK
 // （确认框 / 提示框 / 切页 / 打开链接与目录 / 剪贴板）。
 //
 // 线程约定：插件钩子可能在任意线程执行（启动前钩子在启动线程、事件投递在计时器线程），
@@ -35,6 +35,8 @@ internal sealed class PluginHostActions : IPluginHostBridge
         var tag = (page ?? "").Trim().ToLowerInvariant() switch
         {
             "nova" => "ai",
+            // 联机板块已并入好友页，老调用方传 multiplayer 仍然能落地
+            "multiplayer" => "friends",
             var other => other,
         };
         RunOnUi(() =>

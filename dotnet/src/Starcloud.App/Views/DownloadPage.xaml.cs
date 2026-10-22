@@ -1,4 +1,4 @@
-// 下载页：PCL2 式左侧分类（原版游戏 + 社区资源五类）
+﻿// 下载页：PCL2 式左侧分类（原版游戏 + 社区资源五类）
 // 原版：版本列表（正式版按大版本抽屉折叠）→ 详情（Forge/NeoForge/Fabric 抽屉三选一 + 开始下载）
 // 社区：Modrinth 搜索筛选安装（Mod/整合包/数据包/资源包/光影包）
 
@@ -278,9 +278,8 @@ public sealed partial class DownloadPage : Page
 
         var rows = src.Select(v =>
         {
-            var installed = installedIds.Contains(v.Id);
-            return new DownloadRow(v.Id, Describe(v),
-                installed ? Loc.T("已安装") : "", installed ? InstalledBrush : null,
+            // 列表里不再显示「已安装」标记（选中版本时顶部提示仍会说明已装份数）
+            return new DownloadRow(v.Id, Describe(v), "", null,
                 VersionRowHelpers.VersionIcon(v.Type));
         }).ToList();
 
@@ -1123,42 +1122,13 @@ public sealed partial class DownloadPage : Page
     }
 
     /// <summary>
-    /// 下载窗内整合包安装入口：按格式分派——.mrpack 走 Modrinth 安装器，
-    /// CurseForge 的 .zip（内含 manifest.json）走 CurseForge 安装器；两者共用同一套
-    /// 「缺原版/加载器就补装」的联动（<see cref="MrPackFlow.EnsureGameAndLoaderAsync"/>）。
+    /// 下载窗内整合包安装入口：统一走导入流程（按内容识别格式、外层多套目录自动拍平、
+    /// 默认新建隔离版本），不再按扩展名武断分派 —— CurseForge 的 zip 被套一层目录、
+    /// MultiMC 实例包、大小写/带 BOM 的 manifest 都由同一条链路处理。
     /// </summary>
     private async Task InstallMrPackFromDialogAsync(string libPath)
     {
-        var summary = libPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-            ? await InstallCurseForgePackAsync(libPath)
-            : await InstallMrPackAsync(libPath);
-        ShowOk(Loc.T("整合包已安装。{0}", summary));
-    }
-
-    /// <summary>CurseForge 整合包：解析 manifest.json 逐文件下载，再补装原版与加载器</summary>
-    private async Task<string> InstallCurseForgePackAsync(string zipPath)
-    {
-        var dlg = new ThemedDialog
-        {
-            Title = Loc.T("安装整合包"),
-            Content = CreateInstallPanel(out var statusText, out var bar),
-            CloseButtonText = Loc.T("后台安装"),
-            XamlRoot = Content.XamlRoot,
-        };
-        _ = dlg.ShowAsync();
-
-        var status = new Progress<string>(s => _dq.TryEnqueue(() => statusText.Text = s));
-        var progress = new Progress<BatchProgress>(p => _dq.TryEnqueue(() =>
-        {
-            bar.Value = p.Percentage;
-            statusText.Text = p.Stage;
-        }));
-        var result = await _s.CurseForgePacks.InstallAsync(zipPath, _s.Settings,
-            status: status, progress: progress);
-        var summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, _s, progress);
-
-        try { dlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
-        return summary;
+        await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, libPath);
     }
 
     private void ShowOk(string message)
@@ -1238,42 +1208,6 @@ public sealed partial class DownloadPage : Page
             if (nested.Required.Count > 0)
                 await ResolveMissingAsync(nested.Required, versionId, mc, loader, depth + 1, seen);
         }
-    }
-
-    // ── 整合包 .mrpack 自动安装 ──
-    private async Task<string> InstallMrPackAsync(string mrpackPath)
-    {
-        var dlg = new ThemedDialog
-        {
-            Title = Loc.T("安装整合包"),
-            Content = CreateInstallPanel(out var statusText, out var bar),
-            CloseButtonText = Loc.T("后台安装"),
-            XamlRoot = Content.XamlRoot,
-        };
-        _ = dlg.ShowAsync();
-
-        var progress = new Progress<BatchProgress>(p => _dq.TryEnqueue(() =>
-        {
-            bar.Value = p.Percentage;
-            statusText.Text = p.Stage;
-        }));
-        var result = await _s.MrPack.InstallAsync(mrpackPath, _s.Settings, progress: progress);
-
-        // 依赖联动：缺失的原版 + 加载器（fabric-loader / forge / neoforge）
-        var summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, _s, progress);
-
-        try { dlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
-        return summary;
-    }
-
-    private static UIElement CreateInstallPanel(out TextBlock statusText, out ProgressBar bar)
-    {
-        var panel = new StackPanel { Spacing = 10, MinWidth = 300 };
-        statusText = new TextBlock { Text = Loc.T("准备中…"), TextWrapping = TextWrapping.Wrap, FontSize = 12 };
-        bar = new ProgressBar { Maximum = 100 };
-        panel.Children.Add(statusText);
-        panel.Children.Add(bar);
-        return panel;
     }
 
     // ── 格式化 ──

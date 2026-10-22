@@ -1,7 +1,0 @@
-[
-{
-  "directory": "C:/Users/xingmiao/Documents/trae_projects/starcloud-minecraft-launcher/android/Starcloud.Launcher.Compose/app/.cxx/Debug/70425w2u/arm64-v8a",
-  "command": "C:\\Users\\xingmiao\\AppData\\Local\\Android\\Sdk\\ndk\\26.1.10909125\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang.exe --target=aarch64-none-linux-android26 --sysroot=C:/Users/xingmiao/AppData/Local/Android/Sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dstarcloudjvm_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -o CMakeFiles\\starcloudjvm.dir\\starcloud_jvm.c.o -c C:\\Users\\xingmiao\\Documents\\trae_projects\\starcloud-minecraft-launcher\\android\\Starcloud.Launcher.Compose\\app\\src\\main\\cpp\\starcloud_jvm.c",
-  "file": "C:\\Users\\xingmiao\\Documents\\trae_projects\\starcloud-minecraft-launcher\\android\\Starcloud.Launcher.Compose\\app\\src\\main\\cpp\\starcloud_jvm.c"
-}
-]

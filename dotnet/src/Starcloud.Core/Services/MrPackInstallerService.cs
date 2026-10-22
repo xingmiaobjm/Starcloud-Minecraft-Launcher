@@ -1,4 +1,4 @@
-// Modrinth .mrpack 整合包自动安装：解析 modrinth.index.json → 下载文件 → 复制 overrides
+﻿// Modrinth .mrpack 整合包自动安装：解析 modrinth.index.json → 下载文件 → 复制 overrides
 
 using System.IO.Compression;
 using System.Text.Json;
@@ -42,11 +42,10 @@ public sealed class MrPackInstallerService
         Directory.CreateDirectory(tempDir);
         try
         {
-            ZipFile.ExtractToDirectory(mrpackPath, tempDir, overwriteFiles: true);
-            var indexPath = Path.Combine(tempDir, "modrinth.index.json");
-            if (!File.Exists(indexPath))
-                throw new InvalidOperationException("不是有效的 .mrpack 整合包（缺少 modrinth.index.json）");
-            var index = JsonSerializer.Deserialize<MrPackIndex>(File.ReadAllText(indexPath), JsonOpts)
+            PackZip.ExtractTo(mrpackPath, tempDir);
+            var indexPath = FindIndex(tempDir)
+                ?? throw new InvalidOperationException("不是有效的 .mrpack 整合包（缺少 modrinth.index.json）");
+            var index = JsonSerializer.Deserialize<MrPackIndex>(PackJson.ReadFileText(indexPath), JsonOpts)
                         ?? throw new InvalidOperationException("modrinth.index.json 解析失败");
 
             var overrideCount = 0;
@@ -84,12 +83,11 @@ public sealed class MrPackInstallerService
         try
         {
             status?.Report("正在解压整合包…");
-            ZipFile.ExtractToDirectory(mrpackPath, tempDir, overwriteFiles: true);
+            PackZip.ExtractTo(mrpackPath, tempDir);
 
-            var indexPath = Path.Combine(tempDir, "modrinth.index.json");
-            if (!File.Exists(indexPath))
-                throw new InvalidOperationException("不是有效的 .mrpack 整合包（缺少 modrinth.index.json）");
-            var index = JsonSerializer.Deserialize<MrPackIndex>(File.ReadAllText(indexPath), JsonOpts)
+            var indexPath = FindIndex(tempDir)
+                ?? throw new InvalidOperationException("不是有效的 .mrpack 整合包（缺少 modrinth.index.json）");
+            var index = JsonSerializer.Deserialize<MrPackIndex>(PackJson.ReadFileText(indexPath), JsonOpts)
                         ?? throw new InvalidOperationException("modrinth.index.json 解析失败");
 
             var dotMc = installRoot ?? settings.DotMinecraft;
@@ -134,6 +132,12 @@ public sealed class MrPackInstallerService
             try { Directory.Delete(tempDir, recursive: true); } catch { /* 临时目录清理失败可忽略 */ }
         }
     }
+
+    /// <summary>大小写不敏感地找 modrinth.index.json（Linux 上包内可能是 Modrinth.index.json）。</summary>
+    private static string? FindIndex(string tempDir) =>
+        Directory.EnumerateFiles(tempDir, "*", SearchOption.AllDirectories)
+            .FirstOrDefault(p => Path.GetFileName(p)
+                .Equals("modrinth.index.json", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>递归复制目录内容；逐条过路径安全，非法条目跳过（防归档内的越界相对路径）</summary>
     private static void CopyDirectory(string src, string dst)

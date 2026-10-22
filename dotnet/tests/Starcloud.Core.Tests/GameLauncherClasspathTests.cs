@@ -66,6 +66,80 @@ public class GameLauncherClasspathTests
         Assert.Equal(client, jar);
     }
 
+    // Fabric/Quilt 的 profile 库只有 Maven 坐标（name + url），没有 downloads.artifact。
+    // 之前 classpath 只认 downloads，fabric-loader / intermediary / ASM 全被丢掉，
+    // Java 启动即报“找不到主类 net.fabricmc.loader.impl.launch.knot.KnotClient”。
+    [Fact]
+    public async Task Fabric的Maven坐标库会进入classpath()
+    {
+        using var dotMc = new TempDotMc();
+        dotMc.File("versions/fabric-loader-0.19.5-26.3/fabric-loader-0.19.5-26.3.json",
+            """{"id":"26.3"}""");
+        dotMc.File("versions/fabric-loader-0.19.5-26.3/fabric-loader-0.19.5-26.3.jar", "CLIENT");
+        var loader = dotMc.File(
+            "libraries/net/fabricmc/fabric-loader/0.19.5/fabric-loader-0.19.5.jar", "LOADER");
+
+        var version = new MinecraftVersion
+        {
+            Id = "26.3",
+            MainClass = "net.fabricmc.loader.impl.launch.knot.KnotClient",
+            Arguments = new VersionArguments
+            {
+                Jvm = [Arg("-cp"), Arg("${classpath}")],
+                Game = [Arg("--username"), Arg("${auth_player_name}")],
+            },
+            Libraries =
+            [
+                new Library
+                {
+                    Name = "net.fabricmc:fabric-loader:0.19.5",
+                    Url = "https://maven.fabricmc.net/",
+                    Sha1 = "deadbeef",
+                    Size = 1,
+                },
+            ],
+        };
+        var options = new LaunchOptions("fabric-loader-0.19.5-26.3", "Steve",
+            dotMc.Path, dotMc.Path, 512, 1024, "/opt/java/bin/java", [], false,
+            Credentials: new LaunchCredentials("uuid-1", "token-1", "msa"));
+
+        var cmd = await new GameLauncher(new InstallerService(null!))
+            .BuildCommandLineAsync(version, options);
+
+        Assert.Contains(loader, cmd);
+        Assert.Contains("net.fabricmc.loader.impl.launch.knot.KnotClient", cmd);
+    }
+
+    private static ArgumentItem Arg(string value) =>
+        new() { Value = System.Text.Json.JsonSerializer.SerializeToElement(value) };
+
+    // 1.13 之前只有 minecraftArguments、没有 arguments.jvm：启动器必须自己补 -cp，
+    // 否则 JVM 报“找不到或无法加载主类 com.mojang.rubydung.RubyDung”。
+    [Fact]
+    public async Task 远古版本没有arguments时自动补classpath()
+    {
+        using var dotMc = new TempDotMc();
+        dotMc.File("versions/rd-132211/rd-132211.json", """{"id":"rd-132211"}""");
+        var jar = dotMc.File("versions/rd-132211/rd-132211.jar", "RD");
+
+        var version = new MinecraftVersion
+        {
+            Id = "rd-132211",
+            MainClass = "com.mojang.rubydung.RubyDung",
+            MinecraftArguments = "${auth_player_name} ${auth_session}",
+        };
+        var options = new LaunchOptions("rd-132211", "Steve", dotMc.Path, dotMc.Path,
+            512, 1024, "/opt/java/bin/java", [], false,
+            Credentials: new LaunchCredentials("uuid-1", "token-1", "external"));
+
+        var cmd = await new GameLauncher(new InstallerService(null!))
+            .BuildCommandLineAsync(version, options);
+
+        Assert.Contains("-cp", cmd);
+        Assert.Contains(jar, cmd);
+        Assert.Contains("com.mojang.rubydung.RubyDung", cmd);
+    }
+
     // ── 测试基础设施 ──
 
     private static async Task<string> CommandFor(TempDotMc dotMc, string instanceId, string jsonId)
