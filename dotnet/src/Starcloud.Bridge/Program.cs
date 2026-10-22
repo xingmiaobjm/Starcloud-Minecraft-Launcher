@@ -56,6 +56,7 @@ public static class Program
     private static VersionBackupService _versionBackup = null!;
     private static ProjectionCommunityService _projectionCommunity = null!;
     private static GameDiagnosticsService _diagnostics = null!;
+    private static SearchTranslationService _translation = null!;
     private static NovaService _nova = null!;
     private static PluginHost _pluginHost = null!;
     private static Task? _novaTask;
@@ -141,7 +142,8 @@ public static class Program
         var novaMoments = new NovaMomentsService();
         var novaInvites = new NovaInviteService(
             _installer, _manifest, _java, _launcher, _download, AgentJarPath);
-        var translation = new SearchTranslationService(_download);
+        _translation = new SearchTranslationService(_download);
+        var translation = _translation;
         var novaTools = new NovaToolRegistry(new NovaToolContext
         {
             Manifest = _manifest,
@@ -1177,12 +1179,8 @@ public static class Program
             case "content.search":
             {
                 var kind = NormalizeKind(p.GetProperty("kind").GetString());
-                var projectType = kind switch
-                {
-                    "mod" => "mod",
-                    "resourcepack" => "resourcepack",
-                    _ => "shader",
-                };
+                // Modrinth 的 project_type 与我们的 kind 同名（mod/modpack/datapack/resourcepack/shader）
+                var projectType = kind;
                 var query = p.TryGetProperty("query", out var q) &&
                             q.ValueKind == JsonValueKind.String
                     ? q.GetString() ?? ""
@@ -1201,8 +1199,16 @@ public static class Program
                 var limit = p.TryGetProperty("limit", out var lim) && lim.TryGetInt32(out var l)
                     ? l
                     : 20;
+                var index = p.TryGetProperty("index", out var idxEl) && idxEl.ValueKind == JsonValueKind.String
+                    ? idxEl.GetString() ?? "relevance"
+                    : "relevance";
+                var category = p.TryGetProperty("category", out var catEl) && catEl.ValueKind == JsonValueKind.String
+                    ? catEl.GetString()
+                    : null;
+                var force = p.TryGetProperty("forceRefresh", out var frEl) && frEl.GetBoolean();
                 var result = await _modrinth.SearchAsync(
-                    query, projectType, loader, gameVersion, offset, limit);
+                    query, projectType, loader, gameVersion, offset, limit, index, category,
+                    CancellationToken.None, force);
                 return new
                 {
                     totalHits = result.TotalHits,
@@ -2288,64 +2294,57 @@ public static class Program
             case "versions.importPack":
             {
                 var packPath = p.GetProperty("packPath").GetString()!;
-                var probe = ModPackDetector.Detect(packPath)
-                    ?? throw new Exception("未能识别整合包格式。");
-                var effective = probe.Format == ModPackFormat.Raw
-                    ? packPath
-                    : ModPackArchive.FlattenIfNested(packPath, probe);
+                var targetId = p.GetProperty("targetId").GetString()!;
+                var isolated = !p.TryGetProperty("isolated", out var isoEl) || isoEl.GetBoolean();
+                var contentRoot = p.TryGetProperty("contentRoot", out var crEl) ? crEl.GetString() : null;
+                var mcVersion = p.TryGetProperty("mcVersion", out var mcEl) ? mcEl.GetString() : null;
+                return await ImportPackCoreAsync(stdout, packPath, targetId, isolated, mcVersion, contentRoot);
+            }
+
+            case "content.translate":
+            {
+                var raw = p.TryGetProperty("query", out var qEl2) && qEl2.ValueKind == JsonValueKind.String
+                    ? qEl2.GetString() ?? ""
+                    : "";
+                var translated = await _translation.TranslateAsync(raw);
+                return new
+                {
+                    original = translated.Original,
+                    effective = translated.Effective,
+                    translated = translated.Translated,
+                    source = translated.SourceLabel,
+                };
+            }
+
+            case "content.installModpack":
+            {
+                var projectId = p.GetProperty("projectId").GetString()!;
+                var versions = await _modrinth.ListVersionsAsync(projectId, null, null);
+                var pick = versions.FirstOrDefault(v =>
+                               v.PrimaryFile is not null &&
+                               v.PrimaryFile.Filename.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
+                           ?? versions.FirstOrDefault(v => v.PrimaryFile is not null)
+                           ?? throw new Exception("该整合包没有可下载的文件。");
+                var file = pick.PrimaryFile!;
+                var title = await _modrinth.GetProjectTitleAsync(projectId) ?? projectId;
+                var targetId = p.TryGetProperty("targetId", out var tEl2) && tEl2.ValueKind == JsonValueKind.String &&
+                               !string.IsNullOrWhiteSpace(tEl2.GetString())
+                    ? tEl2.GetString()!
+                    : InstanceLayout.SafeFileName(title);
+                var dir = Path.Combine(Path.GetTempPath(), "starcloud-pack");
+                Directory.CreateDirectory(dir);
+                var dest = Path.Combine(dir, $"{Guid.NewGuid():N}.mrpack");
+                Emit(stdout, "modpack.progress", new { stage = $"下载 {file.Filename}", percent = -1 });
+                await _download.DownloadFileAsync(file.Url, dest, file.Sha1, 3);
                 try
                 {
-                    var targetId = p.GetProperty("targetId").GetString()!.Trim();
-                    if (!InstanceLayout.IsValidVersionId(targetId))
-                        throw new Exception("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
-                    var isolated = !p.TryGetProperty("isolated", out var isoEl) || isoEl.GetBoolean();
-                    var renamed = false;
-                    if (isolated && Directory.Exists(Path.Combine(_settings.DotMinecraft, "versions", targetId)))
-                    {
-                        targetId = NextVersionName(_settings.DotMinecraft, targetId);
-                        renamed = true;
-                    }
-                    var installRoot = isolated
-                        ? Path.Combine(_settings.DotMinecraft, "versions", targetId)
-                        : _settings.DotMinecraft;
-                    var progress = new Progress<BatchProgress>(b =>
-                        Emit(stdout, "modpack.progress", new { stage = b.Stage, percent = b.Percentage }));
-                    if (isolated) Directory.CreateDirectory(installRoot);
-                    var contentRoot = p.TryGetProperty("contentRoot", out var crEl) ? crEl.GetString() ?? "" : "";
-                    var mcVersion = p.TryGetProperty("mcVersion", out var mcEl) ? mcEl.GetString() ?? "" : "";
-                    var result = probe.Format switch
-                    {
-                        ModPackFormat.CurseForge => await _cfPacks.InstallAsync(effective, _settings, installRoot, null, progress),
-                        ModPackFormat.MultiMc => await _multiMcPacks.InstallAsync(effective, _settings, installRoot, null, progress),
-                        ModPackFormat.Raw => await InstallPackRawAsync(effective, contentRoot, installRoot, mcVersion, progress),
-                        _ => await _mrPack.InstallAsync(effective, _settings, installRoot, null, progress),
-                    };
-                    var summary = await EnsurePackGameAndLoaderAsync(result, progress);
-                    if (isolated)
-                    {
-                        var parent = PackLoaderVersionId(_settings.DotMinecraft, result.GameVersion, result.Dependencies)
-                            ?? result.GameVersion;
-                        var jsonPath = Path.Combine(installRoot, $"{targetId}.json");
-                        if (!File.Exists(jsonPath) && parent.Length > 0)
-                        {
-                            var skeleton = new { id = targetId, inheritsFrom = parent, type = "release" };
-                            File.WriteAllText(jsonPath, JsonSerializer.Serialize(skeleton, JsonOpts));
-                        }
-                        var store = new InstanceSettingsStore(_settings.DotMinecraft);
-                        store.Set(targetId, new VersionProfile { Isolation = "isolated" });
-                        store.Save();
-                    }
-                    return new { ok = true, targetId, renamed, isolated, summary, gameVersion = result.GameVersion };
+                    return await ImportPackCoreAsync(stdout, dest, targetId, isolated: true, mcVersion: null, contentRoot: null);
                 }
                 finally
                 {
-                    if (!ReferenceEquals(effective, packPath))
-                    {
-                        try { File.Delete(effective); } catch { }
-                    }
+                    try { File.Delete(dest); } catch { }
                 }
             }
-
             case "versions.backupList":
             {
                 var versionId = p.TryGetProperty("versionId", out var blEl) && blEl.ValueKind == JsonValueKind.String
@@ -2579,6 +2578,65 @@ public static class Program
         return manifest.Versions.FirstOrDefault(v => v.Id == versionId);
     }
 
+    /// <summary>整合包导入核心（文件导入与「下载页一键安装整合包」共用）。</summary>
+    private static async Task<object> ImportPackCoreAsync(
+        TextWriter stdout, string packPath, string targetId, bool isolated,
+        string? mcVersion, string? contentRoot)
+    {
+        var probe = ModPackDetector.Detect(packPath)
+            ?? throw new Exception("未能识别整合包格式。");
+        var effective = probe.Format == ModPackFormat.Raw
+            ? packPath
+            : ModPackArchive.FlattenIfNested(packPath, probe);
+        try
+        {
+            targetId = targetId.Trim();
+            if (!InstanceLayout.IsValidVersionId(targetId))
+                throw new Exception("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
+            var renamed = false;
+            if (isolated && Directory.Exists(Path.Combine(_settings.DotMinecraft, "versions", targetId)))
+            {
+                targetId = NextVersionName(_settings.DotMinecraft, targetId);
+                renamed = true;
+            }
+            var installRoot = isolated
+                ? Path.Combine(_settings.DotMinecraft, "versions", targetId)
+                : _settings.DotMinecraft;
+            var progress = new Progress<BatchProgress>(b =>
+                Emit(stdout, "modpack.progress", new { stage = b.Stage, percent = b.Percentage }));
+            if (isolated) Directory.CreateDirectory(installRoot);
+            var result = probe.Format switch
+            {
+                ModPackFormat.CurseForge => await _cfPacks.InstallAsync(effective, _settings, installRoot, null, progress),
+                ModPackFormat.MultiMc => await _multiMcPacks.InstallAsync(effective, _settings, installRoot, null, progress),
+                ModPackFormat.Raw => await InstallPackRawAsync(effective, contentRoot ?? "", installRoot, mcVersion ?? "", progress),
+                _ => await _mrPack.InstallAsync(effective, _settings, installRoot, null, progress),
+            };
+            var summary = await EnsurePackGameAndLoaderAsync(result, progress);
+            if (isolated)
+            {
+                var parent = PackLoaderVersionId(_settings.DotMinecraft, result.GameVersion, result.Dependencies)
+                    ?? result.GameVersion;
+                var jsonPath = Path.Combine(installRoot, $"{targetId}.json");
+                if (!File.Exists(jsonPath) && parent.Length > 0)
+                {
+                    var skeleton = new { id = targetId, inheritsFrom = parent, type = "release" };
+                    File.WriteAllText(jsonPath, JsonSerializer.Serialize(skeleton, JsonOpts));
+                }
+                var store = new InstanceSettingsStore(_settings.DotMinecraft);
+                store.Set(targetId, new VersionProfile { Isolation = "isolated" });
+                store.Save();
+            }
+            return new { ok = true, targetId, renamed, isolated, summary, gameVersion = result.GameVersion };
+        }
+        finally
+        {
+            if (!ReferenceEquals(effective, packPath))
+            {
+                try { File.Delete(effective); } catch { }
+            }
+        }
+    }
     // ── 整合包 / 备份辅助（对齐 Win 端 ModPackDialogs / MrPackFlow） ──────
 
     private static IProgress<BatchProgress> PackProgress(TextWriter stdout) =>
@@ -3132,7 +3190,7 @@ public static class Program
     // ── 外部插件（v2 沙箱）：清单/权限/安装/启停状态 ─────────────────────────
 
     /// <summary>与 Windows 端一致的启动器版本（manifest 兼容性校验用）。</summary>
-    private const string LauncherVersion = "0.3.9";
+    private const string LauncherVersion = "0.3.8";
 
     private static readonly object PluginGate = new();
 
@@ -3561,7 +3619,7 @@ public static class Program
 
     private static string NormalizeKind(string? kind) => kind switch
     {
-        "mod" or "resourcepack" or "shader" => kind,
+        "mod" or "resourcepack" or "shader" or "datapack" or "modpack" => kind,
         _ => throw new Exception($"未知内容类别：{kind}"),
     };
 
