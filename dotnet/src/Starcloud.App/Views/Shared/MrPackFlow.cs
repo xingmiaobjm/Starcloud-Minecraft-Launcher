@@ -29,7 +29,7 @@ internal static class MrPackFlow
             try
             {
                 var v = await s.Installer.LoadVersionAsync(s.Settings.DotMinecraft, game);
-                javaMajor = v.JavaVersion?.MajorVersion ?? 8;
+                javaMajor = JavaRequirement.Resolve(game, v.JavaVersion);
             }
             catch { /* 读取失败按 Java 8 兜底，安装器会自动补齐运行时 */ }
 

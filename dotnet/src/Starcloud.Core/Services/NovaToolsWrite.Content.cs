@@ -123,7 +123,7 @@ public sealed partial class NovaToolRegistry
         try
         {
             var v = await _c.Installer.LoadVersionAsync(s.DotMinecraft, gameVersion, ct);
-            javaMajor = v.JavaVersion?.MajorVersion ?? 8;
+            javaMajor = JavaRequirement.Resolve(gameVersion, v.JavaVersion);
         }
         catch { /* 读取失败按 Java 8 兜底，安装器会自行补齐运行时 */ }
 

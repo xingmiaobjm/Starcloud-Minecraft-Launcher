@@ -211,8 +211,9 @@ public sealed class JavaVersionRef
     [JsonPropertyName("component")]
     public string Component { get; set; } = "java-runtime-generic";
 
+    /// <summary>所需 Java 主版本；0 = 元数据未提供（由 JavaRequirement 按版本号推断）</summary>
     [JsonPropertyName("majorVersion")]
-    public int MajorVersion { get; set; } = 8;
+    public int MajorVersion { get; set; }
 }
 
 public sealed class Library

@@ -2934,7 +2934,7 @@ public static class Program
             try
             {
                 var v = await _installer.LoadVersionAsync(_settings.DotMinecraft, game);
-                javaMajor = v.JavaVersion?.MajorVersion ?? 8;
+                javaMajor = JavaRequirement.Resolve(game, v.JavaVersion);
             }
             catch { }
 

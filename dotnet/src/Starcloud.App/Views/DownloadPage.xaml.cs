@@ -695,7 +695,7 @@ public sealed partial class DownloadPage : Page
             try
             {
                 var version = await _s.Installer.LoadVersionAsync(_s.Settings.DotMinecraft, id);
-                javaMajor = version.JavaVersion?.MajorVersion ?? 8;
+                javaMajor = JavaRequirement.Resolve(id, version.JavaVersion);
             }
             catch { /* 读取失败时按 Java 8 兜底，EnsureJava 会自动补齐 */ }
 

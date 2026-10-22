@@ -178,7 +178,7 @@ public sealed class EnvironmentCheckService
             try
             {
                 var version = await _installer.LoadVersionAsync(dotMc, versionId, ct).ConfigureAwait(false);
-                required = version.JavaVersion?.MajorVersion ?? 8;
+                required = JavaRequirement.Resolve(versionId, version.JavaVersion);
             }
             catch { /* 读不到版本 JSON 就按 8 处理 */ }
 

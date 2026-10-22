@@ -200,7 +200,7 @@ public sealed class CrashAnalysisService
         try
         {
             var version = await _installer.LoadVersionAsync(dotMc, versionId, ct).ConfigureAwait(false);
-            return version.JavaVersion?.MajorVersion ?? 8;
+            return JavaRequirement.Resolve(versionId, version.JavaVersion);
         }
         catch { return 8; }
     }

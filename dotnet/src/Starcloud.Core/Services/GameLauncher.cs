@@ -320,14 +320,25 @@ public sealed class GameLauncher
         if (_java is null)
             throw new InvalidOperationException(
                 $"未找到可用的 Java。请在设置页指定 {PlatformInfo.JavaExeName} 路径");
-        var required = version.JavaVersion?.MajorVersion ?? 8;
+        var required = JavaRequirement.Resolve(version.Id, version.JavaVersion);
         var runtimes = await _java.ListRuntimesAsync(ct, Path.Combine(dotMc, "runtime"));
         var fit = runtimes
             .Where(r => r.MajorVersion >= required)
             .OrderByDescending(r => r.MajorVersion == required)
             .ThenBy(r => r.MajorVersion)
             .FirstOrDefault();
-        if (fit is not null) return fit.Executable;
+        if (fit is not null)
+        {
+            LauncherLog.Write("java",
+                $"自动选择 Java：版本 {version.Id} 需要 >={required}，" +
+                $"候选 [{string.Join(", ", runtimes.Select(r => r.MajorVersion).Distinct().OrderBy(m => m))}]，" +
+                $"选中 {fit.MajorVersion}（{fit.VersionString}）");
+            return fit.Executable;
+        }
+        LauncherLog.Write("java",
+            $"自动选择 Java：版本 {version.Id} 需要 >={required}，" +
+            $"候选 [{string.Join(", ", runtimes.Select(r => r.MajorVersion).Distinct().OrderBy(m => m))}]，" +
+            "没有满足条件的运行时，开始下载");
         // 系统与启动器都没有合适版本：自动下载（与 Forge 安装器同款兜底）
         return await _java.DownloadRuntimeAsync(required, null, ct);
     }
