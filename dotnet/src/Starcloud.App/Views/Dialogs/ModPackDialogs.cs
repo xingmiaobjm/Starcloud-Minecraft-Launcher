@@ -182,10 +182,16 @@ public static class ModPackDialogs
         return string.Join(" · ", parts);
     }
 
+    /// <summary>没有逐文件清单、需要按内容铺入的格式（含用户自填 MC 版本）</summary>
+    private static bool IsLooseContent(ModPackFormat format) =>
+        format is ModPackFormat.Raw or ModPackFormat.Packwiz or ModPackFormat.AtLauncher;
+
     private static string FormatLabel(ModPackFormat format) => format switch
     {
         ModPackFormat.CurseForge => Loc.T("CurseForge 整合包"),
         ModPackFormat.MultiMc => Loc.T("MultiMC / Prism 实例包"),
+        ModPackFormat.Packwiz => Loc.T("packwiz 整合包"),
+        ModPackFormat.AtLauncher => Loc.T("ATLauncher 实例包"),
         ModPackFormat.Raw => Loc.T("通用压缩包"),
         _ => Loc.T("Modrinth 整合包"),
     };
@@ -213,7 +219,7 @@ public static class ModPackDialogs
         }
 
         // 外层多套了一层目录的包先重打成根级包（裸内容包不重打：它按内容根直接铺）
-        var effective = probe.Format == ModPackFormat.Raw
+        var effective = IsLooseContent(probe.Format)
             ? packPath
             : ModPackArchive.FlattenIfNested(packPath, probe);
         try
@@ -253,10 +259,18 @@ public static class ModPackDialogs
                 return new PackPreview(probe.Format, info.Name, info.GameVersion, info.Dependencies,
                     info.FileCount, info.TotalBytes, probe.Root);
             }
+            case ModPackFormat.Packwiz:
+            case ModPackFormat.AtLauncher:
             case ModPackFormat.Raw:
             {
                 var (count, bytes) = MeasurePrefix(packPath, probe.Root);
-                return new PackPreview(probe.Format, Path.GetFileNameWithoutExtension(packPath), "",
+                var name = probe.Format switch
+                {
+                    ModPackFormat.Packwiz => ReadPackwizName(packPath, probe.Root),
+                    ModPackFormat.AtLauncher => ReadAtLauncherName(packPath, probe.Root),
+                    _ => Path.GetFileNameWithoutExtension(packPath),
+                };
+                return new PackPreview(probe.Format, name, "",
                     new Dictionary<string, string>(), count, bytes, probe.Root);
             }
             default:
@@ -286,6 +300,52 @@ public static class ModPackDialogs
         return (count, bytes);
     }
 
+    /// <summary>packwiz：从根目录 pack.toml 的 name/version 取展示名（读不到就用文件名）</summary>
+    private static string ReadPackwizName(string packPath, string root)
+    {
+        try
+        {
+            var entryName = string.IsNullOrEmpty(root) ? "pack.toml" : root + "/pack.toml";
+            using var zip = PackZip.Open(packPath);
+            var entry = zip.Entries.FirstOrDefault(e =>
+                e.FullName.Replace('\\', '/').Equals(entryName, StringComparison.OrdinalIgnoreCase));
+            if (entry is null) return Path.GetFileNameWithoutExtension(packPath);
+            using var reader = new StreamReader(entry.Open());
+            for (var i = 0; i < 40 && reader.ReadLine() is { } line; i++)
+            {
+                var t = line.Trim();
+                if (!t.StartsWith("name", StringComparison.OrdinalIgnoreCase)) continue;
+                var eq = t.IndexOf('=');
+                if (eq < 0) continue;
+                var value = t[(eq + 1)..].Trim().Trim('"');
+                if (value.Length > 0) return value;
+            }
+        }
+        catch { /* 名称读不到不影响导入 */ }
+        return Path.GetFileNameWithoutExtension(packPath);
+    }
+
+    /// <summary>ATLauncher：instance.json 的 name 字段</summary>
+    private static string ReadAtLauncherName(string packPath, string root)
+    {
+        try
+        {
+            var entryName = string.IsNullOrEmpty(root) ? "instance.json" : root + "/instance.json";
+            using var zip = PackZip.Open(packPath);
+            var entry = zip.Entries.FirstOrDefault(e =>
+                e.FullName.Replace('\\', '/').Equals(entryName, StringComparison.OrdinalIgnoreCase));
+            if (entry is not null)
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(PackJson.ReadText(entry.Open()));
+                if (doc.RootElement.TryGetProperty("name", out var n) &&
+                    n.GetString() is { Length: > 0 } name)
+                    return name;
+            }
+        }
+        catch { /* 同上 */ }
+        return Path.GetFileNameWithoutExtension(packPath);
+    }
+
     /// <summary>裸内容包：把内容根下的文件原样铺进实例目录（不联网）。</summary>
     private static Task<MrPackInstallResult> InstallRawAsync(
         string packPath, string contentRoot, string installRoot, string mcVersion,
@@ -296,6 +356,7 @@ public static class ModPackDialogs
             var prefix = string.IsNullOrEmpty(contentRoot) ? "" : contentRoot + "/";
             using var zip = PackZip.Open(packPath);
             var done = 0;
+            var skipped = 0;
             long doneBytes = 0;
             var (total, totalBytes) = (0, 0L);
             foreach (var entry in zip.Entries)
@@ -313,20 +374,33 @@ public static class ModPackDialogs
                 var name = entry.FullName.Replace('\\', '/');
                 if (prefix.Length > 0 && !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
                 var rel = prefix.Length == 0 ? name : name[prefix.Length..];
-                var dest = PackPathGuard.Resolve(installRoot, rel);
+                // 清洗模式：冒号/问号/星号等 Windows 非法字符替换后仍然落盘（Linux 打的包常见）
+                var dest = PackPathGuard.Resolve(installRoot, rel, sanitize: true);
                 if (dest is null)
                 {
                     LauncherLog.Write("pack", $"跳过非法路径条目：{entry.FullName}");
                     continue;
                 }
-                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-                entry.ExtractToFile(dest, overwrite: true);
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                    entry.ExtractToFile(dest, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    // 个别条目损坏/被占用不该让整包导入失败
+                    skipped++;
+                    LauncherLog.Write("pack", $"解压失败已跳过：{entry.FullName}（{ex.Message}）");
+                    continue;
+                }
                 done++;
                 doneBytes += Math.Max(entry.Length, 0);
                 if (done % 32 == 0 || done == total)
                     progress?.Report(new BatchProgress("实例文件", done, total, doneBytes, totalBytes, 0, null));
             }
 
+            if (skipped > 0)
+                LauncherLog.Write("pack", $"导入完成：{done} 个文件写入，{skipped} 个跳过（损坏或名称非法）");
             return new MrPackInstallResult(mcVersion, new Dictionary<string, string>(), done, doneBytes);
         });
     }
@@ -344,7 +418,7 @@ public static class ModPackDialogs
 
         // 裸内容包没有清单可依，用户填的版本必须是官方清单里存在的，否则版本骨架会指向不存在的父版本
         HashSet<string>? knownVersions = null;
-        if (preview.Format == ModPackFormat.Raw)
+        if (IsLooseContent(preview.Format))
         {
             try
             {
@@ -402,7 +476,7 @@ public static class ModPackDialogs
             });
             panel.Children.Add(new TextBlock { Text = Loc.T("新建版本名称"), FontSize = 12, Opacity = 0.8 });
             panel.Children.Add(nameBox);
-            if (preview.Format == ModPackFormat.Raw)
+            if (IsLooseContent(preview.Format))
             {
                 mcBox = new TextBox { PlaceholderText = Loc.T("例如 1.20.1") };
                 panel.Children.Add(new TextBlock
@@ -414,7 +488,9 @@ public static class ModPackDialogs
                 panel.Children.Add(mcBox);
                 panel.Children.Add(new TextBlock
                 {
-                    Text = Loc.T("这个压缩包没有整合包清单，请填写它对应的 Minecraft 版本；导入时会联动安装该原版。"),
+                    Text = preview.Format == ModPackFormat.Packwiz
+                        ? Loc.T("这是 packwiz 整合包：mod 由包内索引引用，不在压缩包里。本次会导入配置与环境文件，缺失的 mod 需要在游戏内由 packwiz 拉取。请填写对应的 Minecraft 版本。")
+                        : Loc.T("这个压缩包没有整合包清单，请填写它对应的 Minecraft 版本；导入时会联动安装该原版。"),
                     FontSize = 12,
                     Opacity = 0.8,
                     TextWrapping = TextWrapping.Wrap,
@@ -445,7 +521,7 @@ public static class ModPackDialogs
                 hint.Text = Loc.T("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
                 continue;
             }
-            if (preview.Format == ModPackFormat.Raw)
+            if (IsLooseContent(preview.Format))
             {
                 var mc = mcBox?.Text.Trim() ?? "";
                 if (mc.Length == 0)
@@ -496,7 +572,8 @@ public static class ModPackDialogs
             {
                 ModPackFormat.CurseForge => await s.CurseForgePacks.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
                 ModPackFormat.MultiMc => await s.MultiMc.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
-                ModPackFormat.Raw => await InstallRawAsync(packPath, preview.ContentRoot, installRoot,
+                ModPackFormat.Packwiz or ModPackFormat.AtLauncher or ModPackFormat.Raw
+                    => await InstallRawAsync(packPath, preview.ContentRoot, installRoot,
                     typedMc, progress),
                 _ => await s.MrPack.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
             };

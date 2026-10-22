@@ -15,6 +15,10 @@ public enum ModPackFormat
     Modrinth,
     CurseForge,
     MultiMc,
+    /// <summary>packwiz（pack.toml + index）：mod 由索引里的 URL 引用，不是打包在 zip 里</summary>
+    Packwiz,
+    /// <summary>ATLauncher（instance.json）：结构接近 MultiMC，按裸内容铺入</summary>
+    AtLauncher,
     /// <summary>没有清单文件的通用 zip：按 .minecraft / mods / config 结构直接铺进实例</summary>
     Raw,
 }
@@ -144,6 +148,8 @@ public static class ModPackDetector
                 "modrinth.index.json" => ModPackFormat.Modrinth,
                 "manifest.json" => LooksLikeCurseForge(entry) ? ModPackFormat.CurseForge : null,
                 "mmc-pack.json" or "instance.cfg" => ModPackFormat.MultiMc,
+                "pack.toml" => LooksLikePackwiz(entry) ? ModPackFormat.Packwiz : null,
+                "instance.json" => LooksLikeAtLauncher(entry) ? ModPackFormat.AtLauncher : null,
                 _ => null,
             };
             if (format is null) continue;
@@ -152,7 +158,11 @@ public static class ModPackDetector
                 best[format.Value] = (dir, depth);
         }
 
-        ModPackFormat[] priority = [ModPackFormat.Modrinth, ModPackFormat.CurseForge, ModPackFormat.MultiMc];
+        ModPackFormat[] priority =
+        [
+            ModPackFormat.Modrinth, ModPackFormat.CurseForge, ModPackFormat.MultiMc,
+            ModPackFormat.Packwiz, ModPackFormat.AtLauncher,
+        ];
         foreach (var format in priority)
         {
             if (best.TryGetValue(format, out var hit))
@@ -222,6 +232,41 @@ public static class ModPackDetector
         ("shaderpacks/", 8, false),
     ];
 
+    /// <summary>packwiz 的 pack.toml 必须是 TOML（含 [index] 段或 name/version 键），排除同名杂项</summary>
+    private static bool LooksLikePackwiz(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var stream = entry.Open();
+            using var reader = new StreamReader(stream);
+            var text = reader.ReadToEnd();
+            if (text.Length == 0 || text.Length > 256 * 1024) return false;
+            return text.Contains("[index]", StringComparison.OrdinalIgnoreCase)
+                   || text.Contains("name =", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>ATLauncher 的 instance.json 是对象且含 launcher/id 之一；MultiMC 用的是 mmc-pack.json</summary>
+    private static bool LooksLikeAtLauncher(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var stream = entry.Open();
+            using var doc = JsonDocument.Parse(PackJson.ReadText(stream));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            return doc.RootElement.TryGetProperty("launcher", out _)
+                   || doc.RootElement.TryGetProperty("id", out _);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>CurseForge 的 manifest.json 必须带 minecraft 字段，否则只是同名文件</summary>
     private static bool LooksLikeCurseForge(ZipArchiveEntry entry)
     {
@@ -278,8 +323,12 @@ public static class ModPackArchive
 /// <summary>整合包内路径安全：拒绝穿越与非法段，保证落点始终在目标根目录内</summary>
 public static class PackPathGuard
 {
-    /// <summary>规范化包内相对路径为 posix 形式；非法（绝对路径、盘符、含 ..）返回 null</summary>
-    public static string? Normalize(string? relative)
+    /// <summary>
+    /// 规范化包内相对路径为 posix 形式；非法（绝对路径、盘符、含 ..）返回 null。
+    /// sanitize = true 时把 Windows 非法字符替换成下划线而不是丢弃整条路径——
+    /// 从 Linux 打的包经常带冒号、问号、星号，旧行为会静默少装文件。
+    /// </summary>
+    public static string? Normalize(string? relative, bool sanitize = false)
     {
         if (string.IsNullOrWhiteSpace(relative)) return null;
         var s = relative.Replace('\\', '/').Trim();
@@ -294,17 +343,28 @@ public static class PackPathGuard
             var seg = raw.Trim();
             if (seg.Length == 0 || seg == ".") continue;
             if (seg == "..") return null;
-            if (seg.Contains(':')) return null;
-            if (seg.IndexOfAny(invalid) >= 0) return null;
-            parts.Add(seg);
+            if (!sanitize)
+            {
+                if (seg.Contains(':')) return null;
+                if (seg.IndexOfAny(invalid) >= 0) return null;
+                parts.Add(seg);
+                continue;
+            }
+            // 清洗模式：非法字符换成下划线，保留文件而不是整条跳过
+            var cleaned = new System.Text.StringBuilder(seg.Length);
+            foreach (var c in seg)
+                cleaned.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+            var name = cleaned.ToString().Trim().TrimEnd('.');
+            if (name.Length == 0 || name == "." || name == "..") continue;
+            parts.Add(name);
         }
         return parts.Count == 0 ? null : string.Join('/', parts);
     }
 
     /// <summary>把包内相对路径解析为根目录下的绝对路径；越界或非法返回 null</summary>
-    public static string? Resolve(string root, string? relative)
+    public static string? Resolve(string root, string? relative, bool sanitize = false)
     {
-        var norm = Normalize(relative);
+        var norm = Normalize(relative, sanitize);
         if (norm is null) return null;
         var rootFull = Path.GetFullPath(root);
         var full = Path.GetFullPath(Path.Combine(rootFull, norm.Replace('/', Path.DirectorySeparatorChar)));
