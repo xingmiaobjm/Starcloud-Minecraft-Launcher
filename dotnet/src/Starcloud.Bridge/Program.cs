@@ -55,6 +55,8 @@ public static class Program
     private static MultiMcPackService _multiMcPacks = null!;
     private static VersionBackupService _versionBackup = null!;
     private static GameDiagnosticsService _diagnostics = null!;
+    private static ResourceCacheService _resourceCache = null!;
+    private static SelfUpdateService _selfUpdate = null!;
     private static SearchTranslationService _translation = null!;
     private static NovaService _nova = null!;
     private static PluginHost _pluginHost = null!;
@@ -133,6 +135,8 @@ public static class Program
 
         // Nova：只读工具集（跨端最小实现先打通对话与查询；写操作留给后续确认清单）。
         _diagnostics = new GameDiagnosticsService(_installer, _manifest);
+        _resourceCache = new ResourceCacheService(() => _settings);
+        _selfUpdate = new SelfUpdateService(() => _settings);
         var diagnostics = _diagnostics;
         var conflicts = new ModConflictService();
         var novaPermissions = new NovaPermissionStore();
@@ -312,6 +316,8 @@ public static class Program
             or "projections.delete"
             or "plugins.invoke"
             or "lab.colorText"
+            or "settings.checkUpdate" or "saves.exportShare" or "saves.importShare"
+            or "saves.copyToVersion"
             or "runtime.diagnose"
             or "versions.rename" or "versions.copy" or "versions.exportProbe"
             or "versions.exportModpack" or "versions.resolvePackLink"
@@ -2428,6 +2434,83 @@ public static class Program
                 return new { ok = true, text = result };
             }
 
+            case "settings.clearCache":
+                _resourceCache.ClearAll();
+                return new { ok = true };
+
+            case "settings.checkUpdate":
+            {
+                var manifest = await _selfUpdate.FetchManifestAsync();
+                return new
+                {
+                    version = manifest.Version,
+                    notes = manifest.Notes,
+                    notesEn = manifest.NotesEn,
+                    publishedAt = manifest.PublishedAt,
+                    capability = SelfUpdateService.Capability.ToString(),
+                    current = LauncherVersion,
+                    hasUpdate = !string.IsNullOrEmpty(manifest.Version) &&
+                                 !string.Equals(manifest.Version, LauncherVersion, StringComparison.Ordinal),
+                    downloadUrl = _selfUpdate.ManifestUrl,
+                };
+            }
+
+            case "saves.exportShare":
+            {
+                var (shareRoot, shareFolder) = SaveTarget(p);
+                var dest = p.GetProperty("destPath").GetString()!;
+                var zip = _saves.ExportForShare(shareRoot, shareFolder, dest);
+                return new { ok = true, path = zip, sizeBytes = new FileInfo(zip).Length };
+            }
+
+            case "saves.importShare":
+            {
+                var zip = p.GetProperty("zipPath").GetString()!;
+                if (!SaveService.IsValidSharePackage(zip))
+                    throw new Exception("这不是有效的世界分享包（zip 根目录缺少 level.dat）");
+                var importRoot = p.TryGetProperty("gameRoot", out var irEl) &&
+                                irEl.ValueKind == JsonValueKind.String
+                    ? irEl.GetString()!
+                    : _settings.DotMinecraft;
+                var folder = _saves.ImportShared(zip, importRoot);
+                return new { ok = true, folderName = folder };
+            }
+
+            case "saves.copyToVersion":
+            {
+                var (copyFromRoot, copyFolder) = SaveTarget(p);
+                var targetVersion = p.GetProperty("targetVersionId").GetString()!;
+                if (!InstanceLayout.IsValidVersionId(targetVersion))
+                    throw new Exception("非法版本 id");
+                var store = new InstanceSettingsStore(_settings.DotMinecraft);
+                var targetIsolated = InstanceLayout.IsIsolated(store.Get(targetVersion), _settings);
+                var targetRoot = InstanceLayout.GameRoot(_settings.DotMinecraft, targetVersion, targetIsolated);
+                if (string.Equals(targetRoot, copyFromRoot, StringComparison.OrdinalIgnoreCase))
+                    throw new Exception("目标版本与源世界使用同一游戏目录，无需复制");
+                var srcDir = Path.Combine(copyFromRoot, "saves", copyFolder);
+                if (!Directory.Exists(srcDir))
+                    throw new Exception($"存档目录不存在：{copyFolder}");
+                var targetSaves = Path.Combine(targetRoot, "saves");
+                Directory.CreateDirectory(targetSaves);
+                var finalName = NextAvailableDir(targetSaves, $"{copyFolder}-来自 {targetVersion}");
+                var dstDir = Path.Combine(targetSaves, finalName);
+                try
+                {
+                    CopyDirectory(srcDir, dstDir);
+                }
+                catch
+                {
+                    try { if (Directory.Exists(dstDir)) Directory.Delete(dstDir, true); } catch { }
+                    throw;
+                }
+                return new
+                {
+                    ok = true,
+                    folderName = finalName,
+                    gameRoot = targetRoot,
+                    versionId = targetVersion,
+                };
+            }
             case "runtime.state":
                 return RuntimePayload();
 
@@ -2572,6 +2655,28 @@ public static class Program
                 try { File.Delete(effective); } catch { }
             }
         }
+    }
+    /// <summary>递归复制目录（跨版本复制世界用）。</summary>
+    private static void CopyDirectory(string src, string dst)
+    {
+        Directory.CreateDirectory(dst);
+        foreach (var file in Directory.EnumerateFiles(src))
+        {
+            var name = Path.GetFileName(file);
+            if (name.Equals("session.lock", StringComparison.OrdinalIgnoreCase)) continue;
+            File.Copy(file, Path.Combine(dst, name), overwrite: true);
+        }
+        foreach (var dir in Directory.EnumerateDirectories(src))
+            CopyDirectory(dir, Path.Combine(dst, Path.GetFileName(dir)));
+    }
+
+    /// <summary>目标目录下不重名的目录名（同名则加 -2、-3…）。</summary>
+    private static string NextAvailableDir(string parent, string baseName)
+    {
+        var name = baseName;
+        for (var i = 2; Directory.Exists(Path.Combine(parent, name)); i++)
+            name = $"{baseName}-{i}";
+        return name;
     }
     // ── 整合包 / 备份辅助（对齐 Win 端 ModPackDialogs / MrPackFlow） ──────
 
