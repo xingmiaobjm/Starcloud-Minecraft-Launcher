@@ -208,6 +208,9 @@ public sealed class GameRuntimeMonitor : IDisposable
     {
         lock (_gate)
         {
+            // 显式 pid 可能来自「刚打开运行状态页/刚拉起桥接」的瞬间，发现还没跑过一轮：
+            // 先扫描实例注册文件，否则 ResolveLocked 找不到目标会静默 no-op。
+            if (pid > 0 && !_states.ContainsKey(pid)) DiscoverLocked();
             var st = ResolveLocked(pid);
             if (st is null) return;
             st.KilledByUser = true;

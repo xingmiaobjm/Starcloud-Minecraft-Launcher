@@ -55,6 +55,7 @@ public static class Program
     private static MultiMcPackService _multiMcPacks = null!;
     private static VersionBackupService _versionBackup = null!;
     private static ProjectionCommunityService _projectionCommunity = null!;
+    private static GameDiagnosticsService _diagnostics = null!;
     private static NovaService _nova = null!;
     private static PluginHost _pluginHost = null!;
     private static Task? _novaTask;
@@ -102,6 +103,16 @@ public static class Program
         _multiMcPacks = new MultiMcPackService();
         _versionBackup = new VersionBackupService();
         _projectionCommunity = new ProjectionCommunityService(() => _settings, _download);
+
+        // 运行态监控（Core 单例）：1s 采样、跨重启恢复、结束进程都走它，
+        // 与 Win 的 RunningStatusPage 同一份数据源。
+        GameRuntimeMonitor.Instance.Configure(() => _settings.DotMinecraft);
+        GameRuntimeMonitor.Instance.Changed += _ =>
+        {
+            try { Emit(stdout, "runtime.changed", RuntimePayload()); }
+            catch { /* 采样线程里不抛 */ }
+        };
+        GameRuntimeMonitor.Instance.Start();
         _saves = new SaveService();
         _saveLibrary = new SaveLibraryService(_manifest, _saves);
         _projections = new ProjectionLibrary(() => _settings);
@@ -122,7 +133,8 @@ public static class Program
         _multiplayer.StartPolling();
 
         // Nova：只读工具集（跨端最小实现先打通对话与查询；写操作留给后续确认清单）。
-        var diagnostics = new GameDiagnosticsService(_installer, _manifest);
+        _diagnostics = new GameDiagnosticsService(_installer, _manifest);
+        var diagnostics = _diagnostics;
         var conflicts = new ModConflictService();
         var novaPermissions = new NovaPermissionStore();
         var novaLog = new NovaActionLog();
@@ -301,6 +313,7 @@ public static class Program
             or "plugins.invoke"
             or "lab.colorText" or "lab.commands" or "lab.buildCommand"
             or "lab.communitySearch" or "lab.communityFiles" or "lab.communityDownload"
+            or "runtime.diagnose"
             or "versions.rename" or "versions.copy" or "versions.exportProbe"
             or "versions.exportModpack" or "versions.resolvePackLink"
             or "versions.downloadPack" or "versions.packPreview" or "versions.importPack"
@@ -1881,6 +1894,16 @@ public static class Program
 
                 var session = await _launcher.LaunchVersionAsync(
                     _settings.DotMinecraft, versionId, options);
+                try
+                {
+                    GameRuntimeMonitor.Instance.Attach(session,
+                        GameLaunchContextStore.Capture(versionId, eff,
+                            GameLaunchContextStore.CountFiles(Path.Combine(eff.GameRoot, "mods")),
+                            GameLaunchContextStore.CountFiles(Path.Combine(eff.GameRoot, "shaderpacks")),
+                            GameLaunchContextStore.CountFiles(Path.Combine(eff.GameRoot, "resourcepacks"))),
+                        session.CommandLine);
+                }
+                catch { /* 监控接管失败不阻塞启动 */ }
                 var sessionId = ++_nextSessionId;
                 Sessions[sessionId] = session;
                 session.OutputLine += line =>
@@ -2470,6 +2493,54 @@ public static class Program
                 var saved = await _projectionCommunity.DownloadAsync(file, dir);
                 return new { ok = true, path = saved };
             }
+            case "runtime.state":
+                return RuntimePayload();
+
+            case "runtime.select":
+            {
+                GameRuntimeMonitor.Instance.Select(p.GetProperty("pid").GetInt32());
+                return RuntimePayload();
+            }
+
+            case "runtime.interval":
+            {
+                var ms = p.GetProperty("ms").GetInt32();
+                GameRuntimeMonitor.Instance.IntervalMs = Math.Clamp(ms, 500, 10000);
+                return RuntimePayload();
+            }
+
+            case "runtime.gpu":
+            {
+                GameRuntimeMonitor.Instance.CollectGpu =
+                    p.TryGetProperty("enabled", out var ge) && ge.GetBoolean();
+                return RuntimePayload();
+            }
+
+            case "runtime.kill":
+            {
+                var pid = p.TryGetProperty("pid", out var kp) ? kp.GetInt32() : 0;
+                GameRuntimeMonitor.Instance.Kill(pid);
+                return new { ok = true };
+            }
+
+            case "runtime.logs":
+            {
+                var count = p.TryGetProperty("lines", out var ln) ? ln.GetInt32() : 200;
+                return new { lines = GameRuntimeMonitor.Instance.TailLog(Math.Clamp(count, 1, 500)) };
+            }
+
+            case "runtime.diagnose":
+            {
+                var report = await _diagnostics.DiagnoseAsync(_settings.DotMinecraft);
+                return new
+                {
+                    scannedCount = report.ScannedCount,
+                    issues = report.Issues.Select(i => new
+                    {
+                        versionId = i.VersionId, kind = i.Kind, detail = i.Detail, autoFixable = i.AutoFixable,
+                    }),
+                };
+            }
             default:
                 throw new Exception($"未知方法：{method}");
         }
@@ -2824,6 +2895,72 @@ public static class Program
         return new CommunityProjection(
             S("source"), S("name"), S("author"), S("description"), I("stars"), D("updatedAt"),
             S("fullName"), S("htmlUrl"), S("imageUrl"));
+    }
+    // ── 运行状态（Win RunningStatusPage 的数据源） ──────────────────────
+
+    private static object RuntimeInstancePayload(GameRunInfo i) => new
+    {
+        pid = i.Pid,
+        versionId = i.VersionId,
+        startedAt = i.StartedAt,
+        uptimeSec = i.Uptime.TotalSeconds,
+        recovered = i.RecoveredFromLock,
+        cpuPercent = i.Latest.CpuPercent,
+        workingSetBytes = i.Latest.WorkingSetBytes,
+        peakWorkingSetBytes = i.Latest.PeakWorkingSetBytes,
+        threadCount = i.Latest.ThreadCount,
+        gpuPercent = i.Latest.GpuPercent,
+    };
+
+    private static object RuntimePayload()
+    {
+        var monitor = GameRuntimeMonitor.Instance;
+        var current = monitor.Current;
+        var ctx = monitor.LaunchContext;
+        var fallback = false;
+        if (ctx is null && current is not null)
+        {
+            ctx = RuntimeFallbackContext(current.VersionId);
+            fallback = ctx is not null;
+        }
+        return new
+        {
+            selectedPid = monitor.SelectedPid,
+            samplingPaused = monitor.SamplingPaused,
+            collectGpu = monitor.CollectGpu,
+            intervalMs = monitor.IntervalMs,
+            commandLine = monitor.CommandLine,
+            contextFallback = fallback,
+            context = ctx,
+            instances = monitor.Instances.Select(RuntimeInstancePayload),
+            samples = monitor.Samples(60).Select(s => new
+            {
+                at = s.At,
+                cpuPercent = s.CpuPercent,
+                workingSetBytes = s.WorkingSetBytes,
+                gpuPercent = s.GpuPercent,
+            }),
+        };
+    }
+
+    /// <summary>本轮启动上下文缺失时（上一轮启动器拉起的会话）按当前配置降级重算，Win 同款。</summary>
+    private static GameLaunchContext? RuntimeFallbackContext(string versionId)
+    {
+        if (string.IsNullOrEmpty(versionId) || versionId == "未知版本") return null;
+        try
+        {
+            var dotMc = _settings.DotMinecraft;
+            var profile = new InstanceSettingsStore(dotMc).Get(versionId);
+            var isolated = InstanceLayout.IsIsolated(profile, _settings);
+            var gameRoot = InstanceLayout.GameRoot(dotMc, versionId, isolated);
+            var eff = InstanceLayout.Resolve(dotMc, versionId, profile, _settings,
+                MemoryAdvisor.Probe(gameRoot));
+            return GameLaunchContextStore.Capture(versionId, eff,
+                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "mods")),
+                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "shaderpacks")),
+                GameLaunchContextStore.CountFiles(Path.Combine(gameRoot, "resourcepacks")));
+        }
+        catch { return null; }
     }
     private static bool IsBool(JsonElement e) =>
         e.ValueKind == JsonValueKind.True || e.ValueKind == JsonValueKind.False;
