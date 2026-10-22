@@ -12,8 +12,11 @@
     <ApplicationTitle>Starcloud</ApplicationTitle>
     <!-- 与 MAUI 壳同包名：adb install 直装时替换旧壳并继承 .minecraft 数据 -->
     <ApplicationId>cn.starcloud.launcher.android</ApplicationId>
-    <ApplicationDisplayVersion>0.2.0</ApplicationDisplayVersion>
-    <ApplicationVersion>2</ApplicationVersion>
+    <!-- 程序集版本要用纯数字：界面「测试版 V{程序集版本}」徽标取 AssemblyVersion，
+         带 -beta 会让 Version 解析失败并回退成 1.0.0 -->
+    <Version>0.3.9</Version>
+    <ApplicationDisplayVersion>0.3.9-beta</ApplicationDisplayVersion>
+    <ApplicationVersion>390</ApplicationVersion>
     <ApplicationPublisher>Starcloud</ApplicationPublisher>
     <Description>Starcloud 安卓端启动器（Uno Platform 壳）。</Description>
 

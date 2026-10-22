@@ -1753,11 +1753,8 @@ public sealed partial class HomePage : Page, IShellPage
 
     private void UpdateCheckCardVisibility()
     {
-        var hasInstalled = _rows.Count > 0;
-        var hasAccount = _s.Accounts.Accounts.Count > 0;
-        // 全部就绪后收起；Java 检测中保持显示以免闪动
-        CheckCard.Visibility = !hasInstalled || !hasAccount || _javaOk == false
-            ? Visibility.Visible : Visibility.Collapsed;
+        // 启动自检卡已下线：首页不再显示版本/账户/Java 三行体检（相关检测仍照常执行）
+        CheckCard.Visibility = Visibility.Collapsed;
     }
 
     private static void SetCheckRow(FontIcon icon, TextBlock text, HyperlinkButton go,
