@@ -54,7 +54,6 @@ public static class Program
     private static CurseForgePackInstaller _cfPacks = null!;
     private static MultiMcPackService _multiMcPacks = null!;
     private static VersionBackupService _versionBackup = null!;
-    private static ProjectionCommunityService _projectionCommunity = null!;
     private static GameDiagnosticsService _diagnostics = null!;
     private static SearchTranslationService _translation = null!;
     private static NovaService _nova = null!;
@@ -103,7 +102,6 @@ public static class Program
         _cfPacks = new CurseForgePackInstaller(_download, _curseForge);
         _multiMcPacks = new MultiMcPackService();
         _versionBackup = new VersionBackupService();
-        _projectionCommunity = new ProjectionCommunityService(() => _settings, _download);
 
         // 运行态监控（Core 单例）：1s 采样、跨重启恢复、结束进程都走它，
         // 与 Win 的 RunningStatusPage 同一份数据源。
@@ -313,8 +311,7 @@ public static class Program
             or "projections.scan" or "projections.copy" or "projections.move"
             or "projections.delete"
             or "plugins.invoke"
-            or "lab.colorText" or "lab.commands" or "lab.buildCommand"
-            or "lab.communitySearch" or "lab.communityFiles" or "lab.communityDownload"
+            or "lab.colorText"
             or "runtime.diagnose"
             or "versions.rename" or "versions.copy" or "versions.exportProbe"
             or "versions.exportModpack" or "versions.resolvePackLink"
@@ -2431,67 +2428,6 @@ public static class Program
                 return new { ok = true, text = result };
             }
 
-            case "lab.commands":
-                return new
-                {
-                    categories = CommandHelper.Categories,
-                    templates = CommandHelper.Templates.Select(t => new
-                    {
-                        t.Id, t.Category, t.Name, t.Template, t.Note,
-                        @params = t.Params.Select(x => new
-                        {
-                            x.Key, x.Label, defaultValue = x.Default, x.Suggestions, x.Required,
-                        }),
-                    }),
-                };
-
-            case "lab.buildCommand":
-            {
-                var templateId = p.GetProperty("templateId").GetString()!;
-                var template = CommandHelper.Templates.FirstOrDefault(t => t.Id == templateId)
-                    ?? throw new Exception($"未知指令模板：{templateId}");
-                var values = new Dictionary<string, string>();
-                if (p.TryGetProperty("values", out var vEl) && vEl.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var kv in vEl.EnumerateObject())
-                        values[kv.Name] = kv.Value.ValueKind == JsonValueKind.String ? kv.Value.GetString() ?? "" : kv.Value.ToString();
-                }
-                var command = CommandHelper.Build(template, values);
-                return new
-                {
-                    ok = true,
-                    command,
-                    hasUnfilled = CommandHelper.HasUnfilled(command),
-                    error = CommandHelper.Validate(command),
-                };
-            }
-
-            case "lab.communitySearch":
-            {
-                var query = p.TryGetProperty("query", out var qEl) ? qEl.GetString() ?? "" : "";
-                var force = p.TryGetProperty("forceRefresh", out var frEl) && frEl.GetBoolean();
-                var (items, failed) = await _projectionCommunity.SearchAsync(query, force);
-                return new { items, failedSources = failed, sources = _projectionCommunity.SourceNames };
-            }
-
-            case "lab.communityFiles":
-            {
-                var item = ReadCommunityItem(p.GetProperty("item"));
-                var files = await _projectionCommunity.ListFilesAsync(item);
-                return new { files };
-            }
-
-            case "lab.communityDownload":
-            {
-                var file = new CommunityFile(
-                    p.GetProperty("fileName").GetString() ?? "projection.litematic",
-                    p.TryGetProperty("sizeBytes", out var szEl) && szEl.ValueKind == JsonValueKind.Number ? szEl.GetInt64() : 0,
-                    p.GetProperty("downloadUrl").GetString()!);
-                var dir = Path.Combine(_settings.DotMinecraft, "schematics");
-                Directory.CreateDirectory(dir);
-                var saved = await _projectionCommunity.DownloadAsync(file, dir);
-                return new { ok = true, path = saved };
-            }
             case "runtime.state":
                 return RuntimePayload();
 
@@ -2941,20 +2877,6 @@ public static class Program
         else if (deps.TryGetValue("neoforge", out var neo) && neo.Length > 0) id = $"neoforge-{neo}";
         return id is not null && File.Exists(Path.Combine(dotMc, "versions", id, $"{id}.json")) ? id : null;
     }
-    private static CommunityProjection ReadCommunityItem(JsonElement e)
-    {
-        string S(string key, string fallback = "") =>
-            e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? fallback : fallback;
-        int I(string key) =>
-            e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
-        DateTime D(string key) =>
-            e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String &&
-            DateTime.TryParse(v.GetString(), out var at) ? at : DateTime.MinValue;
-        return new CommunityProjection(
-            S("source"), S("name"), S("author"), S("description"), I("stars"), D("updatedAt"),
-            S("fullName"), S("htmlUrl"), S("imageUrl"));
-    }
-    // ── 运行状态（Win RunningStatusPage 的数据源） ──────────────────────
 
     private static object RuntimeInstancePayload(GameRunInfo i) => new
     {
