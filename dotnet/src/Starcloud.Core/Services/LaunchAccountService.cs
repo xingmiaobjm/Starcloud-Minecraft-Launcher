@@ -109,6 +109,16 @@ public sealed class LaunchAccountService(
     /// </summary>
     private async Task<AccountSession?> TryRestoreMicrosoftAsync(StoredAccount acc)
     {
+        // 1) 先试落盘的 access_token（「加密保存令牌」开着时才有）：直接复用，免一次网络往返
+        if (MicrosoftTokenStore.TryGetAccess(acc.Uuid, out var cachedAccess, out var cachedXuid))
+        {
+            var cached = new AccountSession(cachedAccess, null, cachedXuid);
+            accounts.SetSession(acc.Uuid, cached);
+            LauncherLog.Write("auth", $"已用本地加密保存的访问令牌恢复 {acc.Username}（免刷新）");
+            return cached;
+        }
+
+        // 2) 退回到 refresh_token 续期
         if (!MicrosoftTokenStore.TryGet(acc.Uuid, out var refreshToken)) return null;
         try
         {
@@ -118,6 +128,10 @@ public sealed class LaunchAccountService(
             accounts.SetSession(acc.Uuid, session);
             if (result.RefreshToken is { Length: > 0 } rotated)
                 MicrosoftTokenStore.Update(acc.Uuid, rotated);
+            // 续期拿到的 access 同样按开关加密落盘（下次启动可直接复用）
+            if (settings().MicrosoftTokenPersist)
+                MicrosoftTokenStore.UpdateAccess(acc.Uuid, result.AccessToken,
+                    MicrosoftTokenStore.AccessExpiry(), result.Xuid);
             LauncherLog.Write("auth", $"已用本地保存的凭证恢复 {acc.Username} 的登录（30 天内免登录）");
             return session;
         }

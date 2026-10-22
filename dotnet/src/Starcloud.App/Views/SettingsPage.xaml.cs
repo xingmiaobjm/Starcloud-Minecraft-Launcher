@@ -56,6 +56,9 @@ public sealed partial class SettingsPage : Page
             ShowGameLogSwitch.IsOn = s.ShowGameLogOnLaunch;
             RefreshMemoryRecommend();
 
+            // 正版账户：登录令牌加密落盘开关（默认开）
+            MsTokenPersistSwitch.IsOn = s.MicrosoftTokenPersist;
+
             // 默认窗口
             DefaultWidthBox.Value = s.DefaultWindowWidth ?? 854;
             DefaultHeightBox.Value = s.DefaultWindowHeight ?? 480;
@@ -1083,6 +1086,7 @@ public sealed partial class SettingsPage : Page
         // 游戏目录已移到版本页顶部的下拉管理，这里不再写 DotMinecraft
 
         // 内存：最小固定 512 MB，最大取滑块（整数 GB）
+        s0.MicrosoftTokenPersist = MsTokenPersistSwitch.IsOn;
         s0.DefaultMaxMemoryMb = (int)MaxMemorySlider.Value * 1024;
         s0.DefaultMinMemoryMb = Math.Min(s0.DefaultMinMemoryMb, s0.DefaultMaxMemoryMb);
         if (s0.DefaultMinMemoryMb >= s0.DefaultMaxMemoryMb)

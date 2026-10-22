@@ -198,6 +198,13 @@ public sealed class LauncherSettings
     [JsonPropertyName("last_version")]
     public string? LastVersion { get; set; }
 
+    /// <summary>
+    /// 正版登录令牌加密落盘（默认开）：开启后 access_token 与 refresh_token 一起用 DPAPI
+    /// 加密保存，重启可直接复用；关闭时只保 refresh_token（仍加密）。
+    /// </summary>
+    [JsonPropertyName("microsoft_token_persist")]
+    public bool MicrosoftTokenPersist { get; set; } = true;
+
     [JsonPropertyName("theme")]
     public string Theme { get; set; } = "system";
 

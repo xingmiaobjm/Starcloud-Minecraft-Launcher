@@ -227,9 +227,16 @@ public static class AuthDialogs
                     accounts.AddOrUpdateMicrosoft(result.Uuid, result.Username);
                     accounts.SetSession(result.Uuid,
                         new AccountSession(result.AccessToken, result.RefreshToken, result.Xuid));
-                    // 正版登录 30 天免登录：refresh_token 加密保存，UI 不展示
+                    // 正版登录 30 天免登录：refresh_token 加密保存，UI 不展示；
+                    // 「加密保存令牌」开着时 access_token 一并加密落盘，重启可直接复用
                     if (result.RefreshToken is { Length: > 0 } refreshToken)
-                        MicrosoftTokenStore.SaveNew(result.Uuid, refreshToken);
+                    {
+                        if (AppServices.Instance.Settings.MicrosoftTokenPersist)
+                            MicrosoftTokenStore.SaveSession(result.Uuid, refreshToken,
+                                result.AccessToken, MicrosoftTokenStore.AccessExpiry(), result.Xuid);
+                        else
+                            MicrosoftTokenStore.SaveNew(result.Uuid, refreshToken);
+                    }
                     return result;
                 }
                 if (state == "error")

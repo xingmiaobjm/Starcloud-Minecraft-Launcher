@@ -53,8 +53,40 @@ public sealed class StoredAccount
     public string? SkinModel { get; set; }
 }
 
-/// <summary>一次应用会话内的账户凭证（仅内存，进程退出即失效，绝不序列化）</summary>
-public sealed record AccountSession(string AccessToken, string? RefreshToken = null, string? Xuid = null);
+/// <summary>
+/// 一次应用会话内的账户凭证（仅内存，进程退出即失效，绝不序列化）。
+/// token 以 CryptProtectMemory 密文驻留，<see cref="AccessToken"/> 取用时才短暂解出明文。
+/// </summary>
+public sealed class AccountSession : IDisposable
+{
+    private readonly SecureToken _access;
+    private readonly SecureToken? _refresh;
+
+    public AccountSession(string accessToken, string? refreshToken = null, string? xuid = null)
+    {
+        _access = new SecureToken(accessToken);
+        _refresh = string.IsNullOrEmpty(refreshToken) ? null : new SecureToken(refreshToken);
+        Xuid = xuid;
+    }
+
+    /// <summary>取用明文 access token（每次调用短暂解密；长期驻留的是密文）</summary>
+    public string AccessToken => _access.Reveal();
+
+    public string? RefreshToken => _refresh?.Reveal();
+
+    public string? Xuid { get; }
+
+    public bool HasAccessToken => _access.HasValue;
+
+    /// <summary>明文长度（不触发解密）</summary>
+    public int AccessTokenLength => _access.Length;
+
+    public void Dispose()
+    {
+        _access.Dispose();
+        _refresh?.Dispose();
+    }
+}
 
 public sealed class AccountStore
 {

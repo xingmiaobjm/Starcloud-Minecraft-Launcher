@@ -200,6 +200,29 @@
                                 <StackPanel Spacing="10">
                                     <StackPanel Style="{StaticResource PclSectionHead}">
                                         <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="正版账户" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock loc:Loc.Text="加密保存登录令牌" FontSize="14" />
+                                            <TextBlock loc:Loc.Text="访问令牌与刷新令牌都用 Windows 数据保护（DPAPI）加密后保存在本机，重启后 30 天内免登录。关闭后只保留刷新令牌（同样加密），重启时需要联网换一次访问令牌。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="MsTokenPersistSwitch" Grid.Column="1"
+                                                      OnContent="" OffContent="" VerticalAlignment="Top" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
                                         <TextBlock loc:Loc.Text="默认窗口" Style="{StaticResource PclSectionTitle}" />
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8">

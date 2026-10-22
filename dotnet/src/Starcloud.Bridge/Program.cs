@@ -1606,7 +1606,13 @@ public static class Program
                 _accounts.SetSession(result.Uuid,
                     new AccountSession(result.AccessToken, result.RefreshToken, result.Xuid));
                 if (result.RefreshToken is { Length: > 0 } bridgeRefresh)
-                    MicrosoftTokenStore.SaveNew(result.Uuid, bridgeRefresh);
+                {
+                    if (_settings.MicrosoftTokenPersist)
+                        MicrosoftTokenStore.SaveSession(result.Uuid, bridgeRefresh,
+                            result.AccessToken, MicrosoftTokenStore.AccessExpiry(), result.Xuid);
+                    else
+                        MicrosoftTokenStore.SaveNew(result.Uuid, bridgeRefresh);
+                }
                 return new
                 {
                     state = "success",
