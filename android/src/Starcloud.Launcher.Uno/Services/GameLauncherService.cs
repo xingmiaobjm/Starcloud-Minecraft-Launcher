@@ -81,7 +81,13 @@ public sealed class GameLauncherService
         // 外部私有目录（Android/data/<pkg>/files）：文件管理器可达、卸载即清（设计稿 §7）。
         // Main.Android OnCreate 已把 STARCLOUD_DATA_DIR 指向同一根，账户 / 清单缓存落此处。
         _dataRoot = context.GetExternalFilesDir(null)!.AbsolutePath!;
-        _dotMc = Path.Combine(_dataRoot, ".minecraft");
+        // 游戏目录以「设置里保存的路径」为准：下载页/版本页读的是同一份设置。
+        // 此前这里固定用外部私有目录，与 UI 默认的内部分目录不一致，
+        // 表现为「下载完成但启动时报 versions/xxx.json 找不到」。
+        var saved = LauncherSettings.Load();
+        _dotMc = string.IsNullOrWhiteSpace(saved.DotMinecraft)
+            ? Path.Combine(_dataRoot, ".minecraft")
+            : saved.DotMinecraft;
         // 组件根必须落内部存储：targetSdk 30+ 的 linker classloader-namespace 白名单
         // （permitted_paths）不含外部私有目录，/storage/... 下的一切 so 无法 dlopen
         // （Java System.load 与 C# NativeLibrary.Load 同样被拒，真机实证 linker E 日志）。
@@ -89,7 +95,8 @@ public sealed class GameLauncherService
         // 保证 Debug（permitted 含 /data）与 Release（仅 /data/data/<pkg>）都命中白名单
         _componentsRoot = Path.Combine(NormalizedFilesDir(context), "components");
         _cacheRoot = Path.Combine(_dataRoot, "cache");
-        _settings = new LauncherSettings { DotMinecraft = _dotMc };
+        _settings = saved;   // 安装器/清单服务共用这份设置，避免各持一套导致目录分叉
+        _settings.DotMinecraft = _dotMc;
         _manifests = new ManifestService(new DownloadService(() => _settings));
         _installer = new InstallerService(new DownloadService(() => _settings));
         Accounts = AccountStore.Load();

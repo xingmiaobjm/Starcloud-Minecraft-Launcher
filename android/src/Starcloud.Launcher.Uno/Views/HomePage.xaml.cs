@@ -1643,6 +1643,16 @@ public sealed partial class HomePage : Page, IShellPage
         ShowOverlay(versionId, _s.LaunchAccount.Mode);
         try
         {
+            // 版本文件不完整（目录残留 / 下载中断）时提前给出可操作提示，
+            // 不要等 JVM 阶段才抛 IO_PathNotFound
+            var versionJson = Path.Combine(_s.Settings.DotMinecraft, "versions", versionId, versionId + ".json");
+            if (!File.Exists(versionJson))
+            {
+                LaunchErrorText.Text = Loc.T("版本「{0}」文件不完整（缺少 {0}.json），请在下载页重新安装。", versionId);
+                ApplyStage(LaunchStage.Failed);
+                return;
+            }
+
             ApplyStage(LaunchStage.Launching);
 
             // 前台服务必须先于启动链请求：StartForegroundService 后系统只给 5 秒窗口执行

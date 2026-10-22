@@ -25,9 +25,14 @@ public static class RuntimeSelector
         };
     }
 
-    /// <summary>JRE 主版本 → 组件清单名称</summary>
+    /// <summary>
+    /// JRE 主版本 → 组件清单名称。
+    /// 17 目标走 jre21：内置 jre17（17.0.10）在启用 ARM64 指针标签（tagged_addr_ctrl）的
+    /// 设备上会在 free() 处直接 abort（"Pointer tag ... was truncated"），表现为点启动后
+    /// 整进程消失；Java 17 字节码在 21 上可正常运行。
+    /// </summary>
     public static string ComponentNameFor(int jreMajor) =>
-        jreMajor <= 8 ? "jre8" : jreMajor <= 17 ? "jre17" : jreMajor <= 21 ? "jre21" : "jre25";
+        jreMajor <= 8 ? "jre8" : jreMajor <= 21 ? "jre21" : "jre25";
 
     /// <summary>提取「1.x」中的 minor；非 release 命名（快照、26.x 新命名等）返回 null</summary>
     internal static int? ParseMinor(string versionId)
