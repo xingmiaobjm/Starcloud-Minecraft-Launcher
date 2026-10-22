@@ -675,11 +675,20 @@ Function OnPrimary
   Call ApplyState
 
   Call CheckAppRunning
-  ; 升级：只在目录确实属于本产品时清空，避免误删用户自选目录
-  ${If} ${FileExists} "$INSTDIR\uninstall.exe"
-  ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
-  ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
-    RMDir /r "$INSTDIR"
+  SetOutPath "$TEMP"
+  Call IsDriveRoot
+  ; 升级：只在目录确实属于本产品时清空，避免误删用户自选目录；盘符根目录只覆盖不清空
+  ${If} $R7 == 0
+    ${If} ${FileExists} "$INSTDIR\uninstall.exe"
+    ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
+    ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
+      ClearErrors
+      RMDir /r "$INSTDIR"
+      IfErrors 0 sc_rm_done
+        Sleep 800
+        RMDir /r "$INSTDIR"
+      sc_rm_done:
+    ${EndIf}
   ${EndIf}
   CreateDirectory "$INSTDIR"
 
@@ -729,14 +738,23 @@ Function ProgressStep
 FunctionEnd
 
 Function CheckAppRunning
-  retry:
-  FindWindow $0 "" "${PRODUCT_NAME}"
-  StrCmp $0 0 done
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-    "检测到 Starcloud 启动器正在运行。$\r$\n请先关闭它（托盘图标也要退出）后点「重试」，或点「取消」放弃本次安装。" \
-    IDRETRY retry
-  Quit
-  done:
+  ; 自动结束启动器与桥进程后覆盖安装。旧实现是 FindWindow + 重试框：
+  ; 静默升级（/S）时弹框无人可点，安装器会一直挂着（表现为「自动更新卡死」），
+  ; 覆盖写入也会因进程占用文件失败（Error opening file for writing）。
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${MAIN_EXE}"'
+  Pop $0
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "Starcloud.Bridge.exe"'
+  Pop $0
+  Sleep 600
+FunctionEnd
+
+; 安装目录是盘符根（E:\ 这类）时禁止整目录清空：会连带删掉该盘其它文件
+Function IsDriveRoot
+  StrCpy $R7 0
+  StrLen $R8 "$INSTDIR"
+  ${If} $R8 == 3
+    StrCpy $R7 1
+  ${EndIf}
 FunctionEnd
 
 Function UiPageLeave
@@ -752,10 +770,19 @@ Section "Starcloud" SecInstall
   ; 静默安装（/S）没有页面，这里把同样的动作做一遍。
   ${If} $State == "silent"
     Call CheckAppRunning
-    ${If} ${FileExists} "$INSTDIR\uninstall.exe"
-    ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
-    ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
-      RMDir /r "$INSTDIR"
+    SetOutPath "$TEMP"
+    Call IsDriveRoot
+    ${If} $R7 == 0
+      ${If} ${FileExists} "$INSTDIR\uninstall.exe"
+      ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
+      ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
+        ClearErrors
+        RMDir /r "$INSTDIR"
+        IfErrors 0 sc_rm2_done
+          Sleep 800
+          RMDir /r "$INSTDIR"
+        sc_rm2_done:
+      ${EndIf}
     ${EndIf}
     CreateDirectory "$INSTDIR"
     StrCpy $DoneBytes 0
