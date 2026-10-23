@@ -199,6 +199,13 @@ public sealed class LauncherSettings
     public string? LastVersion { get; set; }
 
     /// <summary>
+    /// 局域网 P2P 加速是否接受「其他 Starcloud ID 用户」的设备（默认开）。
+    /// 跨账号连接只开放按 SHA1 取游戏文件的通道，存档同步仍限同账号。
+    /// </summary>
+    [JsonPropertyName("device_p2p_cross_account")]
+    public bool DeviceP2PCrossAccount { get; set; } = true;
+
+    /// <summary>
     /// 正版登录令牌加密落盘（默认开）：开启后 access_token 与 refresh_token 一起用 DPAPI
     /// 加密保存，重启可直接复用；关闭时只保 refresh_token（仍加密）。
     /// </summary>

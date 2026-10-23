@@ -109,7 +109,7 @@ public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPee
             try
             {
                 _server = new PeerLinkServer(uid, () => _identity.Current?.ApiKey ?? "",
-                    () => DeviceName, this);
+                    () => DeviceName, this, () => _settings().DeviceP2PCrossAccount);
                 _server.Start();
                 _beacon = new PeerBeacon(uid, () => DeviceName, () => _server?.Port ?? 0);
                 _beacon.PeerUp += (name, addr) => PeerUp?.Invoke(name, addr);
@@ -360,41 +360,76 @@ public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPee
 
     public int PeerCount => _settings().P2pDownloadEnabled && Running ? _beacon?.Snapshot().Count ?? 0 : 0;
 
+    /// <summary>
+    /// 从对等设备整文件取一次（命中即返回）。多个对端并发尝试，谁先完成用谁；
+    /// 慢设备 20 秒后放弃——旧实现是串行遍历且无超时，一个掉线的对端能把整批下载拖住。
+    /// </summary>
     public bool TryProvide(string destFile, string sha1, long size, out string viaPeer)
     {
         viaPeer = "";
-        if (PeerCount == 0) return false;
+        var me = _identity.Current;
+        if (me is null || PeerCount == 0) return false;
+        var peers = _beacon!.Snapshot();
+        if (peers.Count == 0) return false;
+
         var destName = Path.GetFileName(destFile);
-        foreach (var peer in _beacon!.Snapshot())
+        var destDir = Path.GetDirectoryName(destFile)!;
+        var uid = LinkAuth.UidHash(me.UserId);
+        var winner = "";
+        var gate = new object();
+        var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var tasks = peers.Select(peer => Task.Run(async () =>
         {
+            if (stop.IsCancellationRequested) return;
+            // 每个对端写自己的临时文件：并发完成时不会互相覆盖，胜者再原子替换
+            var tmp = Path.Combine(destDir, $".p2p-{Guid.NewGuid():N}.part");
             PeerLinkClient? client = null;
             try
             {
-                client = PeerLinkClient.ConnectAsync(
-                    LinkAuth.UidHash(_identity.Current!.UserId), _identity.Current.ApiKey,
-                    DeviceName, peer.Address, peer.Port, CancellationToken.None).GetAwaiter().GetResult();
-                var has = client.CommandAsync(
-                    new { cmd = "p2p.has", sha1, size, destName }).GetAwaiter().GetResult();
-                if (!has.Ok) continue;
-                var result = client.CommandAsync(
+                client = await PeerLinkClient.ConnectAsync(
+                    uid, me.ApiKey, DeviceName, peer.Address, peer.Port, stop.Token)
+                    .ConfigureAwait(false);
+                var has = await client.CommandAsync(
+                    new { cmd = "p2p.has", sha1, size, destName }, ct: stop.Token).ConfigureAwait(false);
+                if (!has.Ok) return;
+                var result = await client.CommandAsync(
                     new { cmd = "p2p.fetch", sha1, size, destName },
-                    destFile, expectSha256: sha1).GetAwaiter().GetResult();
-                if (result.Ok)
+                    tmp, expectSha256: sha1, ct: stop.Token).ConfigureAwait(false);
+                if (!result.Ok) return;
+                lock (gate)
                 {
-                    viaPeer = peer.Name;
-                    Log?.Invoke($"P2P 复用 {destName} ← {peer.Name}");
-                    return true;
+                    if (winner.Length > 0) return;   // 已有更快的对端完成
+                    try
+                    {
+                        File.Move(tmp, destFile, overwrite: true);
+                        winner = peer.Name;
+                    }
+                    catch { /* 落盘失败：当没命中，回退公网 */ }
                 }
             }
             catch
             {
-                // 单个对端失败不影响其余对端与公网回退
+                // 单个对端失败（离线 / 跨账号被拒 / 超时）不影响其余对端与公网回退
             }
             finally
             {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
                 if (client is not null)
-                    client.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                {
+                    try { await client.DisposeAsync().ConfigureAwait(false); } catch { }
+                }
             }
+        })).ToArray();
+
+        try { Task.WaitAll(tasks, TimeSpan.FromSeconds(22)); } catch { }
+        stop.Cancel();
+
+        if (winner.Length > 0)
+        {
+            viaPeer = winner;
+            Log?.Invoke($"P2P 复用 {destName} ← {winner}");
+            return true;
         }
         return false;
     }

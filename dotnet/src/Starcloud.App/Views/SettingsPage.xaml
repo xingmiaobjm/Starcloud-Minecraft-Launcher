@@ -451,6 +451,23 @@
                                                               Toggled="P2pSwitch_Toggled" OnContent="" OffContent="" />
                                             </Grid>
 
+                                            <!-- 跨账号：局域网内任意星云用户都能提供游戏文件（只按 SHA1 取，存档同步仍限同账号） -->
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock loc:Loc.Text="包含其他用户设备" FontWeight="Medium" />
+                                                    <TextBlock loc:Loc.Text="局域网内任何登录了 Starcloud ID 的星云启动器都可提供游戏文件；跨账号只开放按 SHA1 取文件的通道，内容校验不过即丢弃，存档同步仍只限同账号。"
+                                                               FontSize="12" TextWrapping="Wrap"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <ToggleSwitch x:Name="P2pCrossSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                              loc:Loc.Name="跨账号 P2P 开关"
+                                                              Toggled="P2pCrossSwitch_Toggled" OnContent="" OffContent="" />
+                                            </Grid>
+
                                             <TextBlock x:Name="ChannelStatusText" FontSize="12" TextWrapping="Wrap"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </StackPanel>

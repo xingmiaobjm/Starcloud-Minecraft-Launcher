@@ -118,6 +118,7 @@ public sealed partial class SettingsPage : Page
             // 跨设备与 P2P
             DeviceLinkSwitch.IsOn = s.DeviceLinkEnabled;
             P2pSwitch.IsOn = s.P2pDownloadEnabled;
+            P2pCrossSwitch.IsOn = s.DeviceP2PCrossAccount;
             DeviceNameBox.Text = s.DeviceName ?? "";
             UpdateSyncLoginHint();
             _ = RefreshChannelStatusAsync();
@@ -593,6 +594,12 @@ public sealed partial class SettingsPage : Page
         if (!_loaded) return;
         _s.Settings.DeviceLinkEnabled = DeviceLinkSwitch.IsOn;
         ApplyDeviceLink();
+    }
+
+    private void P2pCrossSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        _s.Settings.DeviceP2PCrossAccount = P2pCrossSwitch.IsOn;
+        _s.Settings.Save();
     }
 
     private void P2pSwitch_Toggled(object sender, RoutedEventArgs e)

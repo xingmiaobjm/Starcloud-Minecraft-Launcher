@@ -166,15 +166,48 @@ public class DeviceLinkTests
     }
 
     [Fact]
-    public async Task 回环_不同账号的连接被静默拒绝()
+    public async Task 回环_关闭跨账号时不同账号连接被拒绝()
     {
         var handler = new FakeHandler { OnRequest = _ => PeerReply.Fail("never") };
-        using var server = new PeerLinkServer(LinkAuth.UidHash("user-1"), () => "key-1", () => "PC-A", handler);
+        using var server = new PeerLinkServer(LinkAuth.UidHash("user-1"), () => "key-1", () => "PC-A", handler,
+            allowCrossAccountP2p: () => false);
         server.Start();
 
-        // uid 不同 → hello 后直接断开（读不到 challenge）
+        // 开关关闭：uid 不同 → hello 后直接断开（读不到 challenge）
         await Assert.ThrowsAnyAsync<Exception>(() =>
             PeerLinkClient.ConnectAsync(LinkAuth.UidHash("user-2"), "key-1", "PC-B", "127.0.0.1", server.Port));
+    }
+
+    [Fact]
+    public async Task 回环_跨账号只允许P2P命令()
+    {
+        var seen = new List<string>();
+        var handler = new FakeHandler
+        {
+            OnRequest = req =>
+            {
+                seen.Add(req.Cmd);
+                return req.Cmd.StartsWith("p2p.", StringComparison.Ordinal)
+                    ? new PeerReply(true, new { ok = true })
+                    : new PeerReply(true, new { leaked = true });
+            },
+        };
+        using var server = new PeerLinkServer(LinkAuth.UidHash("user-1"), () => "key-1", () => "PC-A", handler,
+            allowCrossAccountP2p: () => true);
+        server.Start();
+
+        // 不同账号：握手成功（无签名），但服务端只放行 p2p.*
+        await using var client = await PeerLinkClient.ConnectAsync(
+            LinkAuth.UidHash("user-2"), "any-key", "PC-B", "127.0.0.1", server.Port);
+        Assert.True(client.CrossAccount);
+
+        var p2p = await client.CommandAsync(new { cmd = "p2p.has", sha1 = "abc", size = 1L, destName = "a.jar" });
+        Assert.True(p2p.Ok);
+
+        // 存档同步等命令必须被挡掉（handler 根本收不到）
+        var other = await client.CommandAsync(new { cmd = "saves.list" });
+        Assert.False(other.Ok);
+        Assert.DoesNotContain("saves.list", seen);
     }
 
     [Fact]

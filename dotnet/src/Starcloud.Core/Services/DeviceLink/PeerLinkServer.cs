@@ -27,12 +27,16 @@ public sealed class PeerLinkServer : IDisposable
     /// <summary>实际监听端口（Start 后有效；0 = 绑定失败未运行）</summary>
     public int Port { get; private set; }
 
-    public PeerLinkServer(string uid, Func<string> apiKey, Func<string> deviceName, IPeerLinkHandler handler)
+    private readonly Func<bool> _allowCrossAccountP2p;
+
+    public PeerLinkServer(string uid, Func<string> apiKey, Func<string> deviceName,
+        IPeerLinkHandler handler, Func<bool>? allowCrossAccountP2p = null)
     {
         _uid = uid;
         _apiKey = apiKey;
         _deviceName = deviceName;
         _handler = handler;
+        _allowCrossAccountP2p = allowCrossAccountP2p ?? (() => true);
     }
 
     public void Start()
@@ -108,25 +112,42 @@ public sealed class PeerLinkServer : IDisposable
             // ① hello
             var hello = await PeerLinkIO.ReadRequestAsync(stream, linked.Token);
             if (hello is null || hello.Cmd != "hello") return;
-            if (hello.Str("uid") != _uid) return; // 不同账号：静默断开（不回细节，减少探测面）
-            var c1 = hello.Str("challenge");
-            if (c1.Length is < 8 or > 128) return;
+            var sameAccount = hello.Str("uid") == _uid;
+            var crossAccount = false;
+            if (!sameAccount)
+            {
+                // 跨账号：只开「按 SHA1 取游戏文件」的 P2P 通道（内容由请求方按哈希校验）。
+                // 不接受存档同步等其它命令，也无需签名——对端拿不到本机 apiKey。
+                if (!_allowCrossAccountP2p()) return;
+                crossAccount = true;
+                await PeerLinkIO.WriteLineAsync(stream, new { cross = true }, linked.Token);
+            }
+            else
+            {
+                var c1 = hello.Str("challenge");
+                if (c1.Length is < 8 or > 128) return;
 
-            // ② 下发己方挑战
-            var c2 = Guid.NewGuid().ToString("N");
-            await PeerLinkIO.WriteLineAsync(stream, new { challenge = c2 }, linked.Token);
+                // ② 下发己方挑战
+                var c2 = Guid.NewGuid().ToString("N");
+                await PeerLinkIO.WriteLineAsync(stream, new { challenge = c2 }, linked.Token);
 
-            // ③ 验证对方签名
-            var their = await PeerLinkIO.ReadRequestAsync(stream, linked.Token);
-            if (their is null || their.Str("sig") != LinkAuth.Sign(_apiKey(), c1 + c2)) return;
-            // ④ 回己方签名
-            await PeerLinkIO.WriteLineAsync(stream, new { sig = LinkAuth.Sign(_apiKey(), c2 + c1) }, linked.Token);
+                // ③ 验证对方签名
+                var their = await PeerLinkIO.ReadRequestAsync(stream, linked.Token);
+                if (their is null || their.Str("sig") != LinkAuth.Sign(_apiKey(), c1 + c2)) return;
+                // ④ 回己方签名
+                await PeerLinkIO.WriteLineAsync(stream, new { sig = LinkAuth.Sign(_apiKey(), c2 + c1) }, linked.Token);
+            }
 
             // 命令循环（对端每条命令一问一答；对端断开即结束）
             while (!ct.IsCancellationRequested)
             {
                 var req = await PeerLinkIO.ReadRequestAsync(stream, ct);
                 if (req is null) break;
+                if (crossAccount && req.Cmd is not ("p2p.has" or "p2p.fetch"))
+                {
+                    await PeerLinkIO.WriteLineAsync(stream, PeerReply.Fail("跨账号连接只支持 P2P 文件共享"), ct);
+                    continue;
+                }
                 string? bodyFile = null;
                 try
                 {

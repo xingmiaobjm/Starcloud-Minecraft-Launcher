@@ -143,7 +143,9 @@ public sealed class PeerBeacon : IDisposable
             {
                 var res = await _listener!.ReceiveAsync(ct);
                 var payload = BeaconPayload.Decode(res.Buffer);
-                if (payload is null || payload.Uid != _uid) continue; // 不同账号 / 非法包：丢弃
+                if (payload is null) continue; // 非法包：丢弃
+                // 不同 Starcloud ID 的设备也保留：只用于「按 SHA1 提供游戏文件」的 P2P 加速，
+                // 存档同步与其余命令仍由服务端握手挡在同账号范围内
                 if (payload.Iid == _iid) continue;                    // 自己网卡的广播回环：丢弃
                 var key = $"{res.RemoteEndPoint.Address}:{payload.Port}";
                 var isNew = !_peers.ContainsKey(key);

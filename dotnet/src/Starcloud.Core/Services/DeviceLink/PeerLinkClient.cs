@@ -40,6 +40,9 @@ public sealed class PeerLinkClient : IAsyncDisposable
     private readonly string _uid;
     private readonly string _apiKey;
     private readonly string _deviceName;
+
+    /// <summary>跨账号连接（只允许 p2p.has / p2p.fetch，无签名认证）</summary>
+    public bool CrossAccount { get; private set; }
     private TcpClient? _client;
     private NetworkStream? _stream;
 
@@ -71,7 +74,15 @@ public sealed class PeerLinkClient : IAsyncDisposable
             idle.CancelAfter(TimeSpan.FromSeconds(20));
 
             var hello = await PeerLinkIO.ReadRequestAsync(client._stream, idle.Token);
-            var c2 = hello?.Str("challenge") ?? throw new IOException("对端拒绝握手");
+            if (hello is null) throw new IOException("对端拒绝握手");
+            if (hello.Bool("cross"))
+            {
+                // 跨账号 P2P：对端只接受「按 SHA1 取游戏文件」，不做签名（双方拿不到彼此 apiKey）
+                client.CrossAccount = true;
+                return client;
+            }
+            var c2 = hello.Str("challenge");
+            if (c2.Length == 0) throw new IOException("对端拒绝握手");
             await PeerLinkIO.WriteLineAsync(client._stream,
                 new { sig = LinkAuth.Sign(apiKey, c1 + c2) }, ct);
             var done = await PeerLinkIO.ReadRequestAsync(client._stream, idle.Token);
