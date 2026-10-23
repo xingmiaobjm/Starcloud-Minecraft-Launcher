@@ -115,7 +115,7 @@
                 </ctrl:GlowButton>
                 <TextBox x:Name="SearchBox" loc:Loc.Placeholder="搜索版本 / 类别"
                          Width="180" Height="36" VerticalAlignment="Center" CornerRadius="8"
-                         VerticalContentAlignment="Center" Padding="10,0,10,0"
+                         VerticalContentAlignment="Center" Padding="10,7,10,6"
                          loc:Loc.Name="搜索版本"
                          TextChanged="SearchBox_TextChanged" />
                 <ComboBox x:Name="CategoryFilter" Width="130" Height="36" VerticalAlignment="Center"
@@ -241,13 +241,13 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Grid.Column="0" HorizontalAlignment="Right"
+                                    <TextBlock Grid.Row="0" Grid.Column="0"
                                                loc:Loc.Text="上次启动" Style="{StaticResource ScMetaLabel}" />
-                                    <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Right"
+                                    <TextBlock Grid.Row="0" Grid.Column="1"
                                                Text="{x:Bind LastPlayedText}" Style="{StaticResource ScMetaValue}" />
-                                    <TextBlock Grid.Row="1" Grid.Column="0" HorizontalAlignment="Right"
+                                    <TextBlock Grid.Row="1" Grid.Column="0"
                                                loc:Loc.Text="大小" Style="{StaticResource ScMetaLabel}" />
-                                    <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right"
+                                    <TextBlock Grid.Row="1" Grid.Column="1"
                                                Text="{x:Bind SizeText}" Style="{StaticResource ScMetaValue}" />
                                 </Grid>
                                 <ctrl:GlowButton Grid.Column="4" VerticalAlignment="Center" Padding="6"
