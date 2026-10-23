@@ -62,11 +62,6 @@
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE90C;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
-            <MenuFlyoutItem loc:Loc.Text="从链接导入" Click="ImportFromLink_Click">
-                <MenuFlyoutItem.Icon>
-                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE71B;" />
-                </MenuFlyoutItem.Icon>
-            </MenuFlyoutItem>
             <MenuFlyoutItem loc:Loc.Text="备份与回档" Click="Backup_Click">
                 <MenuFlyoutItem.Icon>
                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC68;" />
@@ -118,14 +113,9 @@
                         <TextBlock loc:Loc.Text="导入整合包" />
                     </StackPanel>
                 </ctrl:GlowButton>
-                <ctrl:GlowButton Click="ImportFromLink_Click" loc:Loc.Name="从链接导入整合包">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE71B;" FontSize="14" />
-                        <TextBlock loc:Loc.Text="从链接导入" />
-                    </StackPanel>
-                </ctrl:GlowButton>
                 <TextBox x:Name="SearchBox" loc:Loc.Placeholder="搜索版本 / 类别"
                          Width="180" Height="36" VerticalAlignment="Center" CornerRadius="8"
+                         VerticalContentAlignment="Center" Padding="10,0,10,0"
                          loc:Loc.Name="搜索版本"
                          TextChanged="SearchBox_TextChanged" />
                 <ComboBox x:Name="CategoryFilter" Width="130" Height="36" VerticalAlignment="Center"

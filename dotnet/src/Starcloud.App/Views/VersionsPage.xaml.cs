@@ -323,20 +323,8 @@ public sealed partial class VersionsPage : Page
 
     private async void Import_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker,
-            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
-        picker.FileTypeFilter.Add(".mrpack");
-        picker.FileTypeFilter.Add(".zip");
-        var file = await picker.PickSingleFileAsync();
-        if (file is null) return;
-        await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, file.Path);
-        RefreshList();
-    }
-
-    private async void ImportFromLink_Click(object sender, RoutedEventArgs e)
-    {
-        await ModPackDialogs.ImportFromLinkAsync(Content.XamlRoot, _s);
+        // 弹窗里选导入方式：拖入 / 选择文件 / 从链接导入
+        await ImportPackDialog.ShowAsync(Content.XamlRoot, _s);
         RefreshList();
     }
 
