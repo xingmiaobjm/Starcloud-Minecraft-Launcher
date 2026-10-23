@@ -184,7 +184,7 @@ public static class ModPackDialogs
 
     /// <summary>没有逐文件清单、需要按内容铺入的格式（含用户自填 MC 版本）</summary>
     private static bool IsLooseContent(ModPackFormat format) =>
-        format is ModPackFormat.Raw or ModPackFormat.Packwiz or ModPackFormat.AtLauncher;
+        format is ModPackFormat.Raw or ModPackFormat.Packwiz or ModPackFormat.AtLauncher or ModPackFormat.Hmcl;
 
     private static string FormatLabel(ModPackFormat format) => format switch
     {
@@ -192,6 +192,7 @@ public static class ModPackDialogs
         ModPackFormat.MultiMc => Loc.T("MultiMC / Prism 实例包"),
         ModPackFormat.Packwiz => Loc.T("packwiz 整合包"),
         ModPackFormat.AtLauncher => Loc.T("ATLauncher 实例包"),
+        ModPackFormat.Hmcl => Loc.T("HMCL 整合包"),
         ModPackFormat.Raw => Loc.T("通用压缩包"),
         _ => Loc.T("Modrinth 整合包"),
     };
@@ -261,6 +262,7 @@ public static class ModPackDialogs
             }
             case ModPackFormat.Packwiz:
             case ModPackFormat.AtLauncher:
+            case ModPackFormat.Hmcl:
             case ModPackFormat.Raw:
             {
                 var (count, bytes) = MeasurePrefix(packPath, probe.Root);
@@ -405,6 +407,22 @@ public static class ModPackDialogs
         });
     }
 
+    /// <summary>packwiz：先按裸内容铺配置，再按 index 把 mod 从元数据里的 URL 拉下来</summary>
+    private static async Task<MrPackInstallResult> InstallPackwizAsync(
+        string packPath, string contentRoot, string installRoot, string mcVersion,
+        AppServices s, IProgress<BatchProgress>? progress)
+    {
+        var raw = await InstallRawAsync(packPath, contentRoot, installRoot, mcVersion, progress);
+        var mods = await PackwizInstaller.InstallModsAsync(
+            packPath, contentRoot, installRoot, s.Download, progress, CancellationToken.None);
+        if (mods.Failed > 0)
+        {
+            LauncherLog.Write("pack",
+                "packwiz 部分模组未能下载：" + string.Join("；", mods.Errors));
+        }
+        return raw with { DownloadedFiles = raw.DownloadedFiles + mods.Downloaded };
+    }
+
     /// <summary>导入对话框主体：预览 → 选版本名与隔离 → 按格式安装 → 联动装原版/加载器</summary>
     private static async Task RunImportAsync(XamlRoot root, AppServices s, string packPath, PackPreview preview)
     {
@@ -489,7 +507,7 @@ public static class ModPackDialogs
                 panel.Children.Add(new TextBlock
                 {
                     Text = preview.Format == ModPackFormat.Packwiz
-                        ? Loc.T("这是 packwiz 整合包：mod 由包内索引引用，不在压缩包里。本次会导入配置与环境文件，缺失的 mod 需要在游戏内由 packwiz 拉取。请填写对应的 Minecraft 版本。")
+                        ? Loc.T("这是 packwiz 整合包：mod 由包内索引引用，不在压缩包里。导入时会按索引逐个下载（失败项会记录在日志），请填写对应的 Minecraft 版本。")
                         : Loc.T("这个压缩包没有整合包清单，请填写它对应的 Minecraft 版本；导入时会联动安装该原版。"),
                     FontSize = 12,
                     Opacity = 0.8,
@@ -572,7 +590,10 @@ public static class ModPackDialogs
             {
                 ModPackFormat.CurseForge => await s.CurseForgePacks.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
                 ModPackFormat.MultiMc => await s.MultiMc.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
-                ModPackFormat.Packwiz or ModPackFormat.AtLauncher or ModPackFormat.Raw
+                ModPackFormat.Packwiz
+                    => await InstallPackwizAsync(packPath, preview.ContentRoot, installRoot,
+                    typedMc, s, progress),
+                ModPackFormat.AtLauncher or ModPackFormat.Hmcl or ModPackFormat.Raw
                     => await InstallRawAsync(packPath, preview.ContentRoot, installRoot,
                     typedMc, progress),
                 _ => await s.MrPack.InstallAsync(packPath, s.Settings, installRoot, progress: progress),

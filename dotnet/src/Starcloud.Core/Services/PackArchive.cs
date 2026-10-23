@@ -19,6 +19,8 @@ public enum ModPackFormat
     Packwiz,
     /// <summary>ATLauncher（instance.json）：结构接近 MultiMC，按裸内容铺入</summary>
     AtLauncher,
+    /// <summary>HMCL 旧导出格式（modpack.json）：按裸内容铺入</summary>
+    Hmcl,
     /// <summary>没有清单文件的通用 zip：按 .minecraft / mods / config 结构直接铺进实例</summary>
     Raw,
 }
@@ -150,6 +152,7 @@ public static class ModPackDetector
                 "mmc-pack.json" or "instance.cfg" => ModPackFormat.MultiMc,
                 "pack.toml" => LooksLikePackwiz(entry) ? ModPackFormat.Packwiz : null,
                 "instance.json" => LooksLikeAtLauncher(entry) ? ModPackFormat.AtLauncher : null,
+                "modpack.json" => LooksLikeHmcl(entry) ? ModPackFormat.Hmcl : null,
                 _ => null,
             };
             if (format is null) continue;
@@ -161,7 +164,7 @@ public static class ModPackDetector
         ModPackFormat[] priority =
         [
             ModPackFormat.Modrinth, ModPackFormat.CurseForge, ModPackFormat.MultiMc,
-            ModPackFormat.Packwiz, ModPackFormat.AtLauncher,
+            ModPackFormat.Packwiz, ModPackFormat.AtLauncher, ModPackFormat.Hmcl,
         ];
         foreach (var format in priority)
         {
@@ -243,6 +246,23 @@ public static class ModPackDetector
             if (text.Length == 0 || text.Length > 256 * 1024) return false;
             return text.Contains("[index]", StringComparison.OrdinalIgnoreCase)
                    || text.Contains("name =", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>HMCL 旧导出格式的 modpack.json：JSON 对象且含 version 或 modpackVersion 字段</summary>
+    private static bool LooksLikeHmcl(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var stream = entry.Open();
+            using var doc = JsonDocument.Parse(PackJson.ReadText(stream));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            return doc.RootElement.TryGetProperty("modpackVersion", out _)
+                   || doc.RootElement.TryGetProperty("version", out _);
         }
         catch
         {

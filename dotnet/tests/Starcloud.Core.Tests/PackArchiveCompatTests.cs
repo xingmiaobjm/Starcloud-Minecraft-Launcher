@@ -79,6 +79,88 @@ public class PackArchiveCompatTests : IDisposable
     }
 
     [Fact]
+    public void 识别HMCL旧导出格式()
+    {
+        var path = MakeZip(
+            ("modpack.json", "{\"modpackVersion\":\"1.0\",\"version\":\"1.12.2\",\"author\":\"x\"}"),
+            ("overrides/mods/a.jar", "x"));
+        var probe = ModPackDetector.Detect(path);
+        Assert.NotNull(probe);
+        Assert.Equal(ModPackFormat.Hmcl, probe!.Format);
+    }
+
+    [Fact]
+    public void packwiz索引解析两种写法()
+    {
+        const string ranked = """
+hash-format = "sha256"
+
+[[files]]
+file = "mods/jei.pw.toml"
+hash = "aaa"
+
+[[files]]
+file = "mods/sodium.pw.toml"
+hash = "bbb"
+""";
+        const string inline = """
+hash-format = "sha256"
+files = [
+  { file = "mods/jei.pw.toml", hash = "aaa" },
+  { file = "mods/sodium.pw.toml", hash = "bbb" },
+]
+""";
+        Assert.Equal(["mods/jei.pw.toml", "mods/sodium.pw.toml"], PackwizToml.IndexFiles(ranked));
+        Assert.Equal(["mods/jei.pw.toml", "mods/sodium.pw.toml"], PackwizToml.IndexFiles(inline));
+    }
+
+    [Fact]
+    public void packwiz元数据解析url与文件名()
+    {
+        const string meta = """
+name = "JEI"
+filename = "jei-1.20.1-15.2.0.27.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/abc/versions/1/jei.jar"
+hash-format = "sha512"
+hash = "deadbeef"
+""";
+        var m = PackwizToml.ParseMetafile(meta);
+        Assert.Equal("https://cdn.modrinth.com/data/abc/versions/1/jei.jar", m.Url);
+        Assert.Equal("jei-1.20.1-15.2.0.27.jar", m.FileName);
+        Assert.Equal("client", m.Side);
+        Assert.False(m.Optional);
+        Assert.Equal("mods/jei-1.20.1-15.2.0.27.jar",
+            PackwizToml.TargetPath("mods/jei.pw.toml", m.FileName, m.Url));
+    }
+
+    [Fact]
+    public void packwiz可选组默认不启用则跳过()
+    {
+        const string meta = """
+[[option]]
+name = "Shaders"
+description = "optional"
+
+[download]
+url = "https://example.invalid/shaders.jar"
+""";
+        Assert.True(PackwizToml.ParseMetafile(meta).Optional);
+
+        const string metaDefault = """
+[[option]]
+name = "Shaders"
+default = true
+
+[download]
+url = "https://example.invalid/shaders.jar"
+""";
+        Assert.False(PackwizToml.ParseMetafile(metaDefault).Optional);
+    }
+
+    [Fact]
     public void 非法字符段在清洗模式下保留文件()
     {
         // 严格模式：整条路径拒绝
