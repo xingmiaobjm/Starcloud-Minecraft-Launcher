@@ -200,10 +200,14 @@ public static class ModPackDetector
                 else
                     continue;
 
-                // .minecraft / minecraft 是内容根本身；mods、config 只是内容根下的子目录
+                // .minecraft / minecraft 是内容根本身；mods、config 只是内容根下的子目录。
+                // 标记表用小写匹配，但返回的根目录要保留包内实际大小写（PCL 导出是 Minecraft）
                 var dir = marker.TrimEnd('/');
+                var actualDir = idx >= 0
+                    ? name.Substring(idx + 1, Math.Min(dir.Length, name.Length - idx - 1))
+                    : name[..Math.Min(dir.Length, name.Length)];
                 var root = includeInRoot
-                    ? (prefix.Length == 0 ? dir : prefix + "/" + dir)
+                    ? (prefix.Length == 0 ? actualDir : prefix + "/" + actualDir)
                     : prefix;
                 var depth = root.Length == 0 ? 0 : root.Count(c => c == '/') + 1;
                 // 先看“更像游戏根”的标记（.minecraft > minecraft > mods…），
@@ -218,6 +222,24 @@ public static class ModPackDetector
             }
         }
 
+        if (bestRoot is null)
+        {
+            // 包根就是一个版本文件夹：<id>/<id>.json（PCL / HMCL「只导出某个版本」常见）
+            foreach (var entry in zip.Entries)
+            {
+                var name = entry.FullName.Replace('\\', '/');
+                var slash = name.LastIndexOf('/');
+                if (slash <= 0) continue;
+                var dir = name[..slash];
+                var leaf = name[(slash + 1)..];
+                if (dir.Contains('/')) continue;
+                if (!leaf.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!Path.GetFileNameWithoutExtension(leaf).Equals(dir, StringComparison.OrdinalIgnoreCase)) continue;
+                bestRoot = dir;
+                break;
+            }
+        }
+
         if (bestRoot is null) return null;
         return new ModPackProbe(ModPackFormat.Raw, string.IsNullOrEmpty(bestRoot) ? null : bestRoot);
     }
@@ -225,8 +247,14 @@ public static class ModPackDetector
     private static readonly (string Marker, int Score, bool IncludeInRoot)[] RawMarkers =
     [
         (".minecraft/", 30, true),
-        ("minecraft/", 20, true),
+        ("minecraft/", 20, true),          // PCL 导出常用 Minecraft 大写目录（匹配用小写名）
+        ("versions/", 14, false),          // 完整游戏目录：versions/<id>/<id>.json
         ("mods/", 15, false),
+        ("pcl/", 12, false),               // PCL 导出带的配置目录（PCL/Setup.ini）
+        ("setup.ini", 12, false),          // PCL 的安装配置
+        ("minecraftversion.txt", 12, false), // PCL 记录的版本号
+        ("libraries/", 9, false),          // 完整游戏目录：libraries + assets
+        ("assets/", 7, false),
         ("config/", 10, false),
         ("options.txt", 10, false),
         ("servers.dat", 10, false),

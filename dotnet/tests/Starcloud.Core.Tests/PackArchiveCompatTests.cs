@@ -161,6 +161,47 @@ url = "https://example.invalid/shaders.jar"
     }
 
     [Fact]
+    public void 识别PCL导出的Minecraft大写目录()
+    {
+        var path = MakeZip(
+            ("PCL/Setup.ini", "[Setup] VersionArgumentIndie=10"),
+            ("Minecraft/mods/a.jar", "x"),
+            ("Minecraft/config/a.cfg", "y"),
+            ("Minecraft/minecraftversion.txt", "1.20.1"));
+        var probe = ModPackDetector.Detect(path);
+        Assert.NotNull(probe);
+        Assert.Equal(ModPackFormat.Raw, probe!.Format);
+        // 游戏根应当是 Minecraft 而不是包根（否则 PCL/ 配置目录会被铺进实例）
+        Assert.Equal("Minecraft", probe.EntryRoot);
+    }
+
+    [Fact]
+    public void 识别只导出单个版本文件夹()
+    {
+        var path = MakeZip(
+            ("1.20.1/1.20.1.json", "{\"id\":\"1.20.1\"}"),
+            ("1.20.1/1.20.1.jar", "x"),
+            ("1.20.1/mods/a.jar", "y"));
+        var probe = ModPackDetector.Detect(path);
+        Assert.NotNull(probe);
+        Assert.Equal(ModPackFormat.Raw, probe!.Format);
+        Assert.Equal("1.20.1", probe.EntryRoot);
+    }
+
+    [Fact]
+    public void 识别带libraries的完整游戏目录()
+    {
+        var path = MakeZip(
+            ("libraries/a/b/1.0/b-1.0.jar", "x"),
+            ("assets/indexes/17.json", "{}"),
+            ("mods/a.jar", "y"));
+        var probe = ModPackDetector.Detect(path);
+        Assert.NotNull(probe);
+        Assert.Equal(ModPackFormat.Raw, probe!.Format);
+        Assert.Null(probe.EntryRoot);
+    }
+
+    [Fact]
     public void 非法字符段在清洗模式下保留文件()
     {
         // 严格模式：整条路径拒绝
