@@ -38,6 +38,12 @@ let mainWindow: BrowserWindow | null = null
 let restartCount = 0
 /** 应用正在退出，桥接退出属于预期，不再重启。 */
 let shuttingDown = false
+/** 正在拉起桥进程（单飞标志）：并发请求共用一次拉起，避免 spawn 多个 dotnet。 */
+let bridgeRestarting: Promise<void> | null = null
+/** 桥进程是否已就绪（stdin 可写）。 */
+let bridgeReady = false
+/** 等待桥进程就绪的写入回调。 */
+const bridgeReadyWaiters: Array<() => void> = []
 
 function bridgeCandidates(): string[] {
   const env = process.env.STARCLOUD_BRIDGE_DLL
@@ -92,9 +98,14 @@ function startBridge(): ChildProcessWithoutNullStreams {
   proc.on('exit', (code) => {
     console.error(`[bridge] 进程退出（${code}）`)
     bridgeProc = null
+    bridgeReady = false
     for (const [, p] of pending) p.reject(new Error(`桥接进程退出（${code}）`))
     pending.clear()
   })
+  // 进程已拉起：stdin 可写，放行等待中的请求
+  bridgeReady = true
+  const waiters = bridgeReadyWaiters.splice(0)
+  for (const w of waiters) w()
   console.log('[bridge] started:', dll)
   return proc
 }
@@ -102,23 +113,40 @@ function startBridge(): ChildProcessWithoutNullStreams {
 function bridgeRequest(method: string, params: unknown): Promise<unknown> {
   // 桥接意外退出后自动拉起：否则一次崩溃会让界面此后所有请求都失败
   // （表现是「用一会儿之后什么都加载不出来」）。
+  //
+  // 这里必须单飞：桥崩溃后并发到达的多个请求会各自 spawn 一个 dotnet 进程，
+  // 结果是几个进程抢同一批请求 id，界面表现成随机失败。修复后所有并发请求
+  // 共用同一个「正在重启」的 Promise。
   if (!bridgeProc && !shuttingDown) {
-    bridgeProc = startBridge()
-    restartCount += 1
-    if (restartCount > 5) {
-      console.error('[bridge] 重启过于频繁，可能存在持续崩溃')
+    if (!bridgeRestarting) {
+      bridgeRestarting = (async () => {
+        try {
+          bridgeProc = startBridge()
+          restartCount += 1
+          if (restartCount > 5) {
+            console.error('[bridge] 重启过于频繁，可能存在持续崩溃')
+          }
+        } finally {
+          bridgeRestarting = null
+        }
+      })()
     }
   }
   const id = nextId++
   const payload = JSON.stringify({ id, method, params })
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
-    try {
-      bridgeProc!.stdin.write(payload + '\n')
-    } catch (e) {
-      pending.delete(id)
-      reject(e as Error)
+    // 桥进程可能还在启动中：等它就绪再写，否则写进已关闭的 stdin 会抛 EPIPE
+    const write = () => {
+      try {
+        bridgeProc!.stdin.write(payload + '\n')
+      } catch (e) {
+        pending.delete(id)
+        reject(e as Error)
+      }
     }
+    if (bridgeReady) write()
+    else bridgeReadyWaiters.push(write)
   })
 }
 

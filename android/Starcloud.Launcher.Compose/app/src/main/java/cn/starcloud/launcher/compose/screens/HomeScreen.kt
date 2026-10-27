@@ -26,6 +26,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,12 +67,16 @@ fun HomeScreen(
     launchBusy: Boolean,
 ) {
     val repo = remember(filesRoot) { VersionsRepository(filesRoot) }
-    var versions by remember(filesRoot) { mutableStateOf(repo.list()) }
+    // 初始不在主线程扫盘：版本 JSON 可能有几百 KB，冷启动同步解析会卡住首帧。
+    // 先空列表，LaunchedEffect 里异步补上（同一个 effect 里不再重复扫一次）。
+    var versions by remember(filesRoot) { mutableStateOf(emptyList<InstalledVersion>()) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var selectedId by remember { mutableStateOf<String?>(null) }
 
     // 刷新键变化或进入页面时重扫
-    androidx.compose.runtime.LaunchedEffect(refreshKey) { versions = repo.list() }
+    androidx.compose.runtime.LaunchedEffect(refreshKey) {
+        versions = withContext(Dispatchers.IO) { repo.list() }
+    }
 
     val selected = versions.firstOrNull { it.id == selectedId } ?: versions.firstOrNull()
 

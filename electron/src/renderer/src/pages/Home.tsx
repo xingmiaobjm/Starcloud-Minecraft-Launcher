@@ -150,7 +150,8 @@ export default function HomePage(props: {
         return catalog.installed.find((v) => v.isDefault)?.id ?? catalog.installed[0]?.id
       })
     } catch (e) {
-      setError(String(e))
+      // 追加而不是覆盖：目录与账户两处都可能失败，原来后者会盖掉前者
+      setError((prev) => (prev === '' ? String(e) : `${prev}；${String(e)}`))
     }
     try {
       const list = await request<AccountList>('accounts.list')
@@ -166,7 +167,7 @@ export default function HomePage(props: {
         )
       }
     } catch (e) {
-      setError(String(e))
+      setError((prev) => (prev === '' ? String(e) : `${prev}；${String(e)}`))
     }
     // 启动自检还需要游戏目录与 Java（Win 端 LeftNoticeArea）
     try {
@@ -237,6 +238,16 @@ export default function HomePage(props: {
   return (
     <div className="page">
       {/* 首页不放页面大标题（Win 端首页直接从卡片开始） */}
+
+      {/* 错误条放顶部：原来在页面末尾，列表一长就看不到，用户以为「什么都没发生」 */}
+      {error !== '' && (
+        <div style={{ marginBottom: 12, flexShrink: 0 }}>
+          <div className="info info-danger">
+            <IconClose size={14} />
+            <div className="info-body">{error}</div>
+          </div>
+        </div>
+      )}
 
       {/* 满高两栏：卡片撑满窗口高度、列表在卡内滚动（对齐 Win 端 HomePage） */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 24 }}>
@@ -328,9 +339,10 @@ export default function HomePage(props: {
               长文本（例如桥接错误信息）会被顶宽，把整栏挤出窗口。 */}
           <div
             style={{
-              width: 360,
-              minWidth: 360,
-              maxWidth: 360,
+              // 宽屏 360；窄屏（最小窗口 1000 / 手机横屏）按视口比例收缩，
+              // 固定 360 会把左栏压到只剩几百像素（响应式见 winui.css 的 .home-side）
+              width: 'clamp(240px, 28vw, 360px)',
+              minWidth: 0,
               flexShrink: 0,
               minHeight: 0,
               display: 'flex'
@@ -498,14 +510,6 @@ export default function HomePage(props: {
         {/* 运行日志不放在首页        {/* 运行日志不放在首页：Win 端首页没有日志区，且启动时日志卡出现会挤压
             两栏布局（用户看到账户卡被"拉大"）。日志在「运行状态 / 启动器日志」页。 */}
 
-        {error !== '' && (
-          <div style={{ marginTop: 12 }}>
-            <div className="info info-danger">
-              <IconClose size={14} />
-              <div className="info-body">{error}</div>
-            </div>
-          </div>
-        )}
       {menu.node}
       {host}
     </div>

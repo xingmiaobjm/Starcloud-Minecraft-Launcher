@@ -1206,3 +1206,46 @@ input[type='range']::-moz-range-thumb {
 }
 
 /* 图标任务（调度中心）：三条横线 */
+
+/* ═══ 响应式 ═══════════════════════════════════════════════════════════
+   桌面端最小窗口是 1000×640，但同一份界面也跑在安卓 WebView（手机横屏约 800 逻辑像素）
+   与高 DPI 缩放下 —— 固定宽的侧栏（240 / 330 / 360）会把内容区挤没。
+   这里按视口宽度分三档：宽屏原样，中屏收窄，窄屏改为纵向堆叠。
+
+   注意：安卓侧同一份 CSS 产物会被 WebView 复用，所以这里的断点两端都生效。 */
+@media (max-width: 1180px) {
+  .content { padding: 18px; }
+  /* 左侧子导航（下载页）收窄 */
+  .responsive-side { width: 190px !important; }
+  /* 分段控件不再固定 330 */
+  .responsive-seg { width: auto !important; min-width: 220px; }
+}
+
+@media (max-width: 980px) {
+  .content { padding: 14px; }
+  /* 导航展开态在窄屏会吃掉 232px：强制收成图标条 */
+  .nav.nav-open { width: 48px; }
+  .nav.nav-open .nav-label { display: none; }
+  /* 侧栏在窄屏直接收起，页面主内容优先 */
+  .responsive-side { display: none !important; }
+  .responsive-seg { min-width: 0; width: 100% !important; }
+  /* 弹窗：内容不再有固定最小宽度（原来 520/640 会把窄屏撑破） */
+  .dialog { width: auto; max-width: 94vw; padding: 16px; }
+  /* 页面标题与工具栏允许换行 */
+  .page-head { flex-wrap: wrap; gap: 10px; }
+  .page-title { font-size: 22px; }
+}
+
+@media (max-width: 720px) {
+  .content { padding: 10px; }
+  /* 手机竖屏 / 极窄窗口：卡片单列堆叠 */
+  .grid-2 { grid-template-columns: 1fr !important; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar > * { flex: 1 1 auto; min-width: 0; }
+}
+
+/* 高 DPI 缩放时页面自身也要能滚动：原来 content 是 overflow:hidden，
+   内容超出时既不滚动也看不见 */
+@media (max-height: 640px) {
+  .content { overflow-y: auto; }
+}

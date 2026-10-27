@@ -178,7 +178,7 @@ export default function DownloadPage(): JSX.Element {
     <div className="page">
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16 }}>
         {/* 左侧子导航卡（Win 端 260 宽） */}
-        <div className="card" style={{ width: 240, flexShrink: 0, padding: 8 }}>
+        <div className="card responsive-side" style={{ width: 240, flexShrink: 0, padding: 8 }}>
           {subNav.map((item) => (
             <div key={item.id}>
               {item.group !== undefined && (
@@ -209,7 +209,7 @@ export default function DownloadPage(): JSX.Element {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {/* 顶部：分段 + 搜索 + 缓存 */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-            <div className="seg" style={{ width: 330, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="seg responsive-seg" style={{ width: 330, gridTemplateColumns: 'repeat(3, 1fr)' }}>
               <div
                 className="seg-ind"
                 style={{
