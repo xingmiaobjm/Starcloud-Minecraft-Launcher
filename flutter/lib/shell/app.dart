@@ -5,10 +5,12 @@
 library;
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart' show ValueListenableBuilder;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bootstrap.dart';
 import '../kernel/contribution_registry.dart';
+import '../main.dart' show kernelBootState;
 import 'theme.dart';
 
 class StarcloudApp extends StatelessWidget {
@@ -39,6 +41,17 @@ class _LauncherShellState extends ConsumerState<LauncherShell> {
   @override
   Widget build(BuildContext context) {
     final kernel = ref.read(kernelProvider);
+    // 内核还在启动（要拉起 C# 桥接）：先显示占位，不让用户对着空窗口等。
+    return ValueListenableBuilder<KernelBootState>(
+      valueListenable: kernelBootState,
+      builder: (context, boot, _) {
+        if (!boot.ready) return _BootingShell(state: boot);
+        return _buildContent(kernel);
+      },
+    );
+  }
+
+  Widget _buildContent(Kernel kernel) {
     // 贡献点表变化（插件启停/热重载）→ 只重建导航与内容区，不重建窗口。
     return ListenableBuilder(
       listenable: kernel.contributions,
@@ -87,6 +100,39 @@ class _LauncherShellState extends ConsumerState<LauncherShell> {
       body: page?.view == null
           ? const _MissingPage()
           : _LazyView(builder: page!.view!),
+    );
+  }
+}
+
+/// 内核启动中的占位：桥接进程要拉起 C# 运行时，期间给用户明确反馈而不是空窗口。
+class _BootingShell extends StatelessWidget {
+  const _BootingShell({required this.state});
+
+  final KernelBootState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final failed = state.error != null;
+    return ScaffoldPage(
+      content: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (failed)
+              InfoBar(
+                title: const Text('核心启动失败'),
+                content: Text(state.error!),
+                severity: InfoBarSeverity.error,
+                isLong: true,
+              )
+            else ...[
+              const ProgressRing(),
+              const SizedBox(height: 16),
+              const Text('正在连接核心…'),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

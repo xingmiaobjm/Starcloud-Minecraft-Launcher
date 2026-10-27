@@ -1,17 +1,22 @@
-/// 入口：先启动插件内核，再挂 Fluent 壳。
+/// 入口：先出壳，再在后台启动插件内核。
 ///
-/// 顺序是刻意的：内核 `start()` 之后贡献点表已经就绪，壳的第一帧就能渲染出
-/// 完整的导航（不会先闪一下空窗口）。
+/// 顺序是刻意的：内核 `start()` 要拉起 C# 桥接进程，慢的时候要好几秒。
+/// 原来 main 里「构建 + 启动内核」一次做完之后才 runApp，用户看到的是「点了图标没反应」，
+/// 最坏要等到桥接超时（30 秒）。现在首帧直接出壳（显示「正在连接核心…」），
+/// 内核就绪后再切到业务页面。
 library;
 
+import 'dart:async';
 import 'dart:io' show Platform, ProcessSignal, exit, stdout;
 import 'dart:ui' show AppExitResponse;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, WidgetsFlutterBinding, runApp;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bootstrap.dart';
+import 'kernel/plugin_host.dart' show Kernel;
 import 'shell/app.dart';
 import 'shell/webview_self_test.dart';
 
@@ -26,7 +31,18 @@ Future<void> main() async {
     return;
   }
 
-  final kernel = await bootstrapKernel();
+  final kernel = buildKernel();
+
+  // 壳先起来：首帧不桥接阻塞
+  runApp(
+    ProviderScope(
+      overrides: [kernelProvider.overrideWithValue(kernel)],
+      child: const StarcloudApp(),
+    ),
+  );
+
+  // 内核在后台启动：桥接进程慢的时候界面已经在跑
+  unawaited(_startKernelInBackground(kernel));
 
   Future<void> shutdown() async {
     await kernel.stop();
@@ -51,11 +67,37 @@ Future<void> main() async {
       });
     }
   }
+}
 
-  runApp(
-    ProviderScope(
-      overrides: [kernelProvider.overrideWithValue(kernel)],
-      child: const StarcloudApp(),
-    ),
-  );
+/// 后台启动内核：完成后通知壳切到业务页面。
+///
+/// 这里不用 provider 写状态（ProviderScope 的容器在 WidgetsBinding 之外拿不到），
+/// 改为直接通知 App 的 ValueNotifier —— 壳按它决定显示「正在连接核心…」还是内容。
+final ValueNotifier<KernelBootState> kernelBootState =
+    ValueNotifier<KernelBootState>(const KernelBootState.starting());
+
+/// 内核启动状态：启动中 / 就绪 / 失败。
+class KernelBootState {
+  const KernelBootState.starting()
+      : ready = false,
+        error = null;
+  const KernelBootState.ready()
+      : ready = true,
+        error = null;
+  const KernelBootState.failed(String message)
+      : ready = false,
+        error = message;
+
+  final bool ready;
+  final String? error;
+}
+
+Future<void> _startKernelInBackground(Kernel kernel) async {
+  try {
+    await startKernel(kernel);
+    kernelBootState.value = const KernelBootState.ready();
+  } catch (e) {
+    debugPrint('[main] 内核启动失败：$e');
+    kernelBootState.value = KernelBootState.failed('$e');
+  }
 }

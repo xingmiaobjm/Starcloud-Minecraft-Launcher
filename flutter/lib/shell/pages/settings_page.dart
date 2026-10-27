@@ -15,13 +15,35 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  late final LauncherSettings _settings = ref.read(kernelDepsProvider).settings;
-  late final _gameDir = TextEditingController(text: _settings.gameDir());
-  late final _javaPath = TextEditingController(text: _settings.javaPath());
-  late int _memory = _settings.memoryMb();
-  late DownloadSource _source = _settings.downloadSource();
+  // 核心未就绪时读契约会抛 MissingContractException（内核在后台启动，
+  // 页面可能先一步构建）：这里先探一次，失败就显示提示而不是让 build 崩掉。
+  LauncherSettings? _settings;
+  String? _loadError;
+  final _gameDir = TextEditingController();
+  final _javaPath = TextEditingController();
+  int _memory = 2048;
+  DownloadSource _source = DownloadSource.auto;
   JavaProbeResult? _javaProbe;
   bool _probing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    try {
+      final settings = ref.read(kernelDepsProvider).settings;
+      _settings = settings;
+      _gameDir.text = settings.gameDir();
+      _javaPath.text = settings.javaPath();
+      _memory = settings.memoryMb();
+      _source = settings.downloadSource();
+    } catch (e) {
+      _loadError = '$e';
+    }
+  }
 
   @override
   void dispose() {
@@ -60,9 +82,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     try {
       await action();
       if (!mounted || !context.mounted) return;
+      final settings = _settings;
+      if (settings == null) return;
       setState(() {
-        _memory = _settings.memoryMb();
-        _source = _settings.downloadSource();
+        _memory = settings.memoryMb();
+        _source = settings.downloadSource();
       });
       _toast(context, successMessage, InfoBarSeverity.success);
     } catch (e) {
@@ -74,6 +98,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
+    // 核心未就绪：显示提示而不是崩在 build 里
+    if (_loadError != null || _settings == null) {
+      return ScaffoldPage(
+        header: PageHeader(title: const Text('设置')),
+        content: Center(
+          child: InfoBar(
+            title: const Text('核心尚未就绪'),
+            content: Text(_loadError ?? '正在连接核心，请稍候'),
+            severity: InfoBarSeverity.warning,
+            isLong: true,
+          ),
+        ),
+      );
+    }
     return ScaffoldPage(
       header: PageHeader(title: const Text('设置')),
       content: ListView(
@@ -96,7 +134,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   const SizedBox(width: 12),
                   Button(
                     onPressed: () => _save(
-                      () => _settings.setGameDir(_gameDir.text.trim()),
+                      () => (_settings ?? (throw StateError('核心未就绪'))).setGameDir(_gameDir.text.trim()),
                       '游戏目录已保存',
                     ),
                     child: const Text('保存'),
@@ -128,7 +166,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   const SizedBox(width: 12),
                   Button(
                     onPressed: () => _save(
-                      () => _settings.setJavaPath(_javaPath.text.trim()),
+                      () => (_settings ?? (throw StateError('核心未就绪'))).setJavaPath(_javaPath.text.trim()),
                       'Java 路径已保存',
                     ),
                     child: const Text('保存'),
@@ -167,7 +205,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ),
                 FilledButton(
                   onPressed: () => _save(
-                    () => _settings.setMemoryMb(_memory),
+                    () => (_settings ?? (throw StateError('核心未就绪'))).setMemoryMb(_memory),
                     '内存已保存（$_memory MB）',
                   ),
                   child: const Text('保存'),
@@ -202,7 +240,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 const SizedBox(height: 8),
                 FilledButton(
                   onPressed: () => _save(
-                    () => _settings.setDownloadSource(_source),
+                    () => (_settings ?? (throw StateError('核心未就绪'))).setDownloadSource(_source),
                     '下载源已保存（即时生效）',
                   ),
                   child: const Text('保存'),

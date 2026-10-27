@@ -18,6 +18,9 @@ class DownloadPage extends ConsumerStatefulWidget {
 
 class _DownloadPageState extends ConsumerState<DownloadPage> {
   List<RemoteVersion> _remote = const [];
+  /// 当前显示的条数（可继续加载）：原来直接 take(80) 且没有「加载更多」，
+  /// 版本多的时候用户以为只有 80 个。
+  int _limit = 80;
   bool _loading = true;
   String _error = '';
   String _filter = '';
@@ -148,7 +151,29 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
                       : InfoBarSeverity.success),
               isLong: true,
             ),
-          for (final v in shown.take(80))
+          if (shown.isEmpty && !_loading)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  _remote.isEmpty
+                      ? '没有拉取到版本清单（点右上角「刷新」重试）'
+                      : '没有匹配的版本',
+                  style: TextStyle(
+                    color: FluentTheme.of(context).disabledColor,
+                  ),
+                ),
+              ),
+            ),
+          if (shown.length > _limit)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: TextButton(
+                onPressed: () => setState(() => _limit += 80),
+                child: Text('还有 ${shown.length - _limit} 个，加载更多'),
+              ),
+            ),
+          for (final v in shown.take(_limit))
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Card(
