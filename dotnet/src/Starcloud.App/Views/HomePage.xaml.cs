@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Controls;
 using Starcloud.App.Views.Dialogs;
 using Starcloud.App.Views.Rows;
 using Starcloud.App.Views.Shared;
@@ -65,6 +66,7 @@ public sealed partial class HomePage : Page
     private long _windowDeadline;   // 窗口检测超时时刻
     private readonly DispatcherTimer _stageTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };  // 氛围进度爬升
     private readonly DispatcherTimer _windowTimer = new() { Interval = TimeSpan.FromMilliseconds(500) }; // 游戏窗口出现轮询
+    private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };         // 悬浮提示自动收起
 
     public HomePage()
     {
@@ -72,6 +74,11 @@ public sealed partial class HomePage : Page
         _dq = DispatcherQueue.GetForCurrentThread();
         _stageTimer.Tick += (_, _) => StageTimer_Tick();
         _windowTimer.Tick += (_, _) => WindowTimer_Tick();
+        _toastTimer.Tick += (_, _) =>
+        {
+            _toastTimer.Stop();
+            HomeToast.IsOpen = false;
+        };
         _logTimer.Tick += (_, _) => FlushLogBuffer();
         Loaded += async (_, _) =>
         {
@@ -106,6 +113,43 @@ public sealed partial class HomePage : Page
             _homeLayout = HomeGrid.CaptureLayout(_homeLayout);
             _homeLayoutStore.Save(_homeLayout);
         };
+
+        // 可选卡片的尺寸档位：占格一变就切排版
+        LaunchCardBody.CardSizeChanged = AdaptLaunchCard;
+        AccountPickerBody.CardSizeChanged = AdaptAccountPicker;
+        FavoritesBody.CardSizeChanged = (w, h) =>
+        {
+            _favoritesSpanW = w;
+            _favoritesSpanH = h;
+            RebuildMiniList(FavoritesList, _favoriteRows, w, h, "还没有收藏的版本");
+        };
+        RecentBody.CardSizeChanged = (w, h) =>
+        {
+            _recentSpanW = w;
+            _recentSpanH = h;
+            RebuildMiniList(RecentList, _recentRows, w, h, "还没有启动过的版本");
+        };
+        MostPlayedBody.CardSizeChanged = (w, h) =>
+        {
+            _mostPlayedSpanW = w;
+            _mostPlayedSpanH = h;
+            RebuildMiniList(MostPlayedList,
+                _mostPlayedRows.Select(t => t.Row).ToList(), w, h, "还没有玩过的版本",
+                row => _mostPlayedRows.FirstOrDefault(t => t.Row.Id == row.Id) is { } hit
+                    ? FormatPlaySeconds(hit.Seconds)
+                    : null);
+        };
+        // 隐藏的可选卡片不在配置里，ApplyLayout 不会回调它们：这里统一给一次初始档位
+        foreach (var host in HomeGrid.Hosts())
+        {
+            (host.CardContent as ICardSizeAware)?.ApplyCardSize(host.ColumnSpan, host.RowSpan);
+            // 卡上的尺寸按钮：选中这张卡，参数区（工具箱）随之显示它的档位
+            host.SizeRequested += (sender, _) =>
+            {
+                if (sender is CardHost h) HomeGrid.RequestSelect(h);
+            };
+        }
+        HomeGrid.SelectionChanged += (_, _) => UpdateCardParams();
     }
 
     private readonly HomeLayoutStore _homeLayoutStore = new();
@@ -116,6 +160,8 @@ public sealed partial class HomePage : Page
     {
         HomeGrid.IsEditing = true;
         LayoutEditBar.Visibility = Visibility.Visible;
+        BuildPaletteChips();
+        UpdateCardParams();
     }
 
     /// <summary>退出编辑模式；格位在每次拖动提交时就已经落盘，这里只收编辑层。</summary>
@@ -123,6 +169,410 @@ public sealed partial class HomePage : Page
     {
         HomeGrid.IsEditing = false;
         LayoutEditBar.Visibility = Visibility.Collapsed;
+    }
+
+    // ── 工具箱：卡片从这里拖到主页，选中后的参数也在这里改 ──
+
+    private string? _paletteDragType;
+
+    /// <summary>工具箱里的卡片条目：每类一张，直接拖到主页格位上落卡。</summary>
+    private void BuildPaletteChips()
+    {
+        PaletteChips.Children.Clear();
+        foreach (var spec in HomeCardCatalog.All)
+        {
+            var chip = new Button
+            {
+                Content = spec.DisplayName,
+                Tag = spec.Type,
+                FontSize = 12,
+                Padding = new Thickness(10, 4, 10, 4),
+                MinWidth = 0,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+            };
+            // Button 基类会把按下 / 抬起标记为已处理，必须用 handledEventsToo 才能收得到
+            chip.AddHandler(PointerPressedEvent,
+                new PointerEventHandler(PaletteChip_PointerPressed), handledEventsToo: true);
+            chip.AddHandler(PointerMovedEvent,
+                new PointerEventHandler(PaletteChip_PointerMoved), handledEventsToo: true);
+            chip.AddHandler(PointerReleasedEvent,
+                new PointerEventHandler(PaletteChip_PointerReleased), handledEventsToo: true);
+            chip.AddHandler(PointerCanceledEvent,
+                new PointerEventHandler(PaletteChip_PointerCanceled), handledEventsToo: true);
+            PaletteChips.Children.Add(chip);
+        }
+    }
+
+    private void PaletteChip_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string type } chip) return;
+        _paletteDragType = type;
+        chip.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void PaletteChip_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_paletteDragType is null) return;
+        var point = e.GetCurrentPoint(HomeGrid).Position;
+        if (point.X < -60 || point.Y < -60 || point.X > HomeGrid.ActualWidth + 60) return;
+        HomeGrid.ShowDropPreview(_paletteDragType, point);
+        e.Handled = true;
+    }
+
+    private void PaletteChip_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_paletteDragType is null) return;
+        var type = _paletteDragType;
+        _paletteDragType = null;
+        if (sender is FrameworkElement chip) chip.ReleasePointerCapture(e.Pointer);
+
+        var point = e.GetCurrentPoint(HomeGrid).Position;
+        var inside = point.X >= 0 && point.Y >= 0
+            && point.X <= HomeGrid.ActualWidth && point.Y <= HomeGrid.ActualHeight;
+        if (!(inside && HomeGrid.CommitDrop(type)))
+        {
+            HomeGrid.CancelDrop();
+        }
+        e.Handled = true;
+    }
+
+    private void PaletteChip_PointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        _paletteDragType = null;
+        HomeGrid.CancelDrop();
+    }
+
+    /// <summary>参数区：选中卡片的固定尺寸档位 + 移除。</summary>
+    private void UpdateCardParams()
+    {
+        CardParams.Children.Clear();
+        var host = HomeGrid.SelectedHost;
+        CardParams.Children.Add(new TextBlock
+        {
+            Text = host is null ? Loc.T("点选卡片后在这里改尺寸") : Loc.T("尺寸"),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.65,
+        });
+        if (host is null) return;
+
+        var spec = HomeCardCatalog.Resolve(host.CardType);
+        foreach (var size in spec.Presets)
+        {
+            var width = Math.Min(size.ColumnSpan, HomeGrid.Columns);
+            var isCurrent = host.ColumnSpan == width && host.RowSpan == size.RowSpan;
+            var button = new Button
+            {
+                Content = size.Label,
+                FontSize = 11,
+                Padding = new Thickness(8, 2, 8, 2),
+                MinWidth = 0,
+            };
+            if (isCurrent) button.Style = (Style)Application.Current.Resources["ScAccentButtonStyle"];
+            button.Click += (_, _) => ApplyCardSize(host, width, size.RowSpan);
+            CardParams.Children.Add(button);
+        }
+
+        var remove = new Button
+        {
+            Content = Loc.T("移除"),
+            FontSize = 11,
+            Padding = new Thickness(8, 2, 8, 2),
+            MinWidth = 0,
+        };
+        remove.Click += (_, _) =>
+        {
+            host.Visibility = Visibility.Collapsed;
+            HomeGrid.ClearSelection();
+            HomeGrid.InvalidateMeasure();
+            PersistCardLayout();
+            UpdateCardParams();
+        };
+        CardParams.Children.Add(remove);
+    }
+
+    // ── 可选卡片：启动 / 账户选择 / 收藏 / 最近 ──
+
+    private List<LocalVersionRow> _favoriteRows = [];
+    private List<LocalVersionRow> _recentRows = [];
+    private List<(LocalVersionRow Row, long Seconds)> _mostPlayedRows = [];
+    private int _favoritesSpanW = 3, _favoritesSpanH = 2;
+    private int _recentSpanW = 3, _recentSpanH = 2;
+    private int _mostPlayedSpanW = 3, _mostPlayedSpanH = 3;
+
+    /// <summary>启动按钮卡：1 列只显示图标，2 列以上显示标题，4 行以上再带当前版本名。</summary>
+    private void AdaptLaunchCard(int spanW, int spanH)
+    {
+        CardLaunchTitle.Visibility = spanW >= 2 ? Visibility.Visible : Visibility.Collapsed;
+        CardLaunchVersion.Visibility = spanW >= 2 && spanH >= 4 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>账户选择卡：2 列只显示头像 + 名字，3 列以上加模式，4 行以上加切换提示。</summary>
+    private void AdaptAccountPicker(int spanW, int spanH)
+    {
+        _ = spanW;
+        PickerHintText.Visibility = spanH >= 4 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>主页不滚动：固定行数里放不下时只提示，不偷偷拉高页面。</summary>
+    private void WarnNoHomeSpace()
+    {
+        HomeToast.Message = Loc.T("主页空间不足：先把其它卡片换成更小的尺寸，或移除不用的卡片");
+        HomeToast.IsOpen = true;
+        _toastTimer.Stop();
+        _toastTimer.Start();
+    }
+
+    private void PersistCardLayout()
+    {
+        _homeLayout = HomeGrid.CaptureLayout(_homeLayout);
+        _homeLayoutStore.Save(_homeLayout);
+    }
+
+    /// <summary>套用固定尺寸档位：放不下就顺延到第一个空位，然后落盘。</summary>
+    private void ApplyCardSize(CardHost host, int columnSpan, int rowSpan)
+    {
+        var others = HomeGrid.Hosts()
+            .Where(h => !ReferenceEquals(h, host) && h.Visibility == Visibility.Visible)
+            .Select(ToCardLayout)
+            .ToList();
+        var candidate = new HomeCardLayout
+        {
+            Id = host.CardId,
+            Column = host.Column,
+            Row = host.Row,
+            ColumnSpan = columnSpan,
+            RowSpan = rowSpan,
+        };
+        if (others.Any(other => HomeGridMath.Overlaps(candidate, other)))
+        {
+            var (column, row) = HomeGridMath.FindSlot(others, HomeGrid.Columns, columnSpan, rowSpan,
+                maxRows: HomeGrid.Rows);
+            if (column < 0)
+            {
+                WarnNoHomeSpace();
+                return;
+            }
+            host.Column = column;
+            host.Row = row;
+        }
+
+        host.ColumnSpan = columnSpan;
+        host.RowSpan = rowSpan;
+        (host.CardContent as ICardSizeAware)?.ApplyCardSize(columnSpan, rowSpan);
+        HomeGrid.InvalidateMeasure();
+        PersistCardLayout();
+    }
+
+    private static HomeCardLayout ToCardLayout(CardHost host) => new()
+    {
+        Id = host.CardId,
+        Column = host.Column,
+        Row = host.Row,
+        ColumnSpan = host.ColumnSpan,
+        RowSpan = host.RowSpan,
+    };
+
+    /// <summary>收藏 / 最近 / 游玩时长三张小列表卡的数据源刷新。</summary>
+    private void RefreshMiniCards()
+    {
+        _favoriteRows = _rows.Where(r => r.Favorite).ToList();
+        List<LocalVersionRow> mostPlayed;
+        try
+        {
+            var store = new InstanceSettingsStore(_s.Settings.DotMinecraft);
+            _recentRows = _rows
+                .Select(row => (row, at: store.Get(row.Id).LastPlayedAt))
+                .Where(t => t.at is not null)
+                .OrderByDescending(t => t.at)
+                .Select(t => t.row)
+                .ToList();
+            _mostPlayedRows = _rows
+                .Select(row => (row, seconds: store.Get(row.Id).PlaySeconds))
+                .Where(t => t.seconds > 0)
+                .OrderByDescending(t => t.seconds)
+                .ToList();
+            mostPlayed = _mostPlayedRows.Select(t => t.Row).ToList();
+        }
+        catch
+        {
+            _recentRows = [];
+            mostPlayed = [];
+        }
+
+        RebuildMiniList(FavoritesList, _favoriteRows, _favoritesSpanW, _favoritesSpanH, "还没有收藏的版本");
+        RebuildMiniList(RecentList, _recentRows, _recentSpanW, _recentSpanH, "还没有启动过的版本");
+        RebuildMiniList(MostPlayedList, mostPlayed, _mostPlayedSpanW, _mostPlayedSpanH,
+            "还没有玩过的版本",
+            row => _mostPlayedRows.FirstOrDefault(t => t.Row.Id == row.Id) is { } hit
+                ? FormatPlaySeconds(hit.Seconds)
+                : null);
+    }
+
+    /// <summary>游玩时长的展示文案。</summary>
+    private static string FormatPlaySeconds(long seconds) => seconds switch
+    {
+        >= 3600 => $"{seconds / 3600.0:F1} 小时",
+        >= 60 => $"{seconds / 60} 分钟",
+        _ => $"{seconds} 秒",
+    };
+
+    /// <summary>按卡片当前占格重建小列表：行数随高度，类型芯片 / 时长随宽度。</summary>
+    private void RebuildMiniList(StackPanel target, List<LocalVersionRow> items, int spanW, int spanH,
+        string emptyText, Func<LocalVersionRow, string?>? trailing = null)
+    {
+        target.Children.Clear();
+        if (items.Count == 0)
+        {
+            target.Children.Add(new TextBlock
+            {
+                Text = Loc.T(emptyText),
+                FontSize = 11,
+                Opacity = 0.65,
+                Margin = new Thickness(6, 6, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return;
+        }
+
+        var rows = Math.Clamp(spanH - 1, 1, 8);
+        foreach (var row in items.Take(rows))
+            target.Children.Add(BuildMiniRow(row, showKind: spanW >= 4, trailing: trailing?.Invoke(row)));
+    }
+
+    private Button BuildMiniRow(LocalVersionRow row, bool showKind, string? trailing = null)
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (row.Icon is { } icon)
+        {
+            content.Children.Add(new Image { Source = icon, Width = 20, Height = 20 });
+        }
+        else
+        {
+            content.Children.Add(new FontIcon
+            {
+                FontFamily = (FontFamily)Application.Current.Resources["ScIconFont"],
+                Glyph = "\uEA94",
+                FontSize = 14,
+            });
+        }
+        content.Children.Add(new TextBlock
+        {
+            Text = row.Id,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = showKind ? 150 : 200,
+        });
+        if (showKind && !string.IsNullOrEmpty(row.KindText))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = row.KindText,
+                FontSize = 11,
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+        if (!string.IsNullOrEmpty(trailing))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = trailing,
+                FontSize = 11,
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        var button = new Button
+        {
+            Content = content,
+            Tag = row.Id,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+        };
+        button.Click += MiniVersion_Click;
+        return button;
+    }
+
+    /// <summary>小列表里点一行 = 选中主页版本列表里的同一版本。</summary>
+    private void MiniVersion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id }) return;
+        var row = _rows.FirstOrDefault(r => r.Id == id);
+        if (row is not null) VersionList.SelectedItem = row;
+    }
+
+    /// <summary>启动按钮卡：与账户卡里那颗大按钮走同一套启动/停止逻辑。</summary>
+    private void CardLaunch_Click(object sender, RoutedEventArgs e) =>
+        LaunchBtn_Click(LaunchBtn, new RoutedEventArgs());
+
+    /// <summary>账户选择卡：头像、名字与当前模式。</summary>
+    private void RefreshAccountPicker()
+    {
+        var mode = _s.LaunchAccount.Mode;
+        PickerMsBtn.IsChecked = mode is not ("external" or "offline");
+        PickerExternalBtn.IsChecked = mode == "external";
+        PickerOfflineBtn.IsChecked = mode == "offline";
+
+        var acc = _s.Accounts.DefaultOf(mode);
+        var name = acc?.Username ?? "";
+        PickerNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
+        PickerAvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
+        PickerAvatarImage.Source = ResolveAvatar(acc, name);
+        var hasImage = PickerAvatarImage.Source is not null;
+        PickerAvatarImage.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        PickerAvatarText.Visibility = hasImage ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>账户选择卡里的模式分段：与账户卡共用 SetMode（两边状态同步）。</summary>
+    private void PickerMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string mode }) return;
+        SetMode(mode);
+        RefreshAccounts();
+    }
+
+    /// <summary>点账户选择卡：列出当前模式下的账户，可直接换首选；也提供去账户页管理的入口。</summary>
+    private void AccountPicker_Click(object sender, RoutedEventArgs e)
+    {
+        var flyout = new MenuFlyout();
+        var mode = _s.LaunchAccount.Mode;
+        var current = _s.Accounts.DefaultOf(mode);
+        var accounts = _s.Accounts.Accounts
+            .Where(a => string.Equals(a.Type, mode, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (accounts.Count == 0)
+        {
+            flyout.Items.Add(new MenuFlyoutItem { Text = Loc.T("当前模式还没有账户"), IsEnabled = false });
+        }
+        foreach (var account in accounts)
+        {
+            var item = new MenuFlyoutItem { Text = account.Username, Tag = account.Uuid };
+            if (current is not null && current.Uuid == account.Uuid)
+                item.Icon = new FontIcon { Glyph = "\uE73E", FontSize = 12 };
+            item.Click += (_, _) =>
+            {
+                _s.Accounts.SetDefault(account.Uuid);
+                RefreshAccounts();
+                RefreshAccountPicker();
+            };
+            flyout.Items.Add(item);
+        }
+
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        var manage = new MenuFlyoutItem { Text = Loc.T("管理账户…") };
+        manage.Click += (_, _) => (App.MainWindow as MainWindow)?.NavigateTo("accounts");
+        flyout.Items.Add(manage);
+
+        flyout.ShowAt(AccountPickerBtn);
     }
 
     private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp)
@@ -319,6 +769,7 @@ public sealed partial class HomePage : Page
         VersionList.ItemsSource = _rows;
         MotionFx.StaggerListItems(VersionList, maxItems: 10);
         EmptyVersionHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshMiniCards();
         var preferred = _s.Settings.LastVersion is { } last && _rows.Any(r => r.Id == last) ? last
             : _rows.FirstOrDefault()?.Id;
         VersionList.SelectedItem = _rows.FirstOrDefault(r => r.Id == preferred);
@@ -402,6 +853,11 @@ public sealed partial class HomePage : Page
         LaunchPlayIcon.Visibility = isRunning ? Visibility.Collapsed : Visibility.Visible;
         LaunchStopIcon.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
         LaunchBtn.IsEnabled = isRunning || id is not null;
+
+        // 独立的启动按钮卡跟随同一套状态
+        CardLaunchTitle.Text = isRunning ? Loc.T("停止游戏") : Loc.T("启动游戏");
+        CardLaunchVersion.Text = id ?? Loc.T("未选择版本");
+        CardLaunchBtn.IsEnabled = LaunchBtn.IsEnabled;
     }
 
     /// <summary>
@@ -674,6 +1130,7 @@ public sealed partial class HomePage : Page
         AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
         AvatarImage.Source = ResolveAvatar(acc, name);
+        RefreshAccountPicker();
     }
 
     /// <summary>
@@ -827,7 +1284,9 @@ public sealed partial class HomePage : Page
         _cardExpanded = expanded;
         PersistHomeLayout(); // 收起 / 展开是用户的持久选择：写回设置，换页回来照旧
         double cardTo = expanded ? ResolveExpandedHeight() : CardCompactHeight;
-        double widthTo = expanded ? ResolveExpandedWidth() : CardCompactWidth;
+        // 收起态的窄条宽 280：格子比它还窄时按格子宽度收，免得冲出卡片边界
+        var hostWidth = AccountHost.ActualWidth > 1 ? AccountHost.ActualWidth : CardCompactWidth;
+        double widthTo = expanded ? ResolveExpandedWidth() : Math.Min(CardCompactWidth, hostWidth);
         double modeTo = expanded ? CardModeBarHeight : 0;
 
         // 还没布局（初始化那一帧）拿不到可插值的起点、或起终点已经重合时没有动画可言，直接落终态。
@@ -994,11 +1453,11 @@ public sealed partial class HomePage : Page
         if (!string.IsNullOrEmpty(StatusText.Text)) StatusText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>展开态卡片高度 = 右列高度（卡片与窗口同高）；布局未定时退回卡片实测值。</summary>
+    /// <summary>展开态卡片高度 = 卡片所在格的实测高（网格化后不再按整页高度算，否则会冲出格子）。</summary>
     private double ResolveExpandedHeight()
     {
-        var h = HomeContent.ActualHeight;
-        return h > 0 ? h : AccountCard.ActualHeight;
+        var h = AccountHost.ActualHeight;
+        return h > 1 ? h : AccountCard.ActualHeight;
     }
 
     /// <summary>展开态卡片宽度 = 右列那一格的宽（卡片撑满整列）；布局未定时退回卡片实测值。</summary>
@@ -2124,6 +2583,16 @@ public sealed partial class HomePage : Page
         else if (exitCode == 0)
         {
             LauncherLog.Write("launch", $"{versionId} 正常退出（运行 {uptimeMs / 1000} 秒）");
+            // 游玩时长入账：≥ 30 秒的正常游玩才累计（崩溃重试的秒启动不算）
+            if (session.Uptime.TotalSeconds >= 30)
+            {
+                try
+                {
+                    new InstanceSettingsStore(_s.Settings.DotMinecraft)
+                        .AddPlaySeconds(versionId, (long)session.Uptime.TotalSeconds);
+                }
+                catch { /* 统计失败不影响退出流程 */ }
+            }
             FinishLaunchTask(run?.Task, Loc.T("游戏已退出，{0}", SessionDurationText(uptimeMs)));
             if (overlayVisible)
                 ApplyStage(LaunchStage.Exited); // 覆盖层显示：停在启动页展示本局时长

@@ -55,8 +55,10 @@ public sealed class HomeLayoutConfig
     /// <summary>出厂布局：左 8 格版本卡 + 右 4 格账户卡，与网格化之前的双列比例一致。</summary>
     public static HomeLayoutConfig Default() => new()
     {
+        SchemaVersion = 3,
         Cards =
         [
+            // 初始只有两张卡，按网格化之前的比例铺满整个主页：左 8 格、右 4 格、都是整页高
             new HomeCardLayout
             {
                 Id = "versions", Type = "versions",
@@ -144,12 +146,12 @@ public static class HomeGridMath
         a.Row < b.Row + b.RowSpan && b.Row < a.Row + a.RowSpan;
 
     /// <summary>
-    /// 按行优先扫描第一个能放下 <paramref name="columnSpan"/>×<paramref name="rowSpan"/> 的空位；
-    /// 找不到（理论上不会，除非网格被撑满到没有空行）就放在现有内容下方。
-    /// <paramref name="ignoreId"/> 用于「移动已有卡片」时把它自己排除掉。
+    /// 按行优先扫描第一个能放下 <paramref name="columnSpan"/>×<paramref name="rowSpan"/> 的空位。
+    /// <paramref name="ignoreId"/> 用于「移动已有卡片」时把它自己排除掉；
+    /// <paramref name="maxRows"/> 大于 0 时只在这几行里找，找不到返回 (-1, -1)。
     /// </summary>
     public static (int Column, int Row) FindSlot(IReadOnlyList<HomeCardLayout> cards, int columns,
-        int columnSpan, int rowSpan, string? ignoreId = null)
+        int columnSpan, int rowSpan, string? ignoreId = null, int maxRows = 0)
     {
         var cols = Math.Max(1, columns);
         var span = Math.Clamp(columnSpan, 1, cols);
@@ -164,8 +166,9 @@ public static class HomeGridMath
             maxRow = Math.Max(maxRow, card.Row + card.RowSpan);
         }
 
+        var limit = maxRows > 0 ? Math.Max(0, maxRows - rows) : maxRow;
         var probe = new HomeCardLayout { ColumnSpan = span, RowSpan = rows };
-        for (var r = 0; r <= maxRow; r++)
+        for (var r = 0; r <= limit; r++)
         {
             for (var c = 0; c <= cols - span; c++)
             {
@@ -186,7 +189,8 @@ public static class HomeGridMath
             }
         }
 
-        return (0, maxRow);
+        // 固定行数（主页不滚动）下找不到空位就是真的放不下
+        return maxRows > 0 ? (-1, -1) : (0, maxRow);
     }
 }
 
@@ -211,7 +215,9 @@ public sealed class HomeLayoutStore(string? dataDir = null)
             if (!File.Exists(FilePath)) return HomeLayoutConfig.Default();
             var json = File.ReadAllText(FilePath);
             var config = JsonSerializer.Deserialize<HomeLayoutConfig>(json, JsonOpts);
-            return config is null ? HomeLayoutConfig.Default() : config.Normalized();
+            // 旧版本（网格化之前 / 默认布局改版前）直接回退出厂布局
+            if (config is null || config.SchemaVersion < 3) return HomeLayoutConfig.Default();
+            return config.Normalized();
         }
         catch
         {

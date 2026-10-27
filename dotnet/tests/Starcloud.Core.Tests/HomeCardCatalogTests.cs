@@ -10,9 +10,9 @@ public class HomeCardCatalogTests
 {
     [Theory]
     [InlineData("account", 2, 4, 2, 6)]
-    [InlineData("launch", 1, 2, 2, 6)]
-    [InlineData("favorites", 2, 6, 2, 6)]
-    [InlineData("recent", 2, 6, 2, 6)]
+    [InlineData("launch", 2, 6, 1, 2)]
+    [InlineData("favorites", 2, 6, 2, 3)]
+    [InlineData("recent", 2, 6, 2, 3)]
     public void 规格表与约定一致(string type, int minW, int maxW, int minH, int maxH)
     {
         var spec = HomeCardCatalog.Resolve(type);
@@ -27,16 +27,32 @@ public class HomeCardCatalogTests
     {
         var launch = HomeCardCatalog.Resolve(HomeCardCatalog.Launch);
 
-        // 拉得比最小还小：回到 1×2
-        Assert.Equal((1, 2), launch.Clamp(0, 1));
-        // 拉得比最大还大：回到 2×6
-        Assert.Equal((2, 6), launch.Clamp(99, 99));
+        // 拉得比最小还小：回到 2×1
+        Assert.Equal((2, 1), launch.Clamp(0, 1));
+        // 拉得比最大还大：回到 6×2
+        Assert.Equal((6, 2), launch.Clamp(99, 99));
         // 正常范围内原样保留
-        Assert.Equal((2, 4), launch.Clamp(2, 4));
+        Assert.Equal((4, 2), launch.Clamp(4, 2));
 
         var favorites = HomeCardCatalog.Resolve(HomeCardCatalog.Favorites);
         Assert.Equal((2, 2), favorites.Clamp(1, 1));
-        Assert.Equal((6, 6), favorites.Clamp(6, 7));
+        Assert.Equal((6, 3), favorites.Clamp(6, 7));
+    }
+
+    [Fact]
+    public void 每类卡片的尺寸档位都在允许区间内且包含默认档()
+    {
+        foreach (var spec in HomeCardCatalog.All)
+        {
+            Assert.NotEmpty(spec.Presets);
+            foreach (var size in spec.Presets)
+            {
+                Assert.InRange(size.ColumnSpan, spec.MinColumnSpan, spec.MaxColumnSpan);
+                Assert.InRange(size.RowSpan, spec.MinRowSpan, spec.MaxRowSpan);
+            }
+            Assert.Contains(spec.Presets,
+                size => size.ColumnSpan == spec.DefaultColumnSpan && size.RowSpan == spec.DefaultRowSpan);
+        }
     }
 
     [Fact]

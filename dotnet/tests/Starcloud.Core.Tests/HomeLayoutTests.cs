@@ -16,20 +16,28 @@ public class HomeLayoutTests
     }
 
     [Fact]
-    public void 出厂布局是八格版本卡加四格账户卡且不重叠()
+    public void 出厂布局在固定行列内且互不重叠()
     {
         var config = HomeLayoutConfig.Default();
 
         Assert.Equal(12, config.Columns);
         Assert.Equal(2, config.Cards.Count);
 
-        var versions = config.Cards.Single(c => c.Id == "versions");
-        var account = config.Cards.Single(c => c.Id == "account");
-        Assert.Equal(8, versions.ColumnSpan);
-        Assert.Equal(4, account.ColumnSpan);
-        Assert.False(HomeGridMath.Overlaps(versions, account));
-        Assert.True(versions.Column + versions.ColumnSpan <= config.Columns);
-        Assert.True(account.Column + account.ColumnSpan <= config.Columns);
+        foreach (var card in config.Cards)
+        {
+            var spec = HomeCardCatalog.Resolve(card.Type);
+            var (width, height) = spec.Clamp(card.ColumnSpan, card.RowSpan);
+            Assert.Equal(card.ColumnSpan, width);
+            Assert.Equal(card.RowSpan, height);
+            Assert.True(card.Column + card.ColumnSpan <= config.Columns, card.Id);
+            Assert.True(card.Row + card.RowSpan <= 6, card.Id);
+            Assert.True(card.Visible, card.Id);
+        }
+
+        for (var i = 0; i < config.Cards.Count; i++)
+            for (var j = i + 1; j < config.Cards.Count; j++)
+                Assert.False(HomeGridMath.Overlaps(config.Cards[i], config.Cards[j]),
+                    $"{config.Cards[i].Id} 与 {config.Cards[j].Id} 重叠");
     }
 
     [Fact]

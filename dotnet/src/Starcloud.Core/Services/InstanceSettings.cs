@@ -76,6 +76,10 @@ public sealed class VersionProfile
     [JsonPropertyName("last_played_at")]
     public DateTime? LastPlayedAt { get; set; }
 
+    /// <summary>累计游玩秒数（游戏正常退出 ≥ 30 秒才入账，启动器写入）</summary>
+    [JsonPropertyName("play_seconds")]
+    public long PlaySeconds { get; set; }
+
     // ── 三态档位（设计 §3.2）：null 等价 "global"；显式值 global|manual|auto ──
     /// <summary>内存档位：global（跟随全局设置）/ manual（自定义）/ auto（自动配置）</summary>
     [JsonPropertyName("memory_mode")]
@@ -161,6 +165,16 @@ public sealed class InstanceSettingsStore
     {
         var p = Get(id);
         p.LastPlayedAt = DateTime.Now;
+        Set(id, p);
+        Save();
+    }
+
+    /// <summary>累计游玩秒数（游戏正常退出后调用；负数忽略）</summary>
+    public void AddPlaySeconds(string id, long seconds)
+    {
+        if (seconds <= 0) return;
+        var p = Get(id);
+        p.PlaySeconds += seconds;
         Set(id, p);
         Save();
     }

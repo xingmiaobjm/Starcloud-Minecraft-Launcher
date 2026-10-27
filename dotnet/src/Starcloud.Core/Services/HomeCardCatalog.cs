@@ -4,6 +4,13 @@
 
 namespace Starcloud.Core.Services;
 
+/// <summary>一档固定的卡片尺寸（列跨度 × 行跨度）。</summary>
+public sealed record CardSize(int ColumnSpan, int RowSpan)
+{
+    /// <summary>菜单文案：8 × 6。</summary>
+    public string Label => $"{ColumnSpan} × {RowSpan}";
+}
+
 /// <summary>一类卡片的尺寸约束与出厂占格。</summary>
 public sealed record HomeCardSpec(
     string Type,
@@ -13,7 +20,8 @@ public sealed record HomeCardSpec(
     int MinRowSpan,
     int MaxRowSpan,
     int DefaultColumnSpan,
-    int DefaultRowSpan)
+    int DefaultRowSpan,
+    IReadOnlyList<CardSize> Presets)
 {
     /// <summary>把占格钳到本类卡片允许的区间。</summary>
     public (int ColumnSpan, int RowSpan) Clamp(int columnSpan, int rowSpan) => (
@@ -26,21 +34,33 @@ public static class HomeCardCatalog
 {
     public const string Versions = "versions";
     public const string Account = "account";
+    public const string AccountPicker = "account-picker";
     public const string Launch = "launch";
     public const string Favorites = "favorites";
     public const string Recent = "recent";
+    public const string MostPlayed = "most-played";
 
     public static readonly IReadOnlyList<HomeCardSpec> All =
     [
         // 已安装版本：内容最重，给足宽度；行数少到 3 行时只显示前几条
-        new(Versions, "已安装版本", 4, 12, 3, 12, 8, 6),
-        // 账户选择：头像 + 名称 + 模式，最小 2×2 只够头像和名字
-        new(Account, "账户选择", 2, 4, 2, 6, 4, 3),
-        // 启动按钮：最小 1×2 是竖条按钮，2×6 是整块大按钮
-        new(Launch, "启动按钮", 1, 2, 2, 6, 2, 3),
-        // 收藏 / 最近：都是版本小列表，最小 2×2 显示两三行
-        new(Favorites, "收藏的版本", 2, 6, 2, 6, 4, 4),
-        new(Recent, "最近的版本", 2, 6, 2, 6, 4, 4),
+        new(Versions, "已安装版本", 4, 12, 3, 6, 8, 6,
+            [new CardSize(4, 3), new CardSize(6, 4), new CardSize(8, 6), new CardSize(12, 6)]),
+        // 账户与启动（原有整卡）：头像 / 模式 / 启动按钮合在一张里，可占满整页高
+        new(Account, "账户与启动", 2, 4, 2, 6, 4, 6,
+            [new CardSize(2, 3), new CardSize(4, 4), new CardSize(4, 6)]),
+        // 账户选择：模式分段 + 头像 + 名字，横比竖宽一档
+        new(AccountPicker, "账户选择", 2, 6, 2, 4, 4, 3,
+            [new CardSize(2, 2), new CardSize(4, 3), new CardSize(6, 4)]),
+        // 启动按钮：宽扁按钮，最小 2×1，最大 6×2
+        new(Launch, "启动按钮", 2, 6, 1, 2, 4, 2,
+            [new CardSize(2, 1), new CardSize(4, 2), new CardSize(6, 2)]),
+        // 收藏 / 最近 / 游玩时长：宽扁的版本小列表，3×2 或 3×3
+        new(Favorites, "收藏的版本", 2, 6, 2, 3, 3, 2,
+            [new CardSize(3, 2), new CardSize(3, 3)]),
+        new(Recent, "最近的版本", 2, 6, 2, 3, 3, 2,
+            [new CardSize(3, 2), new CardSize(3, 3)]),
+        new(MostPlayed, "游玩时长", 2, 6, 2, 3, 3, 3,
+            [new CardSize(3, 2), new CardSize(3, 3)]),
     ];
 
     private static readonly Dictionary<string, HomeCardSpec> ByType =
