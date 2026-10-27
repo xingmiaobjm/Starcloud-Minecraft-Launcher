@@ -247,8 +247,13 @@ public sealed class AppServices
         SkinUpload = new SkinUploadService();
         SkinStation = new SkinStationService();
         OfflineSkins.Configure(Accounts, Skins);
-        // 清掉 0.3.1 早期「代码画出来的」老预置皮肤（用户自己导入的不动）
-        SkinPresetMigration.PurgeLegacyPresetSkins(Skins, Accounts);
+        // 清掉 0.3.1 早期「代码画出来的」老预置皮肤（用户自己导入的不动）。
+        // 这是维护动作（要读盘、删文件），与「启动器尽快出现」无关，挪到后台做。
+        _ = Task.Run(() =>
+        {
+            try { SkinPresetMigration.PurgeLegacyPresetSkins(Skins, Accounts); }
+            catch { /* 清理失败不影响启动 */ }
+        });
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         Preflight = new LaunchPreflightService(Installer, Download, Manifest);
         CrashAnalyzer = new CrashAnalysisService(Installer);

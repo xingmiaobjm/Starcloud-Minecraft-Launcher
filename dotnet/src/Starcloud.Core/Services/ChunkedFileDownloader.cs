@@ -88,6 +88,55 @@ public sealed class ChunkedFileDownloader
         return plan;
     }
 
+    // ── 分片级断点续传 ──
+
+    /// <summary>
+    /// 已完成分片的记录文件（与 .sc-tmp 同名加 .parts 后缀）。
+    /// <para>为什么需要：原来分片失败就把 .sc-tmp 整个删掉，下一次从 0 开始重下；
+    /// 大文件失败一次 = 前面几 MB 白下。整文件路径本来就有 Range 续传，
+    /// 分片路径（≥ 4 MB 的文件全部走这条）却是唯一没有续传能力的。</para>
+    /// <para>格式：每行一个已完成分片的起始偏移（十进制，纯文本）。解析失败就当没有记录。</para>
+    /// </summary>
+    private static string PartsFile(string tmp) => tmp + ".parts";
+
+    /// <summary>读取已完成的分片起始偏移；文件损坏或读不出来时返回空（整份重下）。</summary>
+    private static HashSet<long> LoadCompletedParts(string tmp)
+    {
+        var done = new HashSet<long>();
+        try
+        {
+            var file = PartsFile(tmp);
+            if (!File.Exists(file)) return done;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                var text = line.Trim();
+                if (text.Length == 0) continue;
+                if (!long.TryParse(text, out var start)) continue;
+                done.Add(start);
+            }
+        }
+        catch
+        {
+            // 记录文件坏了就整份重下
+        }
+        return done;
+    }
+
+    /// <summary>追加一条「已完成分片」的记录（每片成功即写一次）。</summary>
+    private static void SaveCompletedPart(string tmp, long start)
+    {
+        try
+        {
+            var file = PartsFile(tmp);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.AppendAllText(file, $"{start}\n");
+        }
+        catch
+        {
+            // 记录失败不影响本次下载（最坏情况是下次重下这一片）
+        }
+    }
+
     private static long AlignMiB(long bytes) =>
         (bytes + 1024 * 1024 - 1) / (1024 * 1024) * (1024 * 1024);
 
@@ -96,13 +145,23 @@ public sealed class ChunkedFileDownloader
     /// <para>为什么不能只看池里第一个源：池首常是被 429 限过的镜像（限到 1 条），
     /// 而这片文件实际是官方 CDN 在扛 —— 按镜像的限流值收并发等于把整文件压成单连接
     /// （实测 0.29 MB/s，而官方多连接应有 1 MB/s 以上）。</para>
+    /// <para>但也不能盲目取池内最大值：那个被限到 1 条的镜像未必会被用到，
+    /// 按 8 条去打它就是连续 429 → 减半 → 冷却 → 再撞。
+    /// 所以这里按「实际会用的那个源」取（preferred 有效时用它），取不到再退回池内最大值。</para>
     /// </summary>
-    internal int ConcurrencyFor(string url, IReadOnlyList<SourceKind> pool)
+    internal int ConcurrencyFor(string url, IReadOnlyList<SourceKind> pool, SourceKind? preferred = null)
     {
         var widest = pool
             .Select(k => ParallelGovernor.LimitFor(HostOf(_sources.Rewrite(url, k))))
             .DefaultIfEmpty(MaxWorkersPerFile)
             .Max();
+
+        if (preferred is { } p && pool.Contains(p))
+        {
+            var limit = ParallelGovernor.LimitFor(HostOf(_sources.Rewrite(url, p)));
+            return Math.Max(1, Math.Min(MaxWorkersPerFile, limit));
+        }
+
         return Math.Max(1, Math.Min(MaxWorkersPerFile, widest));
     }
 
@@ -126,13 +185,34 @@ public sealed class ChunkedFileDownloader
 
         var plan = PlanChunks(size, MaxWorkersPerFile);
         var allowed = Math.Min(MaxWorkersPerFile, plan.Count);
-        var wanted = Math.Min(allowed, ConcurrencyFor(url, pool.Snapshot()));
+        var wanted = Math.Min(allowed, ConcurrencyFor(url, pool.Snapshot(), preferred));
         var usage = new ConcurrentDictionary<string, long>(StringComparer.Ordinal);
         // 每个分片的重试额度必须至少覆盖池里全部源：否则重试次数用完了还没轮到官方兜底，
         // 整文件就会因为「假死镜像先被轮询到」而失败，退化到单连接整文件下载（实测慢十倍）。
         var attempts = Math.Max(Math.Max(1, maxRetries), pool.Count);
-        var queue = new ConcurrentQueue<(long Start, long Length)>(plan);
         var token = new object();
+
+        // 分片级断点续传：上次已经下完的片直接跳过，只补没下完的那些。
+        // 续传的前提是「片计划完全一致」——计划由 (size, MaxWorkersPerFile) 决定，
+        // 两者不变就一致；记录里出现计划外偏移（换了并发度或改了文件）就整份重下。
+        var completed = LoadCompletedParts(tmp);
+        var resumed = false;
+        if (completed.Count > 0 && File.Exists(tmp))
+        {
+            var tmpInfo = new FileInfo(tmp);
+            var planStarts = plan.Select(c => c.Start).ToHashSet();
+            resumed = tmpInfo.Length == size && completed.All(planStarts.Contains);
+        }
+        if (!resumed) completed.Clear();
+        var resumedBytes = resumed
+            ? plan.Where(c => completed.Contains(c.Start)).Sum(c => c.Length)
+            : 0;
+
+        var queue = new ConcurrentQueue<(long Start, long Length)>(
+            resumed ? plan.Where(c => !completed.Contains(c.Start)) : plan);
+        if (resumed && resumedBytes > 0)
+            Log?.Invoke($"分片续传 {Path.GetFileName(destFile)}：跳过 {completed.Count} 片"
+                        + $"（{resumedBytes / 1024.0 / 1024.0:F1}MB 已下）");
 
         // 进程级预算：能租几条算几条（至少 1 条），批量下载时自动让路给别的文件
         var leased = 0;
@@ -147,28 +227,40 @@ public sealed class ChunkedFileDownloader
         try
         {
             // FileOptions.Asynchronous：RandomAccess 的定位写在异步句柄上才是真异步（否则走线程池模拟）
-            using (var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.Write, FileShare.None,
-                       FileOptions.Asynchronous, size))
+            // OpenOrCreate + 预分配：续传时保留已有内容，只把没下完的片写进去。
+            // 不续传时文件可能存在但内容是旧的（上次失败留下的），必须先清零 ——
+            // 否则旧内容会被当成新片写进去，最终 SHA1 校验必然失败。
+            // 续传成立 → OpenOrCreate（保留已下内容）；不成立 → Create（截断重建，
+            // 否则上次失败留下的旧内容会被当成新片写进去，SHA1 必然对不上）。
+            // 注意不能用 OpenOrCreate 一刀切：它不会截断、也不会按 size 预分配，
+            // 实测会让整个分片下载退化成单连接（吞吐掉到 1/4）。
+            using (var handle = File.OpenHandle(tmp, resumed ? FileMode.OpenOrCreate : FileMode.Create,
+                       FileAccess.Write, FileShare.None, FileOptions.Asynchronous, size))
             {
                 var running = Enumerable.Range(0, leased).Select(_ => Task.Run(async () =>
                 {
                     while (queue.TryDequeue(out var chunk))
-                        await FetchChunkAsync(handle, url, chunk, pool, usage, onBytes, attempts, token, ct);
+                        await FetchChunkAsync(handle, tmp, url, chunk, pool, usage, onBytes, attempts, token, ct);
                 }, ct));
                 await Task.WhenAll(running);
             }
 
             // 完整性闸门：分片重试只会计多不会计少，成功字节 < 文件大小 = 有分片静默缺失，
             // 绝不能当成功落盘 → 抛错走调用方的整文件退化
-            var got = usage.Values.Sum();
+            // 续传时已下完的片不重下，usage 里没有它们，要按「已完成字节」补进来
+            var got = usage.Values.Sum() + resumedBytes;
             if (got < size)
                 throw new IOException($"分片不完整：成功 {got / 1048576.0:F1} MB / 应为 {size / 1048576.0:F1} MB");
 
             VerifyAndCommit(tmp, destFile, sha1);
+            TryDelete(PartsFile(tmp));
         }
         catch
         {
-            TryDelete(tmp);
+            // 保留 .sc-tmp 与分片记录：下次重试（或调用方退回整文件路径时）能接着下，
+            // 而不是从头再来（原来这里直接删掉临时文件，大文件失败一次就白下几十 MB）。
+            // 记录文件不存在时说明这一轮没成功过任何一片，删掉临时文件即可。
+            if (!File.Exists(PartsFile(tmp))) TryDelete(tmp);
             TaskCenterService.Instance.ReportRacingEnd(token, false, usage.Values.Sum());
             throw;
         }
@@ -258,7 +350,8 @@ public sealed class ChunkedFileDownloader
     private readonly record struct ChunkFetchResult(bool Ranged, long Bytes, long ElapsedMs);
 
     /// <summary>取下一片，失败换源重试（同一片累计重试上限 = maxRetries）</summary>
-    private async Task FetchChunkAsync(SafeFileHandle handle, string url, (long Start, long Length) chunk,
+    private async Task FetchChunkAsync(SafeFileHandle handle, string tmp, string url,
+        (long Start, long Length) chunk,
         CandidateSet pool, ConcurrentDictionary<string, long> usage, Action<long>? onBytes,
         int attempts, object token, CancellationToken ct)
     {
@@ -305,6 +398,8 @@ public sealed class ChunkedFileDownloader
                 _sources.RecordSuccess(kind);
                 ParallelGovernor.ReportSuccess(host);
                 pool.ReportSpeed(kind, result.Bytes, result.ElapsedMs);
+                // 记下这一片已完成：下次失败重试时它不用再下（分片级断点续传）
+                SaveCompletedPart(tmp, chunk.Start);
                 return;
             }
             // 源忽略 Range 返回整文件：已退出分片池，立即换源且不消耗重试额度
@@ -505,7 +600,11 @@ public sealed class ChunkedFileDownloader
             var items = _items;
             if (items.Length == 0) throw new IOException("没有支持分片下载的下载源");
 
-            // 批量下载时文件被分摊到指定源：整个文件都用它，换源只在它失败/降级后发生
+            // 批量下载时文件被分摊到指定源：整个文件都用它，换源只在它失败/降级后发生。
+            // 这条短路是「源级并行」策略的前提：批量时把不同文件分摊到不同源，
+            // 目的正是让各镜像同时出力（见 DownloadService.DownloadBatchAsync）。
+            // 若在这里放开择优，每个文件的分片都会去抢最快源，其余镜像就闲着了 ——
+            // 整体吞吐反而下降。慢源的处置交给上层：分摊时按健康度挑源 + 源失败即换。
             if (_preferred is { } preferred && items.Contains(preferred) &&
                 !(_isDegraded?.Invoke(preferred) ?? false))
             {

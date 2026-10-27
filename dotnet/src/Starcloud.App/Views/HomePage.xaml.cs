@@ -375,14 +375,17 @@ public sealed partial class HomePage : Page
         RowSpan = host.RowSpan,
     };
 
-    /// <summary>收藏 / 最近 / 游玩时长三张小列表卡的数据源刷新。</summary>
-    private void RefreshMiniCards()
+    /// <summary>
+    /// 收藏 / 最近 / 游玩时长三张小列表卡的数据源刷新。
+    /// <paramref name="store"/> 传后台扫描时已经读好的档案存储，省掉一次同文件读取。
+    /// </summary>
+    private void RefreshMiniCards(InstanceSettingsStore? store = null)
     {
         _favoriteRows = _rows.Where(r => r.Favorite).ToList();
         List<LocalVersionRow> mostPlayed;
         try
         {
-            var store = new InstanceSettingsStore(_s.Settings.DotMinecraft);
+            store ??= new InstanceSettingsStore(_s.Settings.DotMinecraft);
             _recentRows = _rows
                 .Select(row => (row, at: store.Get(row.Id).LastPlayedAt))
                 .Where(t => t.at is not null)
@@ -615,10 +618,10 @@ public sealed partial class HomePage : Page
         _versionsCollapsed = _s.Settings.HomeVersionsCollapsed;
 
         SetMode(LaunchAccountService.ModeOfLastUsername(_s.Settings.LastUsername));
-        LoadVersions();
         RefreshAccounts();
         RefreshLeftNoticeArea(); // 兜底：初始无通知时把左列通知区收掉，版本卡才能与右栏卡上边缘齐平
-        ConsumePendingLaunch();
+        // 版本扫描放后台：先出界面骨架，列表数据随后到位
+        _ = LoadVersionsAsync();
         SetCardExpanded(_cardExpanded, animate: false); // 落存下来的终态（含 tooltip / 刻度朝向），不播动画
         SetVersionsCollapsed(_versionsCollapsed, animate: false); // 版本卡同理，顺带把两颗刻度的提示语对齐
     }
@@ -720,56 +723,81 @@ public sealed partial class HomePage : Page
     private void ModeOffline_Click(object s, RoutedEventArgs e) => SetMode("offline");
 
     // ── 版本列表 ──
-    private void LoadVersions()
+    /// <summary>
+    /// 版本列表：扫描（目录 + 每个版本的 JSON）放后台线程，回到 UI 线程再拼行。
+    /// 与版本页（VersionsPage.RefreshListAsync）同一套做法 —— 首页是启动后第一屏，
+    /// 这里每多一次同步磁盘 IO，窗口就要多等一次布局。
+    /// </summary>
+    private async Task LoadVersionsAsync()
     {
         var dotMc = _s.Settings.DotMinecraft;
-        var store = new InstanceSettingsStore(dotMc);
+
+        List<(InstalledVersionInfo Item, VersionProfile Profile, string Kind)> raw;
+        InstanceSettingsStore store;
         try
         {
-            // 与版本页同一口径：依赖版本（整合包的原版 / 加载器）不单列
-            var installed = VersionVisibility.Filter(dotMc, _s.Manifest.ListInstalled(dotMc)).ToList();
-            // 排序：置顶 → 收藏 → 上次使用的版本 → 版本号倒序
-            var profiles = installed.ToDictionary(
-                i => i.Id, i => store.Get(i.Id), StringComparer.OrdinalIgnoreCase);
-            installed.Sort((a, b) =>
+            (raw, store) = await Task.Run(() =>
             {
-                var pa = profiles[a.Id];
-                var pb = profiles[b.Id];
-                if (pa.Pinned != pb.Pinned) return pa.Pinned ? -1 : 1;
-                if (pa.Favorite != pb.Favorite) return pa.Favorite ? -1 : 1;
-                var aLast = string.Equals(a.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-                var bLast = string.Equals(b.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-                if (aLast != bLast) return bLast - aLast;
-                return string.Compare(b.Id, a.Id, StringComparison.OrdinalIgnoreCase);
+                var s = new InstanceSettingsStore(dotMc);
+                // 与版本页同一口径：依赖版本（整合包的原版 / 加载器）不单列
+                var installed = VersionVisibility.Filter(dotMc, _s.Manifest.ListInstalled(dotMc)).ToList();
+                var list = installed
+                    .Select(i => (Item: i, Profile: s.Get(i.Id),
+                                  Kind: VersionRowHelpers.DetectKind(dotMc, i.Id)))
+                    .ToList();
+                return (list, s);
             });
-            // 与版本页同一套行模型：图标 + 类型 + 上次启动 + 大小，主页不再是"光秃秃的名字 + 大小"
-            _rows = installed.Select(i =>
-            {
-                var profile = profiles[i.Id];
-                var kind = VersionRowHelpers.DetectKind(dotMc, i.Id);
-                return new LocalVersionRow(
-                    i.Id, kind, FormatSize(i.SizeBytes),
-                    VersionRowHelpers.DisplayIconPath(dotMc, i.Id, profile.IconPath),
-                    profile.Category ?? "",
-                    InstanceLayout.IsIsolated(profile, _s.Settings),
-                    VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
-                    (i.Id + " " + kind).ToLowerInvariant(),
-                    profile.Pinned, profile.Favorite);
-            }).ToList();
         }
         catch (Exception ex)
         {
             _rows = [];
             LocalErrorBar.Message = Loc.T("读取已安装版本失败：{0}", ex.Message);
             LocalErrorBar.IsOpen = true;
+            FinishVersionLoad(null);
+            return;
         }
+
+        // Loc.T 只在 UI 线程调用（语言切换会重建词典，后台线程读有竞态）
+        var ordered = raw.ToList();
+        ordered.Sort((a, b) =>
+        {
+            var pa = a.Profile;
+            var pb = b.Profile;
+            if (pa.Pinned != pb.Pinned) return pa.Pinned ? -1 : 1;
+            if (pa.Favorite != pb.Favorite) return pa.Favorite ? -1 : 1;
+            var aLast = string.Equals(a.Item.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            var bLast = string.Equals(b.Item.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            if (aLast != bLast) return bLast - aLast;
+            return string.Compare(b.Item.Id, a.Item.Id, StringComparison.OrdinalIgnoreCase);
+        });
+
+        // 与版本页同一套行模型：图标 + 类型 + 上次启动 + 大小，主页不再是"光秃秃的名字 + 大小"
+        _rows = ordered.Select(x =>
+        {
+            var profile = x.Profile;
+            return new LocalVersionRow(
+                x.Item.Id, x.Kind, FormatSize(x.Item.SizeBytes),
+                VersionRowHelpers.DisplayIconPath(dotMc, x.Item.Id, profile.IconPath),
+                profile.Category ?? "",
+                InstanceLayout.IsIsolated(profile, _s.Settings),
+                VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
+                (x.Item.Id + " " + x.Kind).ToLowerInvariant(),
+                profile.Pinned, profile.Favorite);
+        }).ToList();
+
+        FinishVersionLoad(store);
+    }
+
+    /// <summary>版本数据到齐后的收尾：填列表、羽化入场、刷新小卡片。</summary>
+    private void FinishVersionLoad(InstanceSettingsStore? store)
+    {
         VersionCountText.Text = $"({_rows.Count})";
         // 行数变了，展开态的自然高也跟着变，缓存作废。
         _expandedMetricsValid = false;
         VersionList.ItemsSource = _rows;
         MotionFx.StaggerListItems(VersionList, maxItems: 10);
         EmptyVersionHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RefreshMiniCards();
+        RefreshMiniCards(store);
         var preferred = _s.Settings.LastVersion is { } last && _rows.Any(r => r.Id == last) ? last
             : _rows.FirstOrDefault()?.Id;
         VersionList.SelectedItem = _rows.FirstOrDefault(r => r.Id == preferred);
@@ -781,11 +809,13 @@ public sealed partial class HomePage : Page
         VersionList.UpdateLayout();
         HookVersionScroll();
         SyncSelectedInset(animate: false);
+        // 版本列表就绪后才消费跨页启动请求（它要选中某个版本）
+        ConsumePendingLaunch();
     }
 
     private void RefreshVersionsBtn_Click(object s, RoutedEventArgs e)
     {
-        LoadVersions();
+        _ = LoadVersionsAsync();
     }
 
     private void VersionList_SelectionChanged(object s, SelectionChangedEventArgs e)
@@ -921,7 +951,7 @@ public sealed partial class HomePage : Page
         else profile.Favorite = !profile.Favorite;
         store.Set(id, profile);
         store.Save();
-        LoadVersions();
+        _ = LoadVersionsAsync();
     }
 
     /// <summary>右键「启动」：先选中该行，再走与启动按钮完全同一条链路（含正在运行→结束）。</summary>
@@ -997,7 +1027,7 @@ public sealed partial class HomePage : Page
                 _s.Settings.LastVersion = null;
                 _s.Settings.Save();
             }
-            LoadVersions();
+            _ = LoadVersionsAsync();
         }
         catch (Exception ex)
         {

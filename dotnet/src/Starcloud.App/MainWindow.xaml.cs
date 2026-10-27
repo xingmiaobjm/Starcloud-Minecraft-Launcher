@@ -186,8 +186,10 @@ public sealed partial class MainWindow : Window
         Activated += (_, _) => RefreshAccountButton();
 
         // 导航项在 Loaded 时按贡献点生成；选中项由 BuildNavFromContributions 落第一项。
-        // 首屏直接进首页（页面类型同样来自贡献点，这里保留常量只为启动即有内容）。
-        ContentFrame.Navigate(ResolvePageType("home"), null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
+        // 首屏进首页（页面类型同样来自贡献点，这里保留常量只为启动即有内容）。
+        // 注意：ContentFrame.Navigate 是同步构造目标页的 —— 首页 XAML 有近千行，
+        // 在构造函数里导航就等于「窗口显示前把整页建完」。这里先占位，
+        // 真正的导航挪到 root.Loaded（窗口已可见），用户先看到窗口框再看到内容。
         ContentFrame.NavigationFailed += (_, e) =>
             LauncherLog.Error("nav", $"导航到 {e.SourcePageType.Name} 失败", e.Exception);
         Closed += (_, _) =>
@@ -254,8 +256,23 @@ public sealed partial class MainWindow : Window
             _pluginNavHooked = true;
             AppServices.Instance.PluginHost.ContributionsChanged += OnPluginContributionsChanged;
             RebuildPluginNavGroup();
+
+            // 首屏导航放在这里：窗口已经可见，首页的构建与版本扫描不会再挡住窗口出现
+            if (!_homeNavigated)
+            {
+                _homeNavigated = true;
+                var home = ResolvePageType("home");
+                if (ContentFrame.CurrentSourcePageType != home)
+                {
+                    ContentFrame.Navigate(home, null,
+                        MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
+                }
+            }
         };
     }
+
+    /// <summary>首屏是否已导航（避免 Loaded 重复触发时二次导航）。</summary>
+    private bool _homeNavigated;
 
     // ── 设备上下线横幅 ──
 

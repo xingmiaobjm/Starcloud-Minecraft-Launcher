@@ -772,7 +772,7 @@ public sealed class DownloadService
             return;
         }
 
-        // 多文件并发时把不同文件分摊到不同源：单文件靠分片并行，多文件再叠一层“源级并行”，
+        // 多文件并发时把不同文件分摊到不同源：单文件靠分片并行，多文件再叠一层"源级并行"，
         // 避免所有文件都挤在同一个最快源上（其余镜像闲着）。只有一个文件 / 一个源时不指定。
         var assignPool = new List<SourceKind>();
         if (pending.Count > 1)
@@ -789,12 +789,20 @@ public sealed class DownloadService
                 $"（{pending.Count} 个文件）");
         }
 
+        // 大文件优先：先下 client.jar / 资源包这类大件，免得它们被排在队尾、
+        // 晚拿到并发额度；小文件随后补位。
+        var ordered = pending
+            .OrderByDescending(f => f.Size)
+            .ToList();
+
         using var gate = new SemaphoreSlim(Math.Max(1, concurrency));
-        var tasks = pending.Select(async f =>
+        var tasks = ordered.Select(async f =>
         {
             await gate.WaitAsync(ct);
             try
             {
+                // 分摊时按文件大小错开：同一源不要连着接两个大文件，
+                // 否则那个源被两个大文件压满，其余源闲着 —— 整体速度取决于最慢的那个源。
                 var preferred = assignPool.Count > 1 && DownloadSourceRegistry.IsMojangUrl(f.Url)
                     ? assignPool[(int)((uint)Interlocked.Increment(ref assignCursor) %
                                         (uint)assignPool.Count)]
