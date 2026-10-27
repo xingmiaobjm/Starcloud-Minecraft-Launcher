@@ -152,6 +152,13 @@ Var DoneBytes
   !error "installer-payload.nsh 未生成：请用 tools\build-installer.ps1 打包"
 !endif
 
+; 卸载清单（与载荷同源生成）：盘根安装的旧版本只按这份清单逐项删除，不递归。
+!if /FileExists "${__FILEDIR__}\installer-uninstall.nsh"
+  !define SC_UNINSTALL_NSH "${__FILEDIR__}\installer-uninstall.nsh"
+!else
+  !error "installer-uninstall.nsh 未生成：请用 tools\build-installer.ps1 打包"
+!endif
+
 Page custom UiPage UiPageLeave
 Page instfiles
 
@@ -438,6 +445,9 @@ FunctionEnd
 ; 安装器首帧只解压当前 DPI 档的位图，整个应用载荷留给点下「安装」再解压。
 !include "${SC_PAYLOAD_NSH}"
 
+; 卸载清单：与载荷同一份文件列表生成，只含本版本安装的文件与目录。
+!include "${SC_UNINSTALL_NSH}"
+
 Function CreateChrome
   ; 背景（最底层）
   nsDialogs::CreateControl STATIC 0x5000000E 0 0 0 $WinW $WinH ""
@@ -674,7 +684,52 @@ Function OnOpenPrivacy
   ExecShell "open" "https://starcloudfur.cn/privacy"
 FunctionEnd
 
+; 「危险根目录」判定：盘符根（E: / E:\）与网络共享根（\\server\share）。
+; 这两类目录只要执行一次 RMDir /r 就会把整个分区 / 共享清空（issue #1），
+; 因此任何递归删除前都必须先过一遍这里。
+; 用法：!insertmacro ScIsDangerousRoot "$INSTDIR" $R7
+;   ${outVar} = 1 危险根目录；0 可递归删除。
+; 副作用：$R8 = 去掉尾部反斜杠后的路径；$R5 / $R6 / $R9 为临时寄存器。
+!macro ScIsDangerousRoot pathVar outVar
+  StrCpy ${outVar} 0
+  StrCpy $R8 "${pathVar}"
+  ; 去掉尾部反斜杠，统一成 "E:" 形式再判长度
+  ${Do}
+    StrCpy $R9 "$R8" "" -1
+    ${If} $R9 != "\"
+      ${ExitDo}
+    ${EndIf}
+    StrCpy $R8 "$R8" -1
+  ${Loop}
+  StrLen $R9 "$R8"
+  ${If} $R9 <= 2
+    StrCpy ${outVar} 1
+  ${Else}
+    ; 网络共享根：以两个反斜杠开头，且整条路径恰好 3 个反斜杠
+    StrCpy $R9 "$R8" 2
+    ${If} $R9 == "\\"
+      StrCpy $R9 0
+      StrCpy $R6 0
+      ${Do}
+        StrCpy $R5 "$R8" 1 $R6
+        ${If} $R5 == ""
+          ${ExitDo}
+        ${EndIf}
+        ${If} $R5 == "\"
+          IntOp $R9 $R9 + 1
+        ${EndIf}
+        IntOp $R6 $R6 + 1
+      ${Loop}
+      ${If} $R9 == 3
+        StrCpy ${outVar} 1
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 ; 把用户选/填的目录解析成实际安装目录：
+;   · 盘符根 / 共享根一律先补一层 Starcloud —— 即使根目录里已经有旧版文件，
+;     也不能继续装在根目录（卸载与覆盖安装都要面对整个分区，issue #1）；
 ;   · 末级目录已经叫 Starcloud，或那本身就是一份产品安装（有卸载器 / 主程序）→ 原样使用（升级场景）；
 ;   · 否则在其下新建 Starcloud 子目录再装——用户选的是「装到哪」，不能把我们的文件铺满人家整个文件夹。
 Function ScResolveInstallDir
@@ -686,6 +741,11 @@ Function ScResolveInstallDir
   ${If} $2 == "\"
     StrCpy $3 "$1" -1
     StrCpy $1 "$3"
+  ${EndIf}
+  !insertmacro ScIsDangerousRoot "$1" $R7
+  ${If} $R7 == 1
+    StrCpy $1 "$R8\Starcloud"
+    Goto sc_resolve_done
   ${EndIf}
   ${GetFileName} $1 $2
   ${If} $2 == "Starcloud"
@@ -744,6 +804,13 @@ Function OnPrimary
     Push $2
     Call ScResolveInstallDir
     Pop $INSTDIR
+  ${EndIf}
+
+  ; 兜底：解析后仍落在危险根目录就拒绝安装（正常路径不会走到这里）
+  Call IsDriveRoot
+  ${If} $R7 == 1
+    MessageBox MB_OK|MB_ICONSTOP "不能把 Starcloud 安装在盘符根目录或共享根目录，请选择一个单独的文件夹。"
+    Return
   ${EndIf}
 
   StrCpy $State "progress"
@@ -824,11 +891,22 @@ Function CheckAppRunning
 FunctionEnd
 
 ; 安装目录是盘符根（E:\ 这类）时禁止整目录清空：会连带删掉该盘其它文件
+; 安装目录是否为危险根目录（盘符根 / 共享根）：安装与升级清理前统一走这里
 Function IsDriveRoot
-  StrCpy $R7 0
-  StrLen $R8 "$INSTDIR"
-  ${If} $R8 == 3
-    StrCpy $R7 1
+  !insertmacro ScIsDangerousRoot "$INSTDIR" $R7
+FunctionEnd
+
+; 卸载器侧的同一判定（卸载器只能调用 un. 前缀的函数）
+Function un.IsDriveRoot
+  !insertmacro ScIsDangerousRoot "$INSTDIR" $R7
+FunctionEnd
+
+; 静默安装入口：旧版本可能直接装在盘根，一律改到 Starcloud 子目录，
+; 不再向根目录写入任何文件
+Function ScGuardInstDir
+  !insertmacro ScIsDangerousRoot "$INSTDIR" $R7
+  ${If} $R7 == 1
+    StrCpy $INSTDIR "$R8\Starcloud"
   ${EndIf}
 FunctionEnd
 
@@ -844,6 +922,8 @@ Section "Starcloud" SecInstall
   ; 带界面时安装动作在安装页的回调里完成（instfiles 页走不到）；
   ; 静默安装（/S）没有页面，这里把同样的动作做一遍。
   ${If} $State == "silent"
+    ; 盘根里的旧安装先改到子目录，后面的清理与解压都不会碰根目录
+    Call ScGuardInstDir
     Call CheckAppRunning
     SetOutPath "$TEMP"
     Call IsDriveRoot
@@ -1041,15 +1121,27 @@ Function un.DoUninstall
   Call un.CheckAppRunning
 
   Delete "$INSTDIR\uninstall.exe"
-  ; 大目录删除偶发被占用（杀毒扫描 / 资源管理器缩略图）：失败就稍等重试一次，
-  ; 不再无限卡在删除阶段
-  ClearErrors
-  RMDir /r "$INSTDIR"
-  IfErrors 0 un_rm_ok
-    Sleep 800
+
+  ; 盘根 / 共享根绝不能 RMDir /r（issue #1：会把整个分区删空）。
+  ; 这类目录只按本版本的安装清单逐项删除，目录删空后才 RMDir，磁盘上的其它内容一律不动。
+  Call un.IsDriveRoot
+  ${If} $R7 == 1
+    Call un.RemoveInstalledFiles
+    Call un.RemoveInstalledDirs
+    ${IfNot} ${Silent}
+      MessageBox MB_OK|MB_ICONINFORMATION "检测到旧版本直接安装在盘符根目录或共享根目录。为免误删其它文件，本次卸载只删除 Starcloud 自己的文件，目录中的其它内容保持不变。"
+    ${EndIf}
+  ${Else}
+    ; 大目录删除偶发被占用（杀毒扫描 / 资源管理器缩略图）：失败就稍等重试一次，
+    ; 不再无限卡在删除阶段
+    ClearErrors
     RMDir /r "$INSTDIR"
-  un_rm_ok:
-  RMDir "$INSTDIR"
+    IfErrors 0 un_rm_ok
+      Sleep 800
+      RMDir /r "$INSTDIR"
+    un_rm_ok:
+    RMDir "$INSTDIR"
+  ${EndIf}
 
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\卸载 ${PRODUCT_NAME}.lnk"
