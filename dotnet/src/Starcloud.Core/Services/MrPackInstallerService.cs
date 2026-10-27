@@ -134,6 +134,7 @@ public sealed class MrPackInstallerService
             }
 
             // 2. overrides/ 与 client-overrides/ 覆盖到实例根（客户端专用覆盖后写，优先级更高）
+            //    server-overrides 是服务端专用内容，客户端装上去会出问题 —— 不导入。
             foreach (var name in new[] { "overrides", "client-overrides" })
             {
                 var dir = Path.Combine(tempDir, name);

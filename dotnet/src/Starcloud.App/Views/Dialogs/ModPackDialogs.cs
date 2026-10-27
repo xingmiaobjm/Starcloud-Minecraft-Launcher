@@ -642,6 +642,15 @@ public static class ModPackDialogs
         string summary;
         try
         {
+            // 磁盘空间预检：整合包动辄几百 MB，下载到一半才报「磁盘已满」很难受
+            if (!DiskSpaceGuard.Check(installRoot, preview.TotalBytes, out _, out var spaceMsg))
+            {
+                try { progressDlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
+                await ErrorAsync(root, Loc.T("磁盘空间不足"),
+                    new InvalidOperationException(spaceMsg ?? Loc.T("目标磁盘空间不足")));
+                return;
+            }
+
             if (isolated) Directory.CreateDirectory(installRoot);
             var result = preview.Format switch
             {
@@ -674,6 +683,17 @@ public static class ModPackDialogs
         catch (Exception ex)
         {
             try { progressDlg.Hide(); } catch { /* 用户已关闭弹窗时忽略 */ }
+            // 导入失败时实例目录里可能已经有半截文件：留着会在版本列表里显示成一个坏版本。
+            // 隔离实例是我们刚建的，直接删掉；共享目录不能乱删，只提示用户手动清理。
+            if (isolated)
+            {
+                try { Directory.Delete(installRoot, recursive: true); } catch { /* 清理失败就算了 */ }
+            }
+            else
+            {
+                LauncherLog.Write("modpack",
+                    $"导入失败，共享目录 {dotMc} 里可能残留部分文件，请检查 mods / config 等目录");
+            }
             await ErrorAsync(root, Loc.T("导入失败"), ex);
             return;
         }

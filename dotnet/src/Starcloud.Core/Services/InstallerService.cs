@@ -225,6 +225,12 @@ public sealed class InstallerService
             }
         }
 
+        // 磁盘空间预检：下载到一半才报「磁盘已满」是最难受的失败方式（用户已经等了很久）。
+        // 资源对象动辄几千个，这里按总量一次性判断。
+        var expectedBytes = files.Sum(f => Math.Max(f.Size, 0));
+        if (!DiskSpaceGuard.Check(dotMc, expectedBytes, out _, out var spaceMsg))
+            throw new InvalidOperationException(spaceMsg);
+
         // 批量下载
         await _downloader.DownloadBatchAsync(files, "下载游戏文件",
             settings.DownloadConcurrency, settings.DownloadMaxRetries, progress, ct);

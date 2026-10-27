@@ -80,11 +80,15 @@ public sealed class CurseForgePackInstaller
         // 1. 解析文件直链：先批量（POST /mods/files，几百个文件只要几次请求），
         //    响应里缺的（作者禁分发 / 已下架 / 批量接口不认）再逐个兜底一次
         status?.Report($"正在解析整合包文件（{manifest.Files.Count} 个）…");
+        // required=false 的是可选文件（缺了游戏也能跑，多半是作者的补充内容）：
+        // 装上反而可能与服务端要求不符，不装。
+        var requiredFiles = manifest.Files.Where(f => f.Required).ToList();
+        var optionalCount = manifest.Files.Count - requiredFiles.Count;
         var byId = await _curseForge.GetFilesByIdsAsync(
-            manifest.Files.Select(f => (f.ProjectId, f.FileId)).ToList(), ct);
+            requiredFiles.Select(f => (f.ProjectId, f.FileId)).ToList(), ct);
         var batch = new List<(string Url, string Dest, string? Sha1, long Size)>();
         var skipped = 0;
-        foreach (var file in manifest.Files)
+        foreach (var file in requiredFiles)
         {
             ct.ThrowIfCancellationRequested();
             var version = byId.TryGetValue(file.FileId, out var batched)
@@ -120,6 +124,8 @@ public sealed class CurseForgePackInstaller
         }
 
         if (skipped > 0) status?.Report($"已跳过 {skipped} 个不可下载文件（作者未开启分发）");
+        if (optionalCount > 0)
+            LauncherLog.Write("curseforge", $"整合包含 {optionalCount} 个可选文件，按规范未安装");
 
         var dependencies = new Dictionary<string, string>();
         if (!string.IsNullOrWhiteSpace(manifest.Minecraft?.Version))
@@ -191,7 +197,9 @@ public sealed class CurseForgePackInstaller
             if (parts.Any(p => p == ".." || p.Length == 0) || relative.Contains(':')) continue;
 
             var dest = Path.GetFullPath(Path.Combine(root, Path.Combine(parts)));
-            if (!dest.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+            // 前缀比较必须带上目录分隔符：只比 "C:\foo" 会让 "C:\foobar" 也通过，
+            // 结果就是把文件写到实例目录外面去。
+            if (!dest.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
             entry.ExtractToFile(dest, overwrite: true);
         }
