@@ -54,8 +54,16 @@ public sealed record LocalVersionRow(string Id, string KindText, string SizeText
     bool Pinned = false, bool Favorite = false)
 {
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
+
     // IconPath 由 VersionRowHelpers.DisplayIconPath 解析好（自定义 > 加载器 > 版本类型）
-    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
+    //
+    // 图标实例只创建一次：x:Bind 会分别求值 Icon 与 IconImageVisibility，
+    // 每次访问都 new 一个 BitmapImage 的话，两次拿到的是不同对象 ——
+    // 解码尚未完成时 Image 拿不到位图，看起来就是「图标偶尔不显示」。
+    private readonly Lazy<ImageSource?> _icon = new(
+        () => VersionRowHelpers.ResolveIconSource(IconPath), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public ImageSource? Icon => _icon.Value;
     public Visibility IconImageVisibility => Icon is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility IconFontVisibility => Icon is null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
@@ -74,7 +82,12 @@ public sealed record SaveRow(string FolderName, string Name, string? IconPath,
     string VersionLabel, string VersionId, bool Isolated, string GameRoot, string SearchKey)
 {
     public bool HasIcon => IconPath is not null;
-    public ImageSource? Icon => VersionRowHelpers.ResolveIconSource(IconPath);
+
+    // 同 LocalVersionRow：图标实例只创建一次，避免 x:Bind 两次求值拿到不同对象
+    private readonly Lazy<ImageSource?> _icon = new(
+        () => VersionRowHelpers.ResolveIconSource(IconPath), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public ImageSource? Icon => _icon.Value;
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
 }
 

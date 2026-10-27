@@ -249,10 +249,22 @@ public sealed class GameLauncher
         // 个别手写/旧整合包 JSON 也可能漏掉 -cp。缺了它 JVM 直接报「找不到主类」。
         // 注意要认全三种写法（-cp / -classpath / --class-path）：JVM 三者等价，
         // 只认前两种时，用户参数里写了 --class-path 会被再补一条 -cp，两条 classpath 互相打架。
+        //
+        // Forge 1.13 之前用的是 legacyClassPath 字段（安装器写死的整条 classpath），
+        // 不认它就会退化成启动器自己拼的 classpath —— 少了 Forge 的补丁 jar，
+        // 表现为「Forge 装了却报找不到主类」。
         if (!HasClasspathArg(jvmArgs))
         {
-            jvmArgs.Add("-cp");
-            jvmArgs.Add(classpath);
+            if (!string.IsNullOrWhiteSpace(version.LegacyClassPath))
+            {
+                jvmArgs.Add("-cp");
+                jvmArgs.Add(Substitute(version.LegacyClassPath));
+            }
+            else
+            {
+                jvmArgs.Add("-cp");
+                jvmArgs.Add(classpath);
+            }
         }
 
         // 旧代参数字符串
@@ -260,6 +272,19 @@ public sealed class GameLauncher
         {
             gameArgs.AddRange(version.MinecraftArguments
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Substitute));
+        }
+
+        // 1.16 起的官方日志参数：logging.client.argument 指定 log4j 配置文件。
+        // 不接的话游戏日志走默认配置，日志不在官方位置、格式也不对（排查崩溃时很别扭）。
+        if (version.Logging is { ValueKind: JsonValueKind.Object } log
+            && log.TryGetProperty("client", out var client)
+            && client.TryGetProperty("argument", out var argEl)
+            && argEl.ValueKind == JsonValueKind.String
+            && argEl.GetString() is { Length: > 0 } logArg)
+        {
+            var resolved = Substitute(logArg);
+            if (!jvmArgs.Any(a => a.Contains("log4j2.configurationFile", StringComparison.OrdinalIgnoreCase)))
+                jvmArgs.Add($"-Dlog4j2.configurationFile={resolved}");
         }
 
         // 现代版本没有 minecraftArguments 时补全必需 game 参数

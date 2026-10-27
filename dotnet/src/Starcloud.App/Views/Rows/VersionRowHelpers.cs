@@ -26,8 +26,13 @@ public static class VersionRowHelpers
         ["old_alpha"] = "natural_dirt.png",
     };
 
-    /// <summary>图标解码缓存（同一文件多行复用，避免重复解码）</summary>
+    /// <summary>
+    /// 图标解码缓存（同一文件多行复用，避免重复解码）。
+    /// <para>必须加锁：版本扫描现在跑在后台线程，UI 线程同时在读同一个字典，
+    /// 无锁的 Dictionary 并发写会抛异常或写坏 —— 表现就是图标「偶尔」变成空白。</para>
+    /// </summary>
     private static readonly Dictionary<string, ImageSource?> VersionIconCache = [];
+    private static readonly object IconCacheGate = new();
 
     /// <summary>
     /// 版本类型 → 内置等距方块图标（随输出目录发布于 Assets/MC-Icons）。
@@ -36,9 +41,16 @@ public static class VersionRowHelpers
     public static ImageSource? VersionIcon(string? type)
     {
         var file = VersionIconFiles.GetValueOrDefault(type ?? "", VersionIconFiles["release"]);
-        if (VersionIconCache.TryGetValue(file, out var cached)) return cached;
+        lock (IconCacheGate)
+        {
+            if (VersionIconCache.TryGetValue(file, out var cached)) return cached;
+        }
         var source = ResolveIconSource(BuiltInIconPath(file));
-        VersionIconCache[file] = source;
+        lock (IconCacheGate)
+        {
+            // 缺失（null）不缓存：资源可能在安装/更新后才到位，缓存住 null 就永远补不回来
+            if (source is not null) VersionIconCache[file] = source;
+        }
         return source;
     }
 
@@ -132,15 +144,26 @@ public static class VersionRowHelpers
     public static string DetectVersionType(string dotMc, string versionId) =>
         ReadMeta(dotMc, versionId).Type;
 
-    /// <summary>内置图标文件是否存在（同一文件多行复用，避免每行一次 File.Exists 系统调用）</summary>
+    /// <summary>
+    /// 内置图标文件是否存在（同一文件多行复用，避免每行一次 File.Exists 系统调用）。
+    /// <para>同样要加锁：版本扫描在后台线程，UI 线程同时在读。</para>
+    /// </summary>
     private static readonly Dictionary<string, string?> BuiltInIconPaths = [];
+    private static readonly object IconPathGate = new();
 
     private static string? BuiltInIconPath(string file)
     {
-        if (BuiltInIconPaths.TryGetValue(file, out var cached)) return cached;
+        lock (IconPathGate)
+        {
+            if (BuiltInIconPaths.TryGetValue(file, out var cached)) return cached;
+        }
         var path = Path.Combine(AppContext.BaseDirectory, "Assets", "MC-Icons", file);
         var resolved = File.Exists(path) ? path : null;
-        BuiltInIconPaths[file] = resolved;
+        lock (IconPathGate)
+        {
+            // 缺失不缓存：资源可能随安装 / 更新后才出现，缓存住 null 就永远补不回来
+            if (resolved is not null) BuiltInIconPaths[file] = resolved;
+        }
         return resolved;
     }
 

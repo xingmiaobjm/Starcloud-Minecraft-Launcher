@@ -54,8 +54,24 @@ public sealed class MinecraftVersion
     [JsonPropertyName("minecraftArguments")]
     public string? MinecraftArguments { get; set; }
 
+    /// <summary>新代（1.13+）启动参数（jvm / game 两组）</summary>
     [JsonPropertyName("arguments")]
     public VersionArguments? Arguments { get; set; }
+
+    /// <summary>
+    /// Forge 1.13 之前用的类路径字段（整条 classpath 以 ";" 分隔）。
+    /// <para>Forge 的安装器写的是这个字段而不是 arguments.jvm：不认它就会退化成
+    /// 「启动器自己拼的 classpath」，少了 Forge 补丁 jar，报「找不到主类」。</para>
+    /// </summary>
+    [JsonPropertyName("legacyClassPath")]
+    public string? LegacyClassPath { get; set; }
+
+    /// <summary>
+    /// logging.client.argument（1.16 起 Mojang 用来指定 log4j 配置）。
+    /// <para>不接的话游戏日志走默认配置，日志文件位置与格式都不是官方那套。</para>
+    /// </summary>
+    [JsonPropertyName("logging")]
+    public JsonElement? Logging { get; set; }
 
     [JsonPropertyName("assetIndex")]
     public AssetIndexRef? AssetIndex { get; set; }
@@ -74,9 +90,6 @@ public sealed class MinecraftVersion
 
     [JsonPropertyName("inheritsFrom")]
     public string? InheritsFrom { get; set; }
-
-    [JsonPropertyName("logging")]
-    public JsonElement? Logging { get; set; }
 
     [JsonPropertyName("releaseTime")]
     public string? ReleaseTime { get; set; }
