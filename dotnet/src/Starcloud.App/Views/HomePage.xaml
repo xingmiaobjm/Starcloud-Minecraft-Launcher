@@ -720,7 +720,8 @@
             </ctrl:CardHost>
 
             <!-- ═══ 可选卡片：默认隐藏，通过编辑模式浮条里的「卡片」菜单添加 ═══
-                 启动按钮：1×2 只显示图标，2 列以上显示标题，4 行以上再加当前版本名。 -->
+                 启动按钮：按钮本身按内容自适应大小并居中，不铺满整张卡 ——
+                 铺满的话 4×2 的卡就是一大块纯黄色。 -->
             <ctrl:CardHost x:Name="LaunchHost" CardId="launch" CardType="launch"
                            Column="8" Row="0" ColumnSpan="2" RowSpan="3" Visibility="Collapsed">
                 <ctrl:SizeAwareContent x:Name="LaunchCardBody">
@@ -729,9 +730,9 @@
                             BorderThickness="1" CornerRadius="16" Padding="8">
                         <Button x:Name="CardLaunchBtn" Click="CardLaunch_Click"
                                 Style="{StaticResource ScAccentButtonStyle}"
-                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                                Padding="8">
+                                Padding="16,10">
                             <StackPanel Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBDF;" FontSize="20" />
                                 <TextBlock x:Name="CardLaunchTitle" Text="启动游戏" FontSize="13"
