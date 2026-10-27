@@ -61,9 +61,25 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <Border MaxWidth="520" CornerRadius="10" Padding="10,7"
-                        Background="{ThemeResource ControlFillColorSecondaryBrush}">
-                    <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13"
-                               IsTextSelectionEnabled="True" />
+                        Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                        Tapped="MessageBubble_Tapped">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13"
+                                   IsTextSelectionEnabled="True"
+                                   Visibility="{Binding TextVisibility}" />
+                        <!-- 附件卡片：点击保存到本地 -->
+                        <StackPanel Orientation="Horizontal" Spacing="10"
+                                    Visibility="{Binding FileVisibility}">
+                            <FontIcon Glyph="{Binding FileGlyph}" FontSize="22"
+                                      VerticalAlignment="Center" />
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Display}" FontSize="13" FontWeight="Medium"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="360" />
+                                <TextBlock loc:Loc.Text="点击保存" FontSize="11"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </DataTemplate>
@@ -72,10 +88,26 @@
         <DataTemplate x:Key="MineBubble">
             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                 <Border MaxWidth="520" CornerRadius="10" Padding="10,7"
-                        Background="{ThemeResource AccentFillColorDefaultBrush}">
-                    <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13"
-                               IsTextSelectionEnabled="True"
-                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                        Tapped="MessageBubble_Tapped">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13"
+                                   IsTextSelectionEnabled="True"
+                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                   Visibility="{Binding TextVisibility}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10"
+                                    Visibility="{Binding FileVisibility}">
+                            <FontIcon Glyph="{Binding FileGlyph}" FontSize="22" VerticalAlignment="Center"
+                                      Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Display}" FontSize="13" FontWeight="Medium"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="360"
+                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                <TextBlock loc:Loc.Text="点击保存" FontSize="11"
+                                           Foreground="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
                 <Border Width="32" Height="32" CornerRadius="16" VerticalAlignment="Top"
                         Background="{ThemeResource ControlFillColorSecondaryBrush}">
@@ -157,6 +189,8 @@
                                     loc:Loc.Name="添加好友">
                                 <Button.Flyout>
                                     <MenuFlyout>
+                                        <MenuFlyoutItem x:Name="CreateGroupMenuItem" loc:Loc.Text="创建群聊"
+                                                        Click="CreateGroupMenu_Click" />
                                         <MenuFlyoutItem x:Name="AddFriendMenuItem" loc:Loc.Text="添加好友"
                                                         Click="AddFriendMenu_Click" />
                                         <MenuFlyoutItem x:Name="RequestsMenuItem" loc:Loc.Text="好友申请"
@@ -256,18 +290,51 @@
                                    IsHitTestVisible="False" />
                         </Grid>
 
-                        <Grid x:Name="Composer" Grid.Row="2" Padding="12,8" ColumnSpacing="8"
+                        <!-- 输入区（QQ 式）：工具栏 + 大输入框 + 右下发送 -->
+                        <Grid x:Name="Composer" Grid.Row="2"
                               BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                               BorderThickness="0,1,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="MessageInput" loc:Loc.Placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="36" MaxHeight="110"
-                                     KeyDown="MessageInput_KeyDown" />
-                            <Button x:Name="SendBtn" Grid.Column="1" loc:Loc.Text="发送"
-                                    Height="36" Padding="18,0" VerticalAlignment="Bottom"
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="14" Padding="14,8,14,0">
+                                <FontIcon Glyph="&#xE76E;" FontSize="16"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <Button Background="Transparent" BorderThickness="0" Padding="2"
+                                        Click="PickImage_Click" loc:Loc.Name="发送图片"
+                                        ToolTipService.ToolTip="发送图片（≤30MB）">
+                                    <FontIcon Glyph="&#xEB9F;" FontSize="16"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Button>
+                                <Button Background="Transparent" BorderThickness="0" Padding="2"
+                                        Click="PickFile_Click" loc:Loc.Name="发送文件"
+                                        ToolTipService.ToolTip="发送文件 / 视频（≤200MB）">
+                                    <FontIcon Glyph="&#xE8E5;" FontSize="16"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Button>
+                                <FontIcon Glyph="&#xE720;" FontSize="16"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBox Grid.Row="1" x:Name="MessageInput" Margin="12,6,12,0"
+                                     MinHeight="64" MaxHeight="130" AcceptsReturn="True" TextWrapping="Wrap"
+                                     Background="Transparent" BorderThickness="0"
+                                     loc:Loc.Placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+                                     KeyDown="MessageInput_KeyDown">
+                                <TextBox.Resources>
+                                    <!-- 隐形输入框：边框/聚焦下划线/聚焦背景全部透明（QQ 式融入卡片）。
+                                         TextBox 模板读的是这些资源键，只设 BorderThickness=0 压不住聚焦态。 -->
+                                    <Thickness x:Key="TextControlBorderThemeThickness">0</Thickness>
+                                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+                                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+                                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent" />
+                                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+                                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+                                </TextBox.Resources>
+                            </TextBox>
+                            <Button Grid.Row="2" x:Name="SendBtn" loc:Loc.Text="发送" Height="32" Padding="22,0"
+                                    Margin="0,4,12,10" HorizontalAlignment="Right"
                                     Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                     Click="Send_Click" />
                         </Grid>

@@ -14,6 +14,8 @@
 //   · 应用 / 取消 / 删除皮肤都就地刷新。
 // 删除账户这类不可逆操作仍然二次确认（确认框是必要的，不是弹窗式流程）。
 
+using System.Collections.ObjectModel;
+using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -80,6 +82,11 @@ public sealed partial class AccountDetailPage : Page
     private bool _wardrobeBusy;
     private bool _wardrobeLoaded;
 
+    /// <summary>当前衣柜属于哪个账号（换账号时强制重拉）</summary>
+    private string? _wardrobeAccountUuid;
+    private int? _stationMajor;          // 皮肤站 API 大版本（null = 未探测；>=6 走 BS6 OAuth）
+    private string _wardrobeCategory = "skin";   // 衣柜分类：skin / cape
+
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
@@ -136,7 +143,8 @@ public sealed partial class AccountDetailPage : Page
             ? Loc.T("离线账户没有可上传的账号：皮肤通过启动器本机注入生效（单人 / 局域网可见，其他玩家通常看到默认皮肤）。")
             : microsoft
                 ? Loc.T("正版账户的皮肤归微软账号所有：这里的换肤只在本机生效，不改账号上的官方皮肤；每次更换前都会先警告。")
-                : Loc.T("第三方账户的皮肤在皮肤站上：从右边「皮肤站衣柜」选一张就换掉。");
+                : "";
+        SkinNote.Visibility = offline || microsoft ? Visibility.Visible : Visibility.Collapsed;
 
         if (SupportsLocalSkins)
         {
@@ -154,13 +162,19 @@ public sealed partial class AccountDetailPage : Page
         SkinMetaText.Text = Loc.T("皮肤由认证服务器（皮肤站）提供");
         SkinUsageText.Text = "";
 
-        if (external && !_wardrobeLoaded) _ = LoadWardrobeAsync(interactive: false);
+        if (external)
+        {
+            // 衣柜按账号拉取：换了账号必须重置，否则下一个账号会看到上一个账号的皮肤
+            if (_wardrobeAccountUuid != account.Uuid) { _wardrobeLoaded = false; _stationMajor = null; }
+            if (!_wardrobeLoaded) _ = LoadWardrobeAsync(interactive: false);
+        }
     }
 
     private void FillHeader(StoredAccount account)
     {
         HeaderInitial.Text = string.IsNullOrWhiteSpace(account.Username)
             ? "?" : account.Username[..1].ToUpperInvariant();
+        HeaderName.Text = account.Username;
         HeaderAvatar.Source = AvatarHelper.Resolve(account.Type, account.Uuid, account.Username,
             account.ServerBase, AvatarHelper.LocalSkinPath(account));
         HeaderType.Text = TypeLabel(account);
@@ -287,6 +301,7 @@ public sealed partial class AccountDetailPage : Page
                 SkinThumbnails.FromFile(PresetPath(p), p.Slim),
                 imported.Contains(p.Id), InUse: p.Id == inUse))
             .ToList();
+        MotionFx.StaggerListItems(PresetList);
         LayoutCardGrids();
     }
 
@@ -790,6 +805,122 @@ public sealed partial class AccountDetailPage : Page
     private void Station_Refresh_Click(object sender, RoutedEventArgs e) =>
         _ = LoadWardrobeAsync(interactive: true);
 
+    /// <summary>衣柜分类切换：皮肤 / 披风（分段指示器随点击平移）。</summary>
+    private void WardrobeCat_Click(object sender, RoutedEventArgs e)
+    {
+        // 点已选中的段：ToggleButton 自己会翻转选中态，拨回来保持单选语义
+        if (sender is ToggleButton { Tag: string clicked } && _wardrobeCategory == clicked)
+        {
+            ((ToggleButton)sender).IsChecked = true;
+            return;
+        }
+        if (sender is not FrameworkElement { Tag: string tag }) return;
+        _wardrobeCategory = tag;
+        WardrobeSkinBtn.IsChecked = tag == "skin";
+        WardrobeCapeBtn.IsChecked = tag == "cape";
+        AnimateWardrobeIndicator(tag == "cape" ? 1 : 0);
+        if (Account is { Type: "external" }) _ = LoadWardrobeAsync(interactive: false);
+    }
+
+    /// <summary>分段指示器平移（合成动画）：index × 段宽 88。</summary>
+    private void AnimateWardrobeIndicator(int index, bool animate = true)
+    {
+        try
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(WardrobeIndicator);
+            Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(WardrobeIndicator, true);
+            var target = new System.Numerics.Vector3(index * 88f, 0f, 0f);
+
+            if (!animate || !_s.Motion.Enabled)
+            {
+                visual.StopAnimation("Translation");
+                visual.Properties.InsertVector3("Translation", target);
+                return;
+            }
+
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateVector3KeyFrameAnimation();
+            anim.Duration = TimeSpan.FromMilliseconds(MotionFx.Scale(260));
+            anim.InsertKeyFrame(1f, target, MotionFx.ControlEase(compositor));
+            visual.StartAnimation("Translation", anim);
+        }
+        catch
+        {
+            // 指示器动画失败不影响分类切换本身
+        }
+    }
+
+    /// <summary>
+    /// BS6 站点的令牌保障：本地有且未过期 → 直接用；快过期/已过期 → 用刷新令牌续；
+    /// 都没有 → 亮出「连接皮肤站」按钮等用户授权，返回 null（UI 已提示）。
+    /// </summary>
+    private async Task<Bs6Tokens?> EnsureBs6TokensAsync(StoredAccount account, string root)
+    {
+        var bs6 = new BlessingSkin6Service();
+        var tokens = Bs6TokenStore.Get(_s.Settings.DotMinecraft, account.Uuid);
+        if (tokens is not null && tokens.ExpiresAt > DateTime.UtcNow.AddMinutes(1)) return tokens;
+
+        if (!string.IsNullOrEmpty(tokens?.RefreshToken))
+        {
+            try
+            {
+                tokens = await bs6.RefreshAsync(root,
+                    BlessingSkin6Service.LittleSkinClientId,
+                    BlessingSkin6Service.LittleSkinClientSecret, tokens.RefreshToken);
+                Bs6TokenStore.Set(_s.Settings.DotMinecraft, account.Uuid, tokens);
+                return tokens;
+            }
+            catch
+            {
+                // 刷新令牌失效：走重新授权
+            }
+        }
+
+        StationConnectBtn.Visibility = Visibility.Visible;
+        StationStatus.Text = Loc.T("这个皮肤站是 Blessing Skin 6：点「连接皮肤站」在浏览器里授权一次，衣柜与换肤就都走它。");
+        return null;
+    }
+
+    /// <summary>「连接皮肤站」：跑一次 OAuth2 授权码 + PKCE（本地回调），成功后自动刷新衣柜。</summary>
+    private async void Station_Connect_Click(object sender, RoutedEventArgs e)
+    {
+        if (Account is not { Type: "external" } account) return;
+        var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+        var bs6 = new BlessingSkin6Service();
+
+        StationConnectBtn.IsEnabled = false;
+        StationBusy.IsActive = true;
+        StationBusy.Visibility = Visibility.Visible;
+        StationStatus.Text = Loc.T("已在浏览器打开授权页：登录 LittleSkin 并点「授权」，完成后会自动回到这里。");
+        try
+        {
+            var tokens = await bs6.AuthorizeAsync(root,
+                BlessingSkin6Service.LittleSkinClientId,
+                BlessingSkin6Service.LittleSkinClientSecret,
+                uri => Process.Start(new ProcessStartInfo
+                {
+                    FileName = uri.ToString(),
+                    UseShellExecute = true,
+                }));
+            Bs6TokenStore.Set(_s.Settings.DotMinecraft, account.Uuid, tokens);
+            StationConnectBtn.Visibility = Visibility.Collapsed;
+
+            _wardrobeBusy = false;
+            await LoadWardrobeAsync(interactive: true);
+        }
+        catch (Exception ex)
+        {
+            StationStatus.Text = Loc.T("连接皮肤站失败：{0}", ex.Message);
+            StationConnectBtn.IsEnabled = true;
+        }
+        finally
+        {
+            StationBusy.IsActive = false;
+            StationBusy.Visibility = Visibility.Collapsed;
+            StationConnectBtn.IsEnabled = true;
+        }
+    }
+
     private async void Station_Login_Click(object sender, RoutedEventArgs e)
     {
         if (Account is not { Type: "external" } account) return;
@@ -818,10 +949,40 @@ public sealed partial class AccountDetailPage : Page
         StationStatus.Text = Loc.T("正在换成「{0}」…", row.Name);
         try
         {
-            var message = await _s.SkinStation.ApplyAsync(account.ServerBase ?? "", token, row.Skin);
+            var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+            string message;
+            if (_stationMajor >= 6)
+            {
+                var tokens = await EnsureBs6TokensAsync(account, root)
+                    ?? throw new InvalidOperationException("还没有连接皮肤站：点「连接皮肤站」完成授权。");
+                var bs6 = new BlessingSkin6Service();
+                var players = await bs6.ListPlayersAsync(root, tokens.AccessToken);
+                // 路由要数字 pid：优先与账号同名的角色，否则取第一个；没有角色就报可读错误
+                var picked = players.FirstOrDefault(p => string.Equals(
+                        p.Name, account.Username, StringComparison.OrdinalIgnoreCase))
+                    .Name is null ? players.FirstOrDefault() : players
+                    .First(p => string.Equals(p.Name, account.Username, StringComparison.OrdinalIgnoreCase));
+                if (picked.Name is null || picked.Pid is null)
+                    throw new InvalidOperationException("该账号在皮肤站上还没有角色（player）。");
+                if (row.Skin.Kind == "cape")
+                {
+                    await bs6.SetCapeAsync(root, tokens.AccessToken, picked.Pid!, row.Skin.Id);
+                    message = Loc.T("已为角色「{0}」换上这件披风。", picked.Name);
+                }
+                else
+                {
+                    await bs6.SetSkinAsync(root, tokens.AccessToken, picked.Pid!, row.Skin.Id);
+                    message = Loc.T("已为角色「{0}」换上这张皮肤。", picked.Name);
+                }
+            }
+            else
+            {
+                message = await _s.SkinStation.ApplyAsync(account.ServerBase ?? "", token, row.Skin);
+            }
             StationStatus.Text = Loc.TCore(message);
-            // 换完重新拉一次账号形象：左侧 3D 预览要跟上（皮肤站已经换了）
-            PlayerView.SetAccount(account.Type, account.Uuid, account.Username, account.ServerBase);
+            // 换完重新拉一次账号形象：强制绕过磁盘缓存与同键早退（皮肤站已经换了）
+            PlayerView.SetAccount(account.Type, account.Uuid, account.Username, account.ServerBase,
+                forceReload: true);
         }
         catch (Exception ex)
         {
@@ -857,18 +1018,59 @@ public sealed partial class AccountDetailPage : Page
             StationStatus.Text = Loc.T("正在读取皮肤站上的皮肤…");
         try
         {
-            var skins = await _s.SkinStation.ListAsync(account.ServerBase ?? "", token);
-            var rows = new List<StationSkinRow>();
-            foreach (var skin in skins.Take(WardrobeThumbLimit))
-                rows.Add(new StationSkinRow(skin,
-                    ModelLabel(skin.Slim ? SkinModels.Slim : SkinModels.Classic),
-                    await RenderStationThumbAsync(skin)));
+            var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+            if (_stationMajor is null)
+                _stationMajor = await new BlessingSkin6Service().ProbeMajorAsync(root);
+
+            IReadOnlyList<StationSkin> skins;
+            if (_stationMajor >= 6)
+            {
+                // BS6（LittleSkin 2026-10 起）：站点 API 走 OAuth2，Yggdrasil 令牌不再被接受
+                var tokens = await EnsureBs6TokensAsync(account, root);
+                if (tokens is null) return;
+                skins = await new BlessingSkin6Service().ListClosetAsync(
+                    root, tokens.AccessToken, _wardrobeCategory);
+            }
+            else
+            {
+                skins = await _s.SkinStation.ListAsync(account.ServerBase ?? "", token);
+            }
+            var visible = skins.Take(WardrobeThumbLimit).ToList();
+
+            // 卡片先全部上墙（名称 / 版型立即可见），缩略图并行下载、好一张补一张——
+            // 别让用户对着转圈等 24 张串行下载跑完（与「先渲染页面再补内容」同一套体验）。
+            var rows = new ObservableCollection<StationSkinRow>(visible
+                .Select(s => new StationSkinRow(s,
+                    ModelLabel(s.Slim ? SkinModels.Slim : SkinModels.Classic), null)));
             StationList.ItemsSource = rows;
+            MotionFx.StaggerListItems(StationList);
             _wardrobeLoaded = true;
+            _wardrobeAccountUuid = account.Uuid;
             LayoutStationGrid();
             StationStatus.Text = skins.Count == 0
-                ? Loc.T("皮肤站上还没有皮肤：先到皮肤站网页上传或收藏几张，再回来刷新。")
+                ? Loc.T("这个分类下还没有皮肤：先到皮肤站网页上传或收藏几张，再回来刷新。")
                 : Loc.T("共 {0} 张，点一张就换成它。", skins.Count);
+
+            var gate = new SemaphoreSlim(6, 6);
+            var fills = visible.Select(async (skin, index) =>
+            {
+                try
+                {
+                    await gate.WaitAsync();
+                    var preview = await RenderStationThumbAsync(skin);
+                    if (preview is not null)
+                        rows[index] = rows[index] with { Preview = preview };
+                }
+                catch
+                {
+                    // 单张失败：卡片留白（与旧行为一致，不影响其余）
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            });
+            await Task.WhenAll(fills);
         }
         catch (Exception ex)
         {
@@ -909,6 +1111,13 @@ public sealed partial class AccountDetailPage : Page
         var png = await _s.SkinStation.TryFetchPngAsync(skin.Url);
         if (png is null) return null;
         var key = $"station|{skin.Id}|{skin.Url}";
+        LauncherLog.Write("skin",
+            $"衣柜缩略图：{skin.Name} kind={skin.Kind} url={skin.Url} bytes={png.Length}");
+        if (skin.Kind == "cape")
+        {
+            var capeFile = SkinThumbnails.EnsureRawThumbFile(png, key);
+            return capeFile is null ? null : SkinThumbnails.SourceFromFile(capeFile);
+        }
         try
         {
             var file = await Task.Run(() => SkinThumbnails.EnsureThumbFile(png, skin.Slim, key));
@@ -947,17 +1156,38 @@ public sealed partial class AccountDetailPage : Page
         return Loc.T("登录已过期，启动游戏时需要重新登录");
     }
 
+    /// <summary>按页面当前主题取主题字典画刷（应用级索引器在浅色主题下返回错误色）。</summary>
+    private Microsoft.UI.Xaml.Media.Brush ThemedBrush(string key)
+    {
+        var dictKeys = ActualTheme == ElementTheme.Dark ? new[] { "Dark", "Default" } : new[] { "Light" };
+        var root = Application.Current.Resources;
+        foreach (var dictKey in dictKeys)
+        {
+            if (root.ThemeDictionaries.TryGetValue(dictKey, out var d) && d is ResourceDictionary rd &&
+                rd.TryGetValue(key, out var v) && v is Microsoft.UI.Xaml.Media.Brush br)
+                return br;
+            foreach (var md in root.MergedDictionaries)
+                if (md.ThemeDictionaries.TryGetValue(dictKey, out var d2) &&
+                    d2 is ResourceDictionary rd2 && rd2.TryGetValue(key, out var v2) &&
+                    v2 is Microsoft.UI.Xaml.Media.Brush br2)
+                    return br2;
+        }
+        return (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[key];
+    }
+
     private void AddInfoRow(string label, string value, bool mono = false)
     {
         var grid = new Grid { ColumnSpacing = 12 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
+        // 标签不写死画刷：跟随父容器主题（Application 资源索引器在浅色主题下会给错色）
+        // 不能用 Application 资源索引器取主题画刷：浅色主题下会拿到 Dark 字典的白字（看不见）
         var labelText = new TextBlock
         {
             Text = label,
             FontSize = 13,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
         };
         var valueText = new TextBlock
         {

@@ -57,6 +57,31 @@ internal static class SkinThumbnails
         }
     }
 
+    /// <summary>
+    /// 披风缩略图：64×32 的披风纹理 → 裁出穿戴时可见的正面并放大（CapeThumbImage），
+    /// 出一张"这件披风长什么样"的图，而不是一条平铺的细长布条。
+    /// </summary>
+    public static string? EnsureRawThumbFile(byte[] png, string key)
+    {
+        try
+        {
+            // 版本号必须进指纹：裁剪逻辑改过之后，key 和图片长度都没变，
+            // 旧缓存会一直顶着错误的图不放（用户看到的"2D 图又错了"）。
+            var hash = Convert.ToHexString(SHA1.HashData(
+                Encoding.UTF8.GetBytes($"{key}|{png.Length}|cape-v3")))[..16];
+            Directory.CreateDirectory(CacheDir);
+            var file = Path.Combine(CacheDir, "cape-" + hash + ".png");
+            if (!File.Exists(file))
+                File.WriteAllBytes(file, Starcloud.Core.Rendering.CapeThumbImage.Encode(png));
+            return file;
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("skin", $"披风缩略图缓存失败：{ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>渲染皮肤文件；文件不存在 / 解码失败返回 null（卡片显示占位底色）。</summary>
     public static ImageSource? FromFile(string? path, bool slim)
     {

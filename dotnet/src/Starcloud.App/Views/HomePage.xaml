@@ -15,33 +15,66 @@
              「上次启动 / 大小」/ 右键菜单 / 悬停光斑因此完全一致，不会各写一套走样。 -->
         <DataTemplate x:Key="VersionRowTemplate" x:DataType="rows:LocalVersionRow">
             <Border CornerRadius="8"
+                    Background="Transparent"
                     beh:HoverShadowBehavior.IsEnabled="True"
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
+                    beh:HoverShadowBehavior.SurfaceGlow="True"
                     RightTapped="VersionRow_RightTapped">
+                <Border.RenderTransform>
+                    <TranslateTransform />
+                </Border.RenderTransform>
                 <Border.ContextFlyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem loc:Loc.Text="问 Nova"
+                    <!-- 与版本页右键菜单同构：启动 / 详细信息 / 三个文件夹入口 / 置顶·收藏 / 问 Nova / 删除 -->
+                    <MenuFlyout Opening="VersionMenu_Opening">
+                        <MenuFlyoutItem loc:Loc.Text="启动"
                                         Tag="{x:Bind Id}"
-                                        Click="AskNova_Click">
+                                        Click="LaunchRow_Click">
                             <MenuFlyoutItem.Icon>
-                                <ImageIcon Source="{StaticResource NovaMarkSmall}" />
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBDF;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem loc:Loc.Text="版本详情"
+                        <MenuFlyoutItem loc:Loc.Text="打开详细信息"
                                         Tag="{x:Bind Id}"
                                         Click="VersionDetail_Click">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBA0;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem loc:Loc.Text="打开游戏目录"
+                        <MenuFlyoutItem loc:Loc.Text="打开版本文件夹"
                                         Tag="{x:Bind Id}"
                                         Click="OpenVersionFolder_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA94;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem loc:Loc.Text="打开存档文件夹"
+                                        Tag="{x:Bind Id}"
+                                        Click="OpenSavesFolder_Click">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA90;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
+                        <MenuFlyoutItem loc:Loc.Text="打开模组文件夹"
+                                        Tag="{x:Bind Id}"
+                                        Click="OpenModsFolder_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Tag="{x:Bind PinTag}" Click="Pin_Click"
+                                        loc:Loc.Text="置顶">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE909;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Tag="{x:Bind FavTag}" Click="Favorite_Click"
+                                        loc:Loc.Text="收藏">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE734;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem loc:Loc.Text="删除此版本"
                                         Tag="{x:Bind Id}"
                                         Click="DeleteVersion_Click">
@@ -69,6 +102,11 @@
                             </RadialGradientBrush>
                         </Border.Background>
                     </Border>
+                    <!-- 选中标记：主题色 6% 淡底（竖向位移由 VersionListArea 上那层共用竖条负责，
+                         见 SelectionBarLayer）。选中行由 SyncSelectedInset 切可见性。 -->
+                    <Grid x:Name="VersionRowMark" Tag="inset" Visibility="Collapsed" IsHitTestVisible="False">
+                        <Border CornerRadius="8" Background="#10FFD322" />
+                    </Grid>
                     <Grid Padding="10,8" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -103,32 +141,23 @@
                                            Style="{StaticResource ScChipText}" />
                             </Border>
                         </StackPanel>
-                        <!-- 数据列：标签 + 数值跨行成列 -->
-                        <!-- 元信息：两行各自「标签 + 数值」横向成组。
-                             原先用两列 Grid 跨行对齐，但「上次启动」四个 12px 中文比「大小」宽，
-                             定宽列装不下就换行、标签与数值就对不齐；改成每行自己一组后
-                             两行互不干扰，标签紧贴数值、行高也稳。 -->
-                        <!-- 共享列 Grid：标签列以最宽的「上次启动」为基准，两行左边缘对齐；
-                             整体仍然贴右（HorizontalAlignment=Right） -->
-                        <Grid Grid.Column="3" ColumnSpacing="8" RowSpacing="2"
-                              VerticalAlignment="Center" HorizontalAlignment="Right">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0"
-                                       loc:Loc.Text="上次启动" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock Grid.Row="0" Grid.Column="1"
-                                       Text="{x:Bind LastPlayedText}" Style="{StaticResource ScMetaValue}" />
-                            <TextBlock Grid.Row="1" Grid.Column="0"
-                                       loc:Loc.Text="大小" Style="{StaticResource ScMetaLabel}" />
-                            <TextBlock Grid.Row="1" Grid.Column="1"
-                                       Text="{x:Bind SizeText}" Style="{StaticResource ScMetaValue}" />
-                        </Grid>
+                        <!-- 最右：收藏 / 置顶图标（只有设置了才出现，顺序：置顶在前、收藏在后）。
+                             置顶用鸿蒙实心图钉（E909），收藏用鸿蒙圆角五角星（EC4D）——
+                             比 Segoe E735 的尖角星柔和；颜色走主题主文字色。 -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8"
+                                    VerticalAlignment="Center" HorizontalAlignment="Right"
+                                    Margin="0,0,18,0">
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE909;"
+                                      FontSize="18" FontWeight="SemiBold"
+                                      Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                      Visibility="{x:Bind PinVisibility}"
+                                      ToolTipService.ToolTip="置顶" />
+                            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC4D;"
+                                      FontSize="18" FontWeight="SemiBold"
+                                      Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                      Visibility="{x:Bind FavoriteVisibility}"
+                                      ToolTipService.ToolTip="收藏" />
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </Border>
@@ -198,108 +227,7 @@
                 <InfoBar x:Name="WarnBar" Severity="Warning" IsOpen="False" IsClosable="True"
                          loc:Loc.Title="提示" />
 
-                <!-- 启动自检：版本 / 账户 / Java，未就绪项可一键跳转 -->
-                <Border x:Name="CheckCard" Visibility="Collapsed"
-                        Background="{ThemeResource GlassCardBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="16">
-                    <StackPanel Spacing="2">
-                        <Grid Margin="0,0,0,6" ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock loc:Loc.Text="启动自检" FontWeight="Medium" FontSize="15"
-                                       VerticalAlignment="Center" />
-                            <ctrl:GlowButton Grid.Column="1" Padding="6" MinWidth="28" MinHeight="28"
-                                    Background="Transparent" BorderThickness="0"
-                                    Click="Recheck_Click" loc:Loc.Name="重新检测" loc:Loc.Tip="重新检测">
-                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE918;" FontSize="14" />
-                            </ctrl:GlowButton>
-                        </Grid>
-                        <Grid MinHeight="30" ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="CheckIconVersion" Glyph="&#xEA7C;" FontSize="14"
-                                      VerticalAlignment="Center" />
-                            <TextBlock x:Name="CheckTextVersion" Grid.Column="1" FontSize="13"
-                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            <HyperlinkButton x:Name="CheckGoVersion" Grid.Column="2" Padding="0"
-                                             MinHeight="0" FontSize="12"
-                                             Click="CheckGoVersion_Click" />
-                        </Grid>
-                        <Grid MinHeight="30" ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="CheckIconAccount" Glyph="&#xEA7C;" FontSize="14"
-                                      VerticalAlignment="Center" />
-                            <TextBlock x:Name="CheckTextAccount" Grid.Column="1" FontSize="13"
-                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            <HyperlinkButton x:Name="CheckGoAccount" Grid.Column="2" Padding="0"
-                                             MinHeight="0" FontSize="12"
-                                             Click="CheckGoAccount_Click" />
-                        </Grid>
-                        <Grid MinHeight="30" ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="CheckIconJava" Glyph="&#xEA7C;" FontSize="14"
-                                      VerticalAlignment="Center" />
-                            <TextBlock x:Name="CheckTextJava" Grid.Column="1" FontSize="13"
-                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            <HyperlinkButton x:Name="CheckGoJava" Grid.Column="2" Padding="0"
-                                             MinHeight="0" FontSize="12"
-                                             Click="CheckGoJava_Click" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
             </StackPanel>
-
-            <!-- 状态摘要条：版本 / 账户 / Java 三项一行。收起态下左列顶部本来是死区，
-                 把它填上而不是留白；展开态则收起来，让展开的版本卡占满整列。 -->
-            <Border x:Name="SummaryBar" Grid.Row="1" Visibility="Collapsed"
-                    Background="{ThemeResource GlassCardBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="12" Padding="14,10" Margin="0,0,0,16">
-                <!-- 三项各占一格平分宽度：卡宽跟着左列走，数字与标签左对齐成一列，
-                     分隔线落在格与格之间，三段读起来是一整条而不是三个散块 -->
-                <Grid ColumnSpacing="0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
-                        <TextBlock x:Name="SummaryVersionText" FontSize="20" FontWeight="Medium" />
-                        <TextBlock loc:Loc.Text="已安装版本" FontSize="11"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </StackPanel>
-                    <Rectangle Grid.Column="1" Width="1" HorizontalAlignment="Left"
-                               Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center"
-                                Margin="18,0,0,0">
-                        <TextBlock x:Name="SummaryAccountText" FontSize="20" FontWeight="Medium" />
-                        <TextBlock loc:Loc.Text="游戏账户" FontSize="11"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </StackPanel>
-                    <Rectangle Grid.Column="2" Width="1" HorizontalAlignment="Left"
-                               Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center"
-                                Margin="18,0,0,0">
-                        <TextBlock x:Name="SummaryJavaText" FontSize="20" FontWeight="Medium" />
-                        <TextBlock loc:Loc.Text="Java 运行时" FontSize="11"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </StackPanel>
-                </Grid>
-            </Border>
 
             <!-- 插件挂载区（home.top）：装在左列通知区与版本卡之间，没贡献时不占高度 -->
             <ctrl:PluginContributionPanel Grid.Row="2" Point="home.top" Margin="0,0,0,16" />
@@ -404,6 +332,7 @@
                     <Grid x:Name="VersionListArea" Grid.Row="1">
                         <ListView x:Name="VersionList" SelectionMode="Single" Padding="0"
                                   ItemTemplate="{StaticResource VersionRowTemplate}"
+                                  ContainerContentChanging="VersionList_ContainerContentChanging"
                                   SelectionChanged="VersionList_SelectionChanged">
                             <ListView.Resources>
                                 <!-- 行的跟手光斑与行 Border 的圆角都是 8，但框架行底色的圆角来自
@@ -415,7 +344,10 @@
                                      （框架给的是硬边直角矩形，压上圆角光斑后四个角互相啃掉一块） -->
                                 <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
                                 <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
-                                <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                                <!-- 按下反馈走框架的 Pressed 视觉态（悬停仍由跟手光斑负责）：
+                                     圆角已由上面的 ListViewItemCornerRadius 对齐 8，不会出现直角底 -->
+                                <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Opacity="0.08"
+                                                 Color="#808080" />
                                 <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
                                 <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
                                 <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
@@ -433,6 +365,17 @@
                                 </Style>
                             </ListView.ItemContainerStyle>
                         </ListView>
+                        <!-- 选中竖条：整块列表共用一条，按行位置做真实位移（不是两条各自淡入淡出）。
+                             铺在列表之上、不吃命中测试；行滚动时由代码同步位置。 -->
+                        <Canvas x:Name="SelectionBarLayer" IsHitTestVisible="False"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Border x:Name="SelectionBar" Width="3" CornerRadius="2"
+                                    Background="#FFD322" RenderTransformOrigin="0.5,0.5">
+                                <Border.RenderTransform>
+                                    <CompositeTransform />
+                                </Border.RenderTransform>
+                            </Border>
+                        </Canvas>
                         <ctrl:EmptyStateView x:Name="EmptyVersionHint" Visibility="Collapsed"
                                               MinHeight="200"
                                               HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -690,7 +633,7 @@
                          下行外面用 Grid 而不是再套一层 StackPanel：Grid 会撑满按钮内容区，
                          超长版本名才有确定的宽度可裁，TextTrimming 的省略号才生效。 -->
                     <Button x:Name="LaunchBtn" Grid.Column="0" HorizontalAlignment="Stretch" Height="60"
-                            Style="{StaticResource ScAccentButtonStyle}" CornerRadius="9"
+                            Style="{StaticResource ScAccentButtonStyle}"
                             loc:Loc.Name="启动游戏"
                             Click="LaunchBtn_Click">
                         <Grid>

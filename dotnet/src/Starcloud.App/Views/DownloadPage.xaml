@@ -393,7 +393,7 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <ctrl:GlowButton Click="Back_Click" Padding="10,8" CornerRadius="8"
+                            <ctrl:GlowButton Click="Back_Click" Padding="10,8"
                                     VerticalAlignment="Center"
                                     loc:Loc.Name="返回" loc:Loc.Tip="返回">
                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE908;" FontSize="14" />
@@ -894,7 +894,7 @@
                             <TextBlock x:Name="DetailStateText" HorizontalAlignment="Center" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Button x:Name="StartBtn" HorizontalAlignment="Center" Padding="30,10"
-                                    CornerRadius="24" Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
+                                    Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
                                     Click="StartDownload_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE90C;" FontSize="16" />

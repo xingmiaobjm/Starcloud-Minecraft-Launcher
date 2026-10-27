@@ -61,6 +61,14 @@ public sealed class VersionProfile
     [JsonPropertyName("category")]
     public string? Category { get; set; }
 
+    /// <summary>置顶（首页版本列表排最前）</summary>
+    [JsonPropertyName("pinned")]
+    public bool Pinned { get; set; }
+
+    /// <summary>收藏（排在置顶之后、普通版本之前）</summary>
+    [JsonPropertyName("favorite")]
+    public bool Favorite { get; set; }
+
     [JsonPropertyName("note")]
     public string? Note { get; set; }
 

@@ -57,6 +57,8 @@
                 </Border>
 
                 <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="HeaderName" FontSize="20" FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Border Style="{StaticResource ScChip}">
                             <TextBlock x:Name="HeaderType" Style="{StaticResource ScChipText}" />
@@ -423,14 +425,69 @@
                     <StackPanel Spacing="10" Padding="0,0,4,0">
                         <StackPanel Spacing="4">
                             <TextBlock loc:Loc.Text="皮肤站衣柜" FontWeight="Medium" />
-                            <TextBlock loc:Loc.Text="这里列的是这个账号在皮肤站上的皮肤；点一张就换成它，游戏里（用启动器启动后）看到的就是这张。"
+                            <TextBlock loc:Loc.Text="这里列的是这个账号在皮肤站上的皮肤。"
                                        FontSize="12" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <!-- 衣柜分类：等宽分段控件（与版本页「正式版 / 快照版 / 远古版本」同一套语汇，
+                                 选中指示器随点击平移）。段宽 88。 -->
+                            <Border VerticalAlignment="Center"
+                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="11" Padding="3">
+                                <Grid>
+                                    <Border x:Name="WardrobeIndicator" Width="88" Height="30" CornerRadius="8"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            IsHitTestVisible="False"
+                                            Background="{ThemeResource AccentFillColorDefaultBrush}" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <ToggleButton x:Name="WardrobeSkinBtn" Tag="skin" IsChecked="True"
+                                                      Width="88" Height="30" Padding="0" MinWidth="0"
+                                                      FontSize="13" CornerRadius="8" BorderThickness="0"
+                                                      Background="Transparent"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      loc:Loc.Text="皮肤" loc:Loc.Name="皮肤"
+                                                      Click="WardrobeCat_Click">
+                                            <ToggleButton.Resources>
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="Transparent" />
+                                            </ToggleButton.Resources>
+                                        </ToggleButton>
+                                        <ToggleButton x:Name="WardrobeCapeBtn" Tag="cape"
+                                                      Width="88" Height="30" Padding="0" MinWidth="0"
+                                                      FontSize="13" CornerRadius="8" BorderThickness="0"
+                                                      Background="Transparent"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      loc:Loc.Text="披风" loc:Loc.Name="披风"
+                                                      Click="WardrobeCat_Click">
+                                            <ToggleButton.Resources>
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#E61A1A1A" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="Transparent" />
+                                                <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="Transparent" />
+                                            </ToggleButton.Resources>
+                                        </ToggleButton>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ctrl:GlowButton x:Name="StationRefreshBtn" loc:Loc.Text="刷新衣柜"
                                     Click="Station_Refresh_Click" />
+                            <ctrl:GlowButton x:Name="StationConnectBtn" loc:Loc.Text="连接皮肤站"
+                                    Click="Station_Connect_Click" Visibility="Collapsed" />
                             <ctrl:GlowButton x:Name="StationLoginBtn" loc:Loc.Text="重新登录该账号"
                                     Click="Station_Login_Click" />
                             <ProgressRing x:Name="StationBusy" Width="20" Height="20"
@@ -491,8 +548,14 @@
                                                     <RowDefinition Height="*" />
                                                     <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
+                                                <!-- 竖长条（披风 80×128）按高度占满、按宽度自适应：
+                                                     不用 Uniform 把它硬塞进格子宽度——那会等比放大、
+                                                     细节糊掉，看起来像"图不对"。
+                                                     皮肤立绘接近方形，两者都靠 * 行高自适应。 -->
                                                 <Image Source="{x:Bind Preview}" Stretch="Uniform"
-                                                       HorizontalAlignment="Center" />
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       MaxHeight="128" />
                                                 <TextBlock Grid.Row="1" Text="{x:Bind Name}" FontSize="11"
                                                            HorizontalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis" />
@@ -535,9 +598,6 @@
                                         Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                         Click="DeleteAccount_Click" />
                             </StackPanel>
-                            <TextBlock loc:Loc.Text="删除只移除本机保存的身份信息，不动游戏存档与版本文件。"
-                                       FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

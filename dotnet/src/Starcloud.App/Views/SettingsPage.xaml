@@ -311,13 +311,21 @@
                                         <ctrl:GlowButton x:Name="JavaBrowseBtn" loc:Loc.Text="手动添加…"
                                                 loc:Loc.Name="手动添加 Java" Click="BrowseJava_Click" />
                                     </StackPanel>
+                                    <!-- 下载运行时：发行版 + 版本两级选择（Temurin / 龙井），逐个版本可装 -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <ctrl:GlowButton loc:Loc.Text="下载 Java 21（Temurin）" Click="DownloadJava_Click" />
-                                        <ctrl:GlowButton loc:Loc.Text="下载 Java 8（Temurin）" Click="DownloadJava8_Click" />
+                                        <ComboBox x:Name="JavaVendorCombo" Width="200"
+                                                  loc:Loc.Name="Java 发行版"
+                                                  SelectionChanged="JavaVendor_Changed" />
+                                        <ComboBox x:Name="JavaVersionCombo" Width="240"
+                                                  loc:Loc.Name="Java 版本" />
+                                        <ctrl:GlowButton x:Name="JavaDownloadBtn" loc:Loc.Text="下载并安装"
+                                                loc:Loc.Name="下载并安装 Java" Click="DownloadJavaVendor_Click" />
                                         <ctrl:GlowButton x:Name="JavaDeleteBtn" loc:Loc.Text="删除选中运行时"
                                                 loc:Loc.Name="删除选中运行时" Click="DeleteJava_Click"
                                                 IsEnabled="False" />
                                     </StackPanel>
+                                    <TextBlock x:Name="JavaVendorStatus" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <ProgressBar x:Name="JavaProgress" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
@@ -389,6 +397,21 @@
                                                       VerticalAlignment="Center"
                                                       loc:Loc.Name="资源列表缓存开关" OnContent="" OffContent="" />
                                     </Grid>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="自动下载模组前置" />
+                                            <TextBlock loc:Loc.Text="安装 Mod 时自动补齐缺失的必需前置，并选择与当前版本和加载器匹配的最新版本；关闭后只在详情页展示前置资源，不自动下载。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="AutoModDepsSwitch" Grid.Column="1"
+                                                      VerticalAlignment="Center"
+                                                      loc:Loc.Name="自动下载模组前置开关" OnContent="" OffContent="" />
+                                    </Grid>
                                     <ctrl:GlowButton loc:Loc.Text="清空缓存" Click="ClearCache_Click" />
                                 </StackPanel>
                             </Border>
@@ -458,18 +481,55 @@
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                                                    <TextBlock loc:Loc.Text="包含其他用户设备" FontWeight="Medium" />
+                                                    <TextBlock loc:Loc.Text="传递优化" FontWeight="Medium" />
                                                     <TextBlock loc:Loc.Text="局域网内任何登录了 Starcloud ID 的星云启动器都可提供游戏文件；跨账号只开放按 SHA1 取文件的通道，内容校验不过即丢弃，存档同步仍只限同账号。"
                                                                FontSize="12" TextWrapping="Wrap"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                 </StackPanel>
                                                 <ToggleSwitch x:Name="P2pCrossSwitch" Grid.Column="1" VerticalAlignment="Center"
-                                                              loc:Loc.Name="跨账号 P2P 开关"
+                                                              loc:Loc.Name="传递优化开关"
                                                               Toggled="P2pCrossSwitch_Toggled" OnContent="" OffContent="" />
                                             </Grid>
 
-                                            <TextBlock x:Name="ChannelStatusText" FontSize="12" TextWrapping="Wrap"
+                                            <!-- 高级传递优化：跨网络 P2P（服务器只做发现，不转发文件） -->
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock loc:Loc.Text="高级传递优化" FontWeight="Medium" />
+                                                    <TextBlock loc:Loc.Text="利用您的闲置带宽，加速其他用户的下载，同时其他用户也会加速您的下载。"
+                                                               FontSize="12" TextWrapping="Wrap"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <ToggleSwitch x:Name="P2pInternetSwitch" Grid.Column="1" VerticalAlignment="Center"
+                                                              loc:Loc.Name="高级传递优化开关"
+                                                              Toggled="P2pInternetSwitch_Toggled" OnContent="" OffContent="" />
+                                            </Grid>
+
+                                            <TextBlock x:Name="P2pInternetStatus" FontSize="12" TextWrapping="Wrap"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" loc:Loc.Text="最大上传速度"
+                                                           VerticalAlignment="Center" FontSize="12"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <ComboBox x:Name="P2pUploadBox" Grid.Column="1" Width="128"
+                                                          VerticalAlignment="Center"
+                                                          SelectionChanged="P2pUploadBox_SelectionChanged">
+                                                    <ComboBoxItem Content="1 MB/s" />
+                                                    <ComboBoxItem Content="2 MB/s" />
+                                                    <ComboBoxItem Content="4 MB/s" />
+                                                    <ComboBoxItem Content="8 MB/s" />
+                                                    <ComboBoxItem Content="16 MB/s" />
+                                                </ComboBox>
+                                            </Grid>
+
                                         </StackPanel>
                                     </Border>
 

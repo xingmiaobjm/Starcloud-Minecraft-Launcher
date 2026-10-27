@@ -289,7 +289,7 @@ public sealed partial class NovaPage : Page
         new("OpenRouter", "https://openrouter.ai/api/v1", true,
             ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4", "google/gemini-2.5-flash", "deepseek/deepseek-chat"]),
         new("硅基流动 SiliconFlow", "https://api.siliconflow.cn/v1", true,
-            ["deepseek-ai/DeepSeek-V3.1", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-72B-Instruct"]),
+            ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-72B-Instruct"]),
         new("Ollama（本机，无需 Key）", "http://127.0.0.1:11434/v1", false,
             ["qwen3", "llama3.1", "deepseek-r1"]),
         new("自定义（手填接入地址）", "", true, []),
@@ -346,8 +346,19 @@ public sealed partial class NovaPage : Page
             : "填写模型名，例如 my-model";
     }
 
-    private void LlmAdd_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 填完 Key 离开输入框时自动拉一次模型列表：内置预设的模型名会随服务商更新而过时，
+    /// 一律以 /models 返回的为准（失败只提示，用户仍可手打）。
+    /// </summary>
+    private void LlmKey_LostFocus(object sender, RoutedEventArgs e)
     {
+        if (LlmAddPanel.Visibility != Visibility.Visible) return;
+        if (_llmProbedModels.Count > 0) return;          // 本次面板已拉过
+        if (LlmKeyBox.Password.Trim().Length == 0) return; // 没填 Key（如本机 Ollama）不自动拉
+        LlmTest_Click(sender, e);
+    }
+
+    private void LlmAdd_Click(object sender, RoutedEventArgs e)    {
         var idx = LlmPresetBox.SelectedIndex;
         var preset = idx >= 0 && idx < LlmPresets.Length ? LlmPresets[idx] : null;
         // 归一化：补协议、去掉误粘的 /chat/completions、根路径补 /v1（本机 Ollama 手输 127.0.0.1:11434 也能用）

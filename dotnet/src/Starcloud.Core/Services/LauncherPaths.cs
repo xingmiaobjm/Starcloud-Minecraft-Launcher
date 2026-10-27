@@ -26,6 +26,9 @@ public static class LauncherPaths
     /// <summary>正版登录的 refresh_token（DPAPI 加密、30 天有效；UI 不展示）</summary>
     public static string MicrosoftTokensFile => Path.Combine(DataDir, "microsoft.tokens.json");
 
+    /// <summary>第三方（Yggdrasil / 皮肤站）登录的 access_token（DPAPI 加密；UI 不展示）</summary>
+    public static string ExternalTokensFile => Path.Combine(DataDir, "external.tokens.json");
+
     /// <summary>Nova 动手许可层三档开关</summary>
     public static string NovaPermissionsFile => Path.Combine(DataDir, "nova.permissions.json");
 
@@ -344,6 +347,13 @@ public sealed class LauncherSettings
     [JsonPropertyName("resource_cache_enabled")]
     public bool ResourceCacheEnabled { get; set; } = true;
 
+    /// <summary>
+    /// 安装 Mod 时自动下载缺失的必需前置（默认开）。
+    /// 关闭后仍会在详情页展示前置资源，只是不自动装 —— 与 PCL 的「自动安装前置」同义。
+    /// </summary>
+    [JsonPropertyName("auto_install_mod_dependencies")]
+    public bool AutoInstallModDependencies { get; set; } = true;
+
     // ── 全局默认窗口（版本设置「跟随全局设置」档位取此处） ──
     [JsonPropertyName("default_window_width")]
     public int? DefaultWindowWidth { get; set; } = 854;
@@ -414,9 +424,28 @@ public sealed class LauncherSettings
     [JsonPropertyName("device_name")]
     public string DeviceName { get; set; } = "";
 
+    /// <summary>已读过的云端公告 id（最多保留 50 条，避免设置文件无限增长）</summary>
+    [JsonPropertyName("seen_announcement_ids")]
+    public List<string> SeenAnnouncementIds { get; set; } = [];
+
+    /// <summary>首次启动向导是否已完成（跳过也算完成，避免每次都弹）</summary>
+    [JsonPropertyName("onboarding_done")]
+    public bool OnboardingDone { get; set; } = false;
+
     /// <summary>下载 P2P 加速：优先从局域网同账号设备取已下载文件（只认 SHA1，校验不过回退公网）</summary>
     [JsonPropertyName("p2p_download_enabled")]
     public bool P2pDownloadEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 高级传递优化（跨网络 P2P）：默认关。开启后会向发现服务上报公网端点与文件 SHA1 索引，
+    /// 并可能向其他用户提供少量上行；服务器只做发现、不转发文件（设计：2026-10-22）。
+    /// </summary>
+    [JsonPropertyName("p2p_internet_enabled")]
+    public bool P2pInternetEnabled { get; set; } = false;
+
+    /// <summary>高级传递优化供文件限速（MB/s，1–32）</summary>
+    [JsonPropertyName("p2p_internet_upload_mbps")]
+    public int P2pInternetUploadMbps { get; set; } = 4;
 
     // ── SC 实验室 · 投影社区（2026-10-14） ──
     /// <summary>投影社区 GitHub API 基址（空 = 默认 gh-proxy 镜像优先、直连回退；可填自定义代理前缀）</summary>

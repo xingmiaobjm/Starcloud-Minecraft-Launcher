@@ -27,6 +27,9 @@ public sealed class SkinModel
     public int Scale { get; }                // 皮肤纹理相对 64×64 的整数倍率
     /// <summary>底层皮肤纹理（渲染时按面片 UV 采样）</summary>
     public SkinBitmap Texture { get; }
+
+    /// <summary>披风纹理（null = 无披风）；cape 面片的 UV 指向这张纹理</summary>
+    public SkinBitmap? CapeTexture { get; }
     public IReadOnlyList<ModelCube> Cubes { get; }
 
     public SkinModel(SkinBitmap skin, bool slim, SkinBitmap? cape = null)
@@ -38,6 +41,7 @@ public sealed class SkinModel
         Slim = slim;
         Legacy = skin.Height == skin.Width / 2;
         Texture = skin;
+        CapeTexture = cape;
 
         var armW = slim ? 3 : 4;
         var parts = new List<PartDef>
@@ -89,14 +93,29 @@ public sealed class SkinModel
                 kept));
         }
 
-        if (cape is not null && cape.Width % 64 == 0 && cape.Height == cape.Width / 2)
+        // 披风纹理两种尺寸都收：
+        //   · 64×32（高 = 宽/2）——老式披风：正面 x1..11、背面 x12..22
+        //   · 64×64（正方）——鞘翅：披风正面 (1,1,10,16)、背面 (12,1,10,16)，其余是翅膀
+        // 倍率独立于皮肤（HD 披风 1280×640 与 64×64 皮肤并存）
+        if (cape is not null && cape.Width % 64 == 0 &&
+            (cape.Height == cape.Width / 2 || cape.Height == cape.Width))
         {
             var cs = cape.Width / 64;
             var faces = new RectI[6];
-            faces[(int)CubeFace.Front] = ScaleRect(new RectI(1, 1, 10, 16), cs);
-            faces[(int)CubeFace.Back] = ScaleRect(new RectI(12, 1, 10, 16), cs);
+            // 面朝向见 PlayerModel.FaceCorners：Front = +Z 朝外（朝向身体），
+            // Back = -Z 朝外（朝向玩家背后）。披风挂在 -Z 侧，别人从背后看到的是
+            // Back，所以 Back 必须贴贴图正面 (1,1)，Front 贴内衬 (12,1)。
+            faces[(int)CubeFace.Front] = ScaleRect(new RectI(12, 1, 10, 16), cs);
+            faces[(int)CubeFace.Back] = ScaleRect(new RectI(1, 1, 10, 16), cs);
+            // 四个侧面给披风厚度（老式披风是 1 px 厚的立方体，不是两张纸片）。
+            // 纹理里没有独立的侧面像素，用正面区域最外侧的 1 px 列/行拉成条带。
+            faces[(int)CubeFace.Right] = ScaleRect(new RectI(1, 1, 1, 16), cs);
+            faces[(int)CubeFace.Left] = ScaleRect(new RectI(10, 1, 1, 16), cs);
+            faces[(int)CubeFace.Top] = ScaleRect(new RectI(1, 1, 10, 1), cs);
+            faces[(int)CubeFace.Bottom] = ScaleRect(new RectI(1, 16, 10, 1), cs);
+            // 挂在背后并略靠外（-Z 侧）：z -3.2..-2.2，身体占 -2..2
             cubes.Add(new ModelCube("cape",
-                new Vec3(-5, 8, 2), new Vec3(5, 24, 3), faces, IsCape: true));
+                new Vec3(-5, 8, -3.2), new Vec3(5, 24, -2.2), faces, IsCape: true));
         }
 
         Cubes = cubes;

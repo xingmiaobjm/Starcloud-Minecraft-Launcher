@@ -63,7 +63,10 @@
                       VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16" Padding="0,4,0,24">
 
-            <!-- 头部：返回 / 图标 / 标题徽章 / 换图标 / 启动 -->
+            <!-- 头部卡片：返回 / 图标 / 标题徽章 / 换图标 / 启动 -->
+            <Border Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="16" Padding="16,12">
             <StackPanel Spacing="12">
                 <ctrl:GlowButton Click="Back_Click" loc:Loc.Name="返回版本列表"
                         Background="Transparent" BorderThickness="0" Padding="8,4"
@@ -126,6 +129,7 @@
                          IsClosable="False" loc:Loc.Title="该版本正在运行"
                          loc:Loc.Message="游戏进程存活期间无法修改其隔离方式或重命名。" />
             </StackPanel>
+            </Border>
 
             <!-- 插件挂载区（version.detail.top）：有插件贡献时才占位 -->
             <ctrl:PluginContributionPanel Point="version.detail.top" />
@@ -367,6 +371,8 @@
                             <TextBlock loc:Loc.Text="内容" Style="{StaticResource ScSectionTitle}" />
                         </StackPanel>
                         <StackPanel x:Name="ModTools" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <ctrl:GlowButton x:Name="DownloadModBtn" loc:Loc.Text="下载 Mod"
+                                    Padding="12,4" Click="DownloadMod_Click" />
                             <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
                                     Padding="12,4" Click="CheckUpdate_Click" />
                             <ctrl:GlowButton x:Name="ScanConflictBtn" loc:Loc.Text="冲突扫描"
@@ -376,7 +382,11 @@
                     <!-- 拖拽 / 停用语义的说明：当前分类为空时收掉 —— 那时这块由下面的空状态接管，
                          否则同一件事要说两遍 -->
                     <TextBlock x:Name="ContentHint" Style="{StaticResource VdHint}"
-                               loc:Loc.Text="可直接把 mods / 资源包 / 光影 / 数据包文件拖到此处安装；停用仅改名为 .disabled，可随时还原。" />
+                               Text="" Visibility="Collapsed" />
+                    <InfoBar x:Name="ShaderLoaderTip" Grid.Row="1" Severity="Warning" IsOpen="True"
+                             IsClosable="False" Visibility="Collapsed"
+                             loc:Loc.Title="未检测到光影加载器"
+                             loc:Loc.Message="光影需要 Iris / OptiFine 才会生效。可在「下载 Mod」里搜索安装 Iris 后再挂光影。" />
                     <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" />
                     <StackPanel x:Name="ModSection" Spacing="4" />
                     <StackPanel x:Name="PackSection" Spacing="4" Visibility="Collapsed" />

@@ -254,6 +254,9 @@ public sealed class ForgeInstallerService
                 $"安装器执行失败（exit {p.ExitCode}）：{(err.Length > 0 ? err : lastLine)}");
         }
         Report(progress, $"安装器执行完成（{mcVersion}）");
+        // 原版只在列表里隐藏、不删文件：Forge 版本启动仍可能引用它的 JSON 与 client jar。
+        // 列表里只留 Forge 版本，用户不会再误选原版。
+        VersionVisibility.MarkDependency(settings.DotMinecraft, mcVersion);
     }
 
     /// <summary>
@@ -287,13 +290,13 @@ public sealed class ForgeInstallerService
         IProgress<BatchProgress>? progress, CancellationToken ct)
     {
         var runtimes = await _java.ListRuntimesAsync(ct);
-        var fit = runtimes
-            .Where(r => r.MajorVersion >= requiredMajor)
-            .OrderBy(r => r.MajorVersion)
-            .FirstOrDefault();
-        if (fit is not null) return fit.Executable;
+        // 先精确匹配：Forge/NeoForge 对 Java 大版本敏感——拿 25 跑要求 21 的 Forge，
+        // 会在启动早期（Mixin 初始化后）无声卡死。规则是「主版本必须一致」，没有就下载。
+        var exact = runtimes.Where(r => r.MajorVersion == requiredMajor)
+            .OrderByDescending(r => r.Is64Bit).FirstOrDefault();
+        if (exact is not null) return exact.Executable;
 
-        Report(progress, $"未找到 Java {requiredMajor}+，正在自动下载运行时…");
+        Report(progress, $"未找到 Java {requiredMajor}，正在自动下载运行时…");
         return await _java.DownloadRuntimeAsync(requiredMajor, progress, ct);
     }
 

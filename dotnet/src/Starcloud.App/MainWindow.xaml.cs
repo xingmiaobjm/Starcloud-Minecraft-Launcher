@@ -37,6 +37,75 @@ public sealed partial class MainWindow : Window
     private NavigationViewItemSeparator? _pluginNavSeparator;
     private bool _pluginNavHooked;
 
+    /// <summary>任务栏当前是否深色（注册表 SystemUsesLightTheme；读不到按浅色处理，与旧行为一致）</summary>
+    private static bool IsSystemTaskbarDark()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") as int? == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string TaskbarIconPath(bool dark) => Path.Combine(
+        AppContext.BaseDirectory, "Assets", dark ? "AppIcon-Dark.ico" : "AppIcon.ico");
+
+    private void UpdateTaskbarIcon()
+    {
+        // 图标资源缺失时 SetIcon 会抛：它跑在 ActualThemeChanged 回调里，不能把窗口带崩
+        try
+        {
+            var dark = IsSystemTaskbarDark();
+            if (dark == _taskbarIconDark) return;
+            _taskbarIconDark = dark;
+            AppWindow.SetIcon(TaskbarIconPath(dark));
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("ui", "任务栏图标切换失败", ex);
+        }
+    }
+
+    /// <summary>任务栏图标当前跟随的底色（true = 深色任务栏用浅色图标）</summary>
+    private bool _taskbarIconDark;
+
+    /// <summary>系统主题轮询节拍（复用 300ms 任务定时器，每 8 拍看一次注册表）</summary>
+    private int _themePollTick;
+
+    /// <summary>亚克力背景是否已挂上（首次激活挂一次）</summary>
+    private bool _backdropApplied;
+
+    /// <summary>手动挂载的亚克力背景（不走 Window.SystemBackdrop，见 ApplyBackdropOnce）</summary>
+    private Services.AcrylicBackdropHost? _acrylic;
+
+    /// <summary>
+    /// 把亚克力背景挂到窗口。放在首次激活之后：构造函数阶段 XamlRoot 尚未就绪，
+    /// 此时挂背景会触发框架回调 SystemBackdrop.OnDefaultSystemBackdropConfigurationChanged
+    /// 抛 ArgumentException（0xc000027b stowed exception，绕过托管 UnhandledException 直接杀进程）。
+    /// </summary>
+    private void ApplyBackdropOnce()
+    {
+        if (_backdropApplied) return;
+        _backdropApplied = true;
+        try
+        {
+            // 手动挂载（DesktopAcrylicController 直对窗口目标）：不走 Window.SystemBackdrop，
+            // 框架没有回调路径，从根上消灭 stowed exception
+            _acrylic = new AcrylicBackdropHost(this, (FrameworkElement)Content);
+            // 构造期那次 ApplyGlassStrength 还没有背景对象可喂，这里补一次
+            ApplyGlassStrength(AppServices.Instance.Settings);
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("ui", "亚克力背景初始化失败，保持无背景", ex);
+        }
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -44,7 +113,6 @@ public sealed partial class MainWindow : Window
         // 任务历史只保留本次会话：启动时清空调度中心（任务列表纯内存，无跨启动持久化）
         Starcloud.Core.Services.TaskCenterService.Instance.ClearAll();
 
-        SystemBackdrop = new TransparentAcrylicBackdrop();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
@@ -61,6 +129,10 @@ public sealed partial class MainWindow : Window
         }
         // 首次出现时居中到当前显示器工作区：系统默认把窗口摆在左上角，观感像没做完的工具
         Activated += CenterOnFirstActivate;
+        // 亚克力背景延后到首次激活再挂：构造函数里赋值时 XamlRoot 还没就绪，
+        // 框架会立刻回调 OnDefaultSystemBackdropConfigurationChanged 并抛 ArgumentException
+        // （0xc000027b，能绕过托管 UnhandledException 直接终止进程）。
+        Activated += (_, _) => ApplyBackdropOnce();
         SizeChanged += (_, _) => UpdateMaximizeGlyph(); // 最大化 / 还原（含 Win+↑ 等外部操作）后换图标
         UpdateMaximizeGlyph();
 
@@ -77,11 +149,15 @@ public sealed partial class MainWindow : Window
         {
             RefreshTaskRows();
             WatchGameEvents();
+            // 系统主题没人通知桌面应用，低频轮询注册表（每 8 拍 ≈ 2.4s），变了才重设图标
+            if (++_themePollTick % 8 == 0) UpdateTaskbarIcon();
         };
         _taskRefresh.Start();
 
-        // 图标按 AppContext.BaseDirectory 解析：相对路径会跟随快捷方式的「起始位置」，从开始菜单启动时可能落空
-        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
+        // 图标按 AppContext.BaseDirectory 解析：相对路径会跟随快捷方式的「起始位置」，从开始菜单启动时可能落空。
+        // 任务栏底色跟随【系统】主题（与应用内主题设置无关）：深色任务栏用浅色底板图标，否则墨线直接隐形。
+        _taskbarIconDark = IsSystemTaskbarDark();
+        AppWindow.SetIcon(TaskbarIconPath(_taskbarIconDark));
         Title = "Starcloud Minecraft Launcher";
 
         // 开发版标识：启动器自身版本号（取自 csproj <Version>）→「开发版 V0.3.3」
@@ -156,7 +232,11 @@ public sealed partial class MainWindow : Window
         AppServices.Instance.Appearance.ApplyTheme(AppServices.Instance.Settings.Theme, root);
         // 自绘的导航 SVG 不吃主题色：浅/深两套描边在这里换源（与 BrandMark 同一策略）
         ApplyNavIconTheme(root.ActualTheme);
-        root.ActualThemeChanged += (s, _) => ApplyNavIconTheme(((FrameworkElement)s).ActualTheme);
+        root.ActualThemeChanged += (s, _) =>
+        {
+            ApplyNavIconTheme(((FrameworkElement)s).ActualTheme);
+            UpdateTaskbarIcon(); // 应用跟随系统主题时，这里能第一时间响应；轮询只兜「应用固定主题」的情况
+        };
         _background.Apply(AppServices.Instance.Settings, root.ActualTheme);
         ApplyGlassStrength(AppServices.Instance.Settings);
         MotionMaterials.Apply(AppServices.Instance.Settings); // 极少档收起卡片毛玻璃，其余档恢复原配方
@@ -296,10 +376,9 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyGlassStrength(LauncherSettings s)
     {
-        if (SystemBackdrop is not TransparentAcrylicBackdrop acrylic) return;
         // 跟随主题 = 交回默认配方（浅 0.25 / 深 0.45），与内置壁纸的遮罩默认值同源
-        acrylic.SetGlassStrength(s.BackgroundFollowTheme || s.BackgroundMaskOpacity is null,
-                                 s.BackgroundMaskOpacity);
+        _acrylic?.SetGlassStrength(s.BackgroundFollowTheme || s.BackgroundMaskOpacity is null,
+                                   s.BackgroundMaskOpacity);
     }
 
     /// <summary>
@@ -375,8 +454,12 @@ public sealed partial class MainWindow : Window
         if (ContentFrame.CurrentSourcePageType != page)
         {
             LauncherLog.Write("nav", $"导航 {ContentFrame.CurrentSourcePageType?.Name} → {page.Name}（tag={tag}）");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var ok = ContentFrame.Navigate(page, null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
-            LauncherLog.Write("nav", $"Navigate 返回 {ok}，CurrentSourcePageType={ContentFrame.CurrentSourcePageType?.Name}，Content={(ContentFrame.Content?.GetType().Name ?? "null")}");
+            // Navigate 同步完成目标页的构造：这个耗时就是「点了没反馈」的元凶，
+            // 日志按页面记录，慢的页面针对性优化。
+            LauncherLog.Write("nav",
+                $"页面构建耗时 {sw.ElapsedMilliseconds}ms（{page.Name}），Navigate 返回 {ok}");
         }
         // 选择完成后自动收起侧栏，保持内容区宽畅
         Nav.IsPaneOpen = false;
@@ -1270,90 +1353,4 @@ public sealed partial class MainWindow : Window
 
     private static SolidColorBrush Solid(byte r, byte g, byte b) =>
         new(Color.FromArgb(0xFF, r, g, b));
-}
-
-/// <summary>自定义亚克力背景：比系统默认毛玻璃更通透，深浅主题自动跟随。</summary>
-internal sealed class TransparentAcrylicBackdrop : SystemBackdrop
-{
-    private DesktopAcrylicController? _controller;
-    private SystemBackdropConfiguration? _configuration;
-
-    // 「毛玻璃强度」的同源状态：跟随主题时不指定，用主题默认配方
-    private bool _followTheme = true;
-    private double? _maskOpacity;
-    private ElementTheme _theme = ElementTheme.Light;
-
-    /// <summary>
-    /// 应用「背景与外观 → 毛玻璃强度」。值就是遮罩不透明度（0–1）：
-    /// 浅色主题默认 0.25、深色 0.45，与 <c>AppearanceService.DefaultMaskOpacity</c> 同源，
-    /// 所以「跟随主题」时的观感与旧版逐像素一致。
-    /// </summary>
-    public void SetGlassStrength(bool followTheme, double? maskOpacity)
-    {
-        _followTheme = followTheme;
-        _maskOpacity = maskOpacity;
-        ApplyAcrylicTheme(_theme);
-    }
-
-    protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop connectedTarget, XamlRoot xamlRoot)
-    {
-        base.OnTargetConnected(connectedTarget, xamlRoot);
-        if (_controller is null)
-        {
-            _controller = new DesktopAcrylicController();
-            _configuration = new SystemBackdropConfiguration
-            {
-                IsInputActive = true,
-            };
-            if (xamlRoot.Content is FrameworkElement root)
-            {
-                ApplyAcrylicTheme(root.ActualTheme);
-                _configuration.Theme = ToSystemBackdropTheme(root.ActualTheme);
-                root.ActualThemeChanged += OnRootThemeChanged;
-            }
-        }
-        _controller.AddSystemBackdropTarget(connectedTarget);
-        _controller.SetSystemBackdropConfiguration(_configuration);
-    }
-
-    protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop disconnectedTarget)
-    {
-        base.OnTargetDisconnected(disconnectedTarget);
-        _controller?.RemoveAllSystemBackdropTargets();
-    }
-
-    private void OnRootThemeChanged(FrameworkElement sender, object args)
-    {
-        ApplyAcrylicTheme(sender.ActualTheme);
-        if (_configuration is not null)
-            _configuration.Theme = ToSystemBackdropTheme(sender.ActualTheme);
-    }
-
-    /// <summary>深浅主题使用不同的亚克力配方：浅色通透偏白，深色为近黑暗玻璃并保留可见的模糊背景。</summary>
-    private void ApplyAcrylicTheme(ElementTheme theme)
-    {
-        _theme = theme;
-        if (_controller is null) return;
-        var dark = theme == ElementTheme.Dark;
-
-        // 基准值：浅色 #FC 0.25 / 深色 #14 0.45（原写死的 TintOpacity 就是这两个数）
-        var baseMask = dark ? 0.45 : 0.25;
-        var mask = _followTheme || _maskOpacity is not { } m ? baseMask : Math.Clamp(m, 0, 1);
-
-        _controller.TintColor = dark
-            ? Color.FromArgb(0xFF, 0x14, 0x14, 0x14)
-            : Color.FromArgb(0xFF, 0xFC, 0xFC, 0xFC);
-        _controller.TintOpacity = (float)Math.Clamp(mask, 0.02, 0.95);
-        // 亮度层按同一比例缩放：强度拉到 0 时窗口几乎全透，拉到 1 时是浓毛玻璃
-        _controller.LuminosityOpacity = (float)Math.Clamp((dark ? 0.30 : 0.18) * (mask / baseMask), 0.02, 0.95);
-        _controller.FallbackColor = dark
-            ? Color.FromArgb(0xFF, 0x11, 0x11, 0x11)
-            : Color.FromArgb(0xFF, 0xF3, 0xF3, 0xF3);
-    }
-
-    private static SystemBackdropTheme ToSystemBackdropTheme(ElementTheme theme) => theme switch
-    {
-        ElementTheme.Dark => SystemBackdropTheme.Dark,
-        _ => SystemBackdropTheme.Light,
-    };
 }

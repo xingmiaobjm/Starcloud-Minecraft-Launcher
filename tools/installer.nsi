@@ -14,7 +14,31 @@
 Unicode true
 ManifestDPIAware true
 ManifestDPIAwareness PerMonitorV2
+; 启动不做全文件 CRC：自更新流程下载完本来就按 latest.json 的 sha256 校验过安装包，
+; 这里再 CRC 一遍 60+MB 只会拖慢首帧；手动下载损坏的情形由解压时的错误兜底。
+CRCCheck off
 SetCompressor /SOLID lzma
+
+; 固实 LZMA 的数据顺序 = 「首次引用」的编译顺序。nsDialogs 第一次被调用在界面函数里，
+; 会被排到整个应用载荷之后——首帧就得先把 220MB 载荷解压完（实测 15 秒全烧在这）。
+; ReserveFile 把首帧要用到的插件 DLL 预留到数据块最前面，与载荷位置解耦。
+ReserveFile /plugin "${NSISDIR}\Plugins\x86-unicode\nsDialogs.dll"
+ReserveFile /plugin "${NSISDIR}\Plugins\x86-unicode\System.dll"
+
+; ── 启动性能插桩（只在 /DSC_TIMING 构建里生效；正式包不写任何文件）──
+!ifdef SC_TIMING
+  !macro ScLog where
+    System::Call 'kernel32::GetTickCount() i .s'
+    Pop $R8
+    FileOpen $R9 "$TEMP\sc-setup-timing.txt" a
+    FileSeek $R9 0 END
+    FileWrite $R9 "${where}=$R8$\r$\n"
+    FileClose $R9
+  !macroend
+!else
+  !macro ScLog where
+  !macroend
+!endif
 
 ; ── 编译期入参 ──
 !ifndef PRODUCT_VERSION
@@ -63,6 +87,8 @@ VIAddVersionKey "FileDescription" "${PRODUCT_NAME} 安装程序"
 VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "LegalCopyright" "${MANUFACTURER}"
+; 杀软与 SmartScreen 会核对 OriginalFilename 与实际分发名的一致性；缺失是减分项
+VIAddVersionKey "OriginalFilename" "Starcloud Minecraft Launcher Setup.exe"
 
 Icon "${APPICON}"
 UninstallIcon "${APPICON}"
@@ -117,9 +143,11 @@ Var WantRun
 Var DelData
 Var DoneBytes
 
-; 载荷清单必须在 Var 之后包含：生成的文件里用到 $DoneBytes
+; 载荷清单不能在这里 include：NSIS 的数据顺序 = File 命令的编译顺序，
+; 固实 LZMA 流里「谁在前面谁先被解压」。载荷必须排在全部 UI 位图之后
+; （见 LoadUninstallAssets 之后的 include 点），安装器首帧才不必解压整个应用。
 !if /FileExists "${__FILEDIR__}\installer-payload.nsh"
-  !include "${__FILEDIR__}\installer-payload.nsh"
+  !define SC_PAYLOAD_NSH "${__FILEDIR__}\installer-payload.nsh"
 !else
   !error "installer-payload.nsh 未生成：请用 tools\build-installer.ps1 打包"
 !endif
@@ -132,6 +160,7 @@ UninstPage instfiles
 
 ; 静默安装（setup.exe /S）：页面不会创建，实际安装动作由 Section 兜底
 Function .onInit
+  !insertmacro ScLog "onInit"
   SetShellVarContext current
   ${If} ${Silent}
     StrCpy $State "silent"
@@ -141,6 +170,7 @@ Function .onInit
   ${If} $0 != ""
     StrCpy $INSTDIR $0
   ${EndIf}
+  !insertmacro ScLog "onInit.exit"
 FunctionEnd
 
 ; ── 通用：窗口与缩放 ──
@@ -259,6 +289,7 @@ Function LoadBmpScaled
 FunctionEnd
 
 Function LoadUiAssets
+  !insertmacro ScLog "uiAssets.begin"
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
   ${If} $Scale <= 100
@@ -402,6 +433,11 @@ Function un.LoadUninstallAssets
 FunctionEnd
 ; ── 控件创建 ──
 
+; 载荷放在所有 UI 位图之后 include（$DoneBytes 在上方 Var 区已声明，
+; ${SC_TOTAL_BYTES} 的使用点 ProgressStep 也在本行之后，编译顺序无碍）：
+; 安装器首帧只解压当前 DPI 档的位图，整个应用载荷留给点下「安装」再解压。
+!include "${SC_PAYLOAD_NSH}"
+
 Function CreateChrome
   ; 背景（最底层）
   nsDialogs::CreateControl STATIC 0x5000000E 0 0 0 $WinW $WinH ""
@@ -434,21 +470,26 @@ FunctionEnd
 ; ── 安装页 ──
 
 Function UiPage
+  !insertmacro ScLog "uiPage.enter"
   StrCpy $State "install"
   StrCpy $Agree 0
   StrCpy $WantCustom 0
   StrCpy $WantRun 0
 
   Call PrepWindow
+  !insertmacro ScLog "prep.done"
 
   nsDialogs::Create 0
+  !insertmacro ScLog "nsd.done"
   Pop $hPage
   ${If} $hPage == error
     Abort
   ${EndIf}
   Call FillPage
   Call LoadUiAssets
+  !insertmacro ScLog "uiAssets.done"
   Call CreateChrome
+  !insertmacro ScLog "chrome.done"
 
   ; 背景位图放到最底层（先创建即可）
   SendMessage $hBg 0x172 0 $hBmpInstall
@@ -513,6 +554,7 @@ Function UiPage
   SendMessage $hProgress 0x2001 0 0x00F4F1F0   ; PBM_SETBKCOLOR
 
   Call ApplyState
+  !insertmacro ScLog "preShow"
   nsDialogs::Show
 FunctionEnd
 
@@ -632,12 +674,43 @@ Function OnOpenPrivacy
   ExecShell "open" "https://starcloudfur.cn/privacy"
 FunctionEnd
 
+; 把用户选/填的目录解析成实际安装目录：
+;   · 末级目录已经叫 Starcloud，或那本身就是一份产品安装（有卸载器 / 主程序）→ 原样使用（升级场景）；
+;   · 否则在其下新建 Starcloud 子目录再装——用户选的是「装到哪」，不能把我们的文件铺满人家整个文件夹。
+Function ScResolveInstallDir
+  Exch $1
+  Push $2
+  Push $3
+  ; 去掉一个尾部反斜杠（盘符根 D:\ → D:，后面统一补子目录正好）
+  StrCpy $2 "$1" "" -1
+  ${If} $2 == "\"
+    StrCpy $3 "$1" -1
+    StrCpy $1 "$3"
+  ${EndIf}
+  ${GetFileName} $1 $2
+  ${If} $2 == "Starcloud"
+    Goto sc_resolve_done
+  ${EndIf}
+  ${If} ${FileExists} "$1\uninstall.exe"
+  ${OrIf} ${FileExists} "$1\${MAIN_EXE}"
+  ${OrIf} ${FileExists} "$1\starcloud-launcher.exe"
+    Goto sc_resolve_done
+  ${EndIf}
+  StrCpy $1 "$1\Starcloud"
+sc_resolve_done:
+  Pop $3
+  Pop $2
+  Exch $1
+FunctionEnd
+
 Function OnBrowse
   Pop $0
   nsDialogs::SelectFolderDialog "选择 Starcloud 的安装位置" "$INSTDIR"
   Pop $1
   ${If} $1 != error
-    StrCpy $INSTDIR $1
+    Push $1
+    Call ScResolveInstallDir
+    Pop $INSTDIR
     ${NSD_SetText} $hEdit "$INSTDIR"
     ${If} $WantCustom != 1
       StrCpy $WantCustom 1
@@ -665,10 +738,12 @@ Function OnPrimary
     Return
   ${EndIf}
 
-  ; 从 EDIT 里取用户手填的路径
+  ; 从 EDIT 里取用户手填的路径：同样过一遍子目录解析，防止手填 D:\Games 时文件铺一地
   ${NSD_GetText} $hEdit $2
   ${If} $2 != ""
-    StrCpy $INSTDIR $2
+    Push $2
+    Call ScResolveInstallDir
+    Pop $INSTDIR
   ${EndIf}
 
   StrCpy $State "progress"

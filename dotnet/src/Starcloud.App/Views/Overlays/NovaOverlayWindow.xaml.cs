@@ -40,6 +40,7 @@ public sealed partial class NovaOverlayWindow : Window
 
     private readonly AppServices _s;
     private readonly DispatcherQueue _dq;
+    private readonly AcrylicBackdropHost _acrylic;
 
     private readonly DispatcherQueueTimer _toastTimer;
     private readonly DispatcherQueueTimer _fsTimer;
@@ -72,7 +73,8 @@ public sealed partial class NovaOverlayWindow : Window
             presenter.IsMaximizable = false;
             presenter.SetBorderAndTitleBar(false, false); // 去掉 48×48 内碍事的标题栏按钮
         }
-        SystemBackdrop = new TransparentAcrylicBackdrop();
+        // 亚克力背景手动挂载：不走 Window.SystemBackdrop（框架回调会以 stowed exception 杀进程）
+        _acrylic = new AcrylicBackdropHost(this, (FrameworkElement)Content);
 
         // 初始尺寸 + 记忆位置（无记忆则右下贴角）
         AppWindow.Resize(new SizeInt32(CollapsedSize, CollapsedSize));

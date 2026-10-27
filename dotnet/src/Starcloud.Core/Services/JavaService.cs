@@ -379,10 +379,25 @@ public sealed class JavaService
         try
         {
             LauncherPaths.EnsureDataDir();
-            var url = await _downloader.GetAdoptiumDownloadUrlAsync(majorVersion, ct);
+            string url;
+            try
+            {
+                url = await _downloader.GetAdoptiumDownloadUrlAsync(majorVersion, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                // Adoptium 没有这个大版本（新版本 GA 前后常见，用户看到的「找不到可用版本」
+                // 就是这里抛的）：换龙井（Alibaba Dragonwell 的 GitHub Release）兜底
+                LauncherLog.Write("java", $"Adoptium 无 Java {majorVersion}（{ex.Message}），尝试龙井…");
+                url = await GetDragonwellUrlAsync(majorVersion, ct)
+                    ?? throw new InvalidOperationException(
+                        $"找不到可用的 Java {majorVersion} 运行时（Temurin 与龙井都没有）");
+            }
+
             taskCenter.Update(dlTask, detail: "已取得下载地址，开始下载…");
             var archivePath = Path.Combine(LauncherPaths.JavaDir,
-                $"temurin-{majorVersion}{PlatformInfo.JavaArchiveExtension}");
+                $"java-{majorVersion}{PlatformInfo.JavaArchiveExtension}");
             await _downloader.DownloadFileAsync(url, archivePath, null, 3, ct);
             taskCenter.Update(dlTask, detail: "下载完成，解压安装中…");
             var dest = Path.Combine(LauncherPaths.JavaDir, majorVersion.ToString());
@@ -406,6 +421,23 @@ public sealed class JavaService
             taskCenter.Fail(dlTask, ex.Message);
             throw;
         }
+    }
+
+    /// <summary>龙井兜底：alibaba/dragonwell&lt;major&gt; 的 latest release 里挑平台压缩包。</summary>
+    private static async Task<string?> GetDragonwellUrlAsync(int major, CancellationToken ct)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Starcloud Launcher)");
+            using var resp = await http.GetAsync(
+                $"https://api.github.com/repos/alibaba/dragonwell{major}/releases/latest", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            using var doc = System.Text.Json.JsonDocument.Parse(
+                await resp.Content.ReadAsStringAsync(ct));
+            return JavaDistributionsService.PickAsset(doc.RootElement, ct);
+        }
+        catch { return null; }
     }
 
     /// <summary>
@@ -460,7 +492,7 @@ public sealed class JavaService
     }
 
     /// <summary>unix：bin/ 全部与 lib/jspawnserver 补 755 执行位（tar 解压不带权限，java 无法启动就白装）</summary>
-    private static void MakeRuntimeExecutable(string runtimeDir)
+    internal static void MakeRuntimeExecutable(string runtimeDir)
     {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
         try

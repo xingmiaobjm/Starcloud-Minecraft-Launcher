@@ -115,7 +115,60 @@ public sealed partial class DownloadPage : Page
         _okTimer.IsRepeating = false;   // 只在"下载完成"后亮 6 秒就收起，循环下去会一直重复收起
         _okTimer.Interval = TimeSpan.FromSeconds(6);
         _okTimer.Tick += (_, _) => OkBar.IsOpen = false;
-        Loaded += async (_, _) => await LoadVersionsAsync();
+        Loaded += async (_, _) =>
+        {
+            await Task.Yield();   // 先出页面骨架
+            if (PendingEntry is not null)
+            {
+                // 带入口参数：直接落到筛选好的社区搜索，不再先闪一下原版页
+                await ApplyPendingEntryAsync();
+                _ = LoadVersionsAsync();   // 原版清单后台补，切回原版时已就绪
+            }
+            else
+            {
+                await LoadVersionsAsync();
+            }
+        };
+    }
+
+    /// <summary>
+    /// 进入下载页时的入口参数（版本详情页「下载 Mod」/ 分类芯片带过来）：
+    /// 直接选中对应分区、填好版本与加载器并搜索——用户看到的就是筛选后的结果列表。
+    /// </summary>
+    public static (string Category, string? McVersion, string? Loader)? PendingEntry;
+
+    private async Task ApplyPendingEntryAsync()
+    {
+        if (PendingEntry is not { } entry) return;
+        PendingEntry = null;
+
+        foreach (var item in CategoryList.Items)
+            if (item is ListViewItem li && (li.Tag as string) == entry.Category)
+            {
+                CategoryList.SelectedItem = li;
+                break;
+            }
+        await EnsureCommunityAsync();
+
+        _suppress = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(entry.McVersion))
+                VersionCombo.Text = entry.McVersion;
+            if (!string.IsNullOrWhiteSpace(entry.Loader))
+                foreach (var item in LoaderCombo.Items)
+                    if (item is ComboBoxItem ci && (ci.Tag as string) == entry.Loader)
+                    {
+                        LoaderCombo.SelectedItem = ci;
+                        break;
+                    }
+        }
+        finally
+        {
+            _suppress = false;
+        }
+
+        await SearchAsync(reset: true);
     }
 
     // ════════════ 分类切换 ════════════
@@ -198,7 +251,8 @@ public sealed partial class DownloadPage : Page
                 {
                     var fresh = await _s.Manifest.GetManifestAsync(true);
                     _versions = fresh.Versions;
-                    ApplyVersionFilter();
+                    // 缓存结果已经播过入场动画，网络刷新只换数据，不重播
+                    ApplyVersionFilter(animate: false);
                     VersionCacheBadge.Visibility = Visibility.Collapsed;
                 }
                 catch { /* 保留缓存内容 */ }
@@ -263,9 +317,10 @@ public sealed partial class DownloadPage : Page
 
     private void SearchBox_TextChanged(object s, TextChangedEventArgs e) => ApplyVersionFilter();
 
-    private void ApplyVersionFilter()
+    private void ApplyVersionFilter(bool animate = true)
     {
-        var installedIds = _s.Manifest.ListInstalled(_s.Settings.DotMinecraft).Select(i => i.Id).ToHashSet();
+        // 这里原来每次筛选都同步扫一遍 versions 目录（ListInstalled），而它的结果已经不用了；
+        // 十几个版本就是十几次磁盘 IO，切页/打字都会卡。直接去掉。
         var q = SearchBox.Text.Trim();
         IEnumerable<ManifestVersion> src = TypeTag switch
         {
@@ -294,7 +349,7 @@ public sealed partial class DownloadPage : Page
         VersionList.ItemTemplate = (DataTemplate)VersionList.Resources["VersionFlatTemplate"];
         VersionList.ItemsSource = rows;
 
-        MotionFx.StaggerListItems(VersionList);
+        if (animate) MotionFx.StaggerListItems(VersionList);
     }
 
     /// <summary>填充一枚「最新版本」瓦片；无对应版本时整块隐藏</summary>
@@ -580,7 +635,7 @@ public sealed partial class DownloadPage : Page
                     picked == b.Version)));
                 list.ItemsSource = null;
                 list.ItemsSource = rows;
-                MotionFx.StaggerListItems(list, maxItems: 6); // 首次铺开时错峰入场，不做硬切
+                MotionFx.StaggerListItems(list); // 首次铺开时错峰入场，从左往右羽化
             }
             else
             {
@@ -780,7 +835,7 @@ public sealed partial class DownloadPage : Page
             StartBtn.IsEnabled = true;
             InstallProgress.Visibility = Visibility.Collapsed;
             ProgressText.Visibility = Visibility.Collapsed;
-            ApplyVersionFilter();
+            ApplyVersionFilter(animate: false);   // 安装状态刷新不重播列表动画
             RefreshDetailState();
         }
     }
@@ -817,7 +872,8 @@ public sealed partial class DownloadPage : Page
         }
         finally { _suppress = false; }
 
-        await SearchAsync(reset: true);
+        // 首次进入不自动搜：把筛选条件留给你，填完点「搜索」再出结果
+        EmptyHint.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>按当前分区重建分类/加载器行与标题（需在 _suppress 期间调用）</summary>
@@ -926,7 +982,7 @@ public sealed partial class DownloadPage : Page
     {
         if (!_communityInit || _suppress) return;
         UpdateSourceUi();
-        _ = SearchAsync(reset: true);
+        // 不在这里自动搜索：改完版本/加载器/分类/来源/排序后，由用户点「搜索」统一触发
     }
 
     /// <summary>当前资源来源（modrinth / curseforge）：决定列表搜索与下载窗的默认来源</summary>
@@ -1006,6 +1062,8 @@ public sealed partial class DownloadPage : Page
                 Icon = RemoteIconHelper.Resolve(h.IconUrl),
             }).ToList();
             ModList.ItemsSource = rows;
+            // 缓存命中时会立刻再跑一次网络刷新：第二次只换数据，不重播入场动画
+            if (!forceRefresh) MotionFx.StaggerListItems(ModList);
             // 英文简介先上屏，MCIM 的中文译文异步补上（仅中文界面；失败保留英文）
             _ = FillSummariesAsync(
                 rows, fromCurseForge ? ContentSourceIds.CurseForge : ContentSourceIds.Modrinth, ct);
@@ -1077,11 +1135,12 @@ public sealed partial class DownloadPage : Page
     {
         try
         {
-            await Task.WhenAll(rows.Select(async row =>
-            {
-                var zh = await _s.ModSummaries.TranslateAsync(source, row.ProjectId, row.Description, ct);
-                if (!string.IsNullOrEmpty(zh)) row.Description = zh!;
-            }));
+            // 一页一次批量（翻译接口 2026-10 起只收批量请求，逐条会 400）
+            var zh = await _s.ModSummaries.TranslateManyAsync(source,
+                rows.Select(r => (Id: r.ProjectId, Original: (string?)r.Description)).ToList(), ct);
+            foreach (var row in rows)
+                if (zh.TryGetValue(row.ProjectId, out var text) && !string.IsNullOrEmpty(text))
+                    row.Description = text;
         }
         catch (OperationCanceledException) { }
         catch
@@ -1116,9 +1175,12 @@ public sealed partial class DownloadPage : Page
         var mc = ResolveGameVersion();
         var loader = kind == "mod" ? ResolveLoader() : null;
         if (string.IsNullOrEmpty(targetId)) return (mc, loader);
-        var versionLoader = ContentLibraryService.ResolveLoader(targetId, out _);
-        return (mc ?? ContentLibraryService.ResolveMc(targetId),
-                loader ?? (kind == "mod" && versionLoader != "vanilla" ? versionLoader : null));
+
+        // 选中的版本可能是整合包（id 是包名）：靠版本 JSON 判加载器与 MC 版本，
+        // 只看 id 前缀会当成原版，弹窗里就变成「全部版本」。
+        var (detectedLoader, detectedMc) = LoaderDetector.Detect(_s.Settings.DotMinecraft, targetId);
+        return (mc ?? detectedMc ?? ContentLibraryService.ResolveMc(targetId),
+                loader ?? (kind == "mod" && detectedLoader != "vanilla" ? detectedLoader : null));
     }
 
     /// <summary>

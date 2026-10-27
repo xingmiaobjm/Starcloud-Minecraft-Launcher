@@ -104,7 +104,20 @@
                               HorizontalAlignment="Stretch" VerticalAlignment="Center"
                               CornerRadius="8" FontSize="12"
                               loc:Loc.Name="游戏目录（可切换）"
-                              SelectionChanged="DirCombo_SelectionChanged" />
+                              SelectionChanged="DirCombo_SelectionChanged">
+                        <!-- 目录项统一「图标 + 文本」：自动搜索用鸿蒙图标库的放大镜（EA6F），
+                             目录本身用文件夹图标（EA90），不再混 emoji -->
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="{Binding Glyph}"
+                                              FontSize="14" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Display}" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                 <ctrl:GlowButton Click="Import_Click">
@@ -175,6 +188,9 @@
                             <Grid beh:HoverShadowBehavior.IsEnabled="True"
                                   beh:HoverShadowBehavior.Carrier="{Binding ElementName=VersionRowGlow}"
                                   ContextFlyout="{StaticResource RowMenu}">
+                                <Grid.RenderTransform>
+                                    <TranslateTransform />
+                                </Grid.RenderTransform>
                             <!-- 跟手光斑层铺满整行宽度（不带行内边距），圆角与行一致；内容再靠 Padding 让开
                                  （光斑若跟内容一起内缩，就会比行小一圈，外面露出框架底色 → 两层框）。
                                  竖向刻意内缩 4：悬停时光斑不贴行上下边缘，相邻两行之间留出可见留白。 -->

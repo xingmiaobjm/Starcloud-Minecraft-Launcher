@@ -97,6 +97,41 @@ public sealed record FriendMessage(
     [property: JsonPropertyName("created_at")] string CreatedAt,
     [property: JsonPropertyName("read_at")] string? ReadAt);
 
+/// <summary>聊天附件：消息文本 = 前缀 + 这个结构的 JSON（走现有消息通道，后端只管文件存取）</summary>
+public sealed record FileAttachment(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("id")] string Id);
+
+/// <summary>群摘要（会话列表行）</summary>
+public sealed record GroupSummary(
+    [property: JsonPropertyName("group_id")] string GroupId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("owner_id")] string OwnerId,
+    [property: JsonPropertyName("member_count")] int MemberCount,
+    [property: JsonPropertyName("unread")] int Unread);
+
+/// <summary>群成员</summary>
+public sealed record GroupMember(
+    [property: JsonPropertyName("user_id")] string UserId,
+    [property: JsonPropertyName("role")] string Role);
+
+/// <summary>群详情（含成员列表）</summary>
+public sealed record GroupDetail(
+    [property: JsonPropertyName("group_id")] string GroupId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("owner_id")] string OwnerId,
+    [property: JsonPropertyName("members")] IReadOnlyList<GroupMember> Members);
+
+/// <summary>一条群消息</summary>
+public sealed record GroupMessage(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("group_id")] string GroupId,
+    [property: JsonPropertyName("from_user_id")] string FromUserId,
+    [property: JsonPropertyName("content")] string Content,
+    [property: JsonPropertyName("created_at")] string CreatedAt);
+
 /// <summary>聊天记录一页（按 id 向前翻页）</summary>
 public sealed record ConversationPage(
     [property: JsonPropertyName("items")] IReadOnlyList<FriendMessage> Items,
@@ -138,6 +173,16 @@ public sealed class FriendsService
     {
         BaseAddress = new Uri(BaseUrl),
         Timeout = TimeSpan.FromSeconds(30),
+    };
+
+    // 文件传输专用：默认 30 秒超时会掐死 200MB 的上传/下载（连接超时保留，快速失败）
+    private static readonly HttpClient FileHttp = new(new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+    })
+    {
+        BaseAddress = new Uri(BaseUrl),
+        Timeout = Timeout.InfiniteTimeSpan,
     };
 
     private readonly Func<string?> _apiKey;
@@ -267,6 +312,70 @@ public sealed class FriendsService
             : throw new InvalidOperationException("消息响应缺少 message");
     }
 
+    // ── 文件传输（图片 ≤30MB / 视频 ≤200MB / 文件 ≤200MB；接口见 docs/api-files.md） ──
+
+    public const long MaxImageBytes = 30L * 1024 * 1024;
+    public const long MaxFileBytes = 200L * 1024 * 1024;
+
+    /// <summary>附件消息的内容前缀：前端据此把气泡渲染成文件卡片。</summary>
+    public const string FileMessagePrefix = "[文件]";
+
+    /// <summary>把附件编码成一条聊天消息文本（走现有消息通道，后端只管文件存取）。</summary>
+    public static string EncodeFileMessage(string name, long size, string kind, string id) =>
+        FileMessagePrefix + JsonSerializer.Serialize(
+            new { name, size, kind, id }, JsonOpts);
+
+    public static FileAttachment? TryParseFileMessage(string? content)
+    {
+        if (content is null ||
+            !content.StartsWith(FileMessagePrefix, StringComparison.Ordinal)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<FileAttachment>(
+                content[FileMessagePrefix.Length..], JsonOpts);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>上传文件，返回 (fileId, 服务端确认的大小)。</summary>
+    public async Task<(string Id, long Size)> UploadFileAsync(
+        string filePath, CancellationToken ct = default)
+    {
+        var key = RequireKey();
+        var fi = new FileInfo(filePath);
+        if (!fi.Exists) throw new FileNotFoundException(filePath);
+
+        await using var fs = File.OpenRead(filePath);
+        using var form = new MultipartFormDataContent();
+        form.Add(new StreamContent(fs), "file", fi.Name);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/files") { Content = form };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        using var resp = await FileHttp.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, ct);
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var id = doc.RootElement.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+        if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("上传响应缺少文件 id");
+        var size = doc.RootElement.TryGetProperty("size", out var sizeEl) && sizeEl.TryGetInt64(out var s)
+            ? s : fi.Length;
+        return (id, size);
+    }
+
+    /// <summary>下载文件到指定路径。</summary>
+    public async Task DownloadFileAsync(string fileId, string destPath, CancellationToken ct = default)
+    {
+        var key = RequireKey();
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            $"/v1/files/{Uri.EscapeDataString(fileId)}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        using var resp = await FileHttp.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, ct);
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        await using var output = File.Create(destPath);
+        await stream.CopyToAsync(output, ct);
+    }
+
     /// <summary>把该好友发来的消息标为已读，返回更新条数。</summary>
     public async Task<int> MarkReadAsync(string userId, CancellationToken ct = default)
     {
@@ -275,6 +384,63 @@ public sealed class FriendsService
         return doc.RootElement.TryGetProperty("updated", out var updated) &&
                updated.TryGetInt32(out var count) ? count : 0;
     }
+
+    // ── 群聊（接口见服务端 groups 模块；附件协议与好友消息一致） ──
+
+    public async Task<GroupDetail> CreateGroupAsync(
+        string name, IReadOnlyList<string> memberIds, CancellationToken ct = default)
+    {
+        using var doc = await SendAsync(HttpMethod.Post, "/v1/groups",
+            new { name, members = memberIds }, ct);
+        return doc.RootElement.GetProperty("group").Deserialize<GroupDetail>(JsonOpts)
+               ?? throw new InvalidOperationException("群聊响应格式不正确");
+    }
+
+    public async Task<IReadOnlyList<GroupSummary>> GetGroupsAsync(CancellationToken ct = default)
+    {
+        using var doc = await SendAsync(HttpMethod.Get, "/v1/groups", null, ct);
+        return ReadList<GroupSummary>(doc.RootElement, "groups");
+    }
+
+    public async Task<GroupDetail> GetGroupDetailAsync(string groupId, CancellationToken ct = default)
+    {
+        using var doc = await SendAsync(HttpMethod.Get,
+            $"/v1/groups/{Uri.EscapeDataString(groupId)}", null, ct);
+        return doc.RootElement.Deserialize<GroupDetail>(JsonOpts)
+               ?? throw new InvalidOperationException("群聊响应格式不正确");
+    }
+
+    public async Task<IReadOnlyList<GroupMessage>> GetGroupMessagesAsync(
+        string groupId, long? beforeId = null, CancellationToken ct = default)
+    {
+        var url = $"/v1/groups/{Uri.EscapeDataString(groupId)}/messages?limit=100" +
+                  (beforeId is { } b ? $"&before_id={b}" : "");
+        using var doc = await SendAsync(HttpMethod.Get, url, null, ct);
+        return ReadList<GroupMessage>(doc.RootElement, "items");
+    }
+
+    public async Task<GroupMessage> SendGroupMessageAsync(
+        string groupId, string content, CancellationToken ct = default)
+    {
+        using var doc = await SendAsync(HttpMethod.Post,
+            $"/v1/groups/{Uri.EscapeDataString(groupId)}/messages", new { content }, ct);
+        return doc.RootElement.TryGetProperty("message", out var message)
+            ? message.Deserialize<GroupMessage>(JsonOpts)
+              ?? throw new InvalidOperationException("消息响应格式不正确")
+            : throw new InvalidOperationException("消息响应缺少 message");
+    }
+
+    public Task MarkGroupReadAsync(string groupId, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Post,
+            $"/v1/groups/{Uri.EscapeDataString(groupId)}/messages/read", new { }, ct);
+
+    public Task DissolveGroupAsync(string groupId, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete,
+            $"/v1/groups/{Uri.EscapeDataString(groupId)}", null, ct);
+
+    public Task AddGroupMembersAsync(string groupId, IReadOnlyList<string> userIds, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Post,
+            $"/v1/groups/{Uri.EscapeDataString(groupId)}/members", new { members = userIds }, ct);
 
     // ── 实时事件 ──
 

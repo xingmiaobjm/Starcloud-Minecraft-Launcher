@@ -200,10 +200,13 @@
                                 <TextBox x:Name="ProfileNameBox" Grid.Column="0"
                                          loc:Loc.Placeholder="自动带出，可改" MinWidth="140" />
                                 <PasswordBox x:Name="LlmKeyBox" Grid.Column="1" Header="API Key"
-                                             PlaceholderText="sk-…" />
+                                             PlaceholderText="sk-…" LostFocus="LlmKey_LostFocus" />
                             </Grid>
                             <ComboBox x:Name="LlmModelBox" IsEditable="True"
                                       HorizontalAlignment="Stretch" />
+                            <TextBlock FontSize="11" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       loc:Loc.Text="模型名以服务商实时提供的为准：填好 Key 后会按 /models 自动拉取，也可以点「测试连接」手动刷新。" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="LlmSaveBtn" Style="{StaticResource ScAccentButtonStyle}"
                                         loc:Loc.Text="保存" MinWidth="120" FontWeight="Medium" Click="LlmAdd_Click" />

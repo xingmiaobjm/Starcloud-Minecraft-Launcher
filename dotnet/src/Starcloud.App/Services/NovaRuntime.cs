@@ -228,6 +228,9 @@ public sealed class NovaRuntime
     public async Task ConfirmPlanAsync(NovaChatMessage msg)
     {
         if (msg.Plan is not { } plan || msg.PlanState != "pending") return;
+        // 立即切到「执行中」：安装资源/整合包可能要几分钟，卡片不能一直停在待确认态
+        // （以前没有这一步，点完按钮界面毫无变化，用户以为没点上）。
+        msg.PlanState = "running";
         var (result, ok) = ("", false);
         try
         {
@@ -636,6 +639,7 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
             OnPropertyChanged(nameof(PlanState));
             OnPropertyChanged(nameof(PlanButtonsVisible));
             OnPropertyChanged(nameof(PlanStateVisible));
+            OnPropertyChanged(nameof(PlanRunningVisible));
             OnPropertyChanged(nameof(PlanStateText));
         }
     }
@@ -689,14 +693,23 @@ public sealed class NovaChatMessage : INotifyPropertyChanged
     public Visibility PlanStateVisible =>
         Plan is not null && PlanState != "pending" ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>执行中的转圈（卡片上的即时反馈）</summary>
+    public Visibility PlanRunningVisible =>
+        Plan is not null && PlanState == "running" ? Visibility.Visible : Visibility.Collapsed;
+
     public string PlanStateText => PlanState switch
     {
-        "done" => Loc.T("✔ 已确认执行（已记入操作日志）") +
-                  (string.IsNullOrEmpty(ResultText) ? "" : $"\n{ResultText}"),
+        "running" => Loc.T("执行中…（进度可在「调度中心」查看）"),
+        "done" => Loc.T("✔ 执行完成") +
+                  (string.IsNullOrEmpty(ResultText) ? "" : $"\n{TrimResult(ResultText)}"),
         "cancelled" => Loc.T("已取消，未做任何改动"),
         "failed" => Loc.T("执行失败（已记入操作日志）：{0}", ResultText),
         _ => "",
     };
+
+    /// <summary>工具返回值可能是长 JSON / 多行日志：卡片上只留一段可读摘要。</summary>
+    private static string TrimResult(string text, int max = 400) =>
+        text.Length <= max ? text : text[..max] + "…";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

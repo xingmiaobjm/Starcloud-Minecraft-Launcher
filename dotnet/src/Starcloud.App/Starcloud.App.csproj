@@ -16,8 +16,8 @@
     <WindowsAppSdkSelfContained>true</WindowsAppSdkSelfContained>
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 启动器自身版本（0.3.9）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
-    <Version>0.3.9</Version>
+    <!-- 启动器自身版本（0.4.0）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
+    <Version>0.4.0</Version>
     <!-- 应用图标（品牌标记，由 tools/gen-app-icon.ps1 生成）：嵌入 exe 资源供资源管理器/任务栏/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
@@ -40,6 +40,8 @@
   <!-- 应用图标：MainWindow 用 AppWindow.SetIcon 按 AppContext.BaseDirectory 加载，须随输出目录发布 -->
   <ItemGroup>
     <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 深色任务栏用的浅色底板版（由 tools/make-appicon-dark.py 从 AppIcon.ico 派生） -->
+    <Content Include="Assets\AppIcon-Dark.ico" CopyToOutputDirectory="PreserveNewest" />
     <!-- 默认玩家皮肤（Steve）：账户页 3D 形象在无网络 / 皮肤源失败时的兜底 -->
     <Content Include="Assets\steve.png" CopyToOutputDirectory="PreserveNewest" />
     <!-- 默认皮肤（9 个官方默认角色，wide/slim 按官方版型各取一套）：账户详情页「默认皮肤」卡片 -->

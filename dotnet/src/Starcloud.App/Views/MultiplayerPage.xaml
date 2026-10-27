@@ -140,16 +140,41 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- 已装核心：建房 / 进房 -->
-                        <StackPanel x:Name="PlayActions" Spacing="10" Visibility="Collapsed">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <Button x:Name="HostBtn" loc:Loc.Text="创建房间"
-                                        Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
-                                        MinWidth="120" Click="Host_Click" />
-                                <ctrl:GlowButton x:Name="JoinToggleBtn" loc:Loc.Text="加入好友的房间" MinWidth="140"
-                                        Click="JoinToggle_Click" />
-                                <ctrl:GlowButton x:Name="LogsBtn" loc:Loc.Text="查看日志" Click="Logs_Click" />
-                            </StackPanel>
+                        <!-- 已装核心：两张大卡片（当房主 / 进房间） -->
+                        <StackPanel x:Name="PlayActions" Spacing="12" Visibility="Collapsed">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <!-- 我要当房主：一键建房 + 自动搜索本机 MC 联机端口 -->
+                                <Border Grid.Column="0" Style="{StaticResource ScCard}" Padding="20,16"
+                                        Tapped="HostCard_Tapped">
+                                    <StackPanel Spacing="8">
+                                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEB95;"
+                                                  FontSize="28" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <TextBlock loc:Loc.Text="我要当房主" FontSize="16" FontWeight="Medium" />
+                                        <TextBlock loc:Loc.Text="自动搜索本机 Minecraft 联机端口，创建房间并生成邀请码"
+                                                   FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Border>
+                                <!-- 我要进房间：输入邀请码 -->
+                                <Border Grid.Column="1" Style="{StaticResource ScCard}" Padding="20,16">
+                                    <StackPanel Spacing="8">
+                                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE8BD;"
+                                                  FontSize="28" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <TextBlock loc:Loc.Text="我要进房间" FontSize="16" FontWeight="Medium" />
+                                        <TextBox x:Name="JoinCodeBox" loc:Loc.Placeholder="输入邀请码"
+                                                 KeyDown="JoinCodeBox_KeyDown" />
+                                        <Button loc:Loc.Text="进入房间"
+                                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
+                                                HorizontalAlignment="Right" Click="JoinRoom_Click" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                            <ctrl:GlowButton x:Name="LogsBtn" loc:Loc.Text="查看日志" Click="Logs_Click"
+                                             HorizontalAlignment="Left" />
                         </StackPanel>
 
                         <!-- 会话运行中 -->

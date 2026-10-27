@@ -128,6 +128,9 @@ public sealed class SkinGpuRenderer : IDisposable
     private int _width, _height;
 
     private ID3D11Texture2D? _skinTexture;
+    private ID3D11Texture2D? _capeTexture;
+    private ID3D11ShaderResourceView? _capeView;
+    private SkinBitmap? _capeSource;
     private ID3D11ShaderResourceView? _skinView;
     private SkinBitmap? _skinSource;
 
@@ -238,6 +241,14 @@ public sealed class SkinGpuRenderer : IDisposable
         EnsureTargets(width, height);
         EnsureSkinTexture(skin.Texture);
         _context.UpdateSubresource<byte>(skin.Texture.Rgba, _skinTexture!, 0, (uint)(skin.Texture.Width * 4), 0, null);
+        // 披风纹理必须自己上传：GPU 的 UpdateSubresource 只更新皮肤纹理那一张，
+        // 漏掉这步时披风 SRV 里是空数据 → 采样全透明 → 看不见披风
+        if (skin.CapeTexture is { } capeTex)
+        {
+            EnsureCapeTexture(capeTex);
+            _context.UpdateSubresource<byte>(capeTex.Rgba, _capeTexture!, 0,
+                (uint)(capeTex.Width * 4), 0, null);
+        }
 
         // 近远平面只用于深度比较，包住整个模型即可（模型半径 ≤ 26 皮肤像素）
         var near = Math.Max(0.01, opts.Camera.Distance - 96.0);
@@ -247,10 +258,41 @@ public sealed class SkinGpuRenderer : IDisposable
         var quads = PlayerModel.BuildQuads(skin, pose ?? Pose.Still, opts.HeadOnly ? "head" : null);
         var faces = SkinProjection.Project(quads, opts.Camera, width, height, opts.HeadOnly ? 28.0 : 16.0);
 
-        var needed = faces.Count * MaxVerticesPerFace;
+        // 披风面片用披风纹理采样：分两组顶点，两次绘制（各自绑定 SRV）
+        var hasCape = skin.CapeTexture is not null;
+        if (hasCape) EnsureCapeTexture(skin.CapeTexture!);
+
+        var bodyFaces = new List<ScreenQuad>();
+        var capeFaceList = new List<ScreenQuad>();
+        foreach (var f in faces)
+            (f.Source.Part == "cape" && hasCape ? capeFaceList : bodyFaces).Add(f);
+
+        var needed = (faces.Count + (hasCape ? 1 : 0)) * MaxVerticesPerFace;
         if (_vertices.Length < needed) _vertices = new GpuVertex[needed];
         var count = 0;
-        foreach (var face in faces)
+        var capeStart = -1;
+
+        // 顶点写入助手（两段共用）：UV 先乘 1/z，片元里再除回来（透视校正）
+        int Add(ScreenVertex p, float u0, float v0, float u1, float v1)
+        {
+            var iz = (float)(1.0 / p.Z);
+            _vertices[count] = new GpuVertex
+            {
+                X = (float)p.Sx,
+                Y = (float)p.Sy,
+                Z = (float)((p.Z - near) * depthScale),
+                Uz = (float)p.U * iz,
+                Vz = (float)p.V * iz,
+                Iz = iz,
+                U0 = u0,
+                V0 = v0,
+                U1 = u1,
+                V1 = v1,
+            };
+            return count + 1;
+        }
+
+        foreach (var face in bodyFaces)
         {
             // 采样边界：右/下边界取 Right-1 / Bottom-1（矩形是左闭右开）
             var rect = face.Source.Uv;
@@ -259,31 +301,31 @@ public sealed class SkinGpuRenderer : IDisposable
             var u1 = rect.Right - 1;
             var v1 = rect.Bottom - 1;
 
-            count = Add(face.A);
-            count = Add(face.B);
-            count = Add(face.C);
-            count = Add(face.A);
-            count = Add(face.C);
-            count = Add(face.D);
+            count = Add(face.A, u0, v0, u1, v1);
+            count = Add(face.B, u0, v0, u1, v1);
+            count = Add(face.C, u0, v0, u1, v1);
+            count = Add(face.A, u0, v0, u1, v1);
+            count = Add(face.C, u0, v0, u1, v1);
+            count = Add(face.D, u0, v0, u1, v1);
+        }
 
-            int Add(ScreenVertex p)
+        if (hasCape)
+        {
+            capeStart = count;
+            foreach (var face in capeFaceList)
             {
-                // 与 CPU 的 Vertex 同构：UV 先乘 1/z，片元里再除回来（透视校正）
-                var iz = (float)(1.0 / p.Z);
-                _vertices[count] = new GpuVertex
-                {
-                    X = (float)p.Sx,
-                    Y = (float)p.Sy,
-                    Z = (float)((p.Z - near) * depthScale),
-                    Uz = (float)p.U * iz,
-                    Vz = (float)p.V * iz,
-                    Iz = iz,
-                    U0 = u0,
-                    V0 = v0,
-                    U1 = u1,
-                    V1 = v1,
-                };
-                return count + 1;
+                var rect = face.Source.Uv;
+                var u0 = rect.X;
+                var v0 = rect.Y;
+                var u1 = rect.Right - 1;
+                var v1 = rect.Bottom - 1;
+
+                count = Add(face.A, u0, v0, u1, v1);
+                count = Add(face.B, u0, v0, u1, v1);
+                count = Add(face.C, u0, v0, u1, v1);
+                count = Add(face.A, u0, v0, u1, v1);
+                count = Add(face.C, u0, v0, u1, v1);
+                count = Add(face.D, u0, v0, u1, v1);
             }
         }
 
@@ -311,8 +353,19 @@ public sealed class SkinGpuRenderer : IDisposable
         _context.VSSetShader(_vertexShader);
         _context.VSSetConstantBuffers(0, [_frameBuffer]);
         _context.PSSetShader(_pixelShader);
-        _context.PSSetShaderResources(0, [_skinView!]);
-        _context.Draw((uint)count, 0);
+        if (capeStart < 0)
+        {
+            _context.PSSetShaderResources(0, [_skinView!]);
+            _context.Draw((uint)count, 0);
+        }
+        else
+        {
+            // 先画身体（皮肤纹理），再切披风 SRV 画披风段；深度测试排好前后
+            _context.PSSetShaderResources(0, [_skinView!]);
+            _context.Draw((uint)capeStart, 0);
+            _context.PSSetShaderResources(0, [_capeView!]);
+            _context.Draw((uint)(count - capeStart), (uint)capeStart);
+        }
 
         _context.CopyResource(_staging!, _target!);
         ReadBack(width, height);
@@ -365,6 +418,24 @@ public sealed class SkinGpuRenderer : IDisposable
             BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read, 1, 0, ResourceOptionFlags.None));
 
         _output = new byte[width * height * 4];
+    }
+
+    private void EnsureCapeTexture(SkinBitmap cape)
+    {
+        if (_capeTexture is not null && ReferenceEquals(_capeSource, cape)) return;
+        ReleaseCapeTexture();
+
+        _capeTexture = _device.CreateTexture2D(new Texture2DDescription(
+            Format.R8G8B8A8_UNorm, (uint)cape.Width, (uint)cape.Height, 1, 1,
+            BindFlags.ShaderResource, ResourceUsage.Default, CpuAccessFlags.None, 1, 0, ResourceOptionFlags.None));
+        _capeView = _device.CreateShaderResourceView(_capeTexture);
+        _capeSource = cape;
+    }
+
+    private void ReleaseCapeTexture()
+    {
+        _capeView?.Dispose(); _capeView = null;
+        _capeTexture?.Dispose(); _capeTexture = null;
     }
 
     private void EnsureSkinTexture(SkinBitmap skin)
@@ -444,6 +515,7 @@ public sealed class SkinGpuRenderer : IDisposable
             _disposed = true;
             ReleaseTargets();
             ReleaseSkinTexture();
+            ReleaseCapeTexture();
             _vertexBuffer?.Dispose();
             _frameBuffer.Dispose();
             _rasterizerState.Dispose();

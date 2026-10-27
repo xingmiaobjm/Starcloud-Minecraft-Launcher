@@ -342,6 +342,46 @@ public sealed class CurseForgeService
         return mapped;
     }
 
+    /// <summary>
+    /// 批量解析整合包 manifest 的文件（官方 <c>POST /mods/files</c>，一次最多 50 个 fileId）。
+    /// 整合包动辄几百个文件，逐个 GET 是几百次串行往返——这里分批 POST，几百个文件只要几次请求。
+    /// 作者禁分发（allowModDistribution=false）的文件不会出现在响应里：由调用方按缺失兜底。
+    /// 接口整体失败返回空表（不抛），调用方回退到逐个查询。
+    /// </summary>
+    public async Task<Dictionary<long, ModrinthVersion>> GetFilesByIdsAsync(
+        IReadOnlyCollection<(long ProjectId, long FileId)> files, CancellationToken ct = default)
+    {
+        var result = new Dictionary<long, ModrinthVersion>();
+        foreach (var chunk in files.DistinctBy(f => f.FileId).Chunk(50))
+        {
+            ct.ThrowIfCancellationRequested();
+            string body;
+            try
+            {
+                body = await PostAsync("/mods/files",
+                    JsonSerializer.Serialize(new { fileIds = chunk.Select(f => f.FileId).ToArray() }), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LauncherLog.Write("curseforge", $"批量解析接口失败，回退逐个查询：{ex.Message}");
+                return result;
+            }
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("data", out var data) ||
+                data.ValueKind != JsonValueKind.Array) continue;
+            foreach (var item in data.EnumerateArray())
+            {
+                if (!item.TryGetProperty("modId", out var modId) || !modId.TryGetInt64(out var project)) continue;
+                if (!item.TryGetProperty("id", out var id) || !id.TryGetInt64(out var fileId)) continue;
+                var mapped = MapFile(project.ToString(), item);
+                if (mapped is null) continue;
+                result[fileId] = mapped;
+                lock (_gate) _fileCache[$"{project}:{fileId}"] = mapped;
+            }
+        }
+        return result;
+    }
+
     /// <summary>项目标题（依赖提示用；失败返回 null）</summary>
     public async Task<string?> GetProjectTitleAsync(string projectId, CancellationToken ct = default)
     {
@@ -584,6 +624,8 @@ public sealed class CurseForgeService
             ],
             Dependencies = Dependencies(file),
             Source = ContentSourceIds.CurseForge,
+            DatePublished = DateTimeOffset.TryParse(Str(file, "fileDate"), out var published)
+                ? published : null,
         };
     }
 

@@ -250,15 +250,37 @@ public sealed class AccountStore
     }
 
     /// <summary>写入会话凭证（仅内存；进程退出即失效）</summary>
-    public void SetSession(string uuid, AccountSession session) => _sessions[uuid] = session;
+    public void SetSession(string uuid, AccountSession session)
+    {
+        _sessions[uuid] = session;
+        // 第三方（皮肤站）账户：令牌 DPAPI 加密落盘，重启后免重登。
+        // 微软账户不在这里存 —— 它有独立的 refresh_token 体系（MicrosoftTokenStore）。
+        if (_accounts.FirstOrDefault(a => a.Uuid == uuid)?.Type == "external")
+            ExternalTokenStore.SaveNew(uuid, session.AccessToken);
+    }
 
-    /// <summary>读取会话凭证；无则返回 null（本次会话尚未登录）</summary>
-    public AccountSession? GetSession(string uuid) =>
-        _sessions.TryGetValue(uuid, out var s) ? s : null;
+    /// <summary>
+    /// 读取会话凭证；内存没有时，第三方（外部）账户会从本机持久化里恢复令牌
+    /// （DPAPI 加密，见 ExternalTokenStore），重启后免重登。
+    /// </summary>
+    public AccountSession? GetSession(string uuid)
+    {
+        if (_sessions.TryGetValue(uuid, out var s)) return s;
+
+        var type = _accounts.FirstOrDefault(a => a.Uuid == uuid)?.Type;
+        if (type == "external" && ExternalTokenStore.TryGet(uuid, out var token))
+        {
+            var restored = new AccountSession(token);
+            _sessions[uuid] = restored;   // 恢复后驻留内存，语义与本次登录一致
+            return restored;
+        }
+        return null;
+    }
 
     public void Remove(string uuid)
     {
         MicrosoftTokenStore.Remove(uuid); // 正版登录凭证一并清掉
+        ExternalTokenStore.Remove(uuid);  // 第三方登录凭证同理
         var type = _accounts.FirstOrDefault(a => a.Uuid == uuid)?.Type;
         _accounts.RemoveAll(a => a.Uuid == uuid);
         _sessions.Remove(uuid);

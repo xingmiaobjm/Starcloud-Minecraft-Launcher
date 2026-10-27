@@ -1,0 +1,5 @@
+0.3.12
+
+Fixed
+- Fixed the launcher freezing for a few seconds and then closing on startup: the acrylic backdrop was initialized before the window was ready, which raised a graphics-layer exception that terminated the process. The backdrop is now attached after the window is shown, and a failed initialization simply falls back to a solid background instead of blocking startup.
+- A failed taskbar icon switch no longer affects the window.

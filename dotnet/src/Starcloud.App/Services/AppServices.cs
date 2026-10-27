@@ -7,6 +7,7 @@ using Starcloud.Core.Kernel.Contracts;
 using Starcloud.Core.Services;
 using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
+using Starcloud.Core.Services.P2P;
 
 namespace Starcloud.App.Services;
 
@@ -76,6 +77,19 @@ public sealed class AppServices
     /// 存档/版本数据同步、下载 P2P 加速共用的唯一链路。需登录 + 设置开关才真正启动。
     /// </summary>
     public DeviceLinkService DeviceLink { get; }
+
+    /// <summary>
+    /// 高级传递优化（设计：2026-10-22-cross-internet-p2p-rendezvous.md）：
+    /// STUN 发现 + 服务器信令 + UDP 打洞，跨网络从其他用户取同一 SHA1 的文件。
+    /// 服务器不转发文件；失败静默回退公网。
+    /// </summary>
+    public InternetP2PService InternetP2P { get; }
+
+    /// <summary>Java 发行版与版本列表（Temurin / 龙井），供设置页选择并安装。</summary>
+    public JavaDistributionsService JavaDistros { get; }
+
+    /// <summary>云端公告（只拉取 Markdown 文本，仅渲染、不执行任何内容）。</summary>
+    public AnnouncementService Announcements { get; }
 
     /// <summary>存档同步语义（推送 / 拉取 / 清单），走 <see cref="DeviceLink"/>。</summary>
     public SaveSyncService SaveSync { get; }
@@ -201,9 +215,22 @@ public sealed class AppServices
         };
         SaveSync = new SaveSyncService(() => Settings, StarcloudId, DeviceLink, Saves,
             msg => LauncherLog.Write("devlink", msg));
+        JavaDistros = new JavaDistributionsService(Download, Java);
+        // STARCLOUD_ANNOUNCE_BASE 仅用于本地联调（把公告源指向本地假服务器），不配就走上线地址
+        Announcements = new AnnouncementService(() => Settings,
+            Environment.GetEnvironmentVariable("STARCLOUD_ANNOUNCE_BASE"));
         Kernel.Register(BuiltinSaveSyncPlugin.Descriptor, _ => new BuiltinSaveSyncPlugin(SaveSync));
         Kernel.ActivateAsync(BuiltinSaveSyncPlugin.PluginId).GetAwaiter().GetResult();
         Download.PeerSource = () => DeviceLink;
+        // 高级传递优化：跑在局域网传递优化之后。索引来自下载记账（只认 manifest 给的 SHA1），
+        // 日志写到 "p2p" 频道；p2p.request 事件跟着好友 SSE 进来，不额外开长连接。
+        InternetP2P = new InternetP2PService(() => Settings, StarcloudId)
+        {
+            Log = msg => LauncherLog.Write("p2p", msg),
+        };
+        Download.InternetPeerSource = () => InternetP2P;
+        Download.FileObtained = (dest, sha1, size) => InternetP2P.RecordObtained(dest, sha1, size);
+        FriendsRuntime.EventReceived += ev => { _ = InternetP2P.HandleEventAsync(ev); };
         Projections = Kernel.Get<IProjectionEngine>();
         LlmGateway = Kernel.Get<ILlmGateway>();
         ProjectionCommunity = new ProjectionCommunityService(() => Settings, Download);

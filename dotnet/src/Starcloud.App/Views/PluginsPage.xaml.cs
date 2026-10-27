@@ -87,6 +87,12 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
         InitializeComponent();
         PluginList.ItemsSource = Rows;
         KernelList.ItemsSource = KernelRows;
+        // 页面首次上屏后再播入场动画（构造函数里列表还没进视觉树，容器生成不出来）
+        Loaded += (_, _) =>
+        {
+            MotionFx.StaggerListItems(KernelList);
+            MotionFx.StaggerListItems(PluginList);
+        };
         _s.PluginHost.PanelRegistered += OnPanelsChanged;
         _s.PluginHost.PanelUnregistered += (_, _) => EnqueueRefresh();
     }

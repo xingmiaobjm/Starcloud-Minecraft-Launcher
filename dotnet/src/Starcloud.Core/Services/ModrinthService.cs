@@ -225,6 +225,10 @@ public sealed class ModrinthVersion
     [JsonPropertyName("version_type")]
     public string VersionType { get; set; } = "";
 
+    /// <summary>发布时间（前置依赖挑「最新对应版本」时排序用）</summary>
+    [JsonPropertyName("date_published")]
+    public DateTimeOffset? DatePublished { get; set; }
+
     [JsonPropertyName("game_versions")]
     public List<string> GameVersions { get; set; } = [];
 
@@ -280,7 +284,7 @@ public sealed class ModrinthDependency
     public string DependencyType { get; set; } = "";
 }
 
-/// <summary>Modrinth 项目（仅取标题等展示字段）</summary>
+/// <summary>Modrinth 项目（依赖卡片用：标题 + 图标 + 简介 + 下载量 + 更新时间）</summary>
 public sealed class ModrinthProject
 {
     [JsonPropertyName("id")]
@@ -289,6 +293,18 @@ public sealed class ModrinthProject
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
+    [JsonPropertyName("slug")]
+    public string Slug { get; set; } = "";
+
     [JsonPropertyName("icon_url")]
     public string? IconUrl { get; set; }
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+
+    [JsonPropertyName("downloads")]
+    public long Downloads { get; set; }
+
+    [JsonPropertyName("updated")]
+    public DateTimeOffset? Updated { get; set; }
 }

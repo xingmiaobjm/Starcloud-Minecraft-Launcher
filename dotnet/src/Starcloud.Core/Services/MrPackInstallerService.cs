@@ -93,10 +93,12 @@ public sealed class MrPackInstallerService
             var dotMc = installRoot ?? settings.DotMinecraft;
             Directory.CreateDirectory(dotMc);
 
-            // 1. 批量下载声明的文件（mod / resourcepack / shader 等，按 index 相对路径落位）
+            // 1. 批量下载声明的文件（mod / resourcepack / shader 等，按 index 相对路径落位）。
+            //    env.client == unsupported 的是服务端专属文件，客户端不装（装了部分 mod 直接崩）。
             var files = (IReadOnlyList<MrPackFile>)index.Files
-                .Where(f => f.Downloads.Count > 0).ToList();
+                .Where(f => f.Downloads.Count > 0 && f.Env?.Client != "unsupported").ToList();
             var batch = new List<(string Url, string Dest, string? Sha1, long Size)>(files.Count);
+            var alternatives = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
             foreach (var f in files)
             {
                 // index 里的 path 是包内作者可写的字段，必须先过路径安全再落盘
@@ -106,12 +108,29 @@ public sealed class MrPackInstallerService
                     continue;
                 }
                 batch.Add((f.Downloads[0], dest, f.Hashes?.Sha1, f.Size));
+                if (f.Downloads.Count > 1) alternatives[dest] = f.Downloads.Skip(1).ToList();
             }
             if (batch.Count > 0)
             {
                 status?.Report($"正在下载整合包文件（{batch.Count} 个）…");
                 await _downloader.DownloadBatchAsync(batch, "整合包文件",
                     settings.DownloadConcurrency, settings.DownloadMaxRetries, progress, ct);
+
+                // 主地址没拿到的文件（下载失败/校验不过，目标不存在）用 index 里声明的备选源补拉一次。
+                // DownloadBatchAsync 本来就跳过已存在的文件，这里天然只补失败项。
+                var missing = batch
+                    .Where(b => !File.Exists(b.Dest))
+                    .Select(b => (Pick(alternatives, b.Dest), b.Dest, b.Sha1, b.Size))
+                    .Where(b => b.Item1 is not null)
+                    .Select(b => (b.Item1!, b.Dest, b.Sha1, b.Size))
+                    .ToList();
+                if (missing.Count > 0)
+                {
+                    status?.Report($"正在用备用地址补拉 {missing.Count} 个文件…");
+                    LauncherLog.Write("mrpack", $"主地址缺失 {missing.Count} 个文件，改走备选源");
+                    await _downloader.DownloadBatchAsync(missing, "整合包文件（备用地址）",
+                        settings.DownloadConcurrency, settings.DownloadMaxRetries, progress, ct);
+                }
             }
 
             // 2. overrides/ 与 client-overrides/ 覆盖到实例根（客户端专用覆盖后写，优先级更高）
@@ -140,6 +159,15 @@ public sealed class MrPackInstallerService
                 .Equals("modrinth.index.json", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>递归复制目录内容；逐条过路径安全，非法条目跳过（防归档内的越界相对路径）</summary>
+    /// <summary>备选源表里挑一个还没试过的（主地址之外的第一个）；没有备选返回 null</summary>
+    private static string? Pick(IReadOnlyDictionary<string, IReadOnlyList<string>> alternatives, string dest)
+    {
+        if (!alternatives.TryGetValue(dest, out var list)) return null;
+        foreach (var url in list)
+            if (!string.IsNullOrWhiteSpace(url)) return url;
+        return null;
+    }
+
     private static void CopyDirectory(string src, string dst)
     {
         foreach (var dir in Directory.EnumerateDirectories(src, "*", SearchOption.AllDirectories))
@@ -198,6 +226,19 @@ file sealed class MrPackFile
 
     [JsonPropertyName("fileSize")]
     public long Size { get; set; }
+
+    /// <summary>运行环境声明：client=unsupported 表示服务端专属（客户端装了反而崩），跳过</summary>
+    [JsonPropertyName("env")]
+    public MrPackEnv? Env { get; set; }
+}
+
+file sealed class MrPackEnv
+{
+    [JsonPropertyName("client")]
+    public string? Client { get; set; }
+
+    [JsonPropertyName("server")]
+    public string? Server { get; set; }
 }
 
 file sealed class MrPackHashes

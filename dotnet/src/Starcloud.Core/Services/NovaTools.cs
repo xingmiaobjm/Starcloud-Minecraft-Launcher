@@ -48,6 +48,42 @@ public sealed partial class NovaToolRegistry
     public NovaTool? Find(string name) =>
         Tools.FirstOrDefault(t => t.Name == name);
 
+    /// <summary>
+    /// 确认清单的「人话」描述：先按工具名拼中文，再尽量把项目 ID 换成项目标题
+    /// （模型只给 project_id，直接摊给用户就是 {"project_id":"1Fv3GHYS"}）。
+    /// 网络查不到就保留 ID —— 描述失败绝不能影响计划本身。
+    /// </summary>
+    public async Task<string> DescribeCallAsync(
+        string toolName, string argumentsJson, CancellationToken ct = default)
+    {
+        var text = NovaToolDescriber.Describe(toolName, argumentsJson);
+        if (toolName != "install_content") return text;
+        try
+        {
+            using var doc = JsonDocument.Parse(
+                string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return text;
+            var id = Str(doc.RootElement, "project_id");
+            if (string.IsNullOrWhiteSpace(id)) return text;
+            var source = Str(doc.RootElement, "source") ?? "modrinth";
+
+            string? title = null;
+            if (string.Equals(source, "curseforge", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_c.CurseForge is not null)
+                    (await _c.CurseForge.GetProjectTitlesAsync([id], ct)).TryGetValue(id, out title);
+            }
+            else
+            {
+                title = await _c.Mods.GetProjectTitleAsync(id, ct);
+            }
+            if (!string.IsNullOrWhiteSpace(title))
+                text = text.Replace($"「{id}」", $"「{title}」");
+        }
+        catch { /* 查标题失败就用 ID */ }
+        return text;
+    }
+
     /// <summary>执行一个工具并把结果截断到安全长度（防 token 爆炸）</summary>
     public async Task<string> ExecuteAsync(string name, string argumentsJson, CancellationToken ct = default)
     {
