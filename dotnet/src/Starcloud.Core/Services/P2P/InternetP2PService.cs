@@ -229,9 +229,11 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
             foreach (var host in _hosts) host.Endpoints.Clear();
         _probedAt = now;
 
-        foreach (var host in _hosts)
+        // 各 socket 的探测并行：3 socket × 2 地址族 × 2 服务器 = 最多 12 次探测，
+        // 串行做最坏要 24 秒才判得出「不可用」；并行后就是单次的 2 秒超时。
+        await Task.WhenAll(_hosts.Select(async host =>
         {
-            if (host.Endpoints.Count > 0) continue;
+            if (host.Endpoints.Count > 0) return;
             // 同一 socket 的 v4 / v6 映射是两回事，两个地址族都要探
             foreach (var family in new[] { AddressFamily.InterNetwork, AddressFamily.InterNetworkV6 })
             {
@@ -245,7 +247,7 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
                     break;
                 }
             }
-        }
+        })).ConfigureAwait(false);
         _discoverable = _hosts.Any(h => h.Endpoints.Count > 0);
         Volatile.Write(ref _candidateCount, CurrentCandidates().Count);
         _state = _discoverable ? InternetP2PState.Ready : InternetP2PState.Unavailable;
@@ -364,6 +366,23 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
     public bool TryProvide(string destFile, string sha1, long size, out string viaPeer)
     {
         viaPeer = "";
+        // 同步外壳：实际流程在后台线程跑，调用线程只等结果（老接口保留给脚本 / 插件用）
+        var winner = "";
+        var done = new ManualResetEventSlim(false);
+        _ = Task.Run(async () =>
+        {
+            try { winner = await FetchAsync(destFile, sha1, size).ConfigureAwait(false) ?? ""; }
+            finally { done.Set(); }
+        });
+        done.Wait(TimeSpan.FromSeconds(FetchBudgetSeconds + 5));
+        viaPeer = winner;
+        return winner.Length > 0;
+    }
+
+    /// <summary>异步版（下载管线用这一条：不阻塞调用线程）。</summary>
+    public async Task<bool> TryProvideAsync(string destFile, string sha1, long size,
+        CancellationToken ct = default)
+    {
         if (PeerCount == 0) return false;
         if (string.IsNullOrEmpty(sha1) || size < P2PFileLedger.MinIndexedSize) return false;
         var now = Environment.TickCount64;
@@ -371,9 +390,8 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
         if (now > Interlocked.Read(ref _passDeadline)) return false;
         try
         {
-            var winner = FetchAsync(destFile, sha1, size).GetAwaiter().GetResult();
+            var winner = await FetchAsync(destFile, sha1, size, ct).ConfigureAwait(false);
             if (string.IsNullOrEmpty(winner)) return false;
-            viaPeer = winner;
             Interlocked.Add(ref _bytesFetched, size);
             Log?.Invoke($"传输优化命中 {Path.GetFileName(destFile)} ← {winner}");
             return true;
@@ -385,11 +403,12 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
         }
     }
 
-    private async Task<string?> FetchAsync(string destFile, string sha1, long size)
+    private async Task<string?> FetchAsync(string destFile, string sha1, long size,
+        CancellationToken outerCt = default)
     {
         // 预算分两段：建链（查对端 → 申请会话 → 打洞 → 握手）9 秒；
         // 传输按体积另算（最低按 2 MB/s），否则稍大的 jar 会在传一半时被预算掐断。
-        using var setup = CancellationTokenSource.CreateLinkedTokenSource(_rootToken);
+        using var setup = CancellationTokenSource.CreateLinkedTokenSource(_rootToken, outerCt);
         setup.CancelAfter(TimeSpan.FromSeconds(FetchBudgetSeconds));
         var ct = setup.Token;
 
@@ -427,6 +446,9 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
         if (hosts.Count == 0) return null;
         var destDir = Path.GetDirectoryName(destFile);
         if (string.IsNullOrEmpty(destDir)) return null;
+        // 目标目录可能还不存在（libraries/ 下的库文件就是这种情况）：
+        // 目录不存在时创建临时文件会失败，P2P 永远命中不了（还会被静默吞掉）。
+        try { Directory.CreateDirectory(destDir); } catch { }
 
         var winner = "";
         var gate = new object();
@@ -464,7 +486,13 @@ public sealed class InternetP2PService : IPeerFileSource, IDisposable
                     FileOptions.Asynchronous, size);
                 try
                 {
-                    await session.ReceiveFileAsync(handle, size, 0, null, transfer).ConfigureAwait(false);
+                    // 进度上报：P2P 原来完全不报，用户看到进度条卡在 0% 直到传输结束才瞬间跳满
+                    var reported = 0L;
+                    await session.ReceiveFileAsync(handle, size, 0, n =>
+                    {
+                        Interlocked.Add(ref reported, n);
+                        TaskCenterService.Instance.ReportDownloadBytes(n);
+                    }, transfer).ConfigureAwait(false);
                 }
                 finally
                 {

@@ -689,12 +689,14 @@ public sealed class DownloadService
                 if (string.IsNullOrEmpty(f.Sha1)) continue; // 没哈希可比：不冒险
                 try
                 {
-                    if (!peer.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
+                    // 走异步版：同步版会在当前线程上阻塞等待对端（最坏 20 多秒），
+                    // 而这里跑在 UI 线程上 —— 阻塞就是界面冻结。
+                    if (!await peer.TryProvideAsync(f.Dest, f.Sha1, f.Size, ct).ConfigureAwait(false)) continue;
                     pending.Remove(f);
                     p2pHits++;
                     NoteObtained(f.Dest, f.Sha1, f.Size);
                     LauncherLog.Write("download",
-                        $"传递优化复用 {Path.GetFileName(f.Dest)} ← {via}");
+                        $"传递优化复用 {Path.GetFileName(f.Dest)} ← 局域网对端");
                 }
                 catch
                 {
@@ -716,12 +718,12 @@ public sealed class DownloadService
                 if (string.IsNullOrEmpty(f.Sha1)) continue;
                 try
                 {
-                    if (!internet.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
+                    if (!await internet.TryProvideAsync(f.Dest, f.Sha1, f.Size, ct).ConfigureAwait(false)) continue;
                     pending.Remove(f);
                     internetHits++;
                     NoteObtained(f.Dest, f.Sha1, f.Size);
                     LauncherLog.Write("download",
-                        $"高级传递优化复用 {Path.GetFileName(f.Dest)} ← {via}");
+                        $"高级传递优化复用 {Path.GetFileName(f.Dest)} ← 互联网对端");
                 }
                 catch
                 {

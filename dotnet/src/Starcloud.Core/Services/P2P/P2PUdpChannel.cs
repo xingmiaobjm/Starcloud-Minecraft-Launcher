@@ -322,8 +322,23 @@ internal static class P2PHolePunch
 /// <summary>打通后的一条会话：收发帧、可靠传文件。</summary>
 internal sealed class P2PSession : IDisposable
 {
+    /// <summary>
+    /// 滑动窗口（块）。窗口大小 = ACK 位图的位数（64），
+    /// 这样「已收到的块」能被完整表达 —— 位图比窗口窄时，窗口后半段的丢失无法告知对端，
+    /// 发送端的 ack_seq 会永远卡在那一块上，整个窗口停摆（队头阻塞）。
+    /// </summary>
     private const int Window = 64;
+
+    /// <summary>RTO 初值（毫秒）；随后按实测 RTT 自适应。</summary>
     private const int RetransmitMs = 400;
+
+    /// <summary>RTO 下限 / 上限（毫秒）。</summary>
+    private const int MinRtoMs = 200;
+    private const int MaxRtoMs = 3000;
+
+    /// <summary>连续多少个重复 ACK 触发快速重传（不等 RTO）。</summary>
+    private const int FastRetransmitAcks = 3;
+
     private const int IdleTimeoutMs = 20000;
 
     private readonly List<(UdpSocketHost Host, IP2PUdpListener Listener)> _registrations = [];
@@ -333,8 +348,12 @@ internal sealed class P2PSession : IDisposable
         new BoundedChannelOptions(4096)
         {
             SingleReader = true,
-            SingleWriter = true,
-            FullMode = BoundedChannelFullMode.DropOldest,
+            // SingleWriter 必须是 false：会话在所有本机 socket 上注册（3 个），
+            // 每个 socket 的接收循环都会往同一个 Channel 写 —— 声明单写者会让
+            // Channel 跳过内部同步，并发写时帧会错乱或丢失。
+            SingleWriter = false,
+            // 丢「最新」而不是「最旧」：最旧的往往正是重传请求，丢掉它会让对端永远收不到
+            FullMode = BoundedChannelFullMode.DropNewest,
         });
     private volatile UdpSocketHost _sendHost;
     private volatile IPEndPoint _remote;
@@ -368,7 +387,7 @@ internal sealed class P2PSession : IDisposable
     }
 
     public ValueTask<int> SendAsync(P2PFrameType type, uint seq = 0, uint ackSeq = 0,
-        uint ackBits = 0, ReadOnlyMemory<byte> payload = default) =>
+        ulong ackBits = 0, ReadOnlyMemory<byte> payload = default) =>
         _sendHost.SendAsync(new P2PFrame(type, _key.Tag, seq, ackSeq, ackBits, payload).Encode(),
             _remote, CancellationToken.None);
 
@@ -398,6 +417,15 @@ internal sealed class P2PSession : IDisposable
         long lastAdvance = Environment.TickCount64;
         long lastResend = 0;
 
+        // RTT 估算（Jacobson/Karels）：srtt 为平滑 RTT，rttvar 为波动。
+        // 固定 400 ms 的 RTO 在高延迟链路上会白白停顿，在丢包链路上又太激进。
+        double srtt = 0, rttvar = 0;
+        var rto = (double)RetransmitMs;
+
+        // 重复 ACK 计数：连续收到同一个 ack_seq 说明对端在重复要某一块 → 立即重传它
+        uint lastAckSeq = 0;
+        var dupAcks = 0;
+
         while (baseSeq < count)
         {
             while (next < count && next - baseSeq < Window)
@@ -415,16 +443,53 @@ internal sealed class P2PSession : IDisposable
             var frame = await ReadAsync(TimeSpan.FromMilliseconds(50), ct).ConfigureAwait(false);
             if (frame is { Type: P2PFrameType.Ack } ack)
             {
+                // RTT 采样：以「确认到达 - 该块发出」估算（用当前窗口最早的未确认块近似）
+                if (outstanding.Count > 0)
+                {
+                    var oldest = outstanding.Min(e => e.Value.SentAt);
+                    var sample = Environment.TickCount64 - oldest;
+                    if (sample > 0)
+                    {
+                        if (srtt <= 0) { srtt = sample; rttvar = sample / 2; }
+                        else
+                        {
+                            rttvar = 0.75 * rttvar + 0.25 * Math.Abs(srtt - sample);
+                            srtt = 0.875 * srtt + 0.125 * sample;
+                        }
+                        rto = Math.Clamp(srtt + 4 * rttvar, MinRtoMs, MaxRtoMs);
+                    }
+                }
+
                 if (ack.AckSeq > baseSeq)
                 {
                     baseSeq = ack.AckSeq;
                     lastAdvance = Environment.TickCount64;
+                    dupAcks = 0;
                 }
+                else if (ack.AckSeq == lastAckSeq && ack.AckSeq > 0)
+                {
+                    // 对端在重复确认同一处：多半是缺了它要的那一块
+                    dupAcks++;
+                }
+                lastAckSeq = ack.AckSeq;
+
                 foreach (var seq in outstanding.Keys.Where(s => s < baseSeq).ToList())
                     outstanding.Remove(seq);
-                for (var bit = 0; bit < 32; bit++)
-                    if ((ack.AckBits & (1u << bit)) != 0)
+                for (var bit = 0; bit < 64; bit++)
+                    if ((ack.AckBits & (1UL << bit)) != 0)
                         outstanding.Remove(baseSeq + (uint)bit);
+
+                // 快速重传：连续重复 ACK 够多次，立刻重发 ack_seq 指向的那一块，不等 RTO
+                if (dupAcks >= FastRetransmitAcks && outstanding.Count > 0)
+                {
+                    dupAcks = 0;
+                    var target = outstanding.Keys.Min();
+                    if (outstanding.TryGetValue(target, out var chunk))
+                    {
+                        await SendAsync(P2PFrameType.Data, target, payload: chunk.Data).ConfigureAwait(false);
+                        outstanding[target] = (chunk.Data, Environment.TickCount64);
+                    }
+                }
             }
             else if (frame is { Type: P2PFrameType.Abort })
             {
@@ -435,7 +500,8 @@ internal sealed class P2PSession : IDisposable
             if (now - lastResend >= 100)
             {
                 lastResend = now;
-                foreach (var seq in outstanding.Where(e => now - e.Value.SentAt > RetransmitMs).Select(e => e.Key).ToList())
+                var limit = (int)Math.Max(RetransmitMs, rto);
+                foreach (var seq in outstanding.Where(e => now - e.Value.SentAt > limit).Select(e => e.Key).ToList())
                 {
                     if (!outstanding.TryGetValue(seq, out var chunk)) continue;
                     await SendAsync(P2PFrameType.Data, seq, payload: chunk.Data).ConfigureAwait(false);
@@ -457,7 +523,8 @@ internal sealed class P2PSession : IDisposable
         Action<long>? onBytes, CancellationToken ct)
     {
         var count = (uint)((size - offset + P2PFrame.MaxPayload - 1) / P2PFrame.MaxPayload);
-        var received = new bool[count];
+        // BitArray：每块 1 位（bool[] 是每块 1 字节，1 GB 文件差 8 倍内存）
+        var received = new System.Collections.BitArray((int)count);
         uint expected = 0;
         var sinceAck = 0;
         long lastData = Environment.TickCount64;
@@ -477,9 +544,9 @@ internal sealed class P2PSession : IDisposable
             if (frame.Value.Type != P2PFrameType.Data) continue;
 
             var seq = frame.Value.Seq;
-            if (seq < count && !received[seq])
+            if (seq < count && !received.Get((int)seq))
             {
-                received[seq] = true;
+                received.Set((int)seq, true);
                 var position = offset + (long)seq * P2PFrame.MaxPayload;
                 await RandomAccess.WriteAsync(file, frame.Value.Payload, position, ct).ConfigureAwait(false);
                 lastData = Environment.TickCount64;
@@ -487,7 +554,7 @@ internal sealed class P2PSession : IDisposable
                 sinceAck++;
             }
 
-            while (expected < count && received[expected]) expected++;
+            while (expected < count && received.Get((int)expected)) expected++;
 
             if (sinceAck >= 8)
             {
@@ -501,14 +568,14 @@ internal sealed class P2PSession : IDisposable
             .ConfigureAwait(false);
     }
 
-    /// <summary>ack_seq 之后 32 块的接收位图</summary>
-    private static uint Bits(bool[] received, uint expected)
+    /// <summary>ack_seq 之后 64 块的接收位图</summary>
+    private static ulong Bits(System.Collections.BitArray received, uint expected)
     {
-        var bits = 0u;
-        for (var i = 0; i < 32; i++)
+        ulong bits = 0;
+        for (var i = 0; i < 64; i++)
         {
             var index = expected + (uint)i;
-            if (index < received.Length && received[index]) bits |= 1u << i;
+            if (index < received.Length && received.Get((int)index)) bits |= 1UL << i;
         }
         return bits;
     }
