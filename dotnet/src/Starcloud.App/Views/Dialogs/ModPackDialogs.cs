@@ -217,9 +217,35 @@ public static class ModPackDialogs
     /// <summary>导入对话框：自动识别格式 → 预览 → 选版本名与隔离 → 安装 + 联动装原版/加载器</summary>
     public static async Task ImportAsync(XamlRoot root, AppServices s, string packPath)
     {
+        // 识别 / 拍平 / 预览都要开 zip、遍历条目、读清单，大包会跑好几秒 ——
+        // 全放后台，界面不卡（这段原来是同步的，用户看到的是「点了没反应」）。
         ModPackProbe? probe;
-        try { probe = ModPackDetector.Detect(packPath); }
-        catch (Exception ex) { await InfoAsync(root, Loc.T("无法导入整合包"), ex.Message); return; }
+        string effective;
+        PackPreview? preview;
+        try
+        {
+            (probe, effective, preview) = await Task.Run<(ModPackProbe?, string, PackPreview?)>(() =>
+            {
+                var p = ModPackDetector.Detect(packPath);
+                if (p is null) return (null, packPath, null);
+                // 外层多套了一层目录的包先重打成根级包（裸内容包不重打：它按内容根直接铺）
+                var eff = IsLooseContent(p.Format) ? packPath : ModPackArchive.FlattenIfNested(packPath, p);
+                try
+                {
+                    return (p, eff, (PackPreview?)ReadPreview(s, eff, p));
+                }
+                catch
+                {
+                    return (p, eff, null);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            await InfoAsync(root, Loc.T("无法导入整合包"), ex.Message);
+            return;
+        }
+
         if (probe is null)
         {
             await InfoAsync(root, Loc.T("无法导入整合包"),
@@ -227,16 +253,15 @@ public static class ModPackDialogs
                        "CurseForge（内含 manifest.json）与 MultiMC / Prism 实例包（内含 mmc-pack.json 或 instance.cfg）。"));
             return;
         }
+        if (preview is null)
+        {
+            await InfoAsync(root, Loc.T("无法导入整合包"),
+                Loc.T("读取整合包内容失败：文件可能已损坏，或不是受支持的整合包格式。"));
+            return;
+        }
 
-        // 外层多套了一层目录的包先重打成根级包（裸内容包不重打：它按内容根直接铺）
-        var effective = IsLooseContent(probe.Format)
-            ? packPath
-            : ModPackArchive.FlattenIfNested(packPath, probe);
         try
         {
-            PackPreview preview;
-            try { preview = ReadPreview(s, effective, probe); }
-            catch (Exception ex) { await InfoAsync(root, Loc.T("无法导入整合包"), ex.Message); return; }
             await RunImportAsync(root, s, effective, preview);
         }
         finally

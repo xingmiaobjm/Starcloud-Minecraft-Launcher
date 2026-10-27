@@ -50,6 +50,14 @@ public sealed class GameLauncher
     private readonly InstallerService _installer;
     private readonly JavaService? _java;
 
+    /// <summary>
+    /// classpath 缓存：键 = 实例目录 + 版本 id + 库集合指纹。
+    /// <para>为什么值得缓存：classpath 要对上百个库文件逐个 <c>File.Exists</c>，
+    /// 重度整合包能到两百多个 —— 每次启动游戏都 stat 一遍这些文件是纯浪费。
+    /// 库文件很少在两次启动之间变动，所以按「集合指纹」缓存住结果即可。</para>
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ClasspathCache = new();
+
     public GameLauncher(InstallerService installer, JavaService? java = null)
     {
         _installer = installer;
@@ -112,15 +120,29 @@ public sealed class GameLauncher
                          ?? throw new InvalidOperationException(
                              $"实例 {instanceId} 缺少客户端 jar（{instanceId}.jar）：请先在版本页执行「补全」再启动");
             classpathEntries.Add(ownJar);
-            var missing = classpathEntries.Where(p => !File.Exists(p)).ToList();
-            if (missing.Count > 0)
+
+            // 指纹：库集合 + 实例 id + 版本 id。库换了 / 实例换了 → 指纹变 → 缓存失效。
+            var fingerprint = $"{instanceId}|{versionId}|{classpathEntries.Count}|" +
+                              string.Join('|', classpathEntries);
+            if (ClasspathCache.TryGetValue(fingerprint, out var cached))
             {
-                LauncherLog.Write("launch",
-                    $"classpath 缺少 {missing.Count} 个文件（先补全版本）：" +
-                    string.Join("、", missing.Select(Path.GetFileName)));
+                classpath = cached;
             }
-            classpath = string.Join(PlatformInfo.ClasspathSeparator,
-                classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
+            else
+            {
+                var missing = classpathEntries.Where(p => !File.Exists(p)).ToList();
+                if (missing.Count > 0)
+                {
+                    LauncherLog.Write("launch",
+                        $"classpath 缺少 {missing.Count} 个文件（先补全版本）：" +
+                        string.Join("、", missing.Select(Path.GetFileName)));
+                }
+                classpath = string.Join(PlatformInfo.ClasspathSeparator,
+                    classpathEntries.Where(File.Exists).Distinct(PlatformInfo.PathComparer));
+                // 缓存只留最近的一批：版本多了以后指纹集合会无限增长
+                if (ClasspathCache.Count > 32) ClasspathCache.Clear();
+                ClasspathCache[fingerprint] = classpath;
+            }
         }
         else
         {
@@ -202,6 +224,12 @@ public sealed class GameLauncher
         }
         jvmArgs.AddRange(options.ExtraJvmArgs.Where(a => !string.IsNullOrWhiteSpace(a)));
 
+        // 用户自定义的 JVM 参数与内置参数可能撞名（最常见的是 -Xmx）：
+        // JVM 取最后一个生效，所以「用户在设置里写了 -Xmx4G」实际上会覆盖设置里的内存值 ——
+        // 但界面上显示的还是设置里的数字，两边对不上。这里显式去重：
+        // 同名参数只保留最后一次出现的（用户写的在前、内置的在后，那就把内置那条删掉）。
+        jvmArgs = DedupeJvmArgs(jvmArgs, options.ExtraJvmArgs.Where(a => !string.IsNullOrWhiteSpace(a)));
+
         // authlib-injector：第三方（Yggdrasil）外置登录注入，必须出现在 -cp 之前
         if (!string.IsNullOrWhiteSpace(options.AgentJarPath) && !string.IsNullOrWhiteSpace(options.AgentBase))
             jvmArgs.Add($"-javaagent:{options.AgentJarPath}={options.AgentBase}");
@@ -219,8 +247,9 @@ public sealed class GameLauncher
 
         // 1.13 之前没有 arguments.jvm，classpath 必须由启动器自己补；
         // 个别手写/旧整合包 JSON 也可能漏掉 -cp。缺了它 JVM 直接报「找不到主类」。
-        if (!jvmArgs.Any(a => a.Equals("-cp", StringComparison.OrdinalIgnoreCase) ||
-                              a.Equals("-classpath", StringComparison.OrdinalIgnoreCase)))
+        // 注意要认全三种写法（-cp / -classpath / --class-path）：JVM 三者等价，
+        // 只认前两种时，用户参数里写了 --class-path 会被再补一条 -cp，两条 classpath 互相打架。
+        if (!HasClasspathArg(jvmArgs))
         {
             jvmArgs.Add("-cp");
             jvmArgs.Add(classpath);
@@ -373,6 +402,87 @@ public sealed class GameLauncher
 
     private static string QuoteIfNeeded(string arg) =>
         arg.Contains(' ') ? '"' + arg + '"' : arg;
+
+    /// <summary>
+    /// JVM 参数去重：同名参数只保留最后一次出现的。
+    /// <para>为什么要去重：JVM 对 -Xmx / -Xms 这类参数取「最后一个」生效，
+    /// 所以用户在设置里写了 <c>-Xmx4G</c> 时实际生效的是 4G，而界面显示的还是设置里的数字 ——
+    /// 两边对不上，用户会以为内存设置没生效。同名参数留一条就够了。</para>
+    /// <para>比较用「参数名」而不是整串：<c>-Xmx4G</c> 与 <c>-Xmx2G</c> 名字相同、
+    /// 值不同，属于同一个参数；<c>-Dfoo=a</c> 与 <c>-Dfoo=b</c> 名字相同但语义不同，
+    /// 同样只保留后一条（JVM 本身也是后者生效）。</para>
+    /// </summary>
+    internal static List<string> DedupeJvmArgs(List<string> args, IEnumerable<string> userArgs)
+    {
+        // 只有「用户参数与内置参数撞名」才需要处理：纯内置之间不重复（除了版本 JSON 自带的）
+        var userNames = userArgs.Select(JvmArgName)
+            .Where(n => n.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (userNames.Count == 0) return args;
+
+        var result = new List<string>(args.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 从后往前扫：先标记所有名字，最后保留每个名字的第一次出现（即原序列里的最后一次）
+        for (var i = args.Count - 1; i >= 0; i--)
+        {
+            var name = JvmArgName(args[i]);
+            if (name.Length > 0 && !seen.Add(name)) continue;   // 前面还有同名 → 丢掉这条
+            result.Add(args[i]);
+        }
+        result.Reverse();
+        return result;
+    }
+
+    /// <summary>
+    /// 取 JVM 参数的名字部分：<c>-Xmx4G</c> → <c>-Xmx</c>；<c>-Dfoo=bar</c> → <c>-Dfoo</c>；
+    /// <c>-XX:+UseG1GC</c> → <c>-XX:+UseG1GC</c>（这类整体是一个开关，不该被拆）。
+    /// <para>难点在于值可以紧跟名字（<c>-Xmx4G</c>），没有分隔符。
+    /// 办法是按 JVM 的实际参数形态逐条匹配：内存类（-Xms/-Xmx/-Xss…）取前缀，
+    /// 系统属性类（-D…）取 '=' 之前，-XX 类整体保留。</para>
+    /// </summary>
+    private static string JvmArgName(string arg)
+    {
+        if (string.IsNullOrWhiteSpace(arg)) return "";
+        var trimmed = arg.TrimStart();
+        if (!trimmed.StartsWith('-')) return "";
+
+        // -XX:... 是整体开关（-XX:+UseG1GC / -XX:MaxGCPauseMillis=50），不拆
+        if (trimmed.StartsWith("-XX", StringComparison.OrdinalIgnoreCase)) return trimmed;
+
+        // -Dfoo=bar：取 '=' 之前的部分
+        if (trimmed.StartsWith("-D", StringComparison.OrdinalIgnoreCase))
+        {
+            var eq = trimmed.IndexOf('=');
+            return eq < 0 ? trimmed : trimmed[..eq];
+        }
+
+        // -Xmx4G / -Xms1024M / -Xss1M：取「-X + 已知前缀」的部分
+        if (trimmed.StartsWith("-X", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var prefix in XKnownPrefixes)
+            {
+                if (trimmed.Length > prefix.Length &&
+                    trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return prefix;
+            }
+            // 未知 -X 参数：退化成「-X + 前两个字母」
+            return trimmed.Length > 3 ? trimmed[..3] : trimmed;
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>JVM 的 -X 系列参数前缀（值紧跟其后，没有分隔符）。</summary>
+    private static readonly string[] XKnownPrefixes =
+    [
+        "-Xms", "-Xmx", "-Xss", "-Xmn", "-Xmx", "-Xgc", "-Xmn", "-Xprof", "-Xss",
+    ];
+
+    /// <summary>命令行里是否已有 classpath 参数（JVM 认 -cp / -classpath / --class-path 三种写法）。</summary>
+    internal static bool HasClasspathArg(List<string> args) => args.Any(a =>
+        a.Equals("-cp", StringComparison.OrdinalIgnoreCase) ||
+        a.Equals("-classpath", StringComparison.OrdinalIgnoreCase) ||
+        a.Equals("--class-path", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// 引号感知的命令行切分（与 <see cref="QuoteIfNeeded"/> 对称）。

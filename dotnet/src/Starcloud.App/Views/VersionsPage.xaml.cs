@@ -317,12 +317,19 @@ public sealed partial class VersionsPage : Page
         var row = (s as FrameworkElement)?.DataContext as LocalVersionRow ?? RowOf(s);
         if (row is null) return;
         var running = _s.Runtime.Instances.Any(i => i.VersionId == row.Id);
+        // 共享实例的内容（mods / config / saves…）在 .minecraft 根目录下，不在版本目录里，
+        // 删版本文件夹不会带走它们 —— 这点必须说清楚，否则用户以为已经删干净了，
+        // 几十上百 MB 的整合包文件还留在磁盘上。
+        var isolated = row.Isolated;
+        var message = running
+            ? Loc.T("版本 {0} 正在运行，请先停止游戏再删除。", row.Id)
+            : isolated
+                ? Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹（含 mods / 存档 / 配置），此操作不可恢复。", row.Id)
+                : Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。\n\n注意：这是共享实例，mods / 配置 / 存档等文件位于 .minecraft 根目录，不会被一并删除。", row.Id);
         var dlg = new ThemedDialog
         {
             Title = Loc.T("删除版本"),
-            Content = running
-                ? Loc.T("版本 {0} 正在运行，请先停止游戏再删除。", row.Id)
-                : Loc.T("确定要删除版本 {0} 吗？\n将删除其版本文件夹，此操作不可恢复。", row.Id),
+            Content = message,
             PrimaryButtonText = running ? string.Empty : Loc.T("删除"),
             CloseButtonText = Loc.T("关闭"),
             DefaultButton = ContentDialogButton.Close,

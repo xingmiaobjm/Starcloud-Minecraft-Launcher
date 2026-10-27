@@ -89,9 +89,24 @@ public sealed record InstalledVersionInfo(string Id, long SizeBytes);
 /// <summary>已安装版本的删除</summary>
 public static class InstalledVersionManager
 {
+    /// <summary>
+    /// 删除一个已安装版本的目录。
+    /// <para>版本 id 必须是合法的目录名（不含路径分隔符与 <c>..</c>）：
+    /// 这个函数会递归删目录，id 若是 <c>../../..</c> 就能删到 .minecraft 之外去 ——
+    /// 所有调用点（界面、Nova 工具、脚本）都走这里，所以校验放在这一层。</para>
+    /// </summary>
     public static void Remove(string dotMinecraft, string versionId)
     {
+        if (!InstanceLayout.IsValidVersionId(versionId))
+            throw new ArgumentException($"版本名 {versionId} 含有非法字符，拒绝删除", nameof(versionId));
+
         var dir = Path.Combine(dotMinecraft, "versions", versionId);
+        // 兜底：解析后的路径必须仍在 versions 目录之内
+        var root = Path.GetFullPath(Path.Combine(dotMinecraft, "versions"));
+        var full = Path.GetFullPath(dir);
+        if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"版本名 {versionId} 解析后越界，拒绝删除", nameof(versionId));
+
         if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 }
