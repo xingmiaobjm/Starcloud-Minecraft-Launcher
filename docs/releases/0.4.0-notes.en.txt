@@ -6,3 +6,46 @@
 - Settings toggles no longer show the default "Off / On / Off" text.
 - The download page's "Installed" badge no longer collides with long version names.
 - The projection manager now guides you when nothing is selected, and the projection preview ready handshake is fixed.
+
+Home card grid
+- The home page is now an editable card grid: cards are placed by column, row and span. In edit mode you drag a card to a new position and pick a fixed size from the button in its lower-right corner.
+- The edit toolbox sits vertically along the right edge, floating above every other element: all card types are preset in it, drag one onto the page to place it, and the size presets and a remove button for the selected card live there too.
+- Card sizes: installed versions 4x3 to 12x6, account and launch 2x3 to 4x6, account picker 2x2 to 6x4, launch button 2x1 to 6x2, favorites and recent 3x2 or 3x3.
+- Three new cards: Favorites, Recent and Play time, plus standalone account picker and launch button cards.
+- Play time is only counted when a game exits normally after at least 30 seconds, and versions are ranked by accumulated play time.
+
+Startup speed
+- Scanning installed versions now runs on a background thread: the window appears first and the version list follows.
+- First-page navigation is deferred until after the window is visible instead of building the whole page beforehand.
+- Hardware encoder probing and legacy preset skin cleanup moved to the background.
+- Launcher log writes are batched on a background thread instead of opening the file on every call.
+
+Download engine
+- Fixed the speed readout: instantaneous speed is now settled over a fixed sampling window, so concurrent reports no longer produce spikes dozens of times too high.
+- Chunk-level resume: an interrupted large file only re-downloads the chunks that were missing instead of starting over.
+- Concurrency is derived from the download source actually in use, avoiding repeated requests against a source that is already rate limited.
+- Large files are processed first in a batch so they receive the concurrency budget earlier.
+
+Launch arguments
+- The classpath is cached by library set fingerprint instead of stat-ing hundreds of library files on every launch.
+- Duplicate JVM arguments are removed: a custom -Xmx no longer coexists with the memory setting, so the interface matches what actually takes effect.
+- --class-path is now recognized alongside -cp and -classpath.
+
+P2P acceleration
+- Removed the interface freeze during downloads: peer requests are now awaited asynchronously.
+- Fixed concurrent writes into the UDP receive channel, which could corrupt or drop frames.
+- The acknowledgement bitmap is extended to 64 bits to match the sliding window, removing the stall caused by a lost packet in the second half of the window.
+- Retransmission timeout now adapts to measured round-trip latency, and fast retransmit on duplicate acknowledgements is supported.
+- STUN probing runs in parallel: worst-case wait for a failed probe drops from 24 seconds to 2.
+- P2P transferred bytes now count towards the download progress.
+
+Installation and mod packs
+- Free disk space is checked before installing or importing, with allowance for unpacking and temporary files, so a full disk is reported before downloading rather than halfway through.
+- Detecting, flattening and previewing a mod pack run in the background, so importing a large pack no longer freezes the interface.
+- A failed import cleans up the leftover instance directory.
+- Files marked as optional are skipped during import, and the overrides path check no longer allows escaping the instance directory.
+
+Security
+- The installer refuses a drive root or network share root as the install location.
+- When a legacy install in a drive root is detected, uninstallation removes only the files this product installed instead of the whole volume.
+- Version deletion validates the version name and rejects illegal characters and out-of-tree paths.
