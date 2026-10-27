@@ -12,6 +12,7 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Starcloud.App.Views;
 using Windows.Foundation;
@@ -43,8 +44,8 @@ public static class MotionFx
     /// <summary>把某个标准档时长按全局节奏放大</summary>
     public static int Scale(int ms) => (int)Math.Round(ms * Pace);
 
-    /// <summary>默认入场时长（Fluent：中小表面 250ms 一档，按 <see cref="Pace"/> 放大）</summary>
-    public const int EnterMs = (int)(250 * Pace);
+    /// <summary>默认入场时长（页面骨架）：切页要"跟手"，比列表羽化（400ms）快半拍。</summary>
+    public const int EnterMs = (int)(220 * Pace);
 
     /// <summary>默认退场时长（退场必须比入场快，读起来才利落）</summary>
     public const int ExitMs = (int)(140 * Pace);
@@ -221,8 +222,9 @@ public static class MotionFx
     /// <param name="fromY">起始纵向偏移（px，正值 = 从下方浮起）</param>
     /// <param name="durationMs">时长</param>
     /// <param name="delayMs">延迟（列表错峰入场用）</param>
+    /// <param name="fromX">起始横向偏移（px，负值 = 从左侧滑入，即「从左往右移出」）</param>
     public static void FadeSlideIn(FrameworkElement element, float fromY = 16f,
-        int durationMs = EnterMs, int delayMs = 0)
+        int durationMs = EnterMs, int delayMs = 0, float fromX = 0f)
     {
         try
         {
@@ -251,11 +253,11 @@ public static class MotionFx
             fade.InsertKeyFrame(1f, 1f, ease);
             visual.StartAnimation("Opacity", fade);
 
-            // 位移：非线性（Fluent 入场曲线），到位即止、不回弹也不拖尾
+            // 位移：非线性（Fluent 入场曲线），到位即止
             var slide = compositor.CreateVector3KeyFrameAnimation();
             slide.Duration = TimeSpan.FromMilliseconds(durationMs);
             slide.DelayTime = TimeSpan.FromMilliseconds(delayMs);
-            slide.InsertKeyFrame(0f, new Vector3(0f, fromY, 0f));
+            slide.InsertKeyFrame(0f, new Vector3(fromX, fromY, 0f));
             slide.InsertKeyFrame(1f, Vector3.Zero, ease);
             visual.StartAnimation("Translation", slide);
         }
@@ -367,34 +369,143 @@ public static class MotionFx
         }
     }
 
-    /// <summary>列表错峰入场：第 i 项延迟 = min(i, <paramref name="maxStagger"/>) × <paramref name="stepMs"/></summary>
+    /// <summary>
+    /// 列表错峰入场：第 i 项延迟 = min(i, <paramref name="maxStagger"/>) × <paramref name="stepMs"/>。
+    /// 默认横向（从左往右羽化移出）——内容页的列表条目按这个方向出场，与页面骨架的纵向浮起区分开。
+    /// </summary>
     public static void StaggerIn(FrameworkElement element, int index,
-        int stepMs = (int)(26 * Pace), int maxStagger = 9, float fromY = 18f)
+        int stepMs = (int)(26 * Pace), int maxStagger = 9, float fromY = 0f, float fromX = -30f)
     {
         var step = Math.Clamp(index, 0, maxStagger) * stepMs;
-        FadeSlideIn(element, fromY, EnterMs, step);
+        FadeSlideIn(element, fromY, EnterMs, step, fromX);
     }
 
     /// <summary>
-    /// 列表回填后让可见项错峰入场。列表控件是虚拟化的，容器要等一帧才实现，
-    /// 所以内部推迟到下一轮消息循环再取样；只动画「已经实现」的容器，滚动出来的新项不做动画（避免滚动时闪烁）。
+    /// 列表项「从左往右羽化」：TranslateTransform 横向滑入 + 淡入。
+    /// 用 XAML 的 TranslateTransform（最稳的 2D 变换）：元素创建时就挂上，
+    /// Storyboard 动画它的 X；基础延迟留给页面转场，避免动画在切页过程中播完看不见。
     /// </summary>
-    public static void StaggerListItems(ListViewBase list, int maxItems = 12, float fromY = 18f)
+    public static void FeatherIn(FrameworkElement element, int index,
+        int stepMs = 38, int maxStagger = 10, float fromX = -90f)
+    {
+        try
+        {
+            if (!AppServices.Instance.Motion.Enabled) return;
+
+            if (element.RenderTransform is not TranslateTransform transform)
+            {
+                transform = new TranslateTransform();
+                element.RenderTransform = transform;
+            }
+            transform.X = fromX;
+            element.Opacity = 0;
+
+            var delay = TimeSpan.FromMilliseconds(
+                150 + Math.Clamp(index, 0, maxStagger) * stepMs);
+            var duration = TimeSpan.FromMilliseconds(400);
+            var fadeEase = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+            var sb = new Storyboard();
+
+            var slide = new DoubleAnimation
+            {
+                From = fromX,
+                To = 0,
+                Duration = duration,
+                BeginTime = delay,
+                EasingFunction = fadeEase,
+            };
+            Storyboard.SetTarget(slide, element);
+            Storyboard.SetTargetProperty(slide,
+                "(UIElement.RenderTransform).(TranslateTransform.X)");
+            sb.Children.Add(slide);
+
+            var fade = new DoubleAnimation
+            {
+                From = 0,
+                To = 1,
+                Duration = duration,
+                BeginTime = delay,
+                EasingFunction = fadeEase,
+            };
+            Storyboard.SetTarget(fade, element);
+            Storyboard.SetTargetProperty(fade, "Opacity");
+            sb.Children.Add(fade);
+
+            sb.Begin();
+            sb.Completed += (_, _) =>
+            {
+                try
+                {
+                    transform.X = 0;
+                    element.Opacity = 1;
+                }
+                catch { /* 元素可能已回收 */ }
+            };
+        }
+        catch
+        {
+            // 静默：入场动效失败不影响列表
+        }
+    }
+
+    /// <summary>动画作用在模板根元素上，而不是 ListViewItem 容器：
+    /// 容器的 RenderTransform 归控件模板与拖拽逻辑所有，覆盖它会打架。</summary>
+    private static FrameworkElement AnimationTargetOf(FrameworkElement container) =>
+        (container as ContentControl)?.ContentTemplateRoot as FrameworkElement ?? container;
+
+    /// <summary>
+    /// 列表回填后让可见项错峰入场。坑：<c>ItemsSource</c> 刚换完时容器往往还没实现
+    /// （布局没跑），直接取样 <c>ContainerFromIndex</c> 会全部扑空——条目瞬间落定、
+    /// 入场动画整体没跑。所以这里先强制布局一轮，仍拿不到容器就再让几轮重试。
+    /// <para>只动画首批可见容器；滚动出来的新项不做动画（避免滚动时闪烁）。</para>
+    /// </summary>
+    public static void StaggerListItems(ListViewBase list, int maxItems = 8, float fromY = 0f,
+        float fromX = -90f)
     {
         if (!AppServices.Instance.Motion.Enabled) return;
-        list.DispatcherQueue?.TryEnqueue(() =>
+        var attempts = 0;
+        void Sample()
         {
             try
             {
-                var count = Math.Min(list.Items.Count, maxItems);
-                for (var i = 0; i < count; i++)
-                    if (list.ContainerFromIndex(i) is FrameworkElement container)
-                        StaggerIn(container, i, fromY: fromY);
+                // 必须先强制布局：虚拟化列表的 ListViewItem 是布局阶段生成的，
+                // 刚设置 ItemsSource 时视觉树里一个容器都没有（日志里的「没有容器可播」）。
+                list.UpdateLayout();
+                var containers = CollectContainers(list).Take(maxItems).ToList();
+                if (containers.Count == 0 && ++attempts <= 8)
+                {
+                    list.DispatcherQueue?.TryEnqueue(Sample);
+                    return;
+                }
+
+                for (var i = 0; i < containers.Count; i++)
+                    FeatherIn(AnimationTargetOf(containers[i]), i, fromX: fromX);
+
+                Starcloud.Core.Services.LauncherLog.Write("motion", containers.Count == 0
+                    ? $"列表入场动画没有容器可播：{list.Name} items={list.Items.Count}"
+                    : $"入场动画已播：{list.Name} animated={containers.Count}/{list.Items.Count}");
             }
             catch
             {
                 // 静默：入场动效失败不影响列表
             }
-        });
+        }
+        list.DispatcherQueue?.TryEnqueue(Sample);
+    }
+
+    /// <summary>按视觉树收集已实现的列表项容器（虚拟化下列表只会实现可见的那几项）。</summary>
+    private static IEnumerable<FrameworkElement> CollectContainers(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ListViewItem item)
+                yield return item;
+            else
+                foreach (var nested in CollectContainers(child))
+                    yield return nested;
+        }
     }
 }

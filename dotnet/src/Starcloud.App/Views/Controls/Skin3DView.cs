@@ -456,12 +456,14 @@ public sealed class Skin3DView : UserControl
     // ── 公共 API ──
 
     /// <summary>按账户切换皮肤（微软=UUID、第三方=认证服务器会话皮肤）；空账户渲染内置 Steve。</summary>
-    public void SetAccount(string? type, string? uuid, string? username, string? externalBase = null)
-        => _ = LoadSkinAsync(type, uuid, username, externalBase);
+    public void SetAccount(string? type, string? uuid, string? username, string? externalBase = null,
+        bool forceReload = false)
+        => _ = LoadSkinAsync(type, uuid, username, externalBase, forceReload);
 
     // ── 皮肤：磁盘缓存 → 皮肤源（minotar / 认证服务器） → 内置 Steve ──
 
-    private async Task LoadSkinAsync(string? type, string? uuid, string? username, string? externalBase = null)
+    private async Task LoadSkinAsync(string? type, string? uuid, string? username,
+        string? externalBase = null, bool forceReload = false)
     {
         // 缓存键：微软=uuid；第三方=服务器 SHA1 前 8 位 + uuid（防不同服务器 uuid 碰撞）；旧数据兜底=玩家名
         var key = type switch
@@ -472,7 +474,13 @@ public sealed class Skin3DView : UserControl
             _ when !string.IsNullOrWhiteSpace(username) => $"u_{username}",
             _ => "steve",
         };
-        if (_skinKey == key && _skinApplied && _webReady) return;   // 同账户已在显示：跳过，避免整轮重录
+        if (!forceReload && _skinKey == key && _skinApplied && _webReady) return;   // 同账户已在显示：跳过
+        // 强刷 = 换肤后缓存必是旧图：先把磁盘缓存删掉，下面的下载才会真的发出去
+        if (forceReload)
+        {
+            try { File.Delete(Path.Combine(CacheDir, $"{Sanitize(key)}.png")); } catch { }
+            if (_skinKey == key) _skinKey = null;   // 让后面的加载不会被同键早退拦住
+        }
         _skinKey = key;
 
         byte[]? png = null;

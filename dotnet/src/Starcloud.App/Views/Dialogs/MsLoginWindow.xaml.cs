@@ -57,7 +57,7 @@ public sealed partial class MsLoginWindow : Window
         ResizeAndCenter();
 
         Web.Loaded += async (_, _) => await InitWebAsync();
-        Web.NavigationCompleted += (_, _) => LoadRing.IsActive = false;
+        Web.NavigationCompleted += (_, e) => OnNavigationCompleted(Web, e);
         CopyBtn.Click += (_, _) => CopyCode();
         BrowserBtn.Click += async (_, _) => await OpenInBrowserAsync();
         Closed += (_, _) =>
@@ -82,6 +82,35 @@ public sealed partial class MsLoginWindow : Window
 
     /// <summary>轮询状态回写到窗口底栏（调用方保证在 UI 线程）</summary>
     public void SetStatus(string text) => StatusText.Text = text;
+
+    /// <summary>
+    /// 页面导航离开了「输入验证码」的站点：说明用户已经完成了授权流程，
+    /// 调用方据此立刻补一次轮询，不再干等下一个 5 秒间隔。
+    /// </summary>
+    public event Action? AuthPageNavigated;
+
+    private bool _navigatedAway;
+
+    private void OnNavigationCompleted(WebView2 sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs args)
+    {
+        LoadRing.IsActive = false;
+        if (_navigatedAway) return;
+        try
+        {
+            var host = sender.Source?.Host ?? "";
+            // 起始页固定是 www.microsoft.com/link；授权完成后会跳到 login.live.com 等别的主机。
+            // 误判的代价只是「立即补一次轮询」，所以这里不用抠得太细。
+            if (host.Length > 0 && !host.Equals("www.microsoft.com", StringComparison.OrdinalIgnoreCase))
+            {
+                _navigatedAway = true;
+                AuthPageNavigated?.Invoke();
+            }
+        }
+        catch
+        {
+            // 读 URL 失败不触发
+        }
+    }
 
     /// <summary>登录完成 / 失败时的收尾：关窗口（已关过则无事发生）</summary>
     public void Finish()

@@ -73,9 +73,12 @@ public sealed partial class HomePage : Page
         _stageTimer.Tick += (_, _) => StageTimer_Tick();
         _windowTimer.Tick += (_, _) => WindowTimer_Tick();
         _logTimer.Tick += (_, _) => FlushLogBuffer();
-        Loaded += (_, _) =>
+        Loaded += async (_, _) =>
         {
             AvatarHelper.AvatarUpdated += OnAvatarUpdated;
+            // 先让这一帧把页面骨架画出来，再做同步的版本扫描 ——
+            // 否则切页动画和列表读取挤在同一拍，页面看起来是「卡住后突然出现」。
+            await Task.Yield();
             Initialize();
         };
         Unloaded += (_, _) => AvatarHelper.AvatarUpdated -= OnAvatarUpdated;
@@ -85,7 +88,7 @@ public sealed partial class HomePage : Page
         GlobalErrorBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, OnLeftNoticeChanged);
         LocalErrorBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, OnLeftNoticeChanged);
         WarnBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, OnLeftNoticeChanged);
-        CheckCard.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, OnLeftNoticeChanged);
+        // 自检卡已移除：左侧通知区只看三根 InfoBar 的开关
         // 插件首页卡片里的动作结果没有地方就地显示（卡片带高度是固定的），
         // 汇到左列通知区：成功走提示条、失败走本地错误条（与挂载区那套结果条同语义）。
         HomeCards.Notify = (message, ok) =>
@@ -96,7 +99,10 @@ public sealed partial class HomePage : Page
         };
     }
 
-    private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp) => RefreshLeftNoticeArea();
+    private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp)
+    {
+        RefreshLeftNoticeArea();
+    }
 
     /// <summary>外部账户皮肤头像下载完成后刷新右侧账户卡（事件来自后台线程）。</summary>
     private void OnAvatarUpdated() => _dq.TryEnqueue(RefreshAccounts);
@@ -110,7 +116,7 @@ public sealed partial class HomePage : Page
     private void RefreshLeftNoticeArea()
     {
         bool any = GlobalErrorBar.IsOpen || LocalErrorBar.IsOpen || WarnBar.IsOpen
-            || CheckCard.Visibility == Visibility.Visible;
+            ;
         LeftNoticeArea.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
         LeftNoticeArea.Margin = any ? new Thickness(0, 0, 0, 16) : new Thickness(0);
     }
@@ -135,7 +141,6 @@ public sealed partial class HomePage : Page
         SetMode(LaunchAccountService.ModeOfLastUsername(_s.Settings.LastUsername));
         LoadVersions();
         RefreshAccounts();
-        RefreshGuide();
         RefreshLeftNoticeArea(); // 兜底：初始无通知时把左列通知区收掉，版本卡才能与右栏卡上边缘齐平
         ConsumePendingLaunch();
         SetCardExpanded(_cardExpanded, animate: false); // 落存下来的终态（含 tooltip / 刻度朝向），不播动画
@@ -245,10 +250,17 @@ public sealed partial class HomePage : Page
         var store = new InstanceSettingsStore(dotMc);
         try
         {
-            var installed = _s.Manifest.ListInstalled(dotMc).ToList();
+            // 与版本页同一口径：依赖版本（整合包的原版 / 加载器）不单列
+            var installed = VersionVisibility.Filter(dotMc, _s.Manifest.ListInstalled(dotMc)).ToList();
+            // 排序：置顶 → 收藏 → 上次使用的版本 → 版本号倒序
+            var profiles = installed.ToDictionary(
+                i => i.Id, i => store.Get(i.Id), StringComparer.OrdinalIgnoreCase);
             installed.Sort((a, b) =>
             {
-                // 上次使用的版本置顶，其余按版本号倒序
+                var pa = profiles[a.Id];
+                var pb = profiles[b.Id];
+                if (pa.Pinned != pb.Pinned) return pa.Pinned ? -1 : 1;
+                if (pa.Favorite != pb.Favorite) return pa.Favorite ? -1 : 1;
                 var aLast = string.Equals(a.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
                 var bLast = string.Equals(b.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
                 if (aLast != bLast) return bLast - aLast;
@@ -257,7 +269,7 @@ public sealed partial class HomePage : Page
             // 与版本页同一套行模型：图标 + 类型 + 上次启动 + 大小，主页不再是"光秃秃的名字 + 大小"
             _rows = installed.Select(i =>
             {
-                var profile = store.Get(i.Id);
+                var profile = profiles[i.Id];
                 var kind = VersionRowHelpers.DetectKind(dotMc, i.Id);
                 return new LocalVersionRow(
                     i.Id, kind, FormatSize(i.SizeBytes),
@@ -265,7 +277,8 @@ public sealed partial class HomePage : Page
                     profile.Category ?? "",
                     InstanceLayout.IsIsolated(profile, _s.Settings),
                     VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
-                    (i.Id + " " + kind).ToLowerInvariant());
+                    (i.Id + " " + kind).ToLowerInvariant(),
+                    profile.Pinned, profile.Favorite);
             }).ToList();
         }
         catch (Exception ex)
@@ -278,19 +291,24 @@ public sealed partial class HomePage : Page
         // 行数变了，展开态的自然高也跟着变，缓存作废。
         _expandedMetricsValid = false;
         VersionList.ItemsSource = _rows;
-        MotionFx.StaggerListItems(VersionList);
+        MotionFx.StaggerListItems(VersionList, maxItems: 10);
         EmptyVersionHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var preferred = _s.Settings.LastVersion is { } last && _rows.Any(r => r.Id == last) ? last
             : _rows.FirstOrDefault()?.Id;
         VersionList.SelectedItem = _rows.FirstOrDefault(r => r.Id == preferred);
         SyncCompactRow();
         RefreshVersionCollapseAvailability();
+        // 容器这一拍才真正生成：先走一次布局再给选中行补标记（列表重建，竖条落点作废）
+        _barY = double.NaN;
+        _barShown = false;
+        VersionList.UpdateLayout();
+        HookVersionScroll();
+        SyncSelectedInset(animate: false);
     }
 
     private void RefreshVersionsBtn_Click(object s, RoutedEventArgs e)
     {
         LoadVersions();
-        RefreshGuide();
     }
 
     private void VersionList_SelectionChanged(object s, SelectionChangedEventArgs e)
@@ -303,6 +321,48 @@ public sealed partial class HomePage : Page
         }
         SyncCompactRow(); // 折叠态那一条要跟着换人
         UpdateVersionMeta();
+        SyncSelectedInset(); // 选中行的「内陷」阴影跟着换行
+    }
+
+    /// <summary>选中行淡底：模板里 Tag="inset" 的层只对选中行可见（竖条另见 UpdateSelectionBar）。</summary>
+    /// <param name="animate">true = 切换时淡入淡出；false = 直接给终态（初始化 / 容器复用）</param>
+    private void SyncSelectedInset(bool animate = true)
+    {
+        ListSelectionFx.SyncInset(VersionList, animate);
+        UpdateSelectionBar(animate);
+    }
+
+    // ── 选中竖条：整块列表共用一条，按行位置真实位移（惯性滑行 + 移动中拉伸 + 过冲回弹） ──
+
+    /// <summary>竖条当前的纵向位置（第几次落点），NaN = 还没落过</summary>
+    private double _barY = double.NaN;
+    private bool _barShown;
+
+    private ScrollViewer? _versionScroll;
+
+    /// <summary>
+    /// 把竖条移到当前选中行：从上一行的位置滑过去，移动中纵向拉伸，
+    /// 落点前整体越过目标再弹回（曲线细节见 ListSelectionFx.UpdateBar）。
+    /// </summary>
+    private void UpdateSelectionBar(bool animate) =>
+        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, VersionList,
+            ref _barY, ref _barShown, animate);
+
+    /// <summary>滚动时竖条跟着行一起走（不播动画，直接同步位置）。</summary>
+    private void HookVersionScroll()
+    {
+        if (_versionScroll is not null) return;
+        _versionScroll = ListSelectionFx.FindDescendant<ScrollViewer>(VersionList);
+        if (_versionScroll is not null)
+            _versionScroll.ViewChanged += (_, _) => UpdateSelectionBar(animate: false);
+    }
+
+    private void VersionList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue) return;
+        // 容器复用时上一行的动画状态会残留：只按这一格重刷（整表遍历在长列表里是平方级开销）
+        ListSelectionFx.SyncInsetFor(sender, args.ItemIndex, args.ItemContainer, animate: false);
+        UpdateSelectionBar(animate: false);
     }
 
     private void UpdateVersionMeta()
@@ -344,14 +404,71 @@ public sealed partial class HomePage : Page
             VersionList.SelectedItem = row;
     }
 
-    /// <summary>入口③「问 Nova」：选定实例上下文 → 展开 Nova 面板承接，不跳页。</summary>
-    private void AskNova_Click(object sender, RoutedEventArgs e)
+    /// <summary>右键菜单打开时，按当前状态改写「置顶 / 收藏」的文案（菜单是模板实例，只能按 Tag 前缀找）。</summary>
+    private void VersionMenu_Opening(object sender, object e)
+    {
+        if (sender is not MenuFlyout flyout) return;
+        if (flyout.Target is not FrameworkElement { DataContext: LocalVersionRow row }) return;
+
+        var profile = new InstanceSettingsStore(_s.Settings.DotMinecraft).Get(row.Id);
+        foreach (var item in flyout.Items.OfType<MenuFlyoutItem>())
+        {
+            if (item.Tag is not string tag) continue;
+            if (tag.StartsWith("pin|", StringComparison.Ordinal))
+                item.Text = profile.Pinned ? Loc.T("取消置顶") : Loc.T("置顶");
+            else if (tag.StartsWith("fav|", StringComparison.Ordinal))
+                item.Text = profile.Favorite ? Loc.T("取消收藏") : Loc.T("收藏");
+        }
+    }
+
+    private void Pin_Click(object sender, RoutedEventArgs e) => ToggleVersionFlag(sender, pin: true);
+
+    private void Favorite_Click(object sender, RoutedEventArgs e) => ToggleVersionFlag(sender, pin: false);
+
+    /// <summary>置顶 / 收藏开关：写实例档案后按排序规则重排（见 LoadVersions）。</summary>
+    private void ToggleVersionFlag(object sender, bool pin)
+    {
+        if (sender is not MenuFlyoutItem { Tag: string tag }) return;
+        var sep = tag.IndexOf('|');
+        if (sep < 0 || sep + 1 >= tag.Length) return;
+        var id = tag[(sep + 1)..];
+
+        var store = new InstanceSettingsStore(_s.Settings.DotMinecraft);
+        var profile = store.Get(id);
+        if (pin) profile.Pinned = !profile.Pinned;
+        else profile.Favorite = !profile.Favorite;
+        store.Set(id, profile);
+        store.Save();
+        LoadVersions();
+    }
+
+    /// <summary>右键「启动」：先选中该行，再走与启动按钮完全同一条链路（含正在运行→结束）。</summary>
+    private void LaunchRow_Click(object sender, RoutedEventArgs e)
     {
         var id = (sender as FrameworkElement)?.Tag as string;
         if (string.IsNullOrEmpty(id)) return;
-        _s.NovaRuntime.SetCurrentInstance(id);
-        _s.NovaRuntime.RequestInput($"帮我给 {id} 做一次游戏体检，有隐患直接说");
-        (App.MainWindow as MainWindow)?.OpenNovaPanel();
+        var row = _rows.FirstOrDefault(r => string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (row is not null) VersionList.SelectedItem = row;
+        LaunchBtn_Click(LaunchBtn, new RoutedEventArgs());
+    }
+
+    /// <summary>右键「打开存档文件夹」：跟随实例隔离判定（隔离实例各自一份，共享落到 .minecraft 下）。</summary>
+    private void OpenSavesFolder_Click(object sender, RoutedEventArgs e) => OpenInstanceFolder(sender, "saves");
+
+    /// <summary>右键「打开模组文件夹」。</summary>
+    private void OpenModsFolder_Click(object sender, RoutedEventArgs e) => OpenInstanceFolder(sender, "mods");
+
+    private void OpenInstanceFolder(object sender, string kind)
+    {
+        var id = (sender as FrameworkElement)?.Tag as string;
+        if (string.IsNullOrEmpty(id)) return;
+        var dotMc = _s.Settings.DotMinecraft;
+        var profile = new InstanceSettingsStore(dotMc).Get(id);
+        var isolated = InstanceLayout.IsIsolated(profile, _s.Settings);
+        var root = InstanceLayout.GameRoot(dotMc, id, isolated);
+        var dir = Path.Combine(root, kind);
+        try { Directory.CreateDirectory(dir); } catch { /* 建不出来就让资源管理器报 */ }
+        Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
     }
 
     /// <summary>跳转到该版本的详情/管理页。</summary>
@@ -399,7 +516,6 @@ public sealed partial class HomePage : Page
                 _s.Settings.Save();
             }
             LoadVersions();
-            RefreshGuide();
         }
         catch (Exception ex)
         {
@@ -1014,8 +1130,6 @@ public sealed partial class HomePage : Page
 
         _versionsCollapsed = collapsed;
         PersistHomeLayout(); // 同上：版本卡的收起态也跨页面切换保留
-        // 收起态左列顶部本来是死区：把状态摘要条放出来；展开态由版本卡占满整列，收回去
-        SummaryBar.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
 
         double cardTo, widthTo, headerTo, gapTo, compactTo, shiftTo;
         if (collapsed)
@@ -2115,83 +2229,23 @@ public sealed partial class HomePage : Page
     private void PickVersion_Click(object s, RoutedEventArgs e) =>
         (App.MainWindow as MainWindow)?.NavigateTo("download");
 
-    // ── 启动自检（版本 / 账户 / Java） ──
-    private bool? _javaOk;   // null=检测中
+    // ── 状态摘要已删除：主页不再显示「已安装版本 / 游戏账户 / Java 运行时」条 ──
 
-    private void Recheck_Click(object s, RoutedEventArgs e) => RefreshGuide();
-
-    private void CheckGoVersion_Click(object s, RoutedEventArgs e) =>
-        (App.MainWindow as MainWindow)?.NavigateTo("download");
-    private void CheckGoAccount_Click(object s, RoutedEventArgs e) =>
-        (App.MainWindow as MainWindow)?.NavigateTo("accounts");
-    private void CheckGoJava_Click(object s, RoutedEventArgs e) =>
-        (App.MainWindow as MainWindow)?.NavigateTo("settings");
-
-    private void RefreshGuide()
-    {
-        var hasInstalled = _rows.Count > 0;
-        var hasAccount = _s.Accounts.Accounts.Count > 0;
-        SetCheckRow(CheckIconVersion, CheckTextVersion, CheckGoVersion,
-            hasInstalled, "游戏版本", hasInstalled ? "就绪" : "未安装", "前往下载");
-        SetCheckRow(CheckIconAccount, CheckTextAccount, CheckGoAccount,
-            hasAccount, "账户", hasAccount ? "就绪" : "未配置", "前往账户");
-        // Java 检测需要拉起 java -version，较慢，异步进行
-        _javaOk = null;
-        CheckTextJava.Text = "Java：检测中…";
-        _ = CheckJavaAsync();
-        UpdateCheckCardVisibility();
-        RefreshSummaryBar();
-    }
-
-    private async Task CheckJavaAsync()
+    /// <summary>本机是否已有可用 Java：手动指定路径，或内置运行时目录下装了任意一档</summary>
+    private bool HasJavaReady()
     {
         try
         {
-            var runtimes = await _s.Java.ListRuntimesAsync();
-            var ok = runtimes.Count > 0 || !string.IsNullOrWhiteSpace(_s.Settings.JavaExecutable);
-            _javaOk = ok;
-            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, ok, "Java",
-                ok ? (runtimes.Count > 0 ? $"就绪（检测到 {runtimes.Count} 个）" : "就绪（使用手动指定路径）") : "未检测到",
-                "前往设置");
-            RefreshSummaryBar();
+            if (!string.IsNullOrWhiteSpace(_s.Settings.JavaExecutable) &&
+                File.Exists(_s.Settings.JavaExecutable))
+                return true;
+            var root = LauncherPaths.JavaDir;
+            return Directory.Exists(root) && Directory.EnumerateDirectories(root).Any();
         }
         catch
         {
-            _javaOk = false;
-            SetCheckRow(CheckIconJava, CheckTextJava, CheckGoJava, false, "Java", "检测失败", "前往设置");
+            return false;
         }
-        UpdateCheckCardVisibility();
-    }
-
-    /// <summary>收起态下左列顶部的状态摘要：版本数 / 账户 / Java，一眼看清缺什么</summary>
-    private void RefreshSummaryBar()
-    {
-        var hasInstalled = _rows.Count > 0;
-        var accounts = _s.Accounts.Accounts.Count;
-        SummaryVersionText.Text = hasInstalled ? _rows.Count.ToString() : "0";
-        SummaryAccountText.Text = accounts > 0 ? accounts.ToString() : "0";
-        SummaryJavaText.Text = _javaOk switch { true => "就绪", false => "缺失", _ => "检测中" };
-    }
-
-    private void UpdateCheckCardVisibility()
-    {
-        var hasInstalled = _rows.Count > 0;
-        var hasAccount = _s.Accounts.Accounts.Count > 0;
-        // 全部就绪后收起；Java 检测中保持显示以免闪动
-        CheckCard.Visibility = !hasInstalled || !hasAccount || _javaOk == false
-            ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private static void SetCheckRow(FontIcon icon, TextBlock text, HyperlinkButton go,
-        bool ok, string label, string detail, string action)
-    {
-        icon.Glyph = ok ? "\uEA7C" : "\uEBA6";
-        icon.Foreground = ok
-            ? ThemeBrush("SystemFillColorSuccessBrush")
-            : ThemeBrush("SystemFillColorCriticalBrush") ?? icon.Foreground;
-        text.Text = $"{label}：{detail}";
-        go.Content = action;
-        go.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private static Brush? ThemeBrush(string key) =>

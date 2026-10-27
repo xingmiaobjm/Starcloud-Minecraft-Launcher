@@ -87,6 +87,9 @@
                             <ctrl:GlowButton loc:Loc.Text="取消" loc:Loc.Name="取消执行"
                                     Click="PlanCancel_Click" />
                         </StackPanel>
+                        <ProgressRing Width="16" Height="16" IsActive="True"
+                                      HorizontalAlignment="Left"
+                                      Visibility="{x:Bind PlanRunningVisible, Mode=OneWay}" />
                         <TextBlock Text="{x:Bind PlanStateText, Mode=OneWay}" FontSize="12"
                                    Visibility="{x:Bind PlanStateVisible, Mode=OneWay}" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

@@ -117,7 +117,8 @@ public sealed class NovaAgentLoop
 
                 if (tool.ReadOnly)
                 {
-                    yield return new AgentToolStarted(tool.Name, Preview(call.Arguments));
+                    yield return new AgentToolStarted(tool.Name,
+                        NovaToolDescriber.Describe(tool.Name, call.Arguments));
                     string result;
                     try { result = await _tools.ExecuteAsync(call.Name, call.Arguments, ct); }
                     catch (OperationCanceledException) { throw; }
@@ -134,11 +135,18 @@ public sealed class NovaAgentLoop
             if (writes.Count == 0) continue;
 
             // 有写操作 → 出确认清单，本轮终止（执行后由 UI 回喂总结）
+            var items = new List<NovaActionItem>();
+            foreach (var w in writes)
+                items.Add(new NovaActionItem(
+                    w.Tool.DisplayName,
+                    await _tools.DescribeCallAsync(w.Tool.Name, w.Call.Arguments, ct)));
+
             var plan = new NovaPlan(
                 Guid.NewGuid().ToString("N")[..12],
-                writes.Count == 1 ? writes[0].Tool.DisplayName : $"执行 {writes.Count} 项配置动作",
-                writes.Select(w => new NovaActionItem(
-                    w.Tool.DisplayName, Preview(w.Call.Arguments, 200))).ToList(),
+                writes.Count == 1
+                    ? NovaToolDescriber.Describe(writes[0].Tool.Name, writes[0].Call.Arguments)
+                    : $"执行 {writes.Count} 项配置动作",
+                items,
                 async ct2 =>
                 {
                     var results = new StringBuilder();
@@ -165,12 +173,5 @@ public sealed class NovaAgentLoop
                 .Select(t => new ChatMessage(t.Role, t.Content)));
         msgs.Add(new ChatMessage("user", message));
         return msgs;
-    }
-
-    private static string Preview(string arguments, int max = 120)
-    {
-        var s = (arguments ?? "").Trim();
-        if (s.Length == 0) return "{}";
-        return s.Length <= max ? s : s[..max] + "…";
     }
 }

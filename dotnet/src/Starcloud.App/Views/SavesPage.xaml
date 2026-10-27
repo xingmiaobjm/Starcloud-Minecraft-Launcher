@@ -37,12 +37,11 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="LaunchOtherBtn" Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
-                        loc:Loc.Text="用其他版本启动" IsEnabled="False" Click="LaunchOther_Click" />
-                <ctrl:GlowButton x:Name="CopyOtherBtn" loc:Loc.Text="复制到其他版本" IsEnabled="False" Click="CopyOther_Click" />
-                <ctrl:GlowButton x:Name="BackupBtn" loc:Loc.Text="备份所选世界" IsEnabled="False" Click="Backup_Click" />
+                <!-- 常用：启动存档对应的版本 / 同步 / 分享 / 删除 -->
+                <Button x:Name="LaunchGameBtn" loc:Loc.Text="启动游戏"
+                        Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
+                        IsEnabled="False" Click="LaunchGame_Click" />
                 <ctrl:GlowButton x:Name="SyncBtn" loc:Loc.Text="同步到设备…" IsEnabled="False" Click="SyncToDevice_Click" />
-                <!-- 分享给陌生人：导出为分享包文件（任意渠道发送），对方无需登录任何账号 -->
                 <Button x:Name="ShareBtn" Style="{StaticResource ScLightButtonStyle}"
                         loc:Loc.Text="分享" IsEnabled="False" Padding="10,5">
                     <Button.Flyout>
@@ -52,7 +51,6 @@
                     </Button.Flyout>
                 </Button>
                 <ctrl:GlowButton x:Name="DeleteBtn" loc:Loc.Text="删除" IsEnabled="False" Click="Delete_Click" />
-                <ctrl:GlowButton x:Name="OpenFolderBtn" loc:Loc.Text="打开世界文件夹" IsEnabled="False" Click="OpenFolder_Click" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                 <AutoSuggestBox x:Name="SearchBox" Width="200" loc:Loc.Placeholder="搜索世界 / 版本"
@@ -106,6 +104,9 @@
                             <Border CornerRadius="8"
                                     beh:HoverShadowBehavior.IsEnabled="True"
                                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=SaveCardGlow}">
+                                <Border.RenderTransform>
+                                    <TranslateTransform />
+                                </Border.RenderTransform>
                                 <Grid>
                                     <!-- 跟随光标的卡片内阴影 -->
                                     <Border x:Name="SaveCardGlow" CornerRadius="8"
@@ -121,6 +122,11 @@
                                             </RadialGradientBrush>
                                         </Border.Background>
                                     </Border>
+                                    <!-- 选中淡底：与主页版本列表同款（主题色 6% 淡底），只对选中行可见。
+                                         左侧竖条不在这里画，由列表外那层 Canvas 统一绘制（见 SelectionBarLayer）。 -->
+                                    <Grid x:Name="SaveRowMark" Tag="inset" Visibility="Collapsed" IsHitTestVisible="False">
+                                        <Border CornerRadius="8" Background="#10FFD322" />
+                                    </Grid>
                                 <Grid ColumnSpacing="14" Padding="12,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -189,6 +195,17 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+                <!-- 选中竖条：与主页版本列表同款，整块列表共用一根，换行时真实位移（拉伸 + 过冲回弹）。
+                     铺在列表之上、不吃命中测试；行滚动时由代码同步位置。 -->
+                <Canvas x:Name="SelectionBarLayer" IsHitTestVisible="False"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <Border x:Name="SelectionBar" Width="3" CornerRadius="2"
+                            Background="#FFD322" RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <CompositeTransform />
+                        </Border.RenderTransform>
+                    </Border>
+                </Canvas>
                 <ctrl:EmptyStateView x:Name="EmptyHint" Visibility="Collapsed"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                       Glyph="&#xEA90;"

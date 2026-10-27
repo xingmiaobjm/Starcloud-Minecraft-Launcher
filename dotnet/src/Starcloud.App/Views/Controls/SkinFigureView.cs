@@ -293,8 +293,8 @@ public sealed class SkinFigureView : UserControl
 
     /// <summary>按账户切换皮肤（微软=UUID、第三方=认证服务器会话皮肤）；空账户渲染内置 Steve。</summary>
     public void SetAccount(string? type, string? uuid, string? username, string? externalBase = null,
-        string? localSkinPath = null)
-        => _ = LoadSkinAsync(type, uuid, username, externalBase, localSkinPath);
+        string? localSkinPath = null, bool forceReload = false)
+        => _ = LoadSkinAsync(type, uuid, username, externalBase, localSkinPath, forceReload);
 
     /// <summary>
     /// 直接渲染一张本地皮肤文件（皮肤库预览用）；null = 回落到内置 Steve。
@@ -317,11 +317,11 @@ public sealed class SkinFigureView : UserControl
         byte[]? png = null;
         try { png = await File.ReadAllBytesAsync(path); }
         catch (Exception ex) { LauncherLog.Error("player3d", "本地皮肤读取失败", ex); }
-        ApplySkin(png, "local_" + path, path);
+        ApplySkin(png, null, "local_" + path, path);
     }
 
     private async Task LoadSkinAsync(string? type, string? uuid, string? username, string? externalBase,
-        string? localSkinPath = null)
+        string? localSkinPath = null, bool forceReload = false)
     {
         // 皮肤库里指定了本机皮肤：直接用它（离线账户、以及"先看效果"的场景）
         if (!string.IsNullOrWhiteSpace(localSkinPath) && File.Exists(localSkinPath))
@@ -338,18 +338,33 @@ public sealed class SkinFigureView : UserControl
             _ when !string.IsNullOrWhiteSpace(username) => $"u_{username}",
             _ => "steve",
         };
-        if (_skinKey == key && _model is not null) return;
+        if (!forceReload && _skinKey == key && _model is not null) return;
+        // 强刷 = 换肤后磁盘缓存必是旧图：删掉，下面的下载才会真的发出去
+        if (forceReload)
+            try { File.Delete(Path.Combine(CacheDir, $"{Sanitize(key)}.png")); } catch { }
         _skinKey = key;
 
         byte[]? png = null;
+        byte[]? capePng = null;
         if (key != "steve")
         {
+            var isExternal = key.StartsWith("e_", StringComparison.Ordinal);
+            string? capeUrl = null;
             var file = Path.Combine(CacheDir, $"{Sanitize(key)}.png");
+
+            // 皮肤与披风的地址都来自会话接口：披风地址必须在「皮肤缓存命中」时也去取，
+            // 否则第一次下载完皮肤后缓存一直命中，capeUrl 永远为 null（披风始终不显示）
+            string? skinUrl = null;
+            if (isExternal)
+            {
+                (skinUrl, capeUrl) = await ExternalTexturesAsync(externalBase!, uuid!);
+            }
+
             if (!File.Exists(file))
             {
-                var url = key.StartsWith("e_", StringComparison.Ordinal)
-                    ? await ExternalSkinUrlAsync(externalBase!, uuid!)
-                    : $"https://minotar.net/skin/{Uri.EscapeDataString((type == "microsoft" ? uuid : username)!)}";
+                var url = skinUrl ??
+                    (isExternal ? null
+                        : $"https://minotar.net/skin/{Uri.EscapeDataString((type == "microsoft" ? uuid : username)!)}");
                 if (url is not null)
                 {
                     try
@@ -370,12 +385,44 @@ public sealed class SkinFigureView : UserControl
                 try { png = await File.ReadAllBytesAsync(file); }
                 catch (Exception ex) { LauncherLog.Error("player3d", "缓存皮肤读取失败", ex); }
             }
+
+            // 披风：只有第三方账户有（会话接口的 CAPE.url）；缓存按披风 URL 指纹，
+            // 换披风 = URL 变 = 缓存自动失效，无需强刷
+            if (isExternal)
+            {
+                if (string.IsNullOrEmpty(capeUrl))
+                    LauncherLog.Write("player3d", "会话接口没有 CAPE.url（该账号当前无披风）");
+                else
+                {
+                    var capeFile = Path.Combine(CacheDir,
+                        $"cape_{Sha1Prefix8(capeUrl!)}_{Sanitize(key)}.png");
+                    if (!File.Exists(capeFile))
+                    {
+                        try
+                        {
+                            await File.WriteAllBytesAsync(capeFile, await Http.GetByteArrayAsync(capeUrl!));
+                        }
+                        catch (Exception ex)
+                        {
+                            LauncherLog.Error("player3d", $"披风下载失败 url={capeUrl}", ex);
+                        }
+                    }
+                    if (File.Exists(capeFile))
+                    {
+                        try { capePng = await File.ReadAllBytesAsync(capeFile); }
+                        catch (Exception ex) { LauncherLog.Error("player3d", "披风缓存读取失败", ex); }
+                    }
+                    LauncherLog.Write("player3d",
+                        $"披风纹理已就绪（{capeFile}，{capePng?.Length ?? 0} 字节）");
+                }
+            }
         }
-        ApplySkin(png, key, null);
+        ApplySkin(png, capePng, key, null);
     }
 
-    /// <summary>解码并换模型；纹理不可用 / 为空时回退内置 Steve（键不变则不动，防抖）</summary>
-    private void ApplySkin(byte[]? png, string key, string? logPath)
+    /// <summary>解码并换模型；纹理不可用 / 为空时回退内置 Steve（键不变则不动，防抖）。
+    /// 披风纹理有效（尺寸为宽:高 = 2:1 且宽是 64 的倍数）时交给模型渲染成背部披风面。</summary>
+    private void ApplySkin(byte[]? png, byte[]? capePng, string key, string? logPath)
     {
         if (_skinKey != key) return;   // 期间已切换账户
         if (png is null)
@@ -389,7 +436,23 @@ public sealed class SkinFigureView : UserControl
             var texture = PngDecoder.Decode(png);
             // slim 版型：64×64 皮肤在 (54,20) 处细臂为透明、宽臂不透明（与皮肤库同一判定）
             var slim = SkinTexture.DetectSlim(texture);
-            _model = new SkinModel(texture, slim);
+            SkinBitmap? cape = null;
+            if (capePng is not null)
+            {
+                try
+                {
+                    var c = PngDecoder.Decode(capePng);
+                    // 64×32 = 老式披风；64×64 = 鞘翅（披风正面在 (1,1)）
+                    if (c.Width % 64 == 0 && (c.Height == c.Width / 2 || c.Height == c.Width)) cape = c;
+                    else LauncherLog.Write("player3d",
+                        $"披风纹理尺寸不支持（{c.Width}×{c.Height}），忽略");
+                }
+                catch (Exception ex)
+                {
+                    LauncherLog.Write("player3d", $"披风纹理解码失败：{ex.Message}");
+                }
+            }
+            _model = new SkinModel(texture, slim, cape);
             _bitmap = null;                  // 尺寸没变，但内容变了：下次 Draw 重建
             SyncTimer();
             RequestRender();
@@ -401,16 +464,17 @@ public sealed class SkinFigureView : UserControl
         }
     }
 
-    private async Task<string?> ExternalSkinUrlAsync(string externalBase, string uuid)
+    private async Task<(string? SkinUrl, string? CapeUrl)> ExternalTexturesAsync(
+        string externalBase, string uuid)
     {
         try
         {
-            return await AppServices.Instance.Yggdrasil.GetSkinUrlAsync(externalBase, uuid);
+            return await AppServices.Instance.Yggdrasil.GetTexturesAsync(externalBase, uuid);
         }
         catch (Exception ex)
         {
-            LauncherLog.Error("player3d", "第三方皮肤地址解析失败", ex);
-            return null;
+            LauncherLog.Error("player3d", "第三方纹理地址解析失败", ex);
+            return (null, null);
         }
     }
 

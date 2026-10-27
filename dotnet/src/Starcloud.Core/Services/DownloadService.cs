@@ -88,6 +88,18 @@ public sealed class DownloadService
     /// </summary>
     public Func<IPeerFileSource?>? PeerSource { get; set; }
 
+    /// <summary>
+    /// 互联网 P2P 对等源（设计：2026-10-22-cross-internet-p2p-rendezvous.md）：跨账号、跨网络，
+    /// 走服务器发现 + UDP 打洞。排在局域网 P2P 之后、公网多源之前；null / PeerCount=0 时零开销。
+    /// </summary>
+    public Func<IPeerFileSource?>? InternetPeerSource { get; set; }
+
+    /// <summary>
+    /// 文件到手后的记账回调（路径, SHA1, 大小）：写进本地索引，供互联网 P2P 的 announce 使用。
+    /// 回调异常不影响下载。
+    /// </summary>
+    public Action<string, string?, long>? FileObtained { get; set; }
+
     /// <summary>单文件下载（含重试），可选 SHA1 校验</summary>
     public Task DownloadFileAsync(
         string url, string destFile, string? sha1 = null, int maxRetries = 3,
@@ -329,6 +341,7 @@ public sealed class DownloadService
             // 416 = 本地已下满整个文件（上次恰好在收尾时中断）→ 直接进入校验
             resp.Dispose();
             FinishWhole(destFile, tmp, sha1);
+            NoteObtained(destFile, sha1);
             return;
         }
         if (resp.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
@@ -391,7 +404,31 @@ public sealed class DownloadService
             }
         }
         FinishWhole(destFile, tmp, sha1);
+        NoteObtained(destFile, sha1);
         ParallelGovernor.ReportSuccess(DownloadSourceRegistry.HostOf(url)); // 稳定可用 → 该主机下次可以多开几条
+    }
+
+    /// <summary>把到手的文件记进互联网 P2P 的本地索引；回调异常绝不影响下载。</summary>
+    private void NoteObtained(string destFile, string? sha1)
+    {
+        if (FileObtained is null || string.IsNullOrEmpty(sha1)) return;
+        try
+        {
+            var size = File.Exists(destFile) ? new FileInfo(destFile).Length : 0;
+            FileObtained(destFile, sha1, size);
+        }
+        catch
+        {
+            // 记账失败只是少一个可分享文件
+        }
+    }
+
+    /// <summary>重载：显式给出大小（本地复用等场景已经知道期望大小）。</summary>
+    private void NoteObtained(string destFile, string? sha1, long size)
+    {
+        if (FileObtained is null || string.IsNullOrEmpty(sha1)) return;
+        try { FileObtained(destFile, sha1, size); }
+        catch { }
     }
 
     /// <summary>SHA1 校验（如提供）后把 .sc-tmp 落盘为最终文件</summary>
@@ -608,7 +645,12 @@ public sealed class DownloadService
         foreach (var f in files.DistinctBy(f => f.Dest))
         {
             if (File.Exists(f.Dest) && f.Size > 0 && new FileInfo(f.Dest).Length == f.Size)
+            {
+                // 已经装好的文件同样进互联网 P2P 索引：manifest 给了 SHA1 与大小，供之前还会整文件复算，
+                // 所以这里只按大小记账是安全的——哈希不符会拒发，不会把别人的文件当成这份。
+                NoteObtained(f.Dest, f.Sha1, f.Size);
                 continue;
+            }
             pending.Add(f);
         }
 
@@ -624,6 +666,7 @@ public sealed class DownloadService
                 if (!reuse.TryProvide(f.Dest, f.Sha1, f.Size, out var from)) continue;
                 pending.Remove(f);
                 reused++;
+                NoteObtained(f.Dest, f.Sha1, f.Size);
                 LauncherLog.Write("download",
                     $"本地复用 {Path.GetFileName(f.Dest)} ← {from}");
             }
@@ -649,15 +692,43 @@ public sealed class DownloadService
                     if (!peer.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
                     pending.Remove(f);
                     p2pHits++;
+                    NoteObtained(f.Dest, f.Sha1, f.Size);
                     LauncherLog.Write("download",
-                        $"P2P 复用 {Path.GetFileName(f.Dest)} ← {via}");
+                        $"传递优化复用 {Path.GetFileName(f.Dest)} ← {via}");
                 }
                 catch
                 {
                     // 单条 P2P 失败不影响下载：照常走公网
                 }
             }
-            if (p2pHits > 0) stage = $"{stage}（P2P 复用 {p2pHits} 个）";
+            if (p2pHits > 0) stage = $"{stage}（传递优化 {p2pHits} 个）";
+        }
+
+        // 互联网 P2P（第四个源）：跨账号、跨网络，走发现服务 + UDP 打洞。
+        // 单文件预算 9 秒，任何失败都静默回退公网；只对有 SHA1 的条目尝试。
+        var internetHits = 0;
+        var internet = InternetPeerSource?.Invoke();
+        if (internet is { PeerCount: > 0 })
+        {
+            (internet as P2P.InternetP2PService)?.BeginPass();
+            foreach (var f in pending.ToList())
+            {
+                if (string.IsNullOrEmpty(f.Sha1)) continue;
+                try
+                {
+                    if (!internet.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
+                    pending.Remove(f);
+                    internetHits++;
+                    NoteObtained(f.Dest, f.Sha1, f.Size);
+                    LauncherLog.Write("download",
+                        $"高级传递优化复用 {Path.GetFileName(f.Dest)} ← {via}");
+                }
+                catch
+                {
+                    // 单条失败不影响下载：照常走公网
+                }
+            }
+            if (internetHits > 0) stage = $"{stage}（高级传递优化 {internetHits} 个）";
         }
 
         long totalBytes = pending.Sum(f => Math.Max(f.Size, 0));

@@ -1,67 +1,92 @@
-// 更新弹窗：发现新版 → 确认下载（进度）→ 就绪 → 重启安装
-// 模式照 CrashDialog 的阶段机（args.Cancel / GetDeferral / 弹窗内行内状态）：
-// WinUI 同一时刻只允许一个 ContentDialog，下载进度一律在弹窗内呈现，不嵌套二级对话框。
+// 更新弹窗：发现新版 → 确认下载（进度）→ 就绪 → 重启安装。
+//
+// 布局与云端公告同款：全窗遮罩 + 居中卡片的置顶 Popup（无边框 + Acrylic 窗口在
+// 125% 缩放下 ContentDialog 定位偏右下，2026-10-24 统一改为自绘浮层）。
+// 阶段机沿用旧 ContentDialog 版：稍后（关闭）/ 立即更新（下载进度）→ 就绪 → 立即重启安装。
+//
+// 与旧版的行为差异：旧版下载期间靠 PrimaryButtonClick 的 args.Cancel 留在弹窗，
+// 现在按钮直接驱动状态机；「稍后」在下载中不可用（防止下载到一半关掉弹窗丢文件）。
 
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.Core.Services;
+using Windows.Foundation;
 
 namespace Starcloud.App.Views.Dialogs;
 
-/// <summary>自更新确认弹窗</summary>
+/// <summary>自更新确认弹窗（遮罩 + 居中卡片）</summary>
 internal static class UpdateDialog
 {
     /// <summary>展示更新弹窗；用户点「立即重启安装」后脚本已被拉起、应用随即退出</summary>
-    public static async Task ShowAsync(XamlRoot root, UpdateManifest manifest)
+    public static void Show(XamlRoot root, UpdateManifest manifest)
     {
         var s = AppServices.Instance;
         var current = SelfUpdateService.CurrentVersion();
 
-        var content = new StackPanel { Spacing = 10, MinWidth = 440, MaxWidth = 520 };
+        var width = Math.Clamp(root.Size.Width * 0.6, 440, 720);
+        var maxHeight = Math.Clamp(root.Size.Height * 0.8, 320, 620);
 
-        content.Children.Add(new TextBlock
+        // ── 遮罩 ──
+        var mask = new Border
+        {
+            Width = root.Size.Width,
+            Height = root.Size.Height,
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(140, 0, 0, 0)),
+        };
+        var maskPopup = new Popup { Child = mask, XamlRoot = root, IsLightDismissEnabled = false };
+
+        // ── 卡片 ──
+        var title = new TextBlock
+        {
+            Text = Loc.T("发现新版本 {0}", manifest.Version),
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var versionLine = new TextBlock
         {
             Text = Loc.T("当前版本 {0} → 新版本 {1}", current, manifest.Version),
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
-        });
+        };
 
         var notes = Loc.Current == "en-US" && !string.IsNullOrWhiteSpace(manifest.NotesEn)
             ? manifest.NotesEn!
             : Loc.TCore(manifest.Notes);
-        if (!string.IsNullOrWhiteSpace(notes))
-        {
-            content.Children.Add(new TextBlock
-            {
-                Text = Loc.T("更新说明"),
-                FontSize = 13,
-                FontWeight = FontWeights.Medium,
-            });
-            content.Children.Add(new ScrollViewer
-            {
-                MaxHeight = 160,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = new TextBlock
-                {
-                    Text = notes,
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
-                },
-            });
-        }
 
-        content.Children.Add(new TextBlock
+        var notesLabel = new TextBlock
+        {
+            Text = Loc.T("更新说明"),
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+            Visibility = string.IsNullOrWhiteSpace(notes) ? Visibility.Collapsed : Visibility.Visible,
+        };
+        var notesScroller = new ScrollViewer
+        {
+            MaxHeight = 180,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = new TextBlock
+            {
+                Text = notes,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
+                Visibility = string.IsNullOrWhiteSpace(notes) ? Visibility.Collapsed : Visibility.Visible,
+            },
+        };
+
+        var hint = new TextBlock
         {
             Text = Loc.T("更新期间启动器会自动关闭，完成后自动重启。"),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
-        });
+        };
 
         var status = new TextBlock
         {
@@ -71,63 +96,136 @@ internal static class UpdateDialog
             Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
         };
         var bar = new ProgressBar { Minimum = 0, Maximum = 100, Visibility = Visibility.Collapsed };
-        content.Children.Add(status);
-        content.Children.Add(bar);
 
-        var dlg = new ThemedDialog
+        var primary = new Button
         {
-            Title = Loc.T("发现新版本 {0}", manifest.Version),
-            Content = new ScrollViewer { Content = content, MaxHeight = 460 },
-            PrimaryButtonText = Loc.T("立即更新"),
-            CloseButtonText = Loc.T("稍后"),
-            XamlRoot = root,
+            Content = Loc.T("立即更新"),
+            MinWidth = 140,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        var later = new Button
+        {
+            Content = Loc.T("稍后"),
+            Margin = new Thickness(0, 0, 8, 0),
         };
 
+        // ── 卡片网格 ──
+        var cardGrid = new Grid { RowSpacing = 10 };
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 版本行
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 更新说明标签
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 更新说明滚动区
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 提示
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 状态
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 进度条
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 弹性
+        cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 按钮行
+
+        Grid.SetRow(versionLine, 0);
+        cardGrid.Children.Add(versionLine);
+        Grid.SetRow(notesLabel, 1);
+        cardGrid.Children.Add(notesLabel);
+        Grid.SetRow(notesScroller, 2);
+        cardGrid.Children.Add(notesScroller);
+        Grid.SetRow(hint, 3);
+        cardGrid.Children.Add(hint);
+        Grid.SetRow(status, 4);
+        cardGrid.Children.Add(status);
+        Grid.SetRow(bar, 5);
+        cardGrid.Children.Add(bar);
+
+        var buttonRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        buttonRow.Children.Add(later);
+        buttonRow.Children.Add(primary);
+        Grid.SetRow(buttonRow, 7);
+        cardGrid.Children.Add(buttonRow);
+
+        var card = new Border
+        {
+            Width = width,
+            MaxHeight = maxHeight,
+            Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(28, 22, 28, 18),
+            Child = cardGrid,
+        };
+
+        var layer = new Grid();
+        layer.Children.Add(mask);
+        layer.Children.Add(card);
+
+        var layerPopup = new Popup { Child = layer, XamlRoot = root, IsLightDismissEnabled = false };
+
+        // ── 阶段机（与旧 ContentDialog 版等价；「稍后」= 关闭） ──
         var form = SelfUpdateService.DetectInstallForm();
         var artifact = form == UpdateInstallForm.NsisInstaller ? manifest.Setup : manifest.Portable;
         var writable = form == UpdateInstallForm.NsisInstaller
             || SelfUpdateService.IsAppDirWritable(AppContext.BaseDirectory);
-        if (!writable)
-        {
-            // 便携版放在只读目录（如 Program Files）时无法就地覆盖
-            dlg.IsPrimaryButtonEnabled = false;
-            ShowStatus(status, Loc.T("程序目录不可写，无法就地更新：{0}",
-                AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)));
-        }
-
+        var closed = false;
         var downloading = false;
         var readyMode = false;
-        var wantRestart = false;
         string artifactPath = "";
 
-        dlg.PrimaryButtonClick += async (_, args) =>
+        static void ShowStatus(TextBlock target, string text)
         {
-            if (readyMode) { wantRestart = true; return; }      // 放行关闭 → 弹窗后拉脚本退出
-            if (downloading) { args.Cancel = true; return; }
+            target.Text = text;
+            target.Visibility = Visibility.Visible;
+        }
+
+        void Close()
+        {
+            if (closed || downloading) return;   // 下载到一半不允许关掉丢文件
+            closed = true;
+            layerPopup.IsOpen = false;
+        }
+
+        later.Click += (_, _) => Close();
+        mask.Tapped += (_, _) => { if (!downloading) Close(); };
+
+        primary.Click += async (_, _) =>
+        {
+            if (readyMode)
+            {
+                primary.IsEnabled = false;
+                try
+                {
+                    s.SelfUpdate.LaunchUpdaterScript(Environment.ProcessId, form, artifactPath, manifest.Version);
+                }
+                catch (Exception ex)
+                {
+                    LauncherLog.Error("update", "拉起更新脚本失败", ex);
+                    ShowStatus(status, Loc.T("更新失败：{0}", ex.Message));
+                    primary.IsEnabled = true;
+                    return;
+                }
+                Application.Current.Exit();
+                return;
+            }
+            if (downloading) return;
             if (artifact is null)
             {
-                args.Cancel = true;
                 ShowStatus(status, Loc.T("更新失败：{0}", Loc.T("清单缺少对应形态的下载文件")));
                 return;
             }
 
             downloading = true;
-            args.Cancel = true;                                  // 下载期间留在弹窗
-            dlg.IsPrimaryButtonEnabled = false;
-            var deferral = args.GetDeferral();
+            primary.IsEnabled = false;
             try
             {
                 ShowStatus(status, Loc.T("正在下载…"));
                 bar.IsIndeterminate = true;
                 bar.Visibility = Visibility.Visible;
+                // Progress<T> 在 UI 线程创建，回调自动封送回 UI 线程
                 var progress = new Progress<double>(pct =>
                 {
-                    dlg.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        bar.IsIndeterminate = false;
-                        bar.Value = pct;
-                        status.Text = Loc.T("正在下载… {0}%", (int)pct);
-                    });
+                    bar.IsIndeterminate = false;
+                    bar.Value = pct;
+                    ShowStatus(status, Loc.T("正在下载… {0}%", (int)pct));
                 });
 
                 artifactPath = await s.SelfUpdate.DownloadArtifactAsync(artifact, progress);
@@ -140,45 +238,32 @@ internal static class UpdateDialog
 
                 bar.Visibility = Visibility.Collapsed;
                 ShowStatus(status, Loc.T("更新已就绪，点击「立即重启安装」完成升级（启动器将自动关闭并重启）。"));
-                dlg.PrimaryButtonText = Loc.T("立即重启安装");
+                primary.Content = Loc.T("立即重启安装");
                 readyMode = true;
-                dlg.IsPrimaryButtonEnabled = true;
+                primary.IsEnabled = true;
             }
             catch (Exception ex)
             {
                 bar.Visibility = Visibility.Collapsed;
                 ShowStatus(status, Loc.T("更新失败：{0}", ex.Message));
                 LauncherLog.Error("update", "更新下载/准备失败", ex);
-                dlg.IsPrimaryButtonEnabled = true;               // 允许重试
+                primary.IsEnabled = true;               // 允许重试
             }
             finally
             {
                 downloading = false;
-                deferral.Complete();
             }
         };
 
-        var result = await dlg.ShowAsync();
-
-        if (result == ContentDialogResult.Primary && wantRestart)
+        if (!writable)
         {
-            try
-            {
-                s.SelfUpdate.LaunchUpdaterScript(Environment.ProcessId, form, artifactPath, manifest.Version);
-            }
-            catch (Exception ex)
-            {
-                LauncherLog.Error("update", "拉起更新脚本失败", ex);
-                return;
-            }
-            Application.Current.Exit();
+            // 便携版放在只读目录（如 Program Files）时无法就地覆盖
+            primary.IsEnabled = false;
+            ShowStatus(status, Loc.T("程序目录不可写，无法就地更新：{0}",
+                AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)));
         }
-    }
 
-    private static void ShowStatus(TextBlock status, string text)
-    {
-        status.Text = text;
-        status.Visibility = Visibility.Visible;
+        layerPopup.IsOpen = true;
     }
 
     private static Brush? ThemeBrush(string key) =>

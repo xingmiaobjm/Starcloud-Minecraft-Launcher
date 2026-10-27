@@ -77,14 +77,19 @@ public sealed class CurseForgePackInstaller
         Directory.CreateDirectory(dotMc);
         var overrides = OverridePrefix(manifest);
 
-        // 1. 解析文件直链（官方 API 拿文件名/直链；拿不到直链的用 CDN 规则兜底）
+        // 1. 解析文件直链：先批量（POST /mods/files，几百个文件只要几次请求），
+        //    响应里缺的（作者禁分发 / 已下架 / 批量接口不认）再逐个兜底一次
         status?.Report($"正在解析整合包文件（{manifest.Files.Count} 个）…");
+        var byId = await _curseForge.GetFilesByIdsAsync(
+            manifest.Files.Select(f => (f.ProjectId, f.FileId)).ToList(), ct);
         var batch = new List<(string Url, string Dest, string? Sha1, long Size)>();
         var skipped = 0;
         foreach (var file in manifest.Files)
         {
             ct.ThrowIfCancellationRequested();
-            var version = await _curseForge.GetFileAsync(file.ProjectId.ToString(), file.FileId.ToString(), ct);
+            var version = byId.TryGetValue(file.FileId, out var batched)
+                ? batched
+                : await _curseForge.GetFileAsync(file.ProjectId.ToString(), file.FileId.ToString(), ct);
             if (version?.PrimaryFile is not { } pf || string.IsNullOrWhiteSpace(pf.Url))
             {
                 skipped++;

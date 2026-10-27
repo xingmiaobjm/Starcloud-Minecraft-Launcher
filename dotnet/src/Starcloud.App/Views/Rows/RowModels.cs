@@ -50,7 +50,8 @@ public sealed class LoaderBuildRow : INotifyPropertyChanged
 
 /// <summary>本地版本条目，首页版本库与版本页共用（含实例档案信息：类别 / 隔离 / 上次启动）</summary>
 public sealed record LocalVersionRow(string Id, string KindText, string SizeText,
-    string? IconPath, string Category, bool Isolated, string LastPlayedText, string SearchKey)
+    string? IconPath, string Category, bool Isolated, string LastPlayedText, string SearchKey,
+    bool Pinned = false, bool Favorite = false)
 {
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
     // IconPath 由 VersionRowHelpers.DisplayIconPath 解析好（自定义 > 加载器 > 版本类型）
@@ -59,6 +60,12 @@ public sealed record LocalVersionRow(string Id, string KindText, string SizeText
     public Visibility IconFontVisibility => Icon is null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IsolatedVisibility => Isolated ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CategoryVisibility => string.IsNullOrEmpty(Category) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility PinVisibility => Pinned ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility FavoriteVisibility => Favorite ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>右键菜单标记标签：点击处理按前缀区分置顶 / 收藏，并取出真实版本 id</summary>
+    public string PinTag => "pin|" + Id;
+    public string FavTag => "fav|" + Id;
 }
 
 /// <summary>存档页世界条目（含所属版本归属）</summary>
@@ -201,7 +208,8 @@ public sealed record StationSkinRow(StationSkin Skin, string ModelText, ImageSou
 /// <summary>版本内容分区的单个文件行（Name/Version/GameVersion/Loader 只有 Mod 有，来自 jar 元数据）</summary>
 public sealed record ContentFileRow(
     string FileName, string SizeText, string StatusText, bool Enabled, string Kind, string FullPath,
-    string? Name = null, string? Version = null, string? GameVersion = null, string? Loader = null)
+    string? Name = null, string? Version = null, string? GameVersion = null, string? Loader = null,
+    string? IconPath = null, string? ModId = null)
 {
     public string ToggleVerb => Enabled ? Loc.T("停用") : Loc.T("启用");
 

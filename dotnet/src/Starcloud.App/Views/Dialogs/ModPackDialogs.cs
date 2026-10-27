@@ -172,6 +172,15 @@ public static class ModPackDialogs
             : version;
     }
 
+    /// <summary>预览里的技术行：Minecraft 版本 · 加载器 · 文件数/体积（缺项自动省略）</summary>
+    private static IEnumerable<string> BuildTechLine(PackPreview preview)
+    {
+        if (!string.IsNullOrWhiteSpace(preview.GameVersion)) yield return $"Minecraft {preview.GameVersion}";
+        var loader = DescribeLoader(preview.Dependencies);
+        if (loader.Length > 0) yield return loader;
+        yield return Loc.T("{0} 个文件 · {1}", preview.FileCount, FormatSize(preview.TotalBytes));
+    }
+
     private static string DescribeLoader(IReadOnlyDictionary<string, string> deps)
     {
         var parts = new List<string>();
@@ -203,7 +212,7 @@ public static class ModPackDialogs
     private sealed record PackPreview(
         ModPackFormat Format, string Name, string GameVersion,
         IReadOnlyDictionary<string, string> Dependencies, int FileCount, long TotalBytes,
-        string ContentRoot = "");
+        string ContentRoot = "", string VersionSource = "");
 
     /// <summary>导入对话框：自动识别格式 → 预览 → 选版本名与隔离 → 安装 + 联动装原版/加载器</summary>
     public static async Task ImportAsync(XamlRoot root, AppServices s, string packPath)
@@ -272,8 +281,23 @@ public static class ModPackDialogs
                     ModPackFormat.AtLauncher => ReadAtLauncherName(packPath, probe.Root),
                     _ => Path.GetFileNameWithoutExtension(packPath),
                 };
-                return new PackPreview(probe.Format, name, "",
-                    new Dictionary<string, string>(), count, bytes, probe.Root);
+                // 这类包没有清单里的游戏版本：从 pack.toml / mod 元数据推断，供对话框预填
+                var sniffed = PackVersionSniffer.Sniff(packPath, probe.Root);
+                var deps = new Dictionary<string, string>();
+                if (sniffed.Minecraft is { Length: > 0 } mc) deps["minecraft"] = mc;
+                if (sniffed.Loader is { Length: > 0 } loader)
+                {
+                    // 探针返回 fabric/quilt，依赖表与 DescribeLoader 用的是 fabric-loader/quilt-loader
+                    var key = loader switch
+                    {
+                        "fabric" => "fabric-loader",
+                        "quilt" => "quilt-loader",
+                        _ => loader,
+                    };
+                    deps[key] = sniffed.LoaderVersion ?? "";
+                }
+                return new PackPreview(probe.Format, name, sniffed.Minecraft ?? "", deps,
+                    count, bytes, probe.Root, sniffed.Found ? sniffed.Source : "");
             }
             default:
             {
@@ -486,8 +510,7 @@ public static class ModPackDialogs
             });
             panel.Children.Add(new TextBlock
             {
-                Text = $"Minecraft {preview.GameVersion}" + (loader.Length > 0 ? $" · {loader}" : "") +
-                       Loc.T(" · {0} 个文件 · {1}", preview.FileCount, FormatSize(preview.TotalBytes)),
+                Text = string.Join(" · ", BuildTechLine(preview)),
                 FontSize = 12,
                 Opacity = 0.8,
                 TextWrapping = TextWrapping.Wrap,
@@ -496,19 +519,28 @@ public static class ModPackDialogs
             panel.Children.Add(nameBox);
             if (IsLooseContent(preview.Format))
             {
-                mcBox = new TextBox { PlaceholderText = Loc.T("例如 1.20.1") };
+                var detected = !string.IsNullOrWhiteSpace(preview.GameVersion);
+                mcBox = new TextBox
+                {
+                    PlaceholderText = Loc.T("例如 1.20.1"),
+                    Text = preview.GameVersion,
+                };
                 panel.Children.Add(new TextBlock
                 {
-                    Text = Loc.T("Minecraft 版本（必填）"),
+                    Text = detected
+                        ? Loc.T("Minecraft 版本（已识别，可修改）")
+                        : Loc.T("Minecraft 版本（必填）"),
                     FontSize = 12,
                     Opacity = 0.8,
                 });
                 panel.Children.Add(mcBox);
                 panel.Children.Add(new TextBlock
                 {
-                    Text = preview.Format == ModPackFormat.Packwiz
-                        ? Loc.T("这是 packwiz 整合包：mod 由包内索引引用，不在压缩包里。导入时会按索引逐个下载（失败项会记录在日志），请填写对应的 Minecraft 版本。")
-                        : Loc.T("这个压缩包没有整合包清单，请填写它对应的 Minecraft 版本；导入时会联动安装该原版。"),
+                    Text = detected
+                        ? Loc.T("已从{0}自动识别为 Minecraft {1}，如与实际不符可直接修改。", preview.VersionSource, preview.GameVersion)
+                        : (preview.Format == ModPackFormat.Packwiz
+                            ? Loc.T("这是 packwiz 整合包：mod 由包内索引引用，不在压缩包里。导入时会按索引逐个下载（失败项会记录在日志），请填写对应的 Minecraft 版本。")
+                            : Loc.T("这个压缩包没有整合包清单，请填写它对应的 Minecraft 版本；导入时会联动安装该原版。")),
                     FontSize = 12,
                     Opacity = 0.8,
                     TextWrapping = TextWrapping.Wrap,

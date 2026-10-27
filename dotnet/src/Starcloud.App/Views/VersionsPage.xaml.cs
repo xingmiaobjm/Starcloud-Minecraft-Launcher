@@ -1,4 +1,4 @@
-// 版本页：本地已安装版本列表（搜索/分类过滤、实例档案徽章、右键/「…」完整菜单）
+﻿// 版本页：本地已安装版本列表（搜索/分类过滤、实例档案徽章、右键/「…」完整菜单）
 // 计划：docs/plans/2026-09-09-version-management-plan.md T4/T7
 
 using Microsoft.UI.Xaml;
@@ -25,34 +25,54 @@ public sealed partial class VersionsPage : Page
     public VersionsPage()
     {
         InitializeComponent();
-        Loaded += (_, _) => RefreshList();
+        // 先出页面骨架，再做版本扫描（扫描是同步 IO，别让它堵住切页动画）
+        Loaded += async (_, _) =>
+        {
+            await Task.Yield();
+            await RefreshListAsync();
+        };
     }
 
-    private void RefreshList()
+    /// <summary>同步入口（刷新按钮/目录切换）：交给后台任务，不阻塞调用方。</summary>
+    private void RefreshList() => _ = RefreshListAsync();
+
+    /// <summary>
+    /// 版本列表：扫描（目录 + 每个版本的 JSON）放后台线程，回到 UI 线程再拼行；
+    /// 列表填好后由 ApplyFilter 里的 StaggerListItems 逐条从左往右羽化。
+    /// </summary>
+    private async Task RefreshListAsync()
     {
         RefreshDirCombo();
         var dotMc = _s.Settings.DotMinecraft;
-        var store = new InstanceSettingsStore(dotMc);
+
+        List<(InstalledVersionInfo Item, VersionProfile Profile, string Kind)> raw;
         try
         {
-            var installed = _s.Manifest.ListInstalled(dotMc);
-            _all = installed.Select(i =>
+            raw = await Task.Run(() =>
             {
-                var profile = store.Get(i.Id);
-                var category = profile.Category ?? "";
-                return new LocalVersionRow(
-                    i.Id, VersionRowHelpers.DetectKind(dotMc, i.Id), FormatSize(i.SizeBytes),
-                    VersionRowHelpers.DisplayIconPath(dotMc, i.Id, profile.IconPath),
-                    category,
-                    InstanceLayout.IsIsolated(profile, _s.Settings),
-                    VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
-                    (i.Id + " " + category).ToLowerInvariant());
-            }).ToList();
+                var store = new InstanceSettingsStore(dotMc);
+                // 隐藏「只是别人依赖」的版本（整合包联动安装的原版 / 加载器），
+                // 否则导入一个整合包，列表里会凭空多出两三个条目。
+                return VersionVisibility.Filter(dotMc, _s.Manifest.ListInstalled(dotMc))
+                    .Select(i => (Item: i, Profile: store.Get(i.Id),
+                                  Kind: VersionRowHelpers.DetectKind(dotMc, i.Id)))
+                    .ToList();
+            });
         }
         catch
         {
-            _all = [];
+            raw = [];
         }
+
+        // Loc.T 只在 UI 线程调用（语言切换会重建词典，后台线程读有竞态）
+        _all = raw.Select(x => new LocalVersionRow(
+            x.Item.Id, x.Kind, FormatSize(x.Item.SizeBytes),
+            VersionRowHelpers.DisplayIconPath(dotMc, x.Item.Id, x.Profile.IconPath),
+            x.Profile.Category ?? "",
+            InstanceLayout.IsIsolated(x.Profile, _s.Settings),
+            VersionRowHelpers.FormatLastPlayed(x.Profile.LastPlayedAt),
+            (x.Item.Id + " " + (x.Profile.Category ?? "")).ToLowerInvariant())).ToList();
+
         RebuildCategoryFilter();
         ApplyFilter();
     }
@@ -67,7 +87,7 @@ public sealed partial class VersionsPage : Page
         else if (cat != Loc.T("全部")) query = query.Where(r => r.Category == cat);
         var list = query.ToList();
         VersionListView.ItemsSource = list;
-        MotionFx.StaggerListItems(VersionListView);
+        MotionFx.StaggerListItems(VersionListView, maxItems: 10);
         EmptyHint.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Title = _all.Count == 0
             ? Loc.T("还没有已安装的版本，去「下载」页安装一个吧")
@@ -91,8 +111,11 @@ public sealed partial class VersionsPage : Page
 
     // ── 游戏目录：多目录下拉切换（列表存 Settings.KnownDotMinecraftDirs；末项 = 添加新目录） ──
 
-    /// <summary>下拉项：目录（Path 非空）或末项「添加新的 .minecraft 目录」（Path = null）</summary>
-    private sealed record DirOption(string Display, string? Path)
+    /// <summary>
+    /// 下拉项：目录（Path 非空）；两个特殊项——「添加新的 .minecraft 目录」（浏览选择）
+    /// 与「自动搜索硬盘中的 .minecraft」（扫描磁盘，Path 都为 null，用 IsSearch 区分）。
+    /// </summary>
+    internal sealed record DirOption(string Display, string? Path, bool IsSearch = false, string Glyph = "\uEA90")
     {
         public override string ToString() => Display;
     }
@@ -115,6 +138,7 @@ public sealed partial class VersionsPage : Page
 
         var items = dirs.Select(d => new DirOption(d, d)).ToList();
         items.Add(new DirOption(Loc.T("＋ 添加新的 .minecraft 目录"), null));
+        items.Add(new DirOption(Loc.T("自动搜索硬盘中的 .minecraft"), null, IsSearch: true, Glyph: "\uEA6F"));
 
         _suppressDirChange = true;
         DirCombo.ItemsSource = items;
@@ -129,9 +153,17 @@ public sealed partial class VersionsPage : Page
         if (DirCombo.SelectedItem is not DirOption opt) return;
         if (opt.Path is null)
         {
-            // 选中了末项「添加新的目录」：先恢复原选中，再弹选择器
+            // 先恢复原选中（特殊项不是真实目录），再按类型弹对应入口
             RefreshDirCombo();
-            await PickAndAddDirAsync();
+            if (opt.IsSearch)
+            {
+                var found = await MinecraftFinderDialog.ShowAsync(XamlRoot);
+                if (!string.IsNullOrWhiteSpace(found)) SwitchGameDir(found!);
+            }
+            else
+            {
+                await PickAndAddDirAsync();
+            }
             return;
         }
         if (string.Equals(opt.Path, _s.Settings.DotMinecraft, StringComparison.OrdinalIgnoreCase)) return;
@@ -166,6 +198,9 @@ public sealed partial class VersionsPage : Page
             settings.KnownDotMinecraftDirs = known;
             settings.Save();
             RefreshList();
+            // 下拉必须跟着重建：否则新加的目录虽然写进了设置，界面上仍只显示旧的两项
+            // （用户反馈的「最多只能同时显示两个」就是这里漏了刷新）
+            RefreshDirCombo();
         }
         catch (Exception ex)
         {

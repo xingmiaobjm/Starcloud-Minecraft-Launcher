@@ -148,6 +148,8 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         return _s.Mods.SearchAsync(query, _kind, _loader, _mc, limit: 24);
     }
 
+    /// <summary>按项目的兼容范围拉版本：**不按 MC 版本在服务端筛掉其它版本**——
+    /// 全部版本都保留，只在下方分组里把目标 MC 版本的组排到最前。</summary>
     private Task<List<ModrinthVersion>> ListSourceVersionsAsync(ModrinthHit hit) =>
         _source == ContentSourceIds.CurseForge
             ? _s.CurseForge.ListVersionsAsync(hit.ProjectId, _kind == "mod" ? _loader : null, null)
@@ -287,7 +289,8 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         DownloadDetail.Visibility = Visibility.Visible;
         DownloadBack.Visibility = Visibility.Visible;
 
-        DlDeps.Visibility = Visibility.Collapsed;   // 依赖行重置（拉到后再显示）
+        DlDepsSection.Visibility = Visibility.Collapsed;   // 前置资源重置（拉到后再显示）
+        DlDepsList.Children.Clear();
         DlVersionChips.Children.Clear();
         DlVersionList.Children.Clear();
         DlVersionList.Children.Add(new TextBlock
@@ -315,8 +318,9 @@ public sealed partial class ContentDownloadDialog : ContentDialog
     }
 
     /// <summary>
-    /// 详情卡显示前置依赖：取最近若干版本的必需依赖并集，一次批量查项目标题（附带翻译）。
-    /// 结果回到时若用户已切走本项目则放弃；失败静默（依赖展示是尽力而为）。
+    /// 详情页「前置资源」：取最近若干版本的必需依赖并集，按 PCL 样式画成一列卡片
+    /// （图标 + 名称 + 简介 + 下载量/更新时间/来源）。无论自动安装开关是否开启都展示。
+    /// 结果回到时若用户已切走本项目则放弃；失败静默。
     /// </summary>
     private async Task LoadDependenciesAsync(ModrinthHit hit)
     {
@@ -330,18 +334,94 @@ public sealed partial class ContentDownloadDialog : ContentDialog
                 .Distinct().Take(5).ToList();
             if (ids.Count == 0) return;
 
-            var titles = _source == ContentSourceIds.CurseForge
-                ? (await _s.CurseForge.GetProjectTitlesAsync(ids)).Values.ToList()
-                : (await _s.Mods.GetProjectsAsync(ids))
-                    .Where(p => !string.IsNullOrWhiteSpace(p.Title))
-                    .Select(p => ModTitleHelper.Display(p.Title))
-                    .ToList();
-            if (titles.Count == 0 || !ReferenceEquals(_selected, hit)) return;
-
-            DlDeps.Text = Loc.T("前置依赖：{0}", string.Join("、", titles));
-            DlDeps.Visibility = Visibility.Visible;
+            if (_source == ContentSourceIds.CurseForge)
+            {
+                var titles = await _s.CurseForge.GetProjectTitlesAsync(ids);
+                if (!ReferenceEquals(_selected, hit)) return;
+                foreach (var id in ids)
+                    if (titles.TryGetValue(id, out var title))
+                        DlDepsList.Children.Add(BuildDependencyCard(title, null, null, 0, null, "CurseForge"));
+            }
+            else
+            {
+                var projects = await _s.Mods.GetProjectsAsync(ids);
+                if (!ReferenceEquals(_selected, hit)) return;
+                foreach (var p in projects.OrderBy(p => ids.IndexOf(p.Id)))
+                    DlDepsList.Children.Add(BuildDependencyCard(
+                        ModTitleHelper.Display(p.Title), p.Description, p.IconUrl,
+                        p.Downloads, p.Updated, "Modrinth"));
+            }
+            DlDepsSection.Visibility = DlDepsList.Children.Count > 0
+                ? Visibility.Visible : Visibility.Collapsed;
         }
         catch { /* 依赖展示失败不影响主流程 */ }
+    }
+
+    /// <summary>一张前置资源卡（PCL 同款信息密度：图标、名称、简介、下载量/更新时间/来源）</summary>
+    private Border BuildDependencyCard(string title, string? description, string? iconUrl,
+        long downloads, DateTimeOffset? updated, string source)
+    {
+        var grid = new Grid { ColumnSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var iconBox = new Border
+        {
+            Width = 40, Height = 40, CornerRadius = new CornerRadius(8),
+            Background = ThemedBrush("SubtleFillColorTertiaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var iconGrid = new Grid();
+        var fallback = new FontIcon
+        {
+            FontFamily = IconFont.Family, Glyph = "\uEC62", FontSize = 18,
+            Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        iconGrid.Children.Add(fallback);
+        if (RemoteIconHelper.Resolve(iconUrl) is { } imageSource)
+        {
+            var image = new Image { Width = 40, Height = 40, Stretch = Stretch.Uniform, Source = imageSource };
+            iconGrid.Children.Add(image);
+            fallback.Visibility = Visibility.Collapsed;
+        }
+        iconBox.Child = iconGrid;
+        Grid.SetColumn(iconBox, 0);
+        grid.Children.Add(iconBox);
+
+        var text = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock
+        {
+            Text = title, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        if (!string.IsNullOrWhiteSpace(description))
+            text.Children.Add(new TextBlock
+            {
+                Text = description, FontSize = 11, MaxLines = 1,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
+            });
+        var meta = new List<string>();
+        if (downloads > 0) meta.Add(Loc.T("{0} 下载", Count(downloads)));
+        if (updated is not null) meta.Add(Loc.T("更新 {0:yyyy-MM-dd}", updated.Value));
+        meta.Add(source);
+        text.Children.Add(new TextBlock
+        {
+            Text = string.Join("  ·  ", meta), FontSize = 11,
+            Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
+        });
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+
+        return new Border
+        {
+            Background = ThemedBrush("SubtleFillColorSecondaryBrush"),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 8, 10, 8),
+            Child = grid,
+        };
     }
 
     private void DownloadBack_Click(object sender, RoutedEventArgs e)
@@ -359,7 +439,8 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         var versions = _versions.SelectMany(v => v.GameVersions).Distinct()
             .Where(g => g.Split('.').All(s => int.TryParse(s, out _)))
             .OrderByDescending(VersionKey).Take(14).ToList();
-        _chip = _mc is not null && versions.Contains(_mc) ? _mc : null;
+        // 默认「全部」：目标版本的组靠排序置顶，而不是把其它版本筛掉
+        _chip = null;
 
         DlVersionChips.Children.Clear();
         AddChip(Loc.T("全部"), null);
@@ -440,14 +521,18 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         BuildVersionList();
     }
 
-    /// <summary>按当前芯片重建版本分组列表（可展开，文件行内直接下载安装）。</summary>
+    /// <summary>
+    /// 按「加载器 + MC 版本」分组（PCL 口径）：组标题如 `NeoForge 1.21.1`，组内每个文件一行，
+    /// 点整行直接下载安装。目标 MC 版本的组排最前，其余按 MC 版本降序——不是只显示目标版本。
+    /// </summary>
     private void BuildVersionList()
     {
         DlVersionList.Children.Clear();
         if (_selected is null) return;
+
         var items = _versions
             .Where(v => _chip is null || v.GameVersions.Contains(_chip))
-            .Take(30).ToList();
+            .ToList();
         if (items.Count == 0)
         {
             DlVersionList.Children.Add(new TextBlock
@@ -457,100 +542,145 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             });
             return;
         }
-        foreach (var version in items)
-            DlVersionList.Children.Add(BuildVersionRow(version));
-        // 换芯片重建列表：让分组行错峰入场，而不是"啪"地整片换掉
+
+        var groups = items
+            .SelectMany(v => GroupKeysOf(v).Select(k => (Key: k, Version: v)))
+            .GroupBy(x => x.Key)
+            .Select(g => (Key: g.Key, Versions: g.Select(x => x.Version)
+                .DistinctBy(v => v.Id).ToList()))
+            .OrderByDescending(g => string.Equals(g.Key.Mc, _mc, StringComparison.Ordinal))
+            .ThenByDescending(g => VersionKey(g.Key.Mc))
+            .ThenBy(g => LoaderRank(g.Key.Loader))
+            .ToList();
+
+        var first = true;
+        foreach (var (key, versions) in groups)
+        {
+            var expander = BuildLoaderGroup(key, versions);
+            if (first)
+            {
+                expander.IsExpanded = true;   // 第一组（最新兼容）默认展开
+                first = false;
+            }
+            DlVersionList.Children.Add(expander);
+        }
         for (var i = 0; i < DlVersionList.Children.Count; i++)
             if (DlVersionList.Children[i] is FrameworkElement row)
                 MotionFx.StaggerIn(row, i, stepMs: 20, maxStagger: 6);
     }
 
-    private Expander BuildVersionRow(ModrinthVersion version)
+    private readonly record struct LoaderMc(string Loader, string Mc);
+
+    /// <summary>一个文件支持的（加载器, MC 版本）组合；无元数据时给 unknown / ? 保证仍能列出来。</summary>
+    private static IEnumerable<LoaderMc> GroupKeysOf(ModrinthVersion v)
     {
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        head.Children.Add(new TextBlock
+        var loaders = v.Loaders.Count > 0 ? v.Loaders : ["unknown"];
+        var mcs = v.GameVersions.Count > 0 ? v.GameVersions : ["?"];
+        foreach (var l in loaders)
+            foreach (var mc in mcs)
+                yield return new LoaderMc(l, mc);
+    }
+
+    private static int LoaderRank(string loader) => loader.ToLowerInvariant() switch
+    {
+        "fabric" => 0,
+        "neoforge" => 1,
+        "forge" => 2,
+        "quilt" => 3,
+        _ => 4,
+    };
+
+    /// <summary>一个「加载器 + MC 版本」分组：组标题 + 组内每个版本一行（点整行下载）。</summary>
+    private Expander BuildLoaderGroup(LoaderMc key, List<ModrinthVersion> versions)
+    {
+        var header = new StackPanel
         {
-            Text = version.VersionNumber, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+            Orientation = Orientation.Horizontal, Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        header.Children.Add(new TextBlock
+        {
+            Text = $"{DisplayLoader(key.Loader)} {key.Mc}",
+            FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium,
             VerticalAlignment = VerticalAlignment.Center,
         });
-        // 加载器徽标：同版本号在不同加载器（Fabric/Forge/NeoForge/Quilt）下是不同文件，必须可区分
-        foreach (var l in version.Loaders.Take(2))
+        var ordered = versions
+            .OrderByDescending(v => v.VersionType == "release")
+            .ThenByDescending(v => v.DatePublished ?? DateTimeOffset.MinValue)
+            .ToList();
+        header.Children.Add(new TextBlock
         {
-            head.Children.Add(new Border
-            {
-                Background = ThemedBrush("SubtleFillColorTertiaryBrush"),
-                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 1),
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock
-                {
-                    Text = DisplayLoader(l), FontSize = 11,
-                    Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
-                },
-            });
-        }
-        if (version.VersionType is "beta" or "alpha")
-        {
-            head.Children.Add(new Border
-            {
-                Background = ThemedBrush("SubtleFillColorTertiaryBrush"),
-                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 1),
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock
-                {
-                    Text = version.VersionType == "beta" ? "Beta" : "Alpha", FontSize = 11,
-                    Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
-                },
-            });
-        }
-        var primary = version.PrimaryFile;
-        if (primary is not null)
-            head.Children.Add(new TextBlock
-            {
-                Text = Size(primary.Size), FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
-                Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
-            });
+            Text = Loc.T("{0} 个文件", ordered.Count), FontSize = 11,
+            Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
 
-        var filesPanel = new StackPanel { Spacing = 6 };
-        foreach (var f in version.Files)
-        {
-            var row = new Grid { ColumnSpacing = 8 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var info = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
-            info.Children.Add(new TextBlock { Text = f.Filename, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
-            info.Children.Add(new TextBlock
-            {
-                Text = Size(f.Size), FontSize = 11,
-                Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
-            });
-            var btn = new GlowButton
-            {
-                Content = Loc.T(_kind == "modpack" ? "下载" : "下载安装"),
-                FontSize = 12, Padding = new Thickness(10, 2, 10, 2),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            btn.Click += (_, _) => _ = InstallAsync(_selected!, version, f, btn);
-            Grid.SetColumn(info, 0);
-            row.Children.Add(info);
-            Grid.SetColumn(btn, 1);
-            row.Children.Add(btn);
-            // 文件行也是"卡"：悬停要有高亮抬升与跟手光斑（与版本页的行同一套语言）
-            filesPanel.Children.Add(WrapHoverRow(row));
-        }
+        var panel = new StackPanel { Spacing = 4 };
+        foreach (var version in ordered)
+            panel.Children.Add(BuildVersionLine(version, key));
 
         return new Expander
         {
-            Header = head,
-            Content = filesPanel,
+            Header = header,
+            Content = panel,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
     }
 
+    /// <summary>
+    /// 一个文件一行：标题 `<项目名> <版本号> for <加载器> <MC版本>`（规范命名），
+    /// 副行给出加载器 / 文件名 / 大小 / 更新时间；**整行点击即下载安装**（不再放按钮）。
+    /// </summary>
+    private FrameworkElement BuildVersionLine(ModrinthVersion version, LoaderMc key)
+    {
+        var primary = version.PrimaryFile;
+        var info = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        info.Children.Add(new TextBlock
+        {
+            Text = $"{_selected!.Title} {version.VersionNumber} for {DisplayLoader(key.Loader)} {key.Mc}",
+            FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+
+        var meta = new List<string> { DisplayLoader(key.Loader) };
+        if (primary is not null)
+        {
+            meta.Add(primary.Filename);
+            meta.Add(Size(primary.Size));
+        }
+        if (version.VersionType is "beta" or "alpha")
+            meta.Add(version.VersionType == "beta" ? Loc.T("测试版") : Loc.T("早期测试版"));
+        if (version.DatePublished is { } published)
+            meta.Add(Loc.T("更新于 {0:yyyy-MM-dd}", published));
+        info.Children.Add(new TextBlock
+        {
+            Text = string.Join(", ", meta), FontSize = 11,
+            Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(info, 0);
+        grid.Children.Add(info);
+
+        var host = WrapHoverRow(grid);
+        host.Tapped += (_, e) =>
+        {
+            e.Handled = true;
+            if (_busy || primary is null) return;
+            // 点击整行 = 另存为：先弹系统保存框确认位置（默认落在当前版本的 mods），再下载
+            _ = SaveAsAsync(primary, (_, _) => { }, version);
+        };
+        return host;
+    }
+
     // ── 安装与跳转 ──
 
     /// <summary>下载入库并安装：Mod/资源包/光影 → 首页选中版本；数据包 → 选存档装入；整合包 → 新建版本流程。</summary>
-    private async Task InstallAsync(ModrinthHit hit, ModrinthVersion version, ModrinthFile file, Button btn)
+    private async Task InstallAsync(ModrinthHit hit, ModrinthVersion version, ModrinthFile file,
+        Action<string, bool> setState)
     {
         // 目标版本校验（整合包 .mrpack 走新建版本流程，无需选中版本）
         var verb = Loc.T(_kind == "modpack" ? "下载" : "下载安装");
@@ -562,8 +692,7 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         }
         if (_busy) return;
         _busy = true;
-        btn.IsEnabled = false;
-        btn.Content = Loc.T("下载中…");
+        setState(Loc.T("下载中…"), false);
         try
         {
             // CurseForge 的文件 id 不是 Modrinth 版本 id：记 null，避免更新检查拿它去问 Modrinth
@@ -590,8 +719,7 @@ public sealed partial class ContentDownloadDialog : ContentDialog
                 var save = await PickSaveAsync(_versionId);
                 if (save is null)
                 {
-                    btn.IsEnabled = true;
-                    btn.Content = verb;
+                    setState(verb, true);
                     return;
                 }
                 await _s.ContentLibrary.InstallToSaveAsync(entry, _versionId, save);
@@ -604,6 +732,12 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             var msg = Loc.T("{0} 已安装到 {1}。", file.Filename, _versionId);
             if (_kind == "mod")
             {
+                // 自动补前置：开关打开时把缺的必需依赖按「最新兼容版本」逐个装好
+                List<string> autoInstalled = [];
+                if (_s.Settings.AutoInstallModDependencies)
+                    autoInstalled = await AutoInstallDependenciesAsync(version, _versionId);
+                if (autoInstalled.Count > 0)
+                    msg += " " + Loc.T("已自动安装前置：{0}。", string.Join("、", autoInstalled));
                 try
                 {
                     var dep = await _s.ContentLibrary.CheckDependenciesAsync(version, _versionId);
@@ -614,17 +748,247 @@ public sealed partial class ContentDownloadDialog : ContentDialog
                 catch { /* 依赖检查失败不阻断 */ }
             }
             Info(msg, InfoBarSeverity.Success);
-            btn.IsEnabled = false;                       // 已装好，按钮定格为完成态防重复安装
-            btn.Content = Loc.T("✓ 已安装");
+            setState(Loc.T("✓ 已安装"), false);   // 已装好，定格为完成态防重复安装
             _onInstalled?.Invoke();
         }
         catch (Exception ex)
         {
             Info(Loc.T("下载失败：{0}", ex.Message), InfoBarSeverity.Error);
-            btn.IsEnabled = true;
-            btn.Content = verb;
+            setState(verb, true);
         }
         finally { _busy = false; }
+    }
+
+    // ── 前置自动安装 ──
+
+    /// <summary>
+    /// 自动补齐必需前置：从主文件开始 BFS，缺什么装什么，每个都挑与目标 MC 版本 / 加载器
+    /// 匹配的最新版本（release 优先、再按发布时间倒序）。最多装 12 个，防病态依赖链。
+    /// 失败静默 —— 自动补依赖不该把主安装标成失败。
+    /// </summary>
+    private async Task<List<string>> AutoInstallDependenciesAsync(
+        ModrinthVersion version, string versionId)
+    {
+        var installed = new List<string>();
+        // 不知道目标 MC 版本时不自动装：宁可少装，也不要把 1.20 的前置装进 1.21 的版本
+        if (string.IsNullOrWhiteSpace(_mc)) return installed;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<ModrinthVersion>();
+        queue.Enqueue(version);
+        while (queue.Count > 0 && installed.Count < 12)
+        {
+            var current = queue.Dequeue();
+            DependencyReport report;
+            try { report = await _s.ContentLibrary.CheckDependenciesAsync(current, versionId); }
+            catch { continue; }
+
+            foreach (var missing in report.Required)
+            {
+                if (string.IsNullOrEmpty(missing.ProjectId) || !visited.Add(missing.ProjectId))
+                    continue;
+                try
+                {
+                    var depVersion = await FindLatestCompatibleAsync(missing.ProjectId);
+                    var depFile = depVersion?.PrimaryFile;
+                    if (depVersion is null || depFile is null) continue;
+
+                    var info = new LibraryAdoptInfo(
+                        missing.Title, null, null, missing.ProjectId,
+                        _source == ContentSourceIds.CurseForge ? null : depVersion.Id,
+                        depVersion.VersionNumber, depVersion.GameVersions, depVersion.Loaders,
+                        depFile.Url, _source);
+                    var entry = await _s.ContentLibrary.DownloadAndAdoptAsync(
+                        "mod", depFile.Url, depFile.Filename, depFile.Sha1, info);
+                    await _s.ContentLibrary.InstallToVersionAsync(entry, versionId);
+                    installed.Add(missing.Title);
+                    queue.Enqueue(depVersion);   // 前置自己也可能有前置
+                }
+                catch { /* 单个前置失败不影响其它 */ }
+            }
+        }
+        return installed;
+    }
+
+    /// <summary>挑与目标版本匹配的最新文件：先用服务端筛选，落地前再本地核对一遍。</summary>
+    private async Task<ModrinthVersion?> FindLatestCompatibleAsync(string projectId)
+    {
+        List<ModrinthVersion> versions;
+        try
+        {
+            versions = _source == ContentSourceIds.CurseForge
+                ? await _s.CurseForge.ListVersionsAsync(projectId, _loader, _mc)
+                : await _s.Mods.ListVersionsAsync(projectId, _loader, _mc);
+        }
+        catch { return null; }
+
+        return versions
+            .Where(v => v.PrimaryFile is not null)
+            .Where(v => _mc is null || v.GameVersions.Count == 0 || v.GameVersions.Contains(_mc))
+            .Where(v => _loader is null || v.Loaders.Count == 0 ||
+                        v.Loaders.Contains(_loader, StringComparer.OrdinalIgnoreCase))
+            .OrderByDescending(v => string.Equals(v.VersionType, "release", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(v => v.DatePublished ?? DateTimeOffset.MinValue)
+            .FirstOrDefault();
+    }
+
+    // ── 另存为 ──
+
+    /// <summary>目标版本的 mods 目录（与「下载安装」同一套隔离判定，所以落点一致）。</summary>
+    private string ResolveTargetModsDir(string versionId)
+    {
+        var dotMc = _s.Settings.DotMinecraft;
+        var profile = new InstanceSettingsStore(dotMc).Get(versionId);
+        var isolated = InstanceLayout.IsIsolated(profile, _s.Settings);
+        var gameRoot = InstanceLayout.GameRoot(dotMc, versionId, isolated);
+        return Path.Combine(gameRoot, "mods");
+    }
+
+    /// <summary>
+    /// 另存为：弹系统保存对话框（初始目录定位到目标版本的 mods 文件夹），把文件下到用户选的位置。
+    /// 与「下载安装」的区别：不进内容库、不写版本目录 —— 用户自己决定放哪。
+    /// </summary>
+    private async Task SaveAsAsync(ModrinthFile file, Action<string, bool> setState,
+        ModrinthVersion? version = null)
+    {
+        const string idle = "另存为…";
+        try
+        {
+            // 目标版本以首页选中为准；_versionId 由宿主页在打开弹窗时传入。
+            // 为空时再兜底读一次设置，避免把 mods 建到当前工作目录下。
+            var versionId = string.IsNullOrWhiteSpace(_versionId)
+                ? (_s.Settings.LastVersion ?? "") : _versionId;
+            if (string.IsNullOrWhiteSpace(versionId))
+                throw new InvalidOperationException("还没有选择游戏版本：请先在首页选择一个版本，再另存 Mod。");
+
+            var modsDir = ResolveTargetModsDir(versionId);
+            Directory.CreateDirectory(modsDir);
+            LauncherLog.Write("download", $"另存 Mod 初始目录：{modsDir}（版本 {versionId}）");
+
+            // 初始目录定位到目标版本的 mods 文件夹；系统缺 FileSaveDialog 组件时
+            // 内部自动退回 comdlg32 旧式对话框（初始目录同样生效）
+            var ext = Path.GetExtension(file.Filename);
+            var target = SystemSaveFileDialog.Show(
+                WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow),
+                Loc.T("另存 Mod"), file.Filename,
+                string.IsNullOrEmpty(ext) ? "jar" : ext.TrimStart('.'),
+                modsDir);
+            if (target is null) return;
+
+            // 选完位置再核对一次兼容性：用户可能手动切到了别的版本的 mods 目录，
+            // 能用路径认出版本就按那个版本判断，认不出按首页选中的版本判断。
+            if (version is not null)
+            {
+                var targetVersionId = VersionIdFromModsPath(target) ?? versionId;
+                if (CompatibilityWarning(version, targetVersionId) is { } warning &&
+                    !await ConfirmIncompatibleAsync(warning))
+                    return;
+            }
+
+            // 重复安装拦截（一）：目标目录已有同名文件
+            if (File.Exists(target))
+            {
+                Info(Loc.T("同名文件已存在，已阻止重复下载：{0}", Path.GetFileName(target)),
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
+            setState(Loc.T("下载中…"), false);
+            // 先下到临时文件：解析出 jar 里的 modId，再决定放不放行
+            var temp = Path.Combine(Path.GetTempPath(),
+                "sc-mod-" + Guid.NewGuid().ToString("N")[..8] + ".jar");
+            try
+            {
+                await _s.Download.DownloadFileAsync(file.Url, temp,
+                    string.IsNullOrEmpty(file.Sha1) ? null : file.Sha1);
+
+                // 重复安装拦截（二）：同一 smods 目录已有同一个 modId（不同版本也算重复）
+                var incoming = Starcloud.Core.Services.ModConflictService.Read(temp);
+                var targetDir = Path.GetDirectoryName(target) ?? modsDir;
+                if (!string.IsNullOrWhiteSpace(incoming.ModId) && Directory.Exists(targetDir))
+                {
+                    foreach (var existing in Directory.EnumerateFiles(targetDir))
+                    {
+                        if (!existing.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)) continue;
+                        var info = Starcloud.Core.Services.ModConflictService.Read(existing);
+                        if (!string.Equals(info.ModId, incoming.ModId, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        Info(Loc.T("这个 Mod 已经装过了（{0}），同一实例不重复下载、也不再装不同版本。",
+                            Path.GetFileName(existing)), InfoBarSeverity.Warning);
+                        return;
+                    }
+                }
+
+                File.Move(temp, target, overwrite: false);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* 清理失败不影响 */ }
+            }
+            Info(Loc.T("已保存到 {0}。", target), InfoBarSeverity.Success);
+            NotificationCenter.Instance.Info(Loc.T("Mod 已另存：{0}", Path.GetFileName(target)));
+        }
+        catch (Exception ex)
+        {
+            Info(Loc.T("另存失败：{0}", ex.Message), InfoBarSeverity.Error);
+        }
+        finally
+        {
+            setState(Loc.T(idle), true);
+        }
+    }
+
+    /// <summary>从 …\versions\&lt;id&gt;\mods\&lt;file&gt; 反推版本 id；不是这个形状返回 null。</summary>
+    private static string? VersionIdFromModsPath(string filePath)
+    {
+        var mods = Path.GetDirectoryName(Path.GetFullPath(filePath));
+        if (mods is null || !string.Equals(Path.GetFileName(mods), "mods", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var versionDir = Path.GetDirectoryName(mods);
+        var versionsDir = versionDir is null ? null : Path.GetDirectoryName(versionDir);
+        if (versionsDir is null ||
+            !string.Equals(Path.GetFileName(versionsDir), "versions", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return Path.GetFileName(versionDir);
+    }
+
+    /// <summary>文件与目标版本不匹配时返回一句人话说明；匹配或推不出目标版本返回 null。</summary>
+    private string? CompatibilityWarning(ModrinthVersion version, string versionId)
+    {
+        var mc = _mc ?? ContentLibraryService.ResolveMc(versionId);
+        var loader = _loader;
+        if (string.IsNullOrWhiteSpace(loader))
+        {
+            var resolved = ContentLibraryService.ResolveLoader(versionId, out _);
+            loader = string.Equals(resolved, "vanilla", StringComparison.OrdinalIgnoreCase) ? null : resolved;
+        }
+
+        var problems = new List<string>();
+        if (!string.IsNullOrWhiteSpace(mc) && version.GameVersions.Count > 0 &&
+            !version.GameVersions.Contains(mc))
+            problems.Add(Loc.T("游戏版本 {0}", mc));
+        if (!string.IsNullOrWhiteSpace(loader) && version.Loaders.Count > 0 &&
+            !version.Loaders.Contains(loader, StringComparer.OrdinalIgnoreCase))
+            problems.Add(Loc.T("加载器 {0}", loader));
+        if (problems.Count == 0) return null;
+
+        return Loc.T("这个文件不适用于当前版本（{0}）：它支持 {1} / {2}。仍要保存吗？",
+            string.Join(" + ", problems),
+            version.GameVersions.Count > 0 ? string.Join(", ", version.GameVersions) : Loc.T("未知"),
+            version.Loaders.Count > 0 ? string.Join(", ", version.Loaders) : Loc.T("通用"));
+    }
+
+    private async Task<bool> ConfirmIncompatibleAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = Loc.T("版本不匹配"),
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 420 },
+            PrimaryButtonText = Loc.T("仍要保存"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     /// <summary>弹窗选择数据包的装载存档；无存档或取消返回 null</summary>

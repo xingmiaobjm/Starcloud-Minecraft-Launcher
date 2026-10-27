@@ -12,8 +12,10 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 大圆角：控件（按钮/输入框）12，卡片 20，弹出层 16 -->
-            <CornerRadius x:Key="ControlCornerRadius">12</CornerRadius>
+            <!-- 圆角：控件（按钮/输入框/搜索框）8，卡片 20，弹出层 16。
+                 控件曾用 12，在 WinUI 的细边框 + 小控件尺寸下显得过于圆润、像移动端；
+                 8 是折中：比原生 4 圆一点，又没有 12 那样发飘。 -->
+            <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
             <CornerRadius x:Key="CardCornerRadius">20</CornerRadius>
             <CornerRadius x:Key="OverlayCornerRadius">16</CornerRadius>
 

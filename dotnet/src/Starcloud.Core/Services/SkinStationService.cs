@@ -19,7 +19,7 @@ using System.Text.Json;
 namespace Starcloud.Core.Services;
 
 /// <summary>皮肤站上的一张皮肤（衣柜条目）</summary>
-public sealed record StationSkin(string Id, string Name, string Model, string? Url)
+public sealed record StationSkin(string Id, string Name, string Model, string? Url, string Kind = "skin")
 {
     /// <summary>纤细手臂（皮肤站用 steve / alex 表示版型）</summary>
     public bool Slim => Model is "alex" or "slim";
@@ -47,28 +47,72 @@ public sealed class SkinStationService
         var baseUrl = Base(serverBase);
         EnsureToken(accessToken);
 
-        using var req = new HttpRequestMessage(HttpMethod.Get,
-            $"{baseUrl}/api/v1/user/skins?page=1&page_size=100");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await SendAsync(req, "读取皮肤站皮肤列表", ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        var doc = Parse(body, (int)resp.StatusCode, "读取皮肤站皮肤列表");
-        using (doc)
+        // 分页拉全：Blessing Skin 一系 page_size 有上限，只拉第一页会把大衣柜悄悄截断。
+        // total_pages 没给（或接口只回单页）就停；第 2 页起失败按「到此为止」处理，别把第一页的成果砸了。
+        var list = new List<StationSkin>();
+        var seen = new HashSet<string>();
+        var totalPages = 1;
+        const int MaxPages = 12;   // 100 条/页 × 12 = 1200 张封顶
+        for (var page = 1; page <= Math.Min(totalPages, MaxPages); page++)
         {
-            var array = FindArray(doc.RootElement);
-            if (array is null) return [];
-            var list = new List<StationSkin>();
-            foreach (var item in array.Value.EnumerateArray())
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{baseUrl}/api/v1/user/skins?page={page}&page_size=100");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            JsonDocument doc;
+            try
             {
-                var id = Str(item, "tid") ?? Str(item, "id");
-                if (string.IsNullOrWhiteSpace(id)) continue;
-                list.Add(new StationSkin(
-                    id!,
-                    Str(item, "name") ?? $"皮肤 {id}",
-                    Str(item, "model") ?? "steve",
-                    Str(item, "url")));
+                using var resp = await SendAsync(req, "读取皮肤站皮肤列表", ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                doc = Parse(body, (int)resp.StatusCode, "读取皮肤站皮肤列表");
             }
-            return list;
+            catch (InvalidOperationException) when (page > 1)
+            {
+                break;
+            }
+
+            using (doc)
+            {
+                var array = FindArray(doc.RootElement);
+                if (array is null) break;
+                var added = 0;
+                foreach (var item in array.Value.EnumerateArray())
+                {
+                    var id = Str(item, "tid") ?? Str(item, "id");
+                    if (string.IsNullOrWhiteSpace(id) || !seen.Add(id)) continue;
+                    list.Add(new StationSkin(
+                        id!,
+                        Str(item, "name") ?? $"皮肤 {id}",
+                        Str(item, "model") ?? Str(item, "type") ?? "steve",
+                        Str(item, "url")));
+                    added++;
+                }
+                if (page > 1 && added == 0) break;
+                totalPages = TotalPages(doc.RootElement, totalPages);
+            }
+        }
+        return list;
+    }
+
+    /// <summary>从（根或 data 节点）里挖总页数；皮肤站不给就维持当前估计</summary>
+    private static int TotalPages(JsonElement root, int fallback)
+    {
+        foreach (var host in Hosts(root))
+        {
+            foreach (var name in new[] { "total_pages", "totalPages" })
+            {
+                if (!host.TryGetProperty(name, out var v)) continue;
+                if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) && n > 0)
+                    fallback = Math.Max(fallback, n);
+            }
+        }
+        return fallback;
+
+        static IEnumerable<JsonElement> Hosts(JsonElement root)
+        {
+            yield return root;
+            if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+                yield return data;
         }
     }
 
@@ -165,9 +209,23 @@ public sealed class SkinStationService
 
     private static string Base(string serverBase)
     {
-        var baseUrl = (serverBase ?? "").TrimEnd('/');
+        var baseUrl = SiteRootOf(serverBase);
         if (baseUrl.Length == 0) throw new InvalidOperationException("该账户没有记录认证服务器地址");
         return baseUrl;
+    }
+
+    /// <summary>
+    /// 认证服务器地址 → 皮肤站站点根：剥掉 Yggdrasil 后缀。
+    /// <para>Blessing Skin / LittleSkin 系的认证地址是 &lt;站点&gt;/api/yggdrasil，
+    /// 皮肤站接口在 &lt;站点&gt;/api/v1/…；不剥离会拼成 /api/yggdrasil/api/v1/… → 404。</para>
+    /// </summary>
+    public static string SiteRootOf(string? serverBase)
+    {
+        var baseUrl = (serverBase ?? "").Trim().TrimEnd('/');
+        const string yggdrasilSuffix = "/api/yggdrasil";
+        if (baseUrl.EndsWith(yggdrasilSuffix, StringComparison.OrdinalIgnoreCase))
+            baseUrl = baseUrl[..^yggdrasilSuffix.Length];
+        return baseUrl.TrimEnd('/');
     }
 
     private static void EnsureToken(string accessToken)
@@ -253,9 +311,12 @@ public sealed class SkinStationService
     {
         if (!root.TryGetProperty("data", out var data)) return null;
         if (data.ValueKind == JsonValueKind.Array) return data;
-        if (data.ValueKind == JsonValueKind.Object &&
-            data.TryGetProperty("data", out var inner) && inner.ValueKind == JsonValueKind.Array)
+        if (data.ValueKind != JsonValueKind.Object) return null;
+        // 皮肤站各家形态不一：data 直接是数组 / data.data 分页包裹 / data.skins（Blessing Skin 4）
+        if (data.TryGetProperty("data", out var inner) && inner.ValueKind == JsonValueKind.Array)
             return inner;
+        if (data.TryGetProperty("skins", out var skins) && skins.ValueKind == JsonValueKind.Array)
+            return skins;
         return null;
     }
 

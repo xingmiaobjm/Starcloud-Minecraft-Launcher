@@ -1815,6 +1815,15 @@ public static class Program
                     _settings.DeviceName = dvn.GetString() ?? "";
                 if (p.TryGetProperty("p2pDownloadEnabled", out var p2p) && IsBool(p2p))
                     _settings.P2pDownloadEnabled = p2p.GetBoolean();
+                if (p.TryGetProperty("p2pInternetEnabled", out var p2pi) && IsBool(p2pi))
+                    _settings.P2pInternetEnabled = p2pi.GetBoolean();
+                if (p.TryGetProperty("p2pInternetUploadMbps", out var p2pu) &&
+                    p2pu.TryGetInt32(out var p2puv))
+                    _settings.P2pInternetUploadMbps = Math.Clamp(p2puv, 1, 32);
+                if (p.TryGetProperty("deviceP2pCrossAccount", out var p2px) && IsBool(p2px))
+                    _settings.DeviceP2PCrossAccount = p2px.GetBoolean();
+                if (p.TryGetProperty("microsoftTokenPersist", out var mtp) && IsBool(mtp))
+                    _settings.MicrosoftTokenPersist = mtp.GetBoolean();
                 if (p.TryGetProperty("autoUpdateEnabled", out var aue) && IsBool(aue))
                     _settings.AutoUpdateEnabled = aue.GetBoolean();
                 if (p.TryGetProperty("updateManifestUrl", out var umu))
@@ -3093,6 +3102,10 @@ public static class Program
         deviceLinkEnabled = _settings.DeviceLinkEnabled,
         deviceName = _settings.DeviceName,
         p2pDownloadEnabled = _settings.P2pDownloadEnabled,
+        p2pInternetEnabled = _settings.P2pInternetEnabled,
+        p2pInternetUploadMbps = _settings.P2pInternetUploadMbps,
+        deviceP2pCrossAccount = _settings.DeviceP2PCrossAccount,
+        microsoftTokenPersist = _settings.MicrosoftTokenPersist,
         autoUpdateEnabled = _settings.AutoUpdateEnabled,
         updateManifestUrl = _settings.UpdateManifestUrl ?? "",
     };
@@ -3223,7 +3236,7 @@ public static class Program
     // ── 外部插件（v2 沙箱）：清单/权限/安装/启停状态 ─────────────────────────
 
     /// <summary>与 Windows 端一致的启动器版本（manifest 兼容性校验用）。</summary>
-    private const string LauncherVersion = "0.3.9";
+    private const string LauncherVersion = "0.3.13";
 
     private static readonly object PluginGate = new();
 

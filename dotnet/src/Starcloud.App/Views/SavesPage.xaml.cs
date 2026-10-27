@@ -1,4 +1,4 @@
-// 存档页：跨版本列出 / 搜索 / 筛选世界，支持备份 zip / 删除 / 打开文件夹 / 跨版本复制启动
+﻿// 存档页：跨版本列出 / 搜索 / 筛选世界，支持备份 zip / 删除 / 打开文件夹 / 跨版本复制启动
 // 设计：docs/designs/2026-09-10-saves-cross-version-design.md
 
 using Microsoft.UI.Xaml;
@@ -7,6 +7,7 @@ using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views.Dialogs;
 using Starcloud.App.Views.Rows;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
 using System.Diagnostics;
 using System.IO;
@@ -24,28 +25,57 @@ public sealed partial class SavesPage : Page
     private readonly AppServices _s = AppServices.Instance;
     private List<SaveRow> _rows = [];
     private bool _busy;
+    private bool _loading;   // 后台扫描存档中（与操作忙碌分开，避免互相吞掉）
     private bool _suppressFilter;
     private GameSession? _gameProcess;
+
+    // 选中竖条的落点（NaN = 还没落过）与滚动同步入口，用法同主页版本列表
+    private double _barY = double.NaN;
+    private bool _barShown;
+    private ScrollViewer? _savesScroll;
 
     public SavesPage()
     {
         InitializeComponent();
+        // 容器回收会带着上一行的选中淡底：只按这一格重刷，避免整表遍历
+        SaveList.ContainerContentChanging += (_, e) =>
+        {
+            if (e.InRecycleQueue) return;
+            ListSelectionFx.SyncInsetFor(SaveList, e.ItemIndex, e.ItemContainer, animate: false);
+            UpdateSelectionBar(animate: false);
+        };
         Loaded += async (_, _) =>
         {
             await ResumePendingAsync();   // 中断补问须先于列表刷新（spec §3.5）
-            LoadSaves();
+            await LoadSavesAsync();
         };
     }
 
     // ── 列表 ──
 
-    private void LoadSaves()
+    /// <summary>同步入口（刷新按钮/删除后等）：后台加载，不阻塞调用方。</summary>
+    private void LoadSaves() => _ = LoadSavesAsync();
+
+    /// <summary>
+    /// 存档列表：页面先把空壳交出来，扫描（多目录 + 读 level.dat / 图标）放后台线程。
+    /// 之前同步跑 ListAll，存档一多整次页面切换都卡在导航动画里 —— 先出界面再出内容。
+    /// </summary>
+    private async Task LoadSavesAsync()
     {
-        if (_busy) return;
+        if (_loading) return;
+        _loading = true;
         var dotMc = _s.Settings.DotMinecraft;
+        // 首次加载先给一个「读取中」的空态：否则页面先闪一下「暂无存档」再跳出列表
+        if (_rows.Count == 0)
+        {
+            EmptyHint.Title = Loc.T("正在读取存档…");
+            EmptyHint.Subtitle = "";
+            EmptyHint.Visibility = Visibility.Visible;
+        }
         try
         {
-            _rows = _s.SaveLibrary.ListAll(dotMc, _s.Settings).Select(v => new SaveRow(
+            var found = await Task.Run(() => _s.SaveLibrary.ListAll(dotMc, _s.Settings).ToList());
+            _rows = found.Select(v => new SaveRow(
                 v.FolderName, v.LevelName, v.IconPath,
                 v.LastPlayed is { } t ? Loc.T("上次游玩 {0:yyyy-MM-dd HH:mm}", t) : Loc.T("无游玩记录"),
                 FormatSize(v.SizeBytes),
@@ -60,6 +90,10 @@ public sealed partial class SavesPage : Page
             _rows = [];
             ErrorBar.Message = Loc.T("读取存档失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            _loading = false;
         }
 
         FillVersionFilter(dotMc);
@@ -94,7 +128,14 @@ public sealed partial class SavesPage : Page
             (version == AllVersions || r.VersionLabel == version)).ToList();
 
         SaveList.ItemsSource = filtered;
+        // 从左往右羽化：位移 + 淡入 + 从左展开的裁剪（MotionFx.FeatherIn）
         MotionFx.StaggerListItems(SaveList);
+        // 列表已重建：竖条落点作废，等容器真正生成后直接给终态（不播位移动画）
+        _barY = double.NaN;
+        _barShown = false;
+        SaveList.UpdateLayout();
+        HookSaveScroll();
+        SyncSelectionMark(animate: false);
 
         if (_rows.Count == 0)
         {
@@ -123,20 +164,102 @@ public sealed partial class SavesPage : Page
         ApplyFilter();
     }
 
+    /// <summary>启动选中存档对应的版本（不复制存档，直接进这个版本）。</summary>
+    private async void LaunchGame_Click(object sender, RoutedEventArgs e)
+    {
+        if (SaveList.SelectedItem is not SaveRow row) return;
+        var targetId = row.VersionId;
+        if (string.IsNullOrEmpty(targetId))
+        {
+            ErrorBar.Message = Loc.T("这个存档在共享目录里，没有对应的版本。");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+
+        var dotMc = _s.Settings.DotMinecraft;
+        _busy = true;
+        UpdateRowActions();
+        try
+        {
+            var store = new InstanceSettingsStore(dotMc);
+            var eff = InstanceLayout.Resolve(dotMc, targetId, store.Get(targetId), _s.Settings);
+            var player = await AuthDialogs.EnsurePlayableAccountAsync(Content.XamlRoot, _s);
+            if (player is null) return; // 用户取消就地登录
+
+            string? agentJar = null;
+            if (player.ExternalBase is not null)
+            {
+                agentJar = AppServices.AgentJarPath()
+                    ?? throw new InvalidOperationException(
+                        "authlib-injector 组件缺失，无法启动第三方账户，请重新安装启动器");
+            }
+
+            var options = new LaunchOptions(targetId, player.Name, eff.GameRoot, dotMc,
+                eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs, _s.Settings.UseBuiltinJvmArgs,
+                player.Credentials, eff.ServerAddress, eff.Language, eff.LanguageOverride,
+                eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars, null, null,
+                AgentJarPath: agentJar, AgentBase: player.ExternalBase,
+                PlayerSkinUrl: player.SkinUrl,
+                PluginHook: AppServices.Instance.PluginHost);
+
+            _gameProcess = await _s.Launcher.LaunchVersionAsync(dotMc, targetId, options);
+            _s.Runtime.Attach(_gameProcess, GameLaunchContextStore.Capture(targetId, eff,
+                GameLaunchContextStore.CountFiles(Path.Combine(eff.GameRoot, "mods")),
+                GameLaunchContextStore.CountFiles(Path.Combine(eff.GameRoot, "shaderpacks")),
+                GameLaunchContextStore.CountFiles(Path.Combine(eff.GameRoot, "resourcepacks"))),
+                _gameProcess.CommandLine);
+            _gameProcess.Exited += _ => DispatcherQueue.TryEnqueue(async () => await OnGameExitedAsync());
+            store.TouchPlayed(targetId);
+            RunBar.Message = Loc.T("正在启动 {0}…", targetId);
+            RunBar.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("启动失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+            UpdateRowActions();
+        }
+    }
+
     private void UpdateRowActions()
     {
         var has = SaveList.SelectedItem is SaveRow;
-        LaunchOtherBtn.IsEnabled = has && !_busy;
-        CopyOtherBtn.IsEnabled = has && !_busy;
-        BackupBtn.IsEnabled = has && !_busy;
+        LaunchGameBtn.IsEnabled = has && !_busy;
         SyncBtn.IsEnabled = has && !_busy;
         ShareBtn.IsEnabled = has && !_busy;
         DeleteBtn.IsEnabled = has && !_busy;
-        OpenFolderBtn.IsEnabled = has;
         ImportShareBtn.IsEnabled = !_busy;
     }
 
-    private void SaveList_SelectionChanged(object s, SelectionChangedEventArgs e) => UpdateRowActions();
+    private void SaveList_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        UpdateRowActions();
+        SyncSelectionMark();
+    }
+
+    /// <summary>选中态：行内淡底 + 列表左缘那根共用竖条（与主页版本列表同款）。</summary>
+    private void SyncSelectionMark(bool animate = true)
+    {
+        ListSelectionFx.SyncInset(SaveList, animate);
+        UpdateSelectionBar(animate);
+    }
+
+    private void UpdateSelectionBar(bool animate) =>
+        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, SaveList,
+            ref _barY, ref _barShown, animate);
+
+    /// <summary>滚动时竖条跟着行一起走（不播动画，直接同步位置）。</summary>
+    private void HookSaveScroll()
+    {
+        if (_savesScroll is not null) return;
+        _savesScroll = ListSelectionFx.FindDescendant<ScrollViewer>(SaveList);
+        if (_savesScroll is not null)
+            _savesScroll.ViewChanged += (_, _) => UpdateSelectionBar(animate: false);
+    }
 
     private void Refresh_Click(object s, RoutedEventArgs e) => LoadSaves();
 

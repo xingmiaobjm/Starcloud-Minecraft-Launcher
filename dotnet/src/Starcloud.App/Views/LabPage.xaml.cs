@@ -71,8 +71,10 @@ public sealed partial class LabPage : Page
         {
             var dialog = new ThemedDialog
             {
-                Title = Loc.T("实验室（开发中）"),
-                Content = Loc.T("实验室功能受限，未完成开发。当前版本仅供内部测试，功能可能不完整或随时调整。"),
+                // 定位是「功能先行区」而不是「半成品警告」：最前沿能力先在这里开放，
+                // 社区提出的功能设想也在这里做成演示。半成品风险放在末句一句带过。
+                Title = Loc.T("欢迎来到 Starcloud 实验室"),
+                Content = Loc.T("Starcloud 实验室是星云最前沿功能的先行区——新能力在这里首先开放体验，用户提出的功能设想也在这里做成演示。功能仍在持续演进，欢迎试用并反馈。"),
                 CloseButtonText = Loc.T("知道了"),
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = XamlRoot,
@@ -657,6 +659,7 @@ public sealed partial class LabPage : Page
             // 列目录要解析每个文件的元数据：超大投影几百毫秒，别压在 UI 线程上
             var files = await Task.Run(() => _s.Projections.List());
             ProjectionList.ItemsSource = files.Select(f => new ProjectionRow(f)).ToList();
+            MotionFx.StaggerListItems(ProjectionList);
             ProjectionEmpty.Visibility = files.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             OpenProjectionDirBtn.IsEnabled = Directory.Exists(dirs[0]);
         }

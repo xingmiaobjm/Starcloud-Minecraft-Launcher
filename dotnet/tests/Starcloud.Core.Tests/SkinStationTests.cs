@@ -17,6 +17,26 @@ public class SkinStationTests
 {
     private const string Base = "https://skin.example.com";
 
+    [Theory]
+    [InlineData("https://littleskin.cn/api/yggdrasil", "https://littleskin.cn")]
+    [InlineData("https://littleskin.cn/api/yggdrasil/", "https://littleskin.cn")]
+    [InlineData("https://skin.example.com/api/yggdrasil", "https://skin.example.com")]
+    [InlineData("https://skin.example.com", "https://skin.example.com")]
+    [InlineData("https://skin.example.com/", "https://skin.example.com")]
+    public void Yggdrasil地址剥离成站点根(string serverBase, string expected) =>
+        Assert.Equal(expected, SkinStationService.SiteRootOf(serverBase));
+
+    [Fact]
+    public async Task 列出衣柜_账号记的是api_yggdrasil时请求落到站点根()
+    {
+        var http = new FakeHandler();
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=1&page_size=100", 200,
+            """{"code":0,"data":[{"tid":1,"name":"皮肤"}]}""");
+        // 账户档案里存的是 Yggdrasil 地址：拼接时不能变成 /api/yggdrasil/api/v1/...
+        var list = await new SkinStationService(http).ListAsync($"{Base}/api/yggdrasil", "token");
+        Assert.Single(list);
+    }
+
     [Fact]
     public async Task 列出衣柜_分页包裹与直接数组都认()
     {
@@ -115,6 +135,63 @@ public class SkinStationTests
             dir = dir.Parent;
         }
         throw new FileNotFoundException("找不到测试用皮肤 steve.png");
+    }
+
+    [Fact]
+    public async Task 列出衣柜_认BlessingSkin的data_skins形态与type版型()
+    {
+        var http = new FakeHandler();
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=1&page_size=100", 200,
+            """{"code":0,"data":{"skins":[{"tid":3,"name":"站上皮肤","type":"alex","url":"https://skin.example.com/t.png"},{"tid":4,"name":"默认版型","type":"steve"}]}}""");
+        var list = await new SkinStationService(http).ListAsync(Base, "token");
+
+        Assert.Equal(2, list.Count);
+        Assert.True(list[0].Slim);                 // type: alex 也要认（不只 model 字段）
+        Assert.Equal("https://skin.example.com/t.png", list[0].Url);
+        Assert.False(list[1].Slim);
+    }
+
+    [Fact]
+    public async Task 列出衣柜_跟着total_pages把分页拉全()
+    {
+        var http = new FakeHandler();
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=1&page_size=100", 200,
+            """{"code":0,"data":{"total_pages":2,"skins":[{"tid":1,"name":"第一页"}]}}""");
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=2&page_size=100", 200,
+            """{"code":0,"data":{"total_pages":2,"skins":[{"tid":2,"name":"第二页"}]}}""");
+        var list = await new SkinStationService(http).ListAsync(Base, "token");
+
+        Assert.Equal(2, list.Count);
+        Assert.Equal("第一页", list[0].Name);
+        Assert.Equal("第二页", list[1].Name);
+        Assert.Equal(2, http.Requests.Count(r => r.Method == "GET"));
+    }
+
+    [Fact]
+    public async Task 列出衣柜_后续页拉不到时保留第一页成果()
+    {
+        var http = new FakeHandler();
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=1&page_size=100", 200,
+            """{"code":0,"data":{"total_pages":3,"skins":[{"tid":1,"name":"第一页"}]}}""");
+        // page=2 / page=3 没有钉桩 → FakeHandler 回 404
+
+        var list = await new SkinStationService(http).ListAsync(Base, "token");
+
+        Assert.Single(list);                        // 第一页照样可用，不抛异常
+        Assert.Equal("第一页", list[0].Name);
+    }
+
+    [Fact]
+    public async Task 列出衣柜_同一张皮肤重复出现时去重()
+    {
+        var http = new FakeHandler();
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=1&page_size=100", 200,
+            """{"code":0,"data":{"total_pages":2,"skins":[{"tid":1,"name":"A"}]}}""");
+        http.Reply(HttpMethod.Get, $"{Base}/api/v1/user/skins?page=2&page_size=100", 200,
+            """{"code":0,"data":{"total_pages":2,"skins":[{"tid":1,"name":"A(重复)"}]}}""");
+        var list = await new SkinStationService(http).ListAsync(Base, "token");
+
+        Assert.Single(list);
     }
 
     /// <summary>按 (方法, URL) 配 canned 响应；可按顺序配多个（回退路径要两次不同的答复）</summary>

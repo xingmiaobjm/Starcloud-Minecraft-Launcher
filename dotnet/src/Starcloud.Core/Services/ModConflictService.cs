@@ -4,15 +4,17 @@
 // 处理冲突 = 将同 modId 的旧版本停用（改名 .jar.disabled）。
 
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>mods 目录中的单个模组 jar（Loader: fabric/quilt/forge/unknown，多加载器混合包含 "+"）</summary>
+/// <summary>mods 目录中的单个模组 jar（Loader: fabric/quilt/forge/neoforge/unknown，多加载器混合包含 "+"）</summary>
 public sealed record ModFileInfo(
     string FileName, string FullPath, long SizeBytes, DateTime ModifiedAt,
     string? ModId, string? ModName, string? ModVersion, string Loader,
-    string? GameVersion = null, string? Error = null);
+    string? GameVersion = null, string? Error = null, string? IconPath = null);
 
 /// <summary>一个冲突（Files 为涉及的文件名）</summary>
 public sealed record ModConflict(string Kind, string Detail, string Suggestion, List<string> Files);
@@ -149,6 +151,9 @@ public sealed class ModConflictService
     public static ModFileInfo Read(string path)
     {
         var fi = new FileInfo(path);
+        if (ModMetaCache.TryGet(path, fi, out var cached)) return cached;
+
+        ModFileInfo result;
         try
         {
             using var jar = ZipFile.OpenRead(path);
@@ -156,6 +161,10 @@ public sealed class ModConflictService
             string? id = null, name = null, version = null, gameVersion = null;
             var loader = "unknown";
             var hasFabricMeta = jar.GetEntry("fabric.mod.json") is not null;
+            // NeoForge 1.20.2+ 把元数据改名成 META-INF/neoforge.mods.toml（内容格式与 mods.toml 相同），
+            // 只认 mods.toml 会把所有 NeoForge 模组当成「没有元数据」→ 列表退回文件名、也没有名称可翻译。
+            var neoEntry = jar.GetEntry("META-INF/neoforge.mods.toml");
+            var hasNeoMeta = neoEntry is not null;
             var hasForgeMeta = jar.GetEntry("META-INF/mods.toml") is not null
                                || jar.GetEntry("mcmod.info") is not null;
 
@@ -171,27 +180,78 @@ public sealed class ModConflictService
                 gameVersion = QuiltMinecraftRange(quilt);
                 loader = "quilt";
             }
-            else if (hasForgeMeta)
+            else if (hasForgeMeta || hasNeoMeta)
             {
-                (id, name, version) = jar.GetEntry("META-INF/mods.toml") is { } toml
+                var toml = neoEntry ?? jar.GetEntry("META-INF/mods.toml");
+                (id, name, version) = toml is not null
                     ? ParseModsToml(toml)
                     : ParseMcModInfo(jar.GetEntry("mcmod.info")!);
-                gameVersion = jar.GetEntry("META-INF/mods.toml") is { } toml2
-                    ? TomlMinecraftRange(toml2)
+                gameVersion = toml is not null
+                    ? TomlMinecraftRange(toml)
                     : McModInfoGameVersion(jar.GetEntry("mcmod.info")!);
-                loader = "forge";
+                loader = hasNeoMeta ? "neoforge" : "forge";
             }
 
-            return new ModFileInfo(fi.Name, path, fi.Length, fi.LastWriteTime,
+            result = new ModFileInfo(fi.Name, path, fi.Length, fi.LastWriteTime,
                 id, name, version, loader, gameVersion,
-                id is null && !hasFabricMeta && !hasForgeMeta && jar.GetEntry("quilt.mod.json") is null
+                id is null && !hasFabricMeta && !hasForgeMeta && !hasNeoMeta &&
+                    jar.GetEntry("quilt.mod.json") is null
                     ? "未识别到 mod 元数据（可能是前置库）"
-                    : null);
+                    : null,
+                ExtractIcon(jar, id));
         }
         catch (Exception ex)
         {
-            return new ModFileInfo(fi.Name, path, fi.Length, fi.LastWriteTime,
+            result = new ModFileInfo(fi.Name, path, fi.Length, fi.LastWriteTime,
                 null, null, null, "unknown", Error: ex.Message);
+        }
+
+        ModMetaCache.Put(path, fi, result);
+        return result;
+    }
+
+    /// <summary>
+    /// 从 jar 里抠出模组图标（assets/&lt;modid&gt;/icon.png、根目录 icon.png/logo.png、pack.png），
+    /// 落到缓存目录并返回路径。找不到 / 解压失败返回 null —— 列表退回通用字形。
+    /// </summary>
+    private static string? ExtractIcon(ZipArchive jar, string? modId)
+    {
+        try
+        {
+            var candidates = new List<string>();
+            if (!string.IsNullOrWhiteSpace(modId))
+            {
+                candidates.Add($"assets/{modId}/icon.png");
+                candidates.Add($"assets/{modId}/textures/icon.png");
+            }
+            candidates.Add("icon.png");
+            candidates.Add("logo.png");
+            candidates.Add("pack.png");
+
+            ZipArchiveEntry? entry = null;
+            foreach (var candidate in candidates)
+                if ((entry = jar.GetEntry(candidate)) is not null) break;
+            entry ??= jar.Entries.FirstOrDefault(e =>
+                e.FullName.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) &&
+                e.FullName.EndsWith("/icon.png", StringComparison.OrdinalIgnoreCase));
+            if (entry is null || entry.Length == 0) return null;
+
+            var dir = Path.Combine(LauncherPaths.CacheDir, "mod-icons");
+            Directory.CreateDirectory(dir);
+            var key = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(
+                $"{entry.FullName}|{entry.Length}|{entry.LastWriteTime.UtcDateTime.Ticks}")))[..16];
+            var file = Path.Combine(dir, key + ".png");
+            if (!File.Exists(file))
+            {
+                using var stream = entry.Open();
+                using var output = File.Create(file);
+                stream.CopyTo(output);
+            }
+            return file;
+        }
+        catch
+        {
+            return null;
         }
     }
 
