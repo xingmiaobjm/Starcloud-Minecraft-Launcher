@@ -193,16 +193,20 @@
     <!-- 根节点两层：HomeContent（主页两列）+ LaunchOverlay（启动页覆盖层，见文件尾） -->
     <Grid>
         <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="360" />
-            </Grid.ColumnDefinitions>
+            <!-- 主页内容区改成 12 列卡片网格：版本卡 8 格 + 账户卡 4 格，比例与原来的双列一致。
+                 编辑模式下整卡拖动换格、右下角把手按格缩放，布局落在 home-layout.json。
+                 原来的「两列定义」由网格的列跨度表达，列间距 24 与两列时代保持一致。 -->
+            <ctrl:CardGridPanel x:Name="HomeGrid" ColumnGap="24" RowGap="16"
+                                StretchRows="True"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <ctrl:CardHost x:Name="VersionsHost" CardId="versions" CardType="versions"
+                           Column="0" Row="0" ColumnSpan="8" RowSpan="6">
 
         <!-- ═══ 左列：通知/自检（按需占位） + 插件首页卡片 + 版本库（撑满余下高度） ═══
              各行之间的间距走元素自己的 Margin，不用 Grid.RowSpacing：
              RowSpacing 按行边界收取，通知区 / 挂载区 / 卡片带整块收起、行高为 0 时它照收一份，
              版本卡就被推下去一截，与右栏账户卡的上边缘对不齐。 -->
-        <Grid Grid.Column="0" Margin="0,0,24,0">
+        <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <!-- 状态摘要条：只在收起态露面（展开态由版本卡自己占满整列） -->
@@ -294,6 +298,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock loc:Loc.Text="已安装版本" FontWeight="Medium" FontSize="15"
                                    VerticalAlignment="Center" />
@@ -319,7 +324,12 @@
                                       Fill="Transparent" />
                             </Grid>
                         </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="RefreshVersionsBtn" Grid.Column="4" Padding="6"
+                        <ctrl:GlowButton x:Name="EditLayoutBtn" Grid.Column="4" Padding="6"
+                                Background="Transparent" BorderThickness="0"
+                                Click="EditLayout_Click" loc:Loc.Name="编辑布局" loc:Loc.Tip="编辑主页布局">
+                            <TextBlock Text="布局" FontSize="12" />
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="RefreshVersionsBtn" Grid.Column="5" Padding="6"
                                 Background="Transparent" BorderThickness="0"
                                 Click="RefreshVersionsBtn_Click" loc:Loc.Name="刷新列表" loc:Loc.Tip="刷新列表">
                             <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE918;" FontSize="14" />
@@ -425,14 +435,17 @@
                 </Grid>
             </Border>
         </Grid>
+            </ctrl:CardHost>
 
+            <ctrl:CardHost x:Name="AccountHost" CardId="account" CardType="account"
+                           Column="8" Row="0" ColumnSpan="4" RowSpan="6">
         <!-- ═══ 右列：PCL2 式账户/启动卡（与窗口同高；可收起成一条只留启动按钮的 Dock） ═══ -->
         <!-- 展开态：Height=NaN + 拉伸，卡片跟着窗口同高；收起态：88 高 × 280 宽的窄条 + 右／底边对齐，
              与左栏版本窄条同尺寸（两角各一颗同宽同高的 Dock）。收起态底边就落在内容区底沿上，
              与展开态一致（两态页边距相等，不再多留一段底部缝）；由 SetCardExpanded 逐帧补间两者之间过渡
              （高度与宽度都是依赖型属性，上不了合成层）。宽度收起时右对齐 —— 右边缘始终贴着列右沿，
              与左栏窄条贴列左沿正好镜像。 -->
-        <Border x:Name="AccountCard" Grid.Column="1"
+        <Border x:Name="AccountCard"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">
@@ -705,6 +718,26 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
             </Grid>
         </Border>
+            </ctrl:CardHost>
+            </ctrl:CardGridPanel>
+        </Grid>
+
+        <!-- 布局编辑提示条：编辑模式下浮在内容上方。卡片内容此时不可交互，
+             退出入口因此不能放在卡片里，只能挂在这一层。 -->
+        <Grid x:Name="LayoutEditBar" Visibility="Collapsed"
+              HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
+              Canvas.ZIndex="10">
+            <Border Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="20" Padding="16,8">
+                <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                    <TextBlock loc:Loc.Text="拖动卡片调整位置，右下角把手调整大小"
+                               FontSize="12" VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Button Content="完成" Click="LayoutDone_Click"
+                            Style="{StaticResource ScAccentButtonStyle}" Padding="14,3" />
+                </StackPanel>
+            </Border>
         </Grid>
 
         <!-- ═══ 启动页覆盖层：点启动后盖住两列内容（PCL2 式，设计：launch-overlay-design.md §3.1） ═══ -->

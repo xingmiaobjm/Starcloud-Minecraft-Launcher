@@ -12,6 +12,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.Core.Services;
 using Windows.Foundation;
@@ -20,6 +21,7 @@ using Windows.UI;
 namespace Starcloud.App.Views.Controls;
 
 /// <summary>网格里的一张卡：内容 + 编辑层（整卡拖动面 / 右下角缩放把手 / 虚线框）。</summary>
+[ContentProperty(Name = nameof(CardContent))]
 public sealed class CardHost : Grid
 {
     private readonly ContentPresenter _presenter = new()
@@ -72,6 +74,9 @@ public sealed class CardHost : Grid
 
     /// <summary>稳定标识（与 HomeCardLayout.Id 对应）。</summary>
     public string CardId { get; set; } = "";
+
+    /// <summary>卡片类型（与 HomeCardCatalog 的 Type 对应，决定最小/最大占格）。</summary>
+    public string CardType { get; set; } = "";
 
     /// <summary>卡片内容（页面把自己的控件塞进来）。</summary>
     public object? CardContent
@@ -214,11 +219,14 @@ public sealed class CardGridPanel : Panel
         foreach (var host in Hosts())
         {
             if (!byId.TryGetValue(host.CardId, out var card)) continue;
-            host.Column = card.Column;
-            host.Row = card.Row;
-            host.ColumnSpan = card.ColumnSpan;
-            host.RowSpan = card.RowSpan;
+            var spec = HomeCardCatalog.Resolve(host.CardType);
+            var (spanW, spanH) = spec.Clamp(card.ColumnSpan, card.RowSpan);
+            host.Column = Math.Clamp(card.Column, 0, Math.Max(0, Columns - spanW));
+            host.Row = Math.Max(0, card.Row);
+            host.ColumnSpan = spanW;
+            host.RowSpan = spanH;
             host.Visibility = card.Visible ? Visibility.Visible : Visibility.Collapsed;
+            NotifyCardSize(host);
         }
         InvalidateMeasure();
     }
@@ -418,8 +426,13 @@ public sealed class CardGridPanel : Panel
         var columns = Math.Max(1, Columns);
         if (_resizing)
         {
-            _previewColumnSpan = Math.Clamp(_originColumnSpan + (int)Math.Round(dx / stepX), 1, columns - _originColumn);
-            _previewRowSpan = Math.Max(1, _originRowSpan + (int)Math.Round(dy / stepY));
+            var spec = HomeCardCatalog.Resolve(_dragHost.CardType);
+            // 右边界最多到网格末尾；极端情况下先保证不小于最小跨度，避免 Math.Clamp 的 min > max
+            var maxW = Math.Max(spec.MinColumnSpan, Math.Min(spec.MaxColumnSpan, columns - _originColumn));
+            _previewColumnSpan = Math.Clamp(_originColumnSpan + (int)Math.Round(dx / stepX),
+                spec.MinColumnSpan, maxW);
+            _previewRowSpan = Math.Clamp(_originRowSpan + (int)Math.Round(dy / stepY),
+                spec.MinRowSpan, spec.MaxRowSpan);
         }
         else
         {
@@ -464,9 +477,17 @@ public sealed class CardGridPanel : Panel
         host.Row = candidate.Row;
         host.ColumnSpan = candidate.ColumnSpan;
         host.RowSpan = candidate.RowSpan;
+        NotifyCardSize(host);
         InvalidateMeasure();
         LayoutChanged?.Invoke(this, EventArgs.Empty);
         e.Handled = true;
+    }
+
+    /// <summary>把新的占格告诉卡片内容（实现 ICardSizeAware 的内容据此切换排版档位）。</summary>
+    private static void NotifyCardSize(CardHost host)
+    {
+        if (host.CardContent is ICardSizeAware aware)
+            aware.ApplyCardSize(host.ColumnSpan, host.RowSpan);
     }
 
     private void OnGridPointerCanceled(object sender, PointerRoutedEventArgs e)

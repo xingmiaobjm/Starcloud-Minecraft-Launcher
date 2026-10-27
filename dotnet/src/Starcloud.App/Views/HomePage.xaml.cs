@@ -97,6 +97,32 @@ public sealed partial class HomePage : Page
             bar.Message = message;
             bar.IsOpen = true;
         };
+
+        // 卡片网格：把上次保存的格位套到两张卡上；拖动/缩放提交后立即落盘
+        _homeLayout = _homeLayoutStore.Load();
+        HomeGrid.ApplyLayout(_homeLayout);
+        HomeGrid.LayoutChanged += (_, _) =>
+        {
+            _homeLayout = HomeGrid.CaptureLayout(_homeLayout);
+            _homeLayoutStore.Save(_homeLayout);
+        };
+    }
+
+    private readonly HomeLayoutStore _homeLayoutStore = new();
+    private HomeLayoutConfig _homeLayout = HomeLayoutConfig.Default();
+
+    /// <summary>进入卡片布局编辑模式（版本卡卡头的「布局」按钮）。</summary>
+    private void EditLayout_Click(object sender, RoutedEventArgs e)
+    {
+        HomeGrid.IsEditing = true;
+        LayoutEditBar.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>退出编辑模式；格位在每次拖动提交时就已经落盘，这里只收编辑层。</summary>
+    private void LayoutDone_Click(object sender, RoutedEventArgs e)
+    {
+        HomeGrid.IsEditing = false;
+        LayoutEditBar.Visibility = Visibility.Collapsed;
     }
 
     private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp)
@@ -946,29 +972,13 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>
-    /// 右列这一格宽窄一变，收起态的版本窄条得跟着挪 —— 它的站位是「紧挨启动卡左边」，
-    /// 右移量正是启动卡让出来的空档 = 右列宽 − 启动卡当前宽（见 <see cref="VersionCollapsedShift"/>）。
-    /// 启动卡收起来（空档出现）或重新展开（空档消失）都要重新对位，
-    /// 否则窄条会停在按上一格宽度算出的位置上，与启动卡之间隔着一段说不清的缝。
-    /// <paramref name="cardWidth"/> 传具体值表示「按这一帧的卡宽算」（补间途中逐帧调用，两卡一起动）；
-    /// 传 <c>NaN</c> 表示按稳态卡宽算（终态收尾用）。
-    /// 只在没有版本补间进行时才动 —— 补间正跑着，它自己每帧都在算这个位置。
+    /// 右列这一格宽窄一变，收起态的版本窄条得跟着挪 —— 它的站位是「紧挨启动卡左边」。
+    /// 网格化之后窄条不再跨列搬家：它可能根本不在账户卡旁边，位置完全由所在格决定，
+    /// 因此这里不再逐帧对位（保留入口是为了两处调用点语义不变）。
     /// </summary>
     private void SyncCollapsedVersionBar(double cardWidth = double.NaN)
     {
-        if (!_versionsCollapsed || _versionFrame is not null) return;
-        if (HomeContent.ColumnDefinitions.Count < 2) return;
-        double colW = HomeContent.ColumnDefinitions[1].ActualWidth;
-        if (colW < 1) return;
-
-        double card = double.IsNaN(cardWidth)
-            ? (_cardExpanded ? colW : CardCompactWidth)
-            : cardWidth;
-        double shift = colW - card;
-        if (shift < 0) shift = 0;
-
-        VersionCard.Margin = new Thickness(0, 0, -shift, 0);
-        VersionCardShadow.Margin = VersionCard.Margin;
+        _ = cardWidth;
     }
 
     /// <summary>两段高度的当前值：显式值优先（含动画停在中途的那一帧），展开态交还 Auto 时才退回实测。</summary>
@@ -994,7 +1004,7 @@ public sealed partial class HomePage : Page
     /// <summary>展开态卡片宽度 = 右列那一格的宽（卡片撑满整列）；布局未定时退回卡片实测值。</summary>
     private double ResolveExpandedWidth()
     {
-        var w = HomeContent.ColumnDefinitions[1].ActualWidth;
+        var w = AccountHost.ActualWidth;
         return w > 1 ? w : AccountCard.ActualWidth;
     }
 
@@ -1242,24 +1252,10 @@ public sealed partial class HomePage : Page
             : double.NaN;
 
     /// <summary>
-    /// 收起态版本窄条的额外右移量：正好是右列（启动卡那一列）窄卡自己让出来的空档。
-    /// 版本窄条在左列里靠右站之后，两卡之间还隔着「两列间的 24 + 这道空档」；
-    /// 把这道空档整份右移补掉，窄条就紧贴到启动卡左边，间距回到与两列间距一致的 24。
-    /// 启动卡还撑着整列时返回 0 —— 否则窄条会钻到它底下（右列是先声明的，卡片要叠在上面）。
-    /// 卡宽取的是稳态该有的值，不读 <c>ActualWidth</c>：布局回调晚于补间末帧，
-    /// 末帧那一拍量到的还是补到一半的宽，会把空档算歪。
+    /// 收起态版本窄条的额外右移量。网格化之后窄条只在自己那一格里靠右站，
+    /// 不再跨列贴近启动卡（启动卡可能已经被拖到别处），因此恒为 0。
     /// </summary>
-    private double VersionCollapsedShift
-    {
-        get
-        {
-            if (HomeContent.ColumnDefinitions.Count < 2) return 0;
-            double colW = HomeContent.ColumnDefinitions[1].ActualWidth;
-            if (colW < 1) return 0;   // 布局未就绪：宁可不挪，也别算出一个歪位置
-            double slack = colW - (_cardExpanded ? colW : CardCompactWidth);
-            return slack > 1 ? slack : 0;
-        }
-    }
+    private double VersionCollapsedShift => 0;
 
     /// <summary>
     /// 量出展开态的「撑满高」与卡头自然高（会把两块放回布局，调用方随即用补间把它们压回起点）。
