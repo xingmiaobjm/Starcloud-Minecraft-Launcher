@@ -7,6 +7,7 @@ import android.webkit.JavascriptInterface
 import cn.starcloud.launcher.compose.data.InstallState
 import cn.starcloud.launcher.compose.data.LauncherPrefs
 import cn.starcloud.launcher.compose.data.VersionsRepository
+import cn.starcloud.launcher.compose.data.ManifestEntry
 import cn.starcloud.launcher.compose.data.ManifestRepository
 import cn.starcloud.launcher.compose.data.VersionDownloader
 import cn.starcloud.launcher.compose.game.GameLauncher
@@ -140,9 +141,31 @@ class StarcloudBridge(
     }
 
     // ── catalog.versions：官方清单（缓存优先，离线也能列出） ──
+    //
+    // 注意：这里是 @JavascriptInterface，只能同步返回。fetch() 要发网络请求
+    // （8 秒连接 + 15 秒读取超时），同步做会把 WebView 的 JS 线程堵住最长 23 秒 ——
+    // 页面表现为「点一下就没反应」。
+    // 改成：立刻返回缓存（没有缓存就返回空列表 + 拉取标记），
+    // 真正的拉取丢到 worker 上做，拉完再推事件让页面刷新。
     private fun remoteVersions(): String {
         val repo = ManifestRepository(File(filesRoot, "cache/version_manifest.json"))
-        val list = try { repo.cached() ?: repo.fetch() } catch (e: Exception) { emptyList() }
+        val cached = try { repo.cached() } catch (e: Exception) { null }
+        if (cached == null) {
+            // 没有缓存：后台去拉，同时告诉页面「正在拉取」
+            worker.execute {
+                val list = try { repo.fetch() } catch (e: Exception) { emptyList() }
+                emit("catalog.versions.changed", remoteVersionsJson(list))
+            }
+            return remoteVersionsJson(emptyList(), fetching = true)
+        }
+        return remoteVersionsJson(cached)
+    }
+
+    /** 官方清单的 JSON 载荷；fetching=true 表示「正在后台拉取」。 */
+    private fun remoteVersionsJson(
+        list: List<ManifestEntry>,
+        fetching: Boolean = false,
+    ): String {
         val arr = JSONArray()
         list.forEach { e ->
             arr.put(JSONObject().apply {
@@ -156,6 +179,7 @@ class StarcloudBridge(
         return JSONObject().apply {
             put("remote", arr)
             put("installed", JSONObject(installedVersions()).getJSONArray("installed"))
+            if (fetching) put("fetching", true)
         }.toString()
     }
 

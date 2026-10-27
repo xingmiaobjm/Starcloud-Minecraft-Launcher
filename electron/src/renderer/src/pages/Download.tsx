@@ -108,6 +108,16 @@ export default function DownloadPage(): JSX.Element {
     void load()
   }, [load])
 
+  // 安卓 Web 壳：清单拉取是异步的（原生侧不能同步等网络），
+  // 拉完由原生推 'catalog.versions.changed'，这里收到就刷新列表。
+  useEffect(() => {
+    onBridgeEvent((event, params) => {
+      if (event !== 'catalog.versions.changed') return
+      const data = params as unknown as VersionCatalog
+      if (data && Array.isArray(data.remote)) setCatalog(data)
+    })
+  }, [])
+
   // 安装进度事件流
   useEffect(() => {
     let alive = true

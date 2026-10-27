@@ -6966,6 +6966,10 @@ var m = reactDomExports;
   client.createRoot = m.createRoot;
   client.hydrateRoot = m.hydrateRoot;
 }
+function nativeApi() {
+  const api = globalThis.native;
+  return api !== void 0 && typeof api.skinIcon === "function" ? api : null;
+}
 const MOCK_NOW = Date.now();
 const ago = (h) => new Date(MOCK_NOW - h * 36e5).toISOString();
 const MOCK_VERSIONS = [
@@ -6986,6 +6990,42 @@ const MOCK_ACCOUNTS = [
     isDefault: false,
     hasSession: false,
     serverName: "LittleSkin"
+  }
+];
+const MOCK_SKINS = [
+  {
+    id: "sk0a1b2c3d4e5",
+    name: "经典 Steve",
+    model: "classic",
+    fileName: "sk0a1b2c3d4e5.png",
+    path: "/home/user/.starcloud/skins/sk0a1b2c3d4e5.png",
+    source: "file",
+    width: 64,
+    height: 64,
+    addedAt: ago(52)
+  },
+  {
+    id: "sk1b2c3d4e5f6",
+    name: "纤细 Alex",
+    model: "slim",
+    fileName: "sk1b2c3d4e5f6.png",
+    path: "/home/user/.starcloud/skins/sk1b2c3d4e5f6.png",
+    source: "url",
+    sourceUrl: "https://littleskin.cn/skin/alex.png",
+    width: 64,
+    height: 64,
+    addedAt: ago(9)
+  },
+  {
+    id: "sk2c3d4e5f6a7",
+    name: "高清 128×128",
+    model: "auto",
+    fileName: "sk2c3d4e5f6a7.png",
+    path: "/home/user/.starcloud/skins/sk2c3d4e5f6a7.png",
+    source: "file",
+    width: 128,
+    height: 128,
+    addedAt: ago(200)
   }
 ];
 const CONTENT_FILE_MOCK = [
@@ -7040,7 +7080,6 @@ function mockOf(method, p2) {
     case "accounts.addOffline":
     case "accounts.setCurrent":
     case "accounts.remove":
-    case "accounts.setSkin":
     case "settings.apply":
     case "version.saveSettings":
       return {};
@@ -7322,6 +7361,69 @@ function mockOf(method, p2) {
       };
     case "nova.chat":
       return { accepted: true };
+    case "auth.microsoft.start":
+      return {
+        userCode: "STAR-3F7K",
+        deviceCode: "mock-device-code",
+        verificationUri: "https://www.microsoft.com/link",
+        interval: 5
+      };
+    case "auth.microsoft.poll":
+      return { state: "pending", message: "等待用户授权" };
+    case "auth.yggdrasil.login":
+      return {
+        state: "success",
+        account: {
+          uuid: "e5",
+          name: String(p2.username ?? "Player"),
+          type: "external",
+          serverName: "Mock 皮肤站"
+        }
+      };
+    case "skins.list":
+      return { skins: MOCK_SKINS };
+    case "skins.importPath":
+    case "skins.importUrl": {
+      const picked = MOCK_SKINS[0];
+      return {
+        skin: {
+          ...picked,
+          id: "sknew" + String(p2.url ?? p2.path ?? "").length,
+          name: String(p2.name ?? "新导入的皮肤"),
+          source: p2.url !== void 0 ? "url" : "file",
+          sourceUrl: p2.url !== void 0 ? String(p2.url) : void 0,
+          addedAt: new Date(MOCK_NOW).toISOString()
+        }
+      };
+    }
+    case "skins.rename":
+      return {
+        skin: {
+          ...MOCK_SKINS.find((s) => s.id === p2.id) ?? MOCK_SKINS[0],
+          name: String(p2.name)
+        }
+      };
+    case "skins.setModel":
+      return {
+        skin: {
+          ...MOCK_SKINS.find((s) => s.id === p2.id) ?? MOCK_SKINS[0],
+          model: p2.model === "slim" ? "slim" : "classic"
+        }
+      };
+    case "skins.delete":
+      return { ok: true };
+    case "skins.station.list":
+      return { skins: [] };
+    case "skins.station.apply":
+      return { message: "皮肤已提交到皮肤站" };
+    case "accounts.setSkin":
+      return {
+        account: {
+          ...MOCK_ACCOUNTS.find((a) => a.uuid === p2.uuid) ?? MOCK_ACCOUNTS[0],
+          skinId: p2.skinId === void 0 ? void 0 : String(p2.skinId),
+          skinModel: p2.model === void 0 ? void 0 : String(p2.model)
+        }
+      };
     default:
       return {};
   }
@@ -7351,11 +7453,18 @@ function installMockBridgeIfNeeded() {
   window.bridgeEvents = { subscribe: (handler) => void handlers.push(handler) };
   console.info("[bridge] 浏览器调试模式：使用内置 mock 数据");
 }
+function cleanError(e) {
+  const raw = e instanceof Error ? e.message : String(e);
+  const stripped = raw.replace(/^Error invoking remote method '[^']*':\s*/i, "").replace(/^Error:\s*/i, "");
+  return new Error(stripped === "" ? raw : stripped);
+}
 function request(method, params = {}) {
   if (typeof window === "undefined" || window.bridge === void 0) {
     return Promise.reject(new Error("桥接不可用"));
   }
-  return window.bridge.request(method, params);
+  return window.bridge.request(method, params).catch((e) => {
+    throw cleanError(e);
+  });
 }
 function onBridgeEvent(handler) {
   if (typeof window === "undefined" || window.bridgeEvents === void 0) return;
@@ -7372,6 +7481,7 @@ const bridge = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
   appVersion,
   installMockBridgeIfNeeded,
   isMockMode,
+  nativeApi,
   onBridgeEvent,
   request
 }, Symbol.toStringTag, { value: "Module" }));
@@ -7441,7 +7551,7 @@ function Nav(props) {
         "aria-label": open ? "收起导航" : "展开导航",
         onClick: () => setOpen((v2) => !v2),
         children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-icon", style: { fontFamily: "var(--font-icon)" }, children: open ? "" : "" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-icon", style: { fontFamily: "var(--font-icon)" }, children: open ? String.fromCharCode(60038) : String.fromCharCode(60553) }),
           open && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-label", children: "收起" })
         ]
       }
@@ -7523,15 +7633,34 @@ function useTheme(initial) {
   }, [resolved]);
   return { mode, resolved, setMode, cycle };
 }
+function applyVisualSettings(s) {
+  const root = document.documentElement;
+  const level = s.motionLevel === "" ? "balanced" : s.motionLevel;
+  root.setAttribute("data-motion", level === "minimal" ? "off" : "on");
+  const mode = s.backgroundMode === "" ? "none" : s.backgroundMode;
+  root.setAttribute("data-bg", mode);
+  if (mode === "image" && s.backgroundImagePath !== "") {
+    const normalized = s.backgroundImagePath.replace(/\\/g, "/");
+    const url = normalized.startsWith("/") ? `file://${normalized}` : `file:///${normalized}`;
+    root.style.setProperty("--bg-image", `url("${url}")`);
+  } else {
+    root.style.removeProperty("--bg-image");
+  }
+  root.style.setProperty("--bg-opacity", `${Math.max(0, Math.min(1, s.backgroundImageOpacity))}`);
+  root.style.setProperty("--bg-blur", `${Math.max(0, Math.min(64, s.backgroundBlurRadius))}px`);
+  root.setAttribute("data-bg-follow-theme", s.backgroundFollowTheme ? "1" : "0");
+}
+async function loadAndApplyVisualSettings() {
+  try {
+    const snap = await request("settings.get");
+    applyVisualSettings(snap);
+  } catch {
+  }
+}
 function winApi() {
   const w2 = globalThis.win;
   return w2 !== void 0 && typeof w2.close === "function" ? w2 : null;
 }
-const THEME_LABEL = {
-  system: "跟随系统",
-  light: "浅色",
-  dark: "深色"
-};
 function TitleBar(props) {
   const win = winApi();
   const [maximized, setMaximized] = reactExports.useState(false);
@@ -7595,22 +7724,8 @@ function TitleBar(props) {
       onDoubleClick: maximize,
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "tb-lead tb-no-drag", children: props.children }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "tb-title tb-no-drag", children: [
-          props.title,
-          props.themeMode !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              className: "tb-theme",
-              title: `主题：${THEME_LABEL[props.themeMode]}（点击切换）`,
-              "aria-label": "切换主题",
-              onClick: (e) => {
-                e.stopPropagation();
-                props.onCycleTheme?.();
-              },
-              children: props.themeMode === "dark" ? "◐" : props.themeMode === "light" ? "○" : "◑"
-            }
-          )
-        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+        props.actions !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "tb-actions", children: props.actions }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "tb-actions", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
@@ -7650,6 +7765,306 @@ function TitleBar(props) {
     }
   );
 }
+const PICKAXE_PATH = "M16,4 H32 V8 H36 V12 H40 V20 H36 V24 H32 V20 H28 V16 H24 V40 H20 V44 H16 V16 H12 V24 H8 V20 H12 V12 H16 Z";
+const TIPS = [
+  "右键版本列表里的版本，可以「问 Nova」或删除此版本。",
+  "Nova 页可以开启游戏内浮窗，局内帮你盯帧数和崩溃。",
+  "版本设置里可调内存分配，整合包一般 4-8G 就够。",
+  "启动前的自检会自动补全缺失文件，不用手动下载。",
+  "Nova 能帮你找整合包和模组，直接说需求就行。",
+  "启动出错别慌，错误原因会直接写在启动页上。",
+  "删错版本没关系，去下载页重新安装即可恢复。",
+  "在「外置」模式填入你自己的第三方认证服务器即可登录。",
+  "床可以记录重生点，但在下界会爆炸——可以当 TNT 用。",
+  "铁傀儡不怕摔，但会溺水，别让它掉进水里。",
+  "苦力怕怕猫：在家附近养猫可以吓退它。",
+  "末影人碰水会受伤，也不会传送进水里。",
+  "用命名牌在铁砧上改名的生物不会自然消失。",
+  "蜂蜜块会减速并减轻摔落伤害，适合做缓冲垫。",
+  "灵魂沙水下气泡会把你往上推，是天然电梯。",
+  "村民交易会刷新职业等级，升级解锁更好的商品。",
+  "内存并非越大越流畅，分配过多反而可能更卡。",
+  "Java 版本会按整合包要求自动匹配，无需手动选。",
+  "游戏崩溃时先看 .minecraft/logs 里的日志，看不懂问 Nova。",
+  "窗口创建失败多半是显卡驱动问题，先更新驱动。",
+  "装光影后启动失败，通常是驱动或内存不足导致。",
+  "模组多时首次加载较慢，属于正常现象，耐心等待。",
+  "大版本更新前记得备份存档，以防万一。",
+  "整合包报「模组冲突」可以让 Nova 帮你定位。"
+];
+function LaunchOverlay(props) {
+  const s = props.session;
+  const [showLog, setShowLog] = reactExports.useState(false);
+  const logRef = reactExports.useRef(null);
+  const tip = reactExports.useMemo(() => TIPS[Math.floor(Math.random() * TIPS.length)], [s.launching]);
+  const failed = s.launchFailed === true && s.launching === false;
+  reactExports.useEffect(() => {
+    if (logRef.current !== null) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [s.logs, showLog]);
+  if (!s.launching && !failed) return null;
+  const stage = s.stage ?? (failed ? "启动失败" : "正在启动");
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      style: {
+        position: "absolute",
+        inset: 0,
+        zIndex: 500,
+        background: "var(--surface-window)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        animation: "fadeIn 180ms cubic-bezier(0.33,0,0.67,1) both"
+      },
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          style: {
+            width: 480,
+            maxWidth: "92%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 14
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "48", height: "48", viewBox: "0 0 48 48", "aria-hidden": true, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: PICKAXE_PATH, fill: "var(--accent)" }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 24, fontWeight: 500, textAlign: "center" }, children: failed ? "启动失败" : "正在启动" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                className: "t-body truncate",
+                style: { maxWidth: "100%", textAlign: "center", color: "var(--text-secondary)" },
+                title: props.versionId,
+                children: props.versionId ?? ""
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "progress", style: { width: 340, height: 4 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                className: "progress-fill",
+                style: { width: `${failed ? 100 : s.progress ?? 6}%` }
+              }
+            ) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "div",
+              {
+                style: {
+                  width: 340,
+                  display: "grid",
+                  gridTemplateColumns: "auto 1fr",
+                  rowGap: 4,
+                  columnGap: 8,
+                  fontSize: 13
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { opacity: 0.7, color: "var(--text-secondary)" }, children: "当前步骤" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: stage }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { opacity: 0.7, color: "var(--text-secondary)" }, children: "登录方式" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: s.loginMode ?? "离线登录" })
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "div",
+              {
+                className: "card",
+                style: { width: 340, padding: "10px 12px", display: "flex", gap: 10 },
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "span",
+                    {
+                      style: {
+                        width: 4,
+                        borderRadius: 2,
+                        background: failed ? "var(--danger)" : "var(--accent)",
+                        flexShrink: 0
+                      }
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "span",
+                    {
+                      style: {
+                        fontSize: 12,
+                        lineHeight: "18px",
+                        color: "var(--text-secondary)",
+                        whiteSpace: "pre-wrap"
+                      },
+                      children: failed ? s.status.replace(/^启动失败：/, "") : tip
+                    }
+                  )
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-sm", onClick: () => setShowLog((v2) => !v2), children: showLog ? "隐藏日志" : "显示日志" }),
+            showLog && /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                ref: logRef,
+                className: "log",
+                style: {
+                  width: 440,
+                  height: 180,
+                  background: "var(--surface-subtle)",
+                  borderRadius: 8,
+                  border: "1px solid var(--stroke-subtle)"
+                },
+                children: s.logs.length === 0 ? "（暂无输出）" : s.logs.join("\n")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: "btn",
+                style: { minWidth: 240 },
+                onClick: () => {
+                  setShowLog(false);
+                  props.onCancel();
+                },
+                children: failed ? "关闭" : "取消"
+              }
+            )
+          ]
+        }
+      )
+    }
+  );
+}
+function Svg(props) {
+  const size = props.size ?? 16;
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "svg",
+    {
+      width: size,
+      height: size,
+      viewBox: "0 0 24 24",
+      fill: props.fill === true ? "currentColor" : "none",
+      stroke: props.fill === true ? "none" : "currentColor",
+      strokeWidth: props.fill === true ? void 0 : 1.6,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      className: props.className,
+      style: { flexShrink: 0, ...props.style },
+      "aria-hidden": true,
+      children: props.children
+    }
+  );
+}
+function IconRefresh(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 12a8 8 0 1 1-2.34-5.66" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 4v5h-5" })
+  ] });
+}
+function IconChevronDown(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M6 9l6 6 6-6" }) });
+}
+function IconChevronRight(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M9 6l6 6-6 6" }) });
+}
+function IconPlay(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, fill: true, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M8 5.5v13a1 1 0 0 0 1.53.85l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 8 5.5z" }) });
+}
+function IconClose(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M6 6l12 12M18 6L6 18" }) });
+}
+function IconMore(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, fill: true, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "5", r: "1.6" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "1.6" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "19", r: "1.6" })
+  ] });
+}
+function IconTrash(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10 11v6M14 11v6" })
+  ] });
+}
+function IconFolder(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h8.5A1.5 1.5 0 0 1 20.5 10v7a1.5 1.5 0 0 1-1.5 1.5H4.5A1.5 1.5 0 0 1 3 17z" }) });
+}
+function IconImport(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 4v9" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M8.5 9.5L12 13l3.5-3.5" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" })
+  ] });
+}
+function IconLink(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10.5 13.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5L11.8 7" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M13.5 10.5a3.5 3.5 0 0 0-5 0L6 13a3.5 3.5 0 0 0 5 5l1.2-1.2" })
+  ] });
+}
+function IconList(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M8 6h12M8 12h12M8 18h12" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 6h.01M4 12h.01M4 18h.01" })
+  ] });
+}
+function IconHome(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M9.5 20.5v-6h5v6" })
+  ] });
+}
+function IconSettings(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.87 1.2V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.09A1.7 1.7 0 0 0 10.3 2.6V2.5a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.51 1.51h.09a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.4z" })
+  ] });
+}
+function IconUser(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "8", r: "3.6" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4.5 20.5c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" })
+  ] });
+}
+function IconSparkle(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9L12 16.5l-1.9-4.6L5.5 10l4.6-1.9z" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M18 17l.9 2.1L21 20l-2.1.9L18 23l-.9-2.1L15 20l2.1-.9z" })
+  ] });
+}
+function IconCheck(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M5 12.5l4.5 4.5L19 7.5" }) });
+}
+function IconWarning(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 4.5l8.5 15H3.5z" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 10v4M12 17h.01" })
+  ] });
+}
+function IconInfo(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "8.5" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 11v5M12 8h.01" })
+  ] });
+}
+function IconPlus(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Svg, { ...props, children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 5v14M5 12h14" }) });
+}
+function IconCube(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 3.5l8 4.2v8.6l-8 4.2-8-4.2V7.7z" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 7.7l8 4.3 8-4.3M12 12v8.5" })
+  ] });
+}
+function IconWorld(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "3.5", y: "3.5", width: "17", height: "17", rx: "2" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M3.5 9.5h17M3.5 15h17M9.5 3.5v17M15 3.5v17" })
+  ] });
+}
+function IconTasks(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Svg, { ...props, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 6.5h10M4 12h16M4 17.5h16" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 6.5h.01" })
+  ] });
+}
 function PageShell(props) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-head", children: [
@@ -7671,44 +8086,49 @@ function EmptyState(props) {
 }
 function SkeletonList(props) {
   const rows = props.rows ?? 5;
-  const [visible, setVisible] = reactExports.useState(0);
-  reactExports.useEffect(() => {
-    let i = 0;
-    const timer = setInterval(() => {
-      i += 1;
-      setVisible(Math.min(i, rows));
-      if (i >= rows) clearInterval(timer);
-    }, 60);
-    return () => clearInterval(timer);
-  }, [rows]);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: Array.from({ length: visible }).map((_, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "skel-row", style: { opacity: 1 - index * 0.12 }, children: [
-    props.avatar === true && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skel-thumb" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skel-text", style: { maxWidth: `${60 - index * 6}%` } })
-  ] }, index)) });
-}
-function LoadingCard(props) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, {}),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: props.label ?? "加载中…" })
-  ] });
-}
-function Spinner(props) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: props.size === "lg" ? "spinner spinner-lg" : "spinner" });
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { animation: "fadeIn 180ms cubic-bezier(0.33, 0, 0.67, 1) both" }, children: Array.from({ length: rows }).map((_, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: "skel-row",
+      style: { minHeight: props.tall === true ? 72 : 44 },
+      children: [
+        props.avatar === true && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "skel-thumb",
+            style: props.tall === true ? { width: 64, height: 64, borderRadius: 8 } : void 0
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skel-text", style: { maxWidth: `${60 - index * 6}%` } })
+      ]
+    },
+    index
+  )) });
 }
 const TOAST_ICON = {
-  success: "✓",
-  error: "✕",
-  info: "ⓘ",
-  warning: "⚠"
+  success: /* @__PURE__ */ jsxRuntimeExports.jsx(IconCheck, { size: 14 }),
+  error: /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
+  info: /* @__PURE__ */ jsxRuntimeExports.jsx(IconInfo, { size: 14 }),
+  warning: /* @__PURE__ */ jsxRuntimeExports.jsx(IconWarning, { size: 14 })
 };
+function InfoBar(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `info info-${props.kind ?? "info"}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: TOAST_ICON[props.kind ?? "info"] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", children: [
+      props.title !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-title", children: props.title }),
+      props.children
+    ] }),
+    props.onDismiss !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle btn-sm", onClick: props.onDismiss, children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 13 }) })
+  ] });
+}
 function useToasts() {
   const [items, setItems] = reactExports.useState([]);
   const seq = reactExports.useRef(1);
-  const push = (kind, text) => {
+  const push = reactExports.useCallback((kind, text) => {
     const id2 = seq.current++;
     setItems((prev) => [...prev, { id: id2, kind, text }]);
     setTimeout(() => setItems((prev) => prev.filter((t2) => t2.id !== id2)), 4200);
-  };
+  }, []);
   const host = /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "toast-host", children: items.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card toast info info-{item.kind}", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: TOAST_ICON[item.kind] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", children: item.text }),
@@ -7717,11 +8137,24 @@ function useToasts() {
       {
         className: "btn btn-subtle btn-sm",
         onClick: () => setItems((prev) => prev.filter((t2) => t2.id !== item.id)),
-        children: "✕"
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 13 })
       }
     )
   ] }, item.id)) });
   return { push, host };
+}
+function Toggle(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "button",
+    {
+      className: "toggle",
+      role: "switch",
+      "aria-checked": props.checked,
+      "aria-label": props.label,
+      disabled: props.disabled,
+      onClick: () => props.onChange(!props.checked)
+    }
+  );
 }
 function Segmented(props) {
   const n2 = props.options.length;
@@ -7737,7 +8170,9 @@ function Segmented(props) {
         className: "seg-ind",
         style: {
           width: `calc(${slot}% - 2px)`,
-          transform: `translateX(calc(2px + ${index} * ${slot}%))`
+          // translateX 的百分比相对「指示器自身宽度」（恰好一格），
+          // 所以每前进一格 = +100%，再补格子之间的 2px 间距
+          transform: `translateX(calc(2px + ${index * 100}% + ${index * 2}px))`
         }
       }
     ),
@@ -7875,6 +8310,115 @@ class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+function Select(props) {
+  const [open, setOpen] = reactExports.useState(false);
+  const [rect, setRect] = reactExports.useState(
+    null
+  );
+  const rootRef = reactExports.useRef(null);
+  const popRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      const t2 = e.target;
+      if (rootRef.current?.contains(t2) === true) return;
+      if (popRef.current?.contains(t2) === true) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const close = () => setOpen(false);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+  const current = props.options.find((o) => o.value === props.value);
+  const toggle = () => {
+    if (props.disabled === true) return;
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const r2 = rootRef.current?.getBoundingClientRect();
+    if (r2 === void 0) return;
+    const itemH = 34;
+    const estimated = Math.min(320, props.options.length * itemH + 12);
+    setRect({
+      left: r2.left,
+      top: r2.bottom + 6,
+      width: r2.width,
+      up: window.innerHeight - r2.bottom < estimated + 16
+    });
+    setOpen(true);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: rootRef, style: { width: props.width ?? 220 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: "input",
+        style: {
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          cursor: props.disabled === true ? "default" : "pointer",
+          opacity: props.disabled === true ? 0.5 : 1,
+          textAlign: "left"
+        },
+        disabled: props.disabled,
+        title: current?.label ?? props.placeholder ?? "",
+        onClick: toggle,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", style: { flex: 1 }, children: current?.label ?? props.placeholder ?? "" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconChevronDown, { size: 14, style: { opacity: 0.6 } })
+        ]
+      }
+    ),
+    open && rect !== null && reactDomExports.createPortal(
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          ref: popRef,
+          className: "flyout",
+          style: {
+            position: "fixed",
+            left: rect.left,
+            width: rect.width,
+            ...rect.up ? { bottom: window.innerHeight - rect.top + 12 } : { top: rect.top },
+            maxHeight: 320,
+            overflowY: "auto",
+            zIndex: 900,
+            padding: 6,
+            // 不透明底：半透明 + 大模糊会把下面的文字透上来，读不清
+            background: "var(--surface-window)"
+          },
+          children: props.options.map((o) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: `nav-item${o.value === props.value ? " nav-active" : ""}`,
+              style: { height: 32, width: "100%", fontSize: 13, flexShrink: 0 },
+              onClick: () => {
+                props.onChange(o.value);
+                setOpen(false);
+              },
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: o.label })
+            },
+            o.value
+          ))
+        }
+      ),
+      document.body
+    )
+  ] });
+}
 const scriptRel = function detectScriptRel() {
   const relList = typeof document !== "undefined" && document.createElement("link").relList;
   return relList && relList.supports && relList.supports("modulepreload") ? "modulepreload" : "preload";
@@ -7970,6 +8514,7 @@ function useGameSession() {
         setStore((s) => ({
           ...s,
           pid: void 0,
+          sessionId: void 0,
           launching: false,
           exitCode: code,
           status: `游戏退出（exit=${code}）`
@@ -7982,35 +8527,124 @@ function useGameSession() {
     selectedVersion,
     setVersion,
     clearLogs: () => setStore((s) => ({ ...s, logs: [] })),
-    launch: async ({ versionId, playerName, accountUuid }) => {
+    dismissLaunchError: () => setStore((s) => ({ ...s, launchFailed: false, status: "", stage: void 0, progress: void 0 })),
+    launch: async ({ versionId, playerName, accountUuid, loginMode }) => {
       if (startedRef.current === false) return;
-      setStore((s) => ({ ...s, launching: true, status: "启动中…", logs: [] }));
+      const step = (stage, progress) => setStore((s) => ({ ...s, stage, progress, launching: true }));
+      setStore((s) => ({
+        ...s,
+        launching: true,
+        launchFailed: false,
+        logs: [],
+        status: "启动中…",
+        launchVersion: versionId,
+        stage: "检查运行环境…",
+        progress: 8,
+        loginMode: loginMode ?? ""
+      }));
       const { request: request2 } = await __vitePreload(async () => {
         const { request: request3 } = await Promise.resolve().then(() => bridge);
         return { request: request3 };
       }, true ? void 0 : void 0, import.meta.url);
       try {
+        step("准备游戏文件…", 35);
         const session = await request2("launch.start", {
           versionId,
           playerName,
           accountUuid
         });
+        step("游戏进程已启动", 100);
         setStore((s) => ({
           ...s,
           launching: false,
+          sessionId: session.sessionId,
           pid: session.pid,
           exitCode: void 0,
+          launchFailed: false,
+          stage: void 0,
+          progress: void 0,
           status: `游戏运行中（pid ${session.pid}）`
         }));
       } catch (e) {
+        const message = String(e);
         setStore((s) => ({
           ...s,
           launching: false,
-          status: `启动失败：${String(e)}`
+          launchFailed: true,
+          stage: void 0,
+          progress: void 0,
+          status: `启动失败：${message}`
         }));
       }
     }
   };
+}
+function now() {
+  const d = /* @__PURE__ */ new Date();
+  const p2 = (n2) => n2.toString().padStart(2, "0");
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+function useTaskCenter() {
+  const [tasks, setTasks] = reactExports.useState([]);
+  const [notifications, setNotifications] = reactExports.useState([]);
+  const seqRef = reactExports.useRef(1);
+  const notify = reactExports.useCallback((level, message) => {
+    setNotifications(
+      (prev) => [{ id: seqRef.current++, time: now(), level, message }, ...prev].slice(0, 100)
+    );
+  }, []);
+  reactExports.useEffect(() => {
+    let alive = true;
+    const upsert = (id2, patch) => {
+      setTasks((prev) => {
+        const idx = prev.findIndex((t2) => t2.id === id2);
+        if (idx < 0) return prev;
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...patch };
+        return next;
+      });
+    };
+    onBridgeEvent((event, params) => {
+      if (!alive) return;
+      if (event === "install.progress") {
+        const id2 = String(params.versionId ?? params.projectId ?? "");
+        if (id2 === "") return;
+        setTasks((prev) => {
+          const exists = prev.some((t2) => t2.id === id2);
+          const base = {
+            id: id2,
+            kind: "download",
+            title: id2,
+            status: String(params.stage ?? ""),
+            progress: Number(params.total ?? 0) > 0 ? Number(params.current ?? 0) / Number(params.total) * 100 : void 0,
+            startedAt: Date.now()
+          };
+          return exists ? prev.map(
+            (t2) => t2.id === id2 ? { ...t2, status: base.status, progress: base.progress } : t2
+          ) : [base, ...prev];
+        });
+      } else if (event === "install.done") {
+        const id2 = String(params.versionId ?? params.projectId ?? "");
+        upsert(id2, { finished: true, status: "已完成", progress: 100 });
+        notify("信息", `${id2} 安装完成`);
+      } else if (event === "install.failed") {
+        const id2 = String(params.versionId ?? params.projectId ?? "");
+        upsert(id2, { finished: true, failed: true, status: "失败" });
+        notify("错误", `${id2} 安装失败：${String(params.error ?? "")}`);
+      } else if (event === "game.exited") {
+        const code = Number(params.code ?? -1);
+        notify(
+          code === 0 ? "信息" : "错误",
+          `游戏退出（exit=${code}）`
+        );
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [notify]);
+  const clearNotifications = reactExports.useCallback(() => setNotifications([]), []);
+  return { tasks, notifications, clearNotifications };
 }
 const grassIcon = "" + new URL("natural_grass_block-CHp-IFT_.png", import.meta.url).href;
 const amethystIcon = "" + new URL("block_of_amethyst-CNDtZttz.png", import.meta.url).href;
@@ -8037,7 +8671,7 @@ const TYPE_ICONS$1 = {
   old_beta: cobbleIcon,
   old_alpha: dirtIcon
 };
-function iconFor$1(version) {
+function iconFor$2(version) {
   const loader = version.loader ?? "";
   if (loader !== "" && LOADER_ICONS$1[loader] !== void 0) return LOADER_ICONS$1[loader];
   const lower = version.id.toLowerCase();
@@ -8111,9 +8745,6 @@ function HomePage(props) {
   const [mode, setMode] = reactExports.useState("offline");
   const [error, setError] = reactExports.useState("");
   const [loading, setLoading] = reactExports.useState(true);
-  const [java, setJava] = reactExports.useState(
-    void 0
-  );
   const [gameDir, setGameDir] = reactExports.useState("");
   const [avatarFailed, setAvatarFailed] = reactExports.useState(false);
   async function reload() {
@@ -8126,7 +8757,7 @@ function HomePage(props) {
         return catalog.installed.find((v2) => v2.isDefault)?.id ?? catalog.installed[0]?.id;
       });
     } catch (e) {
-      setError(String(e));
+      setError((prev) => prev === "" ? String(e) : `${prev}；${String(e)}`);
     }
     try {
       const list = await request("accounts.list");
@@ -8138,7 +8769,7 @@ function HomePage(props) {
         );
       }
     } catch (e) {
-      setError(String(e));
+      setError((prev) => prev === "" ? String(e) : `${prev}；${String(e)}`);
     }
     try {
       const settings = await request("settings.get");
@@ -8146,10 +8777,6 @@ function HomePage(props) {
     } catch {
     }
     setLoading(false);
-    void request("java.list").then((r2) => {
-      const first = r2.runtimes[0];
-      setJava(first != null ? { version: first.versionString, major: first.majorVersion } : null);
-    }).catch(() => setJava(null));
   }
   reactExports.useEffect(() => {
     void reload();
@@ -8159,30 +8786,9 @@ function HomePage(props) {
   );
   const account = modeAccounts[0];
   const avatarId = account === void 0 ? "" : account.type === "microsoft" ? account.uuid : account.name;
-  const avatarUrl = avatarId === "" ? null : "https://minotar.net/helm/" + encodeURIComponent(avatarId) + "/128";
+  const avatarUrl2 = avatarId === "" ? null : "https://minotar.net/helm/" + encodeURIComponent(avatarId) + "/128";
   const running = session.pid !== void 0 && session.pid > 0;
   const canLaunch = !session.launching && !running && selected !== void 0 && account !== void 0;
-  const checks = [
-    {
-      label: "游戏版本",
-      ok: selected !== void 0,
-      hint: selected ?? "去「下载」页安装",
-      go: "download"
-    },
-    {
-      label: "游戏账户",
-      ok: account !== void 0,
-      hint: account?.name ?? "去「账户」页添加",
-      go: "accounts"
-    },
-    {
-      label: "Java",
-      ok: java != null && java.major >= 17,
-      hint: java === void 0 ? "检测中…" : java === null ? "未安装 Java 17+" : java.version,
-      go: "settings"
-    }
-  ];
-  const readyCount = checks.filter((c) => c.ok).length;
   const menu = useContextMenu([
     { label: "问 Nova", onSelect: () => props.onNavigate("nova") },
     { label: "版本详情", onSelect: () => props.onNavigate("versions") },
@@ -8210,320 +8816,268 @@ function HomePage(props) {
   ]);
   const statusColor = running ? "var(--success)" : session.launching ? "var(--warning)" : session.status.startsWith("启动失败") ? "var(--danger)" : "var(--text-disabled)";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-head", children: /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "page-title", style: { flex: 1 }, children: "首页" }) }),
+    error !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginBottom: 12, flexShrink: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", children: error })
+    ] }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 24 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
         "div",
         {
           style: { flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" },
-          children: [
-            readyCount < checks.length && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 16 }, children: [
+          children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "已安装版本" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: installed.length }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "div",
-                {
-                  style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
-                  children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 15, fontWeight: 600 }, children: "启动自检" }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", children: [
-                      readyCount,
-                      "/",
-                      checks.length,
-                      " 项就绪"
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(
-                      "button",
-                      {
-                        className: "btn btn-subtle btn-sm",
-                        title: "重新检测",
-                        onClick: () => void reload(),
-                        children: "↻"
-                      }
-                    )
-                  ]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: checks.map((c) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
                 "button",
                 {
-                  className: `chip${c.ok ? " chip-accent" : " chip-danger"}`,
-                  style: { cursor: c.ok ? "default" : "pointer" },
-                  onClick: () => {
-                    if (!c.ok) props.onNavigate(c.go);
-                  },
+                  className: "btn btn-subtle btn-sm",
+                  onClick: () => void reload(),
                   children: [
-                    c.ok ? "✓" : "⚠",
-                    " ",
-                    c.label,
-                    "：",
-                    c.hint
-                  ]
-                },
-                c.label
-              )) })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "已安装版本" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: installed.length }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "button",
-                  {
-                    className: "btn btn-subtle btn-sm",
-                    onClick: () => void reload(),
-                    children: "↻ 刷新"
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "div",
-                {
-                  style: {
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: "auto",
-                    padding: "0 10px 10px"
-                  },
-                  children: [
-                    loading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: 20, textAlign: "center", opacity: 0.6 }, children: "加载中…" }),
-                    !loading && installed.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "empty", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-title", children: "还没有已安装的版本" }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "empty-hint", children: [
-                        "去「下载」页选择一个版本安装。",
-                        gameDir !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                          "当前游戏目录：",
-                          gameDir
-                        ] })
-                      ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          className: "btn btn-primary",
-                          onClick: () => props.onNavigate("download"),
-                          children: "前往下载"
-                        }
-                      )
-                    ] }),
-                    installed.map((version, index) => {
-                      const isSelected = version.id === selected;
-                      const icon = iconFor$1(version);
-                      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ...menu.bind(), children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                        "div",
-                        {
-                          className: `row${isSelected ? " row-active" : ""}`,
-                          style: {
-                            animationDelay: `${index * 39}ms`,
-                            // Win 端列宽：图标 Auto / 名称 260 / 芯片 * / 数据 Auto
-                            display: "grid",
-                            gridTemplateColumns: "auto 260px 1fr auto",
-                            columnGap: 12
-                          },
-                          onClick: () => setSelected(version.id),
-                          children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: icon, alt: "", width: 32, height: 32 }) }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong truncate", children: version.id }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: tagFor$1(version) }),
-                              version.isDefault === true && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "默认" })
-                            ] }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "meta", children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "上次启动" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: lastPlayed$1(version.lastPlayedAt) }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "大小" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: fmtSize$3(version.sizeBytes) })
-                            ] })
-                          ]
-                        }
-                      ) }, version.id);
-                    })
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+                    " 刷新"
                   ]
                 }
               )
-            ] })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 360, flexShrink: 0, minHeight: 0, display: "flex" }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "div",
-        {
-          className: "card",
-          style: { flex: 1, display: "flex", flexDirection: "column", gap: 14 },
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              Segmented,
-              {
-                value: mode,
-                options: [
-                  { value: "microsoft", label: MODE_LABEL.microsoft },
-                  { value: "external", label: MODE_LABEL.external },
-                  { value: "offline", label: MODE_LABEL.offline }
-                ],
-                onChange: setMode
-              }
-            ),
+            ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "div",
               {
                 style: {
                   flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10
+                  minHeight: 0,
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  padding: "0 10px 10px"
                 },
                 children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "div",
-                    {
-                      style: {
-                        width: 88,
-                        height: 88,
-                        borderRadius: "var(--r-control)",
-                        background: account === void 0 ? "var(--surface-hover)" : "linear-gradient(180deg,#3a2a1a,#241a10)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 40,
-                        color: account === void 0 ? "var(--text-tertiary)" : "#e0a76a",
-                        overflow: "hidden",
-                        animation: session.launching ? "pulse 1.4s infinite" : void 0
-                      },
-                      children: avatarUrl !== null && !avatarFailed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "img",
-                        {
-                          src: avatarUrl,
-                          alt: account?.name ?? "",
-                          width: 88,
-                          height: 88,
-                          style: { objectFit: "cover" },
-                          onError: () => setAvatarFailed(true)
-                        }
-                      ) : account?.name[0]?.toUpperCase() ?? "☺"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 15, fontWeight: 600 }, children: account?.name ?? "未选择账户" }),
-                  account === void 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
-                    "去「账户」页添加",
-                    MODE_LABEL[mode],
-                    "账户"
+                  loading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: 20, textAlign: "center", opacity: 0.6 }, children: "加载中…" }),
+                  !loading && installed.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "empty", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-title", children: "还没有已安装的版本" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "empty-hint", children: [
+                      "去「下载」页选择一个版本安装。",
+                      gameDir !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        "当前游戏目录：",
+                        gameDir
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "button",
+                      {
+                        className: "btn btn-primary",
+                        onClick: () => props.onNavigate("download"),
+                        children: "前往下载"
+                      }
+                    )
                   ] }),
-                  account !== void 0 && modeAccounts.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "div",
-                    {
-                      style: {
-                        display: "flex",
-                        gap: 6,
-                        flexWrap: "wrap",
-                        justifyContent: "center"
-                      },
-                      children: modeAccounts.map((a) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          className: "btn btn-subtle btn-sm",
-                          onClick: () => void request("accounts.setCurrent", { uuid: a.uuid }),
-                          children: a.name
+                  installed.map((version, index) => {
+                    const isSelected = version.id === selected;
+                    const icon = iconFor$2(version);
+                    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ...menu.bind(), children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        className: `row${isSelected ? " row-active" : ""}`,
+                        style: {
+                          animationDelay: `${index * 39}ms`,
+                          // Win 端列宽：图标 Auto / 名称 260 / 芯片 * / 数据 Auto
+                          display: "grid",
+                          gridTemplateColumns: "auto minmax(120px, 260px) minmax(0, 1fr) auto",
+                          columnGap: 12
                         },
-                        a.uuid
-                      ))
-                    }
-                  )
+                        onClick: () => setSelected(version.id),
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: icon, alt: "", width: 32, height: 32 }) }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong truncate", children: version.id }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: tagFor$1(version) }),
+                            version.isDefault === true && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "默认" })
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "meta", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "上次启动" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: lastPlayed$1(version.lastPlayedAt) }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "大小" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: fmtSize$3(version.sizeBytes) })
+                          ] })
+                        ]
+                      }
+                    ) }, version.id);
+                  })
                 ]
               }
-            ),
-            session.status !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "span",
-                {
-                  className: "dot",
-                  style: {
-                    background: statusColor,
-                    animation: session.launching || running ? "pulse 1.6s infinite" : void 0
-                  }
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap truncate", children: session.status })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
-                {
-                  className: "btn btn-primary",
-                  style: {
-                    flex: 1,
-                    height: 62,
-                    borderRadius: "var(--r-overlay)",
-                    flexDirection: "column",
-                    gap: 1,
-                    display: "flex",
-                    fontSize: 16,
-                    fontWeight: 700,
-                    boxShadow: running || session.launching ? "none" : "0 4px 22px rgba(255,194,31,0.28)"
-                  },
-                  disabled: !canLaunch,
-                  onClick: () => {
-                    if (selected === void 0 || account === void 0) return;
-                    void session.launch({
-                      versionId: selected,
-                      playerName: account.name,
-                      accountUuid: account.uuid
-                    });
-                  },
-                  children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-                      "▶",
-                      " ",
-                      session.launching ? "启动中…" : running ? "游戏运行中" : "启动游戏"
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, fontWeight: 400, opacity: 0.72 }, children: selected ?? "未选择版本" })
-                  ]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn",
-                  disabled: !canLaunch,
-                  title: "更多启动方式",
-                  style: {
-                    width: 52,
-                    borderRadius: "var(--r-overlay)",
-                    background: "rgba(255,255,255,0.18)",
-                    color: "var(--text-on-accent)",
-                    borderColor: "transparent"
-                  },
-                  children: "⌄"
-                }
-              )
-            ] })
-          ]
+            )
+          ] })
         }
-      ) })
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          style: {
+            // 宽屏 360；窄屏（最小窗口 1000 / 手机横屏）按视口比例收缩，
+            // 固定 360 会把左栏压到只剩几百像素（响应式见 winui.css 的 .home-side）
+            width: "clamp(240px, 28vw, 360px)",
+            minWidth: 0,
+            flexShrink: 0,
+            minHeight: 0,
+            display: "flex"
+          },
+          children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              className: "card",
+              style: {
+                flex: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+                gap: 14
+              },
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Segmented,
+                  {
+                    value: mode,
+                    options: [
+                      { value: "microsoft", label: MODE_LABEL.microsoft },
+                      { value: "external", label: MODE_LABEL.external },
+                      { value: "offline", label: MODE_LABEL.offline }
+                    ],
+                    onChange: setMode
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "div",
+                  {
+                    style: {
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 10
+                    },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "div",
+                        {
+                          style: {
+                            width: 88,
+                            height: 88,
+                            borderRadius: "var(--r-control)",
+                            background: account === void 0 ? "var(--surface-hover)" : "linear-gradient(180deg,#3a2a1a,#241a10)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 40,
+                            color: account === void 0 ? "var(--text-tertiary)" : "#e0a76a",
+                            overflow: "hidden",
+                            animation: session.launching ? "pulse 1.4s infinite" : void 0
+                          },
+                          children: avatarUrl2 !== null && !avatarFailed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "img",
+                            {
+                              src: avatarUrl2,
+                              alt: account?.name ?? "",
+                              width: 88,
+                              height: 88,
+                              style: { objectFit: "cover" },
+                              onError: () => setAvatarFailed(true)
+                            }
+                          ) : account?.name[0]?.toUpperCase() ?? /* @__PURE__ */ jsxRuntimeExports.jsx(IconUser, { size: 36 })
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 15, fontWeight: 600 }, children: account?.name ?? "未选择账户" }),
+                      account === void 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+                        "去「账户」页添加",
+                        MODE_LABEL[mode],
+                        "账户"
+                      ] }),
+                      account !== void 0 && modeAccounts.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "div",
+                        {
+                          style: {
+                            display: "flex",
+                            gap: 6,
+                            flexWrap: "wrap",
+                            justifyContent: "center"
+                          },
+                          children: modeAccounts.map((a) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              className: "btn btn-subtle btn-sm",
+                              onClick: () => void request("accounts.setCurrent", { uuid: a.uuid }),
+                              children: a.name
+                            },
+                            a.uuid
+                          ))
+                        }
+                      )
+                    ]
+                  }
+                ),
+                session.status !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "div",
+                  {
+                    style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 },
+                    title: session.status,
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "span",
+                        {
+                          className: "dot",
+                          style: {
+                            background: statusColor,
+                            animation: session.launching || running ? "pulse 1.6s infinite" : void 0
+                          }
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap truncate", style: { minWidth: 0, flex: 1 }, children: session.status })
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 8, alignItems: "stretch" }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "button",
+                  {
+                    className: "btn btn-primary",
+                    style: {
+                      flex: 1,
+                      height: 62,
+                      borderRadius: "var(--r-control)",
+                      flexDirection: "column",
+                      gap: 1,
+                      display: "flex",
+                      fontSize: 16,
+                      fontWeight: 700,
+                      boxShadow: running || session.launching ? "none" : "0 4px 22px rgba(255,211,34,0.28)"
+                    },
+                    disabled: !canLaunch,
+                    onClick: () => {
+                      if (selected === void 0 || account === void 0) return;
+                      void session.launch({
+                        versionId: selected,
+                        playerName: account.name,
+                        accountUuid: account.uuid,
+                        loginMode: MODE_LABEL[mode]
+                      });
+                    },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(IconPlay, { size: 15 }),
+                        " ",
+                        session.launching ? "启动中…" : running ? "游戏运行中" : "启动游戏"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, fontWeight: 400, opacity: 0.72 }, children: selected ?? "未选择版本" })
+                    ]
+                  }
+                ) })
+              ]
+            }
+          )
+        }
+      )
     ] }),
-    session.logs.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card card-flush", style: { height: 230, marginTop: 16 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "span",
-          {
-            className: "dot",
-            style: { background: running ? "var(--success)" : "var(--text-disabled)" }
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "运行日志" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-        running && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", children: [
-          "pid ",
-          session.pid
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle btn-sm", onClick: session.clearLogs, children: "✕ 清空" })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", children: session.logs.map((line, index) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: line }, index)) })
-    ] }),
-    error !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "✕" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", children: error })
-    ] }) }),
     menu.node,
     host
   ] });
@@ -8679,25 +9233,34 @@ function VersionDetailPage(props) {
         title: `版本详情 · ${props.versionId}`,
         subtitle: detail === null ? "实例内容与参数" : `MC ${detail.mcVersion} · ${detail.loader}` + (detail.isolated ? " · 独立目录" : " · 共享目录"),
         actions: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "button",
             {
               className: "btn btn-subtle",
               disabled: detail === null,
               onClick: () => setShowSettings(true),
-              children: "⚙ 实例设置"
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconSettings, { size: 14 }),
+                " 实例设置"
+              ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "button",
             {
               className: "btn btn-subtle",
               disabled: detail === null,
               onClick: () => void openFolder(),
-              children: "▤ 打开目录"
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconFolder, { size: 14 }),
+                " 打开目录"
+              ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => void load(), children: "↻ 刷新" })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn btn-subtle", onClick: () => void load(), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+            " 刷新"
+          ] })
         ] }),
         children: [
           loading ? /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 6 }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -8749,13 +9312,16 @@ function VersionDetailPage(props) {
                   ),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
                   kind === "mod" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs(
                       "button",
                       {
                         className: "btn",
                         disabled: globalBusy,
                         onClick: () => void checkUpdates(),
-                        children: "↻ 检查更新"
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+                          " 检查更新"
+                        ]
                       }
                     ),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -8814,13 +9380,16 @@ function VersionDetailPage(props) {
                     ] })
                   ] }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", disabled: globalBusy, onClick: () => void toggle(file), children: file.enabled ? "停用" : "启用" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
                     "button",
                     {
                       className: "btn btn-subtle btn-danger",
                       disabled: globalBusy,
                       onClick: () => setConfirmDelete(file),
-                      children: "✕ 删除"
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
+                        " 删除"
+                      ]
                     }
                   )
                 ]
@@ -8931,7 +9500,7 @@ function UpdatesDialog(props) {
           }
         )
       ] }),
-      children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { maxHeight: 380, overflowY: "auto", minWidth: 520 }, children: props.updates.map((u2) => {
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { maxHeight: 380, overflowY: "auto", minWidth: 0 }, children: props.updates.map((u2) => {
         const isDone = done.includes(u2.fileName);
         return /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "div",
@@ -9009,9 +9578,9 @@ function DepsDialog(props) {
           }
         )
       ] }),
-      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxHeight: 380, overflowY: "auto", minWidth: 520 }, children: [
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxHeight: 380, overflowY: "auto", minWidth: 0 }, children: [
         clean && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-success", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "✓" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconCheck, { size: 14 }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-title", children: "依赖完整" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "没有缺失的必需依赖，也没有已安装的不兼容模组。" })
@@ -9026,7 +9595,7 @@ function DepsDialog(props) {
           props.deps.missing.map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", style: { padding: "8px 12px", marginTop: 6 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: d.title }) }, d.projectId))
         ] }),
         props.deps.incompatible.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", style: { marginTop: 10 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "✕" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-title", children: "已安装但不兼容" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: props.deps.incompatible.join("、") })
@@ -9118,7 +9687,7 @@ function InstanceSettingsDialog(props) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: props.onClose, children: "取消" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", disabled: busy, onClick: () => void save(), children: busy ? "保存中…" : "保存" })
       ] }),
-      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxHeight: 460, overflowY: "auto", minWidth: 520 }, children: [
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxHeight: 460, overflowY: "auto", minWidth: 0 }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           LabeledSelect,
           {
@@ -9206,7 +9775,7 @@ function InstanceSettingsDialog(props) {
           eff.fullscreen === true ? "（全屏）" : ""
         ] }),
         error !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", style: { marginTop: 10 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "✕" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body t-body", children: error })
         ] })
       ] })
@@ -9217,13 +9786,12 @@ function LabeledSelect(props) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 12 }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: props.label }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "select",
+      Select,
       {
-        className: "input",
-        style: { width: "100%" },
+        width: 520,
         value: props.value,
-        onChange: (e) => props.onChange(e.target.value),
-        children: props.options.map(([v2, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: v2, children: label }, v2))
+        options: props.options.map(([v2, label]) => ({ value: v2, label })),
+        onChange: props.onChange
       }
     )
   ] });
@@ -9299,7 +9867,7 @@ function SearchInstallDialog(props) {
       width: 720,
       onClose: props.onClose,
       footer: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: props.onClose, children: installed !== null ? "完成" : "关闭" }),
-      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 640 }, children: [
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 10, marginBottom: 12 }, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "input",
@@ -9318,7 +9886,7 @@ function SearchInstallDialog(props) {
         ] }),
         stage !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { display: "block", marginBottom: 8, color: "var(--accent)" }, children: stage }),
         installed !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-success", style: { marginBottom: 10 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "✓" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconCheck, { size: 14 }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body t-body", children: [
             "已安装 ",
             installed.installed.length,
@@ -9360,7 +9928,7 @@ function SearchInstallDialog(props) {
                       alt: "",
                       style: { width: "100%", height: "100%", objectFit: "cover" }
                     }
-                  ) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { opacity: 0.6 }, children: "◧" })
+                  ) : /* @__PURE__ */ jsxRuntimeExports.jsx(IconCube, { size: 20, style: { opacity: 0.6 } })
                 }
               ),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
@@ -9408,13 +9976,13 @@ const LOADER_LABEL = {
   fabric: "Fabric",
   quilt: "Quilt"
 };
-const TYPE_LABEL = {
+const TYPE_LABEL$2 = {
   release: "正式版",
   snapshot: "快照版",
   old_beta: "远古 Beta",
   old_alpha: "远古 Alpha"
 };
-function iconFor(v2) {
+function iconFor$1(v2) {
   const loader = v2.loader ?? "";
   if (LOADER_ICONS[loader] !== void 0) return LOADER_ICONS[loader];
   const lower = v2.id.toLowerCase();
@@ -9432,7 +10000,7 @@ function tagFor(v2) {
   if (lower.includes("forge")) return "Forge";
   if (lower.includes("fabric")) return "Fabric";
   if (lower.includes("quilt")) return "Quilt";
-  return TYPE_LABEL[v2.type ?? "release"] ?? "正式版";
+  return TYPE_LABEL$2[v2.type ?? "release"] ?? "正式版";
 }
 function fmtSize$1(bytes) {
   if (!bytes) return "未完成";
@@ -9567,18 +10135,21 @@ function VersionsPage(props) {
               style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 },
               title: gameDir,
               children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, style: { opacity: 0.55 }, children: "📁" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconFolder, { size: 15, style: { opacity: 0.6 } }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", style: { fontSize: 12, color: "var(--text-secondary)" }, children: gameDir === "" ? "游戏目录" : gameDir })
               ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "button",
             {
               className: "btn",
               onClick: () => push("info", "整合包导入：内核能力接入后可用"),
               title: "导入整合包",
-              children: "⤓ 导入整合包"
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconImport, { size: 15 }),
+                " 导入整合包"
+              ]
             }
           ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -9601,21 +10172,26 @@ function VersionsPage(props) {
             }
           ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "select",
+            Select,
             {
-              className: "input",
-              style: { width: 108 },
+              width: 110,
               value: kindFilter,
-              onChange: (e) => setKindFilter(e.target.value),
-              children: kinds.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2, children: k2 }, k2))
+              options: kinds.map((k2) => ({ value: k2, label: k2 })),
+              onChange: setKindFilter
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void reload(), disabled: loading, children: "↻ 刷新" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void openFolder(), children: "📁 打开游戏目录" })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", onClick: () => void reload(), disabled: loading, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+            " 刷新"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", onClick: () => void openFolder(), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconFolder, { size: 15 }),
+            " 打开游戏目录"
+          ] })
         ]
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "6px 10px 10px" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "6px 10px 10px" }, children: [
       loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 6, avatar: true }),
       !loading && filtered.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
         EmptyState,
@@ -9630,12 +10206,12 @@ function VersionsPage(props) {
           className: "row",
           style: {
             display: "grid",
-            gridTemplateColumns: "auto 260px 1fr auto auto auto",
+            gridTemplateColumns: "auto minmax(120px, 260px) minmax(0, 1fr) auto auto auto",
             columnGap: 12
           },
           onClick: () => setOpenId(v2.id),
           children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: iconFor(v2), alt: "", width: 32, height: 32 }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: iconFor$1(v2), alt: "", width: 32, height: 32 }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong truncate", children: v2.id }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: tagFor(v2) }),
@@ -9659,7 +10235,7 @@ function VersionsPage(props) {
                   e.stopPropagation();
                   setMenuFor(v2);
                 },
-                children: "⋮"
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconMore, { size: 16 })
               }
             ),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -9672,7 +10248,7 @@ function VersionsPage(props) {
                   e.stopPropagation();
                   setConfirm(v2);
                 },
-                children: "🗑"
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconTrash, { size: 15 })
               }
             )
           ]
@@ -9761,14 +10337,31 @@ function VersionsPage(props) {
     host
   ] });
 }
-function isRelease(version) {
-  return version.type.toLowerCase() === "release";
+const CHANNEL_LABEL = {
+  release: "正式版",
+  snapshot: "快照版",
+  ancient: "远古版本"
+};
+const TYPE_ICON = {
+  release: grassIcon,
+  snapshot: amethystIcon,
+  old_beta: cobbleIcon,
+  old_alpha: dirtIcon
+};
+const TYPE_LABEL$1 = {
+  release: "正式版",
+  snapshot: "快照版",
+  old_beta: "远古 Beta",
+  old_alpha: "远古 Alpha"
+};
+function iconFor(v2) {
+  const t2 = v2.type.toLowerCase();
+  if (t2 === "old_beta" || t2 === "old_alpha") return TYPE_ICON[t2];
+  return TYPE_ICON[t2] ?? grassIcon;
 }
-function typeLabel$1(version) {
-  return version.type.toLowerCase() === "release" ? "正式版" : "快照版";
-}
-function typeColor$1(version) {
-  return isRelease(version) ? "#6FA852" : "#8A6FD8";
+function typeLabel(v2) {
+  const t2 = v2.type.toLowerCase();
+  return TYPE_LABEL$1[t2] ?? t2;
 }
 function releaseDate(iso) {
   if (!iso) return "—";
@@ -9777,13 +10370,26 @@ function releaseDate(iso) {
   const two = (n2) => n2.toString().padStart(2, "0");
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
 }
+function releaseDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const two = (n2) => n2.toString().padStart(2, "0");
+  return `${releaseDate(iso)} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+function channelOf(v2) {
+  const t2 = v2.type.toLowerCase();
+  if (t2 === "old_beta" || t2 === "old_alpha") return "ancient";
+  return t2 === "snapshot" ? "snapshot" : "release";
+}
 function DownloadPage() {
   const { push, host } = useToasts();
   const [catalog, setCatalog] = reactExports.useState({ remote: [], installed: [] });
   const [loading, setLoading] = reactExports.useState(true);
   const [keyword, setKeyword] = reactExports.useState("");
-  const [releaseOnly, setReleaseOnly] = reactExports.useState(true);
+  const [channel, setChannel] = reactExports.useState("release");
   const [progress, setProgress] = reactExports.useState(null);
+  const [section, setSection] = reactExports.useState("vanilla");
   const installedIds = reactExports.useMemo(
     () => new Set(catalog.installed.map((i) => i.id)),
     [catalog.installed]
@@ -9802,6 +10408,13 @@ function DownloadPage() {
     void load();
   }, [load]);
   reactExports.useEffect(() => {
+    onBridgeEvent((event, params) => {
+      if (event !== "catalog.versions.changed") return;
+      const data = params;
+      if (data && Array.isArray(data.remote)) setCatalog(data);
+    });
+  }, []);
+  reactExports.useEffect(() => {
     let alive = true;
     onBridgeEvent((event, params) => {
       if (!alive) return;
@@ -9814,15 +10427,14 @@ function DownloadPage() {
           total: Number(params.total ?? 0)
         });
       } else if (event === "install.done") {
-        const versionId = String(params.versionId ?? "");
+        const id2 = String(params.versionId ?? "");
         setProgress(null);
-        push("success", `${versionId} 安装完成`);
+        push("success", `${id2} 安装完成`);
         void load();
       } else if (event === "install.failed") {
-        const versionId = String(params.versionId ?? "");
-        const error = String(params.error ?? "未知错误");
+        const id2 = String(params.versionId ?? "");
         setProgress(null);
-        push("error", `${versionId} 安装失败：${error}`);
+        push("error", `${id2} 安装失败：${String(params.error ?? "未知错误")}`);
         void load();
       }
     });
@@ -9842,137 +10454,185 @@ function DownloadPage() {
       push("error", `安装请求被拒绝：${String(e)}`);
     }
   }
-  const filtered = catalog.remote.filter((v2) => {
-    if (releaseOnly && !isRelease(v2)) return false;
-    if (keyword.trim() !== "" && !v2.id.toLowerCase().includes(keyword.trim().toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
-      {
-        title: "下载版本",
-        subtitle: `官方清单 ${catalog.remote.length} 个版本，已安装 ${catalog.installed.length} 个`,
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => void load(), disabled: loading, children: "↻" }),
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "flex-end", gap: 16, paddingBottom: 12 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { width: 320 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "搜索版本号" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "input",
-                {
-                  className: "input",
-                  style: { width: "100%" },
-                  value: keyword,
-                  onChange: (e) => setKeyword(e.target.value),
-                  placeholder: "例如 1.21"
+  const latestRelease = catalog.remote.find((v2) => v2.type.toLowerCase() === "release");
+  const latestSnapshot = catalog.remote.find((v2) => v2.type.toLowerCase() === "snapshot");
+  const filtered = reactExports.useMemo(() => {
+    const q2 = keyword.trim().toLowerCase();
+    return catalog.remote.filter((v2) => {
+      if (channelOf(v2) !== channel) return false;
+      if (q2 !== "" && !v2.id.toLowerCase().includes(q2)) return false;
+      return true;
+    });
+  }, [catalog.remote, channel, keyword]);
+  const subNav = [
+    { id: "vanilla", label: "原版游戏", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconHome, { size: 15 }) },
+    { id: "mod", label: "Mod", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconCube, { size: 15 }), group: "社区资源" },
+    { id: "modpack", label: "整合包", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconList, { size: 15 }) },
+    { id: "datapack", label: "数据包", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconList, { size: 15 }) },
+    { id: "resourcepack", label: "资源包", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconFolder, { size: 15 }) },
+    { id: "shader", label: "光影包", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconSparkle, { size: 15 }) }
+  ];
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 16 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card responsive-side", style: { width: 240, flexShrink: 0, padding: 8 }, children: subNav.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        item.group !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { padding: "8px 10px 4px" }, children: item.group }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: `nav-item${section === item.id ? " nav-active" : ""}`,
+            style: { height: 38, width: "100%" },
+            onClick: () => {
+              setSection(item.id);
+              if (item.id !== "vanilla") {
+                push("info", `${item.label}：内容检索接入后可用`);
+              }
+            },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-icon", style: { fontFamily: "inherit", fontSize: 14 }, children: item.icon }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.label })
+            ]
+          }
+        )
+      ] }, item.id)) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "seg responsive-seg", style: { width: 330, gridTemplateColumns: "repeat(3, 1fr)" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                className: "seg-ind",
+                style: {
+                  width: "calc(33.333% - 2px)",
+                  // translateX 的百分比相对指示器自身宽度（= 一格）
+                  transform: `translateX(calc(2px + ${(channel === "release" ? 0 : channel === "snapshot" ? 1 : 2) * 100}% + ${(channel === "release" ? 0 : channel === "snapshot" ? 1 : 2) * 2}px))`
                 }
-              )
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", alignItems: "center", gap: 8, paddingBottom: 6 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "input",
-                {
-                  type: "checkbox",
-                  checked: releaseOnly,
-                  onChange: (e) => setReleaseOnly(e.target.checked),
-                  style: { accentColor: "var(--accent)", width: 15, height: 15 }
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", children: "只看正式版" })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", style: { paddingBottom: 7 }, children: [
-              "命中 ",
-              filtered.length,
-              " 条"
-            ] })
+              }
+            ),
+            ["release", "snapshot", "ancient"].map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: `seg-item${channel === c ? " seg-active" : ""}`,
+                onClick: () => setChannel(c),
+                children: CHANNEL_LABEL[c]
+              },
+              c
+            ))
           ] }),
-          progress && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-info", style: { marginBottom: 12 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spinner", "aria-hidden": true }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", children: [
-                "正在安装 ",
-                progress.versionId,
-                " · ",
-                progress.stage,
-                progress.total > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { opacity: 0.75 }, children: [
-                  " ",
-                  progress.current,
-                  "/",
-                  progress.total,
-                  "（",
-                  progress.detail,
-                  "）"
-                ] })
-              ] }),
-              progress.total > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 8 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-                ProgressBar,
-                {
-                  value: progress.current / progress.total * 100
-                }
-              ) })
-            ] })
-          ] }),
-          loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 7 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              className: "input",
+              style: { flex: 1, minWidth: 0 },
+              placeholder: "搜索版本 ID…",
+              value: keyword,
+              onChange: (e) => setKeyword(e.target.value)
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary btn-sm", onClick: () => void load(), disabled: loading, children: "缓存" })
+        ] }),
+        !loading && (latestRelease !== void 0 || latestSnapshot !== void 0) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 12, marginBottom: 12 }, children: [latestRelease, latestSnapshot].map(
+          (v2, i) => v2 === void 0 ? null : /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              className: "card glow",
+              style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" },
+              onClick: () => setKeyword(v2.id),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", style: { width: 40, height: 40 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: iconFor(v2), alt: "", width: 40, height: 40 }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: i === 0 ? "最新正式版" : "最新预览版" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: v2.id }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", children: [
+                    "发布于 ",
+                    releaseDateTime(v2.releaseTime)
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconChevronRight, { size: 15, style: { opacity: 0.5 } })
+              ]
+            },
+            v2.id
+          )
+        ) }),
+        progress !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-info", style: { marginBottom: 12 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spinner", "aria-hidden": true }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", children: [
+              "正在安装 ",
+              progress.versionId,
+              " · ",
+              progress.stage,
+              progress.total > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { opacity: 0.75 }, children: [
+                " ",
+                progress.current,
+                "/",
+                progress.total
+              ] })
+            ] }),
+            progress.total > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 8 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ProgressBar, { value: progress.current / progress.total * 100 }) })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "6px 10px 10px" }, children: [
+          loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 7, avatar: true }),
           !loading && filtered.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
             EmptyState,
             {
               title: catalog.remote.length === 0 ? "版本清单为空" : "没有匹配的版本",
-              hint: catalog.remote.length === 0 ? "点右上角刷新按钮重新拉取官方清单。" : "换个关键词，或关掉「只看正式版」再试试。",
-              action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void load(), children: "↻ 重新拉取" })
+              hint: catalog.remote.length === 0 ? "点「缓存」重新拉取官方清单（需要网络）。" : "换个关键词或切换上面的版本类型。",
+              action: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", onClick: () => void load(), children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+                " 重新拉取"
+              ] })
             }
           ),
-          !loading && filtered.map((version, index) => {
-            const installed = installedIds.has(version.id);
-            const installing = installingId === version.id;
-            const color = typeColor$1(version);
+          !loading && filtered.map((v2) => {
+            const installed = installedIds.has(v2.id);
+            const installing = installingId === v2.id;
             const dimmed = busy && !installing;
             return /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "div",
               {
                 className: `row row-static${installing ? " row-active" : ""}`,
-                style: { animationDelay: `${index * 39}ms`, opacity: dimmed ? 0.5 : 1 },
+                style: { opacity: dimmed ? 0.5 : 1 },
                 children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "div",
-                    {
-                      className: "icon32",
-                      style: { background: `${color}2b`, border: `1px solid ${color}`, color },
-                      children: installed ? "✓" : version.id[0]?.toUpperCase()
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1, minWidth: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong truncate", style: { display: "block" }, children: version.id }) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", style: { color, width: 52 }, children: typeLabel$1(version) }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", style: { width: 104, textAlign: "right" }, children: releaseDate(version.releaseTime) }),
-                  installing ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 150, flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: iconFor(v2), alt: "", width: 32, height: 32 }) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: v2.id }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", children: [
+                      releaseDate(v2.releaseTime),
+                      " · ",
+                      typeLabel(v2)
+                    ] })
+                  ] }),
+                  installing ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 150, flexShrink: 0, display: "flex", alignItems: "center" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
                     ProgressBar,
                     {
-                      value: progress && progress.total > 0 ? Math.min(100, progress.current / progress.total * 100) : void 0
+                      value: progress !== null && progress.total > 0 ? Math.min(100, progress.current / progress.total * 100) : void 0,
+                      indeterminate: progress !== null && progress.total === 0
                     }
-                  ) }) : installed ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", style: { minWidth: 92, justifyContent: "center" }, children: "已安装" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  ) }) : installed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "span",
+                    {
+                      className: "chip",
+                      style: { color: "var(--success)", background: "transparent", border: "none" },
+                      children: "已安装"
+                    }
+                  ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
                     "button",
                     {
-                      className: "btn btn-primary",
-                      style: { minWidth: 92 },
+                      className: "btn btn-sm",
                       disabled: dimmed,
-                      onClick: () => void install(version.id),
-                      children: [
-                        "↓ ",
-                        installing ? "安装中" : "安装"
-                      ]
+                      onClick: () => void install(v2.id),
+                      children: "↓ 安装"
                     }
                   )
                 ]
               },
-              version.id
+              v2.id
             );
           })
-        ]
-      }
-    ),
+        ] }) })
+      ] })
+    ] }),
     host
   ] });
 }
@@ -9987,31 +10647,40 @@ function formatBytes(bytes) {
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
-function formatLastPlayed(iso) {
-  if (!iso) return "从未游玩";
+function lastPlayedText(iso) {
+  if (iso === void 0 || iso === null || iso === "") return "无游玩记录";
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return "从未游玩";
-  const diff = Date.now() - d.getTime();
-  const minute = 6e4;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (diff < minute) return "刚刚";
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-  if (diff < 30 * day) return `${Math.floor(diff / day)} 天前`;
-  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
+  if (isNaN(d.getTime())) return "无游玩记录";
+  const pad = (n2) => n2.toString().padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const today = /* @__PURE__ */ new Date();
+  const dayDiff = Math.floor(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 864e5
+  );
+  if (dayDiff <= 0) return `今天 ${hm}`;
+  if (dayDiff === 1) return `昨天 ${hm}`;
+  if (dayDiff < 30) return `${dayDiff} 天前`;
+  if (dayDiff < 365) return `${Math.floor(dayDiff / 30)} 个月前`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 function SavesPage() {
   const { push, host } = useToasts();
   const [saves, setSaves] = reactExports.useState([]);
   const [loading, setLoading] = reactExports.useState(true);
-  const [pendingDelete, setPendingDelete] = reactExports.useState(null);
-  const [deleting, setDeleting] = reactExports.useState(false);
+  const [icons, setIcons] = reactExports.useState({});
+  const [selected, setSelected] = reactExports.useState(/* @__PURE__ */ new Set());
+  const [query, setQuery] = reactExports.useState("");
+  const [versionFilter, setVersionFilter] = reactExports.useState("全部");
+  const [busy, setBusy] = reactExports.useState(false);
   const load = reactExports.useCallback(async () => {
     setLoading(true);
     try {
       const data = await request("saves.list");
       setSaves(data.saves);
+      for (const s of data.saves) {
+        if (s.iconPath === void 0 || s.iconPath === "") continue;
+        void request("saves.icon", { path: s.iconPath }).then((r2) => setIcons((prev) => ({ ...prev, [s.folderName]: r2.dataUrl }))).catch(() => void 0);
+      }
     } catch (e) {
       push("error", `存档列表读取失败：${String(e)}`);
     }
@@ -10020,764 +10689,469 @@ function SavesPage() {
   reactExports.useEffect(() => {
     void load();
   }, [load]);
+  const versions = reactExports.useMemo(() => {
+    const set = /* @__PURE__ */ new Set();
+    for (const s of saves) set.add(s.versionId === "" ? "全局" : s.versionId);
+    return ["全部", ...set];
+  }, [saves]);
+  const filtered = reactExports.useMemo(() => {
+    const q2 = query.trim().toLowerCase();
+    return saves.filter((s) => {
+      if (q2 !== "" && !`${s.levelName} ${s.folderName} ${s.versionId}`.toLowerCase().includes(q2)) {
+        return false;
+      }
+      if (versionFilter !== "全部") {
+        const v2 = s.versionId === "" ? "全局" : s.versionId;
+        if (v2 !== versionFilter) return false;
+      }
+      return true;
+    });
+  }, [saves, query, versionFilter]);
+  const selectedSaves = filtered.filter((s) => selected.has(s.folderName));
   async function openFolder(save) {
+    setBusy(true);
     try {
-      await request("saves.openFolder", {
-        gameRoot: save.gameRoot,
-        folderName: save.folderName
-      });
-      push("success", `已打开 ${save.levelName} 的存档目录`);
+      await request("saves.openFolder", { gameRoot: save?.gameRoot, folderName: save?.folderName });
+      push("success", save === void 0 ? "已打开存档目录" : `已打开 ${save.levelName} 的目录`);
     } catch (e) {
       push("error", `打开目录失败：${String(e)}`);
+    } finally {
+      setBusy(false);
     }
   }
-  async function backup(save) {
+  async function backup(targets) {
+    if (targets.length === 0) {
+      push("info", "先勾选要备份的世界");
+      return;
+    }
+    setBusy(true);
     try {
-      const result = await request("saves.backup", {
-        gameRoot: save.gameRoot,
-        folderName: save.folderName
-      });
-      push("success", `已备份 ${save.levelName}（${formatBytes(result.sizeBytes)}）`);
+      let total = 0;
+      for (const t2 of targets) {
+        const r2 = await request("saves.backup", {
+          gameRoot: t2.gameRoot,
+          folderName: t2.folderName
+        });
+        total += r2.sizeBytes;
+      }
+      push("success", `已备份 ${targets.length} 个世界（${formatBytes(total)}）`);
     } catch (e) {
       push("error", `备份失败：${String(e)}`);
-    }
-  }
-  async function confirmDelete() {
-    if (!pendingDelete) return;
-    const target = pendingDelete;
-    setDeleting(true);
-    try {
-      const result = await request("saves.delete", {
-        gameRoot: target.gameRoot,
-        folderName: target.folderName
-      });
-      push("success", `已删除 ${target.levelName}，释放 ${formatBytes(result.freedBytes)}`);
-      setPendingDelete(null);
-      await load();
-    } catch (e) {
-      push("error", `删除失败：${String(e)}`);
     } finally {
-      setDeleting(false);
+      setBusy(false);
     }
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+  function toggle(folder) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  }
+  const tplBtn = (label, onClick, opts) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "button",
+    {
+      className: "btn",
+      disabled: opts?.disabled === true || busy,
+      title: opts?.title ?? label,
+      onClick,
+      children: label
+    }
+  );
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
+      "div",
       {
-        title: "存档",
-        subtitle: `共 ${saves.length} 个世界（包含各隔离实例）`,
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => void load(), disabled: loading, children: "↻" }),
+        style: {
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          marginBottom: 14,
+          flexWrap: "wrap",
+          flexShrink: 0
+        },
         children: [
-          loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 4 }),
-          !loading && saves.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            EmptyState,
+          tplBtn("用其他版本启动", () => push("info", "跨版本启动：需选择版本后可用"), {
+            disabled: true
+          }),
+          tplBtn("复制到其他版本", () => push("info", "复制存档：内核能力接入后可用"), {
+            disabled: true
+          }),
+          tplBtn(
+            "备份所选世界",
+            () => void backup(selectedSaves),
+            { disabled: selectedSaves.length === 0, title: "备份勾选的世界" }
+          ),
+          tplBtn("同步到设备…", () => push("info", "设备同步：需登录 Starcloud ID"), {
+            disabled: true
+          }),
+          tplBtn("分享", () => push("info", "分享：内核能力接入后可用"), { disabled: true }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 1, height: 24, background: "var(--stroke-divider)" } }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
             {
-              title: "还没有发现存档",
-              hint: "启动一次游戏后回到这里，或确认设置里的 .minecraft 目录是否正确。",
-              action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void load(), children: "↻ 重新扫描" })
+              className: "input",
+              style: { width: 220 },
+              placeholder: "搜索世界 / 版本",
+              value: query,
+              onChange: (e) => setQuery(e.target.value)
             }
           ),
-          !loading && saves.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "div",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Select,
             {
-              style: {
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-                gap: 12,
-                paddingTop: 4
-              },
-              children: saves.map((save, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              width: 150,
+              value: versionFilter,
+              options: versions.map((v2) => ({ value: v2, label: v2 })),
+              onChange: setVersionFilter
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+          tplBtn("导入分享包", () => push("info", "导入分享包：内核能力接入后可用"), {
+            disabled: true
+          }),
+          tplBtn("打开存档目录", () => void openFolder()),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => void load(), disabled: loading, children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 15 }) })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "6px 12px 12px" }, children: [
+      loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 5, avatar: true, tall: true }),
+      !loading && filtered.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        EmptyState,
+        {
+          title: saves.length === 0 ? "还没有发现存档" : "没有匹配的世界",
+          hint: saves.length === 0 ? "启动一次游戏后回到这里，或确认设置里的 .minecraft 目录是否正确。" : "换个关键词或版本筛选试试。",
+          action: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", onClick: () => void load(), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+            " 重新扫描"
+          ] })
+        }
+      ),
+      filtered.map((s) => {
+        const icon = icons[s.folderName];
+        const checked = selected.has(s.folderName);
+        return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: `row${checked ? " row-active" : ""}`,
+            onClick: () => toggle(s.folderName),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "div",
                 {
-                  className: "card glow",
-                  style: {
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                    padding: 14,
-                    animation: "slideUp var(--t-enter) var(--e-enter) both",
-                    animationDelay: `${index * 39}ms`,
-                    "--glow": "radial-gradient(360px circle at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 65%)"
-                  },
-                  children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "div",
-                        {
-                          className: "icon32",
-                          style: { background: "color-mix(in srgb, var(--accent) 12%, transparent)", overflow: "hidden" },
-                          children: save.iconPath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "img",
-                            {
-                              src: `file://${save.iconPath}`,
-                              alt: "",
-                              width: 32,
-                              height: 32,
-                              style: { width: 32, height: 32, borderRadius: "var(--r-control)", objectFit: "cover" }
-                            }
-                          ) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--accent)" }, children: "◫" })
-                        }
-                      ),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: save.levelName }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta truncate", children: save.folderName })
-                      ] })
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }, children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: save.versionId }),
-                      save.isolated ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: "实例独立" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "主目录共享" })
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 14 }, children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", children: formatBytes(save.sizeBytes) }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", children: formatLastPlayed(save.lastPlayedAt) })
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 2 }, children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          className: "btn btn-primary",
-                          onClick: () => void openFolder(save),
-                          children: "▤ 打开目录"
-                        }
-                      ),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void backup(save), children: "⛁ 备份" }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          className: "btn btn-subtle btn-danger",
-                          onClick: () => setPendingDelete(save),
-                          "aria-label": `删除 ${save.levelName}`,
-                          children: "✕"
-                        }
-                      )
-                    ] })
-                  ]
-                },
-                `${save.gameRoot}::${save.folderName}`
-              ))
+                  className: "icon32",
+                  style: { width: 64, height: 64, borderRadius: 8, overflow: "hidden" },
+                  children: icon !== void 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: icon, alt: "", width: 64, height: 64, style: { objectFit: "cover" } }) : /* @__PURE__ */ jsxRuntimeExports.jsx(IconWorld, { size: 22, style: { opacity: 0.45 } })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: s.levelName }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta truncate", children: s.folderName })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: s.versionId === "" ? "全局" : s.versionId }),
+                s.isolated && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: "隔离" })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "meta", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "上次游玩" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: lastPlayedText(s.lastPlayed) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "大小" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: formatBytes(s.sizeBytes) })
+              ] })
+            ]
+          },
+          s.gameRoot + "/" + s.folderName
+        );
+      })
+    ] }) }),
+    host
+  ] });
+}
+function Expander(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { padding: 0, marginBottom: 10, overflow: "hidden" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: "nav-item",
+        style: { height: 52, width: "100%", borderRadius: 0, justifyContent: "space-between" },
+        onClick: props.onToggle,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", style: { color: "var(--text-primary)", fontSize: 14 }, children: props.title }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            IconChevronRight,
+            {
+              size: 15,
+              style: { opacity: 0.55, transform: props.open ? "rotate(90deg)" : "none" }
             }
           )
         ]
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Modal,
-      {
-        open: pendingDelete !== null,
-        title: `删除存档「${pendingDelete?.levelName ?? ""}」？`,
-        onClose: () => setPendingDelete(null),
-        width: 480,
-        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setPendingDelete(null), disabled: deleting, children: "取消" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              className: "btn btn-primary",
-              style: { background: "var(--danger)", color: "#fff" },
-              onClick: () => void confirmDelete(),
-              disabled: deleting,
-              children: [
-                "✕ ",
-                deleting ? "删除中…" : "确认删除"
-              ]
-            }
-          )
-        ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 10 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", children: [
-            "这会永久删除目录 ",
-            pendingDelete?.folderName,
-            pendingDelete !== null && ` （约 ${formatBytes(pendingDelete.sizeBytes)}）`,
-            "，且无法撤销。建议先备份。"
-          ] }),
-          deleting && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "spinner" }),
-            "正在删除，请勿关闭窗口…"
-          ] })
-        ] })
-      }
-    ),
-    host
+    props.open && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: "4px 16px 14px" }, children: props.children })
   ] });
 }
 const PHASE_LABEL = {
   idle: "空闲",
-  hostScanning: "创建房间中",
-  hostStarting: "房间启动中",
-  hostReady: "房间已创建",
-  guestConnecting: "连接房间中",
-  guestEntering: "已进入虚拟局域网",
-  guestReady: "联机成功",
-  failed: "联机异常"
+  hosting: "房间已创建",
+  joining: "正在加入",
+  connected: "已连接",
+  failed: "出错",
+  stopping: "正在停止"
 };
-function phaseColor(phase) {
-  if (phase === "hostReady" || phase === "guestReady") return "var(--success)";
-  if (phase === "failed") return "var(--danger)";
-  if (phase === "idle") return "var(--text-tertiary)";
-  return "var(--accent)";
-}
-function phaseHint(phase) {
-  switch (phase) {
-    case "hostScanning":
-      return "请先在游戏内开启「对局域网开放」，核心会自动接上那个世界。";
-    case "guestConnecting":
-      return "打洞进行中，稍等片刻，状态会自动更新。";
-    case "guestEntering":
-      return "已打洞成功，可先在游戏里打开「多人游戏」。";
-    case "guestReady":
-      return "打开游戏里的「多人游戏」，在局域网世界列表中进入房主的世界。";
-    case "failed":
-      return "可以「回到空闲重试」，或展开下方日志看核心报了什么。";
-    default:
-      return "";
-  }
-}
-const DIFFICULTY_LABEL = {
-  easiest: "最简单",
-  simple: "简单",
-  medium: "中等",
-  tough: "困难"
-};
-const NODE_REGIONS = [
-  { value: "auto", label: "自动" },
-  { value: "cn", label: "优先大陆节点" },
-  { value: "global", label: "仅国际节点" }
-];
-function formatSize(bytes) {
-  if (bytes <= 0) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
-  return `${(bytes / 1073741824).toFixed(2)} GB`;
-}
 function MultiplayerPage() {
   const { push, host } = useToasts();
-  const [snapshot, setSnapshot] = reactExports.useState();
-  const [loading, setLoading] = reactExports.useState(true);
-  const [error, setError] = reactExports.useState("");
+  const [snap, setSnap] = reactExports.useState(null);
   const [busy, setBusy] = reactExports.useState(false);
-  const [nickname, setNickname] = reactExports.useState("");
-  const [room, setRoom] = reactExports.useState("");
+  const [logs, setLogs] = reactExports.useState([]);
+  const [logsOpen, setLogsOpen] = reactExports.useState(false);
+  const [stepsOpen, setStepsOpen] = reactExports.useState(false);
+  const [sdkOpen, setSdkOpen] = reactExports.useState(false);
+  const [advancedOpen, setAdvancedOpen] = reactExports.useState(false);
   const [joinOpen, setJoinOpen] = reactExports.useState(false);
   const [joinCode, setJoinCode] = reactExports.useState("");
-  const [confirmStop, setConfirmStop] = reactExports.useState(false);
-  const [logs, setLogs] = reactExports.useState([]);
-  const [progress, setProgress] = reactExports.useState();
-  const [installing, setInstalling] = reactExports.useState(false);
-  const reload = reactExports.useCallback(async () => {
+  const [nickname, setNickname] = reactExports.useState("");
+  const [installProgress, setInstallProgress] = reactExports.useState(null);
+  const pollRef = reactExports.useRef(null);
+  const load = reactExports.useCallback(async () => {
     try {
-      const snap = await request("multiplayer.state");
-      setSnapshot(snap);
-      setNickname(snap.nickname);
-      setError("");
+      const s = await request("multiplayer.state");
+      setSnap(s);
+      setNickname((prev) => prev === "" ? s.nickname : prev);
     } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
+      push("error", `读取联机状态失败：${String(e)}`);
     }
-  }, []);
+  }, [push]);
   reactExports.useEffect(() => {
-    void reload();
-  }, [reload]);
+    void load();
+    pollRef.current = window.setInterval(() => void load(), 2500);
+    return () => {
+      if (pollRef.current !== null) window.clearInterval(pollRef.current);
+    };
+  }, [load]);
   reactExports.useEffect(() => {
     onBridgeEvent((event, params) => {
       if (event === "multiplayer.changed") {
-        const snap = params;
-        setSnapshot(snap);
-        setLoading(false);
-      } else if (event === "multiplayer.progress") {
-        setProgress({
-          stage: String(params.stage ?? "下载中…"),
-          bytes: Number(params.bytes ?? 0),
-          total: Number(params.total ?? 0)
-        });
-      } else if (event === "multiplayer.install.done") {
-        setInstalling(false);
-        setProgress(void 0);
-        push("success", "联机核心安装完成。");
-        void reload();
-      } else if (event === "multiplayer.install.failed") {
-        setInstalling(false);
-        setProgress(void 0);
-        push("error", `安装失败：${String(params.error ?? "未知错误")}`);
-        void reload();
+        void load();
+      } else if (event === "multiplayer.install") {
+        const pct = Number(params.percent ?? 0);
+        setInstallProgress(pct > 0 ? pct : null);
+      } else if (event === "multiplayer.installed") {
+        setInstallProgress(null);
+        push("success", "联机核心已安装");
+        void load();
       }
     });
-  }, [push, reload]);
-  const loadLogs = reactExports.useCallback(async () => {
+  }, []);
+  async function run(method, params, hint) {
+    if (busy) return;
+    setBusy(true);
     try {
-      const result = await request("multiplayer.logs");
-      setLogs(result.logs);
+      await request(method, params);
+      push("info", hint);
+      await load();
+    } catch (e) {
+      push("error", String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function openLogs() {
+    try {
+      const r2 = await request("multiplayer.logs");
+      setLogs(r2.logs);
+      setLogsOpen(true);
     } catch (e) {
       push("error", `日志读取失败：${String(e)}`);
     }
-  }, [push]);
-  const run = reactExports.useCallback(
-    async (method, params, okText) => {
-      setBusy(true);
-      setError("");
-      try {
-        const snap = await request(method, params);
-        if (snap?.providers) setSnapshot(snap);
-        if (okText) push("success", okText);
-        await loadLogs();
-      } catch (e) {
-        setError(String(e));
-        push("error", String(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [push, loadLogs]
-  );
-  const core = snapshot?.core;
-  const state = snapshot?.state;
-  const phase = state?.phase ?? "idle";
-  const providers = reactExports.useMemo(() => snapshot?.providers ?? [], [snapshot]);
-  const canPlay = core?.installed === true && !busy && !state?.isBusy;
-  const hasSession = core?.sessionRunning === true || phase !== "idle";
-  const installCore = async () => {
-    setInstalling(true);
-    setProgress({ stage: "正在准备安装…", bytes: 0, total: 0 });
-    try {
-      await request("multiplayer.install");
-      push("info", "已开始下载联机核心，进度会实时刷新。");
-    } catch (e) {
-      setInstalling(false);
-      setProgress(void 0);
-      push("error", String(e));
-    }
-  };
-  const joinRoom = () => {
-    const code = joinCode.trim();
-    if (code.length === 0) return;
-    setJoinOpen(false);
-    setJoinCode("");
-    void run("multiplayer.join", { room: code }, "已提交进房请求。");
-  };
-  const phaseText = PHASE_LABEL[phase] ?? "未知状态";
-  const hint = phaseHint(phase);
-  const percent = progress && progress.total > 0 ? Math.max(0, Math.min(100, progress.bytes / progress.total * 100)) : void 0;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("style", { children: `.mp-cards{grid-template-columns:minmax(0,1fr)}
-@media (min-width:1081px){.mp-cards{grid-template-columns:minmax(0,1.25fr) minmax(320px,0.85fr)}}` }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
-      {
-        title: "联机",
-        subtitle: "内置陶瓦联机 + 第三方联机 SDK：先装核心，再建房或进房。",
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsx(
+  }
+  const providers = snap?.providers ?? [];
+  const activeId = snap?.activeId ?? "";
+  const active = providers.find((p2) => p2.id === activeId);
+  const coreVersion = snap?.core.installed === true && snap.core.version !== void 0 ? snap.core.version : "未安装";
+  const phase = snap?.state.phase ?? "idle";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "联机方案" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Select,
+        {
+          width: 220,
+          value: activeId,
+          disabled: busy || snap?.state.isBusy === true,
+          placeholder: "（无可用方案）",
+          options: providers.length === 0 ? [{ value: "", label: "（无可用方案）" }] : providers.map((p2) => ({ value: p2.id, label: p2.displayName })),
+          onChange: (id2) => void run("multiplayer.selectProvider", { id: id2 }, "已切换联机方案")
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-body", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 12 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 40, flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "联机核心" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", style: { color: "var(--text-primary)" }, children: [
+              "v",
+              coreVersion
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "核心会话" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { color: "var(--text-primary)" }, children: snap?.core.sessionRunning === true ? "运行中" : "已停止" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "当前状态" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", style: { color: "var(--text-primary)" }, children: [
+              PHASE_LABEL[phase] ?? phase,
+              snap?.state.isBusy === true ? "（处理中）" : ""
+            ] })
+          ] })
+        ] }),
+        snap?.core.installed === false && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-warning", style: { marginTop: 12 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconWarning, { size: 14 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", style: { flex: 1 }, children: [
+            "联机核心未安装。",
+            installProgress !== null && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 6 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ProgressBar, { value: installProgress }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-sm",
+              disabled: installProgress !== null,
+              onClick: () => void request("multiplayer.install").then(() => push("info", "已开始下载联机核心")).catch((e) => push("error", String(e))),
+              children: "安装"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "button",
           {
-            className: "btn btn-subtle",
-            title: "刷新",
-            onClick: () => void reload(),
-            children: "↻"
+            className: "nav-item",
+            style: {
+              width: "100%",
+              marginTop: 12,
+              background: "var(--surface-subtle)",
+              justifyContent: "space-between",
+              paddingLeft: 12
+            },
+            onClick: () => setAdvancedOpen((v2) => !v2),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", style: { color: "var(--text-primary)" }, children: "高级选项" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { opacity: 0.55, transform: advancedOpen ? "rotate(90deg)" : "none" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconChevronRight, { size: 15 }) })
+            ]
           }
         ),
-        children: [
-          loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 4 }),
-          !loading && error !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", style: { marginBottom: 12 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, style: { fontSize: 16 }, children: "✕" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", style: { fontSize: 12 }, children: error })
+        advancedOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { flex: 1, minWidth: 220 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "昵称" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { flex: 1 },
+                  value: nickname,
+                  onChange: (e) => setNickname(e.target.value)
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  className: "btn",
+                  disabled: busy || nickname.trim() === "",
+                  onClick: () => void run("multiplayer.setNickname", { name: nickname.trim() }, "昵称已更新"),
+                  children: "保存"
+                }
+              )
+            ] })
           ] }),
-          !loading && snapshot == null && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-            EmptyState,
-            {
-              title: "暂时拿不到联机状态",
-              hint: "桥接进程可能还没起来，稍等一下再刷新。",
-              action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void reload(), children: "↻ 重新加载" })
-            }
-          ) }),
-          !loading && snapshot != null && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "div",
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { minWidth: 180 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "节点地区" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Select,
               {
-                style: { display: "grid", gap: 14, alignItems: "start" },
-                className: "mp-cards",
-                children: [
-                  "              ",
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                    "div",
-                    {
-                      className: "card",
-                      style: { display: "flex", flexDirection: "column", gap: 12, padding: 16 },
-                      children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 16 }, children: "⚯" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "联机状态" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-                          state?.isBusy === true && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "spinner" })
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                          "div",
-                          {
-                            style: {
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              padding: "12px 14px",
-                              borderRadius: "var(--r-card)",
-                              background: "var(--surface-subtle)",
-                              border: "1px solid var(--stroke-subtle)",
-                              animation: "fadeIn var(--t-enter) var(--e-enter) both"
-                            },
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                "div",
-                                {
-                                  className: "dot",
-                                  style: {
-                                    width: 10,
-                                    height: 10,
-                                    background: phaseColor(phase),
-                                    animation: state?.isBusy === true ? "pulse 1.4s infinite" : void 0
-                                  }
-                                }
-                              ),
-                              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", children: phaseText }),
-                                hint !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: hint })
-                              ] })
-                            ]
-                          }
-                        ),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "div",
-                          {
-                            style: {
-                              display: "grid",
-                              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                              gap: 8
-                            },
-                            children: [
-                              {
-                                label: "核心版本",
-                                value: core?.installed ? `v${core.version ?? "未知"}` : "未安装"
-                              },
-                              { label: "核心会话", value: core?.sessionRunning ? "运行中" : "已停止" },
-                              { label: "对应地址", value: state?.address ?? "—" },
-                              {
-                                label: "难度",
-                                value: state?.difficulty ? DIFFICULTY_LABEL[state.difficulty] ?? "未知" : "—"
-                              }
-                            ].map((cell) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                              "div",
-                              {
-                                style: {
-                                  padding: "9px 11px",
-                                  borderRadius: "var(--r-card)",
-                                  background: "var(--surface-subtle)",
-                                  border: "1px solid var(--stroke-subtle)",
-                                  minWidth: 0
-                                },
-                                children: [
-                                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block" }, children: cell.label }),
-                                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: cell.value })
-                                ]
-                              },
-                              cell.label
-                            ))
-                          }
-                        ),
-                        phase === "hostReady" && state?.room && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                          "div",
-                          {
-                            style: {
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              padding: "12px 14px",
-                              borderRadius: "var(--r-card)",
-                              border: `1.2px dashed var(--accent)`,
-                              background: "color-mix(in srgb, var(--accent) 8%, transparent)"
-                            },
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block" }, children: "邀请码（发给好友）" }),
-                                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                  "div",
-                                  {
-                                    style: {
-                                      fontFamily: "var(--font-mono)",
-                                      fontSize: 20,
-                                      fontWeight: 700,
-                                      letterSpacing: 3,
-                                      color: "var(--accent)",
-                                      userSelect: "all"
-                                    },
-                                    children: state.room
-                                  }
-                                )
-                              ] }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                "button",
-                                {
-                                  className: "btn btn-subtle",
-                                  onClick: () => {
-                                    void navigator.clipboard?.writeText(state.room ?? "").then(() => push("success", "邀请码已复制。")).catch(() => push("error", "复制失败，请手动选中。"));
-                                  },
-                                  children: "复制"
-                                }
-                              )
-                            ]
-                          }
-                        ),
-                        state?.players != null && state.players.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", style: { display: "block", marginBottom: 6 }, children: [
-                            "房间成员（",
-                            state.players.length,
-                            "）"
-                          ] }),
-                          state.players.map((name, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                            "div",
-                            {
-                              className: "row row-static",
-                              style: {
-                                padding: "7px 10px",
-                                margin: "0 4px",
-                                animationDelay: `${index * 39}ms`
-                              },
-                              children: [
-                                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                  "div",
-                                  {
-                                    className: "dot",
-                                    style: { width: 7, height: 7, background: "var(--accent)" }
-                                  }
-                                ),
-                                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body truncate", children: name })
-                              ]
-                            },
-                            `${name}-${index}`
-                          ))
-                        ] }),
-                        (state?.players == null || state.players.length === 0) && phase === "idle" && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          EmptyState,
-                          {
-                            title: "还没有联机会话",
-                            hint: "先在下面填玩家名，然后创建房间或输入好友的邀请码。"
-                          }
-                        ),
-                        phase === "failed" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "✕" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body t-body", children: [
-                            "联机异常：",
-                            state?.error ?? "未知错误"
-                          ] })
-                        ] }),
-                        snapshot?.lastError != null && snapshot.lastError.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-warning", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, children: "⚠" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body t-body", children: [
-                            "状态查询失败：",
-                            snapshot.lastError
-                          ] })
-                        ] })
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                    "div",
-                    {
-                      className: "card",
-                      style: { display: "flex", flexDirection: "column", gap: 12, padding: 16 },
-                      children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "操作" }),
-                        core?.installed !== true && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { opacity: 0.7 }, children: "首次使用需下载陶瓦联机核心（约 8 MB，国内镜像优先）；核心由启动器在首次使用时从 官方 Releases 下载，不随安装包分发。" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                            "button",
-                            {
-                              className: "btn btn-primary btn-lg",
-                              disabled: installing,
-                              onClick: () => void installCore(),
-                              children: [
-                                "↻ ",
-                                installing ? "安装中…" : "安装联机核心"
-                              ]
-                            }
-                          ),
-                          installing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(
-                              ProgressBar,
-                              {
-                                value: percent,
-                                indeterminate: percent === void 0
-                              }
-                            ),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", children: progress ? `${progress.stage} · ${formatSize(progress.bytes)}${progress.total > 0 ? ` / ${formatSize(progress.total)}` : ""}` : "正在准备安装…" })
-                          ] })
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "玩家名" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "input",
-                            {
-                              className: "input",
-                              style: { width: "100%" },
-                              value: nickname,
-                              maxLength: 24,
-                              placeholder: "在房间里显示的名字",
-                              onChange: (e) => setNickname(e.target.value),
-                              onBlur: () => nickname.trim().length > 0 && void run("multiplayer.setNickname", {
-                                name: nickname.trim()
-                              })
-                            }
-                          )
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "节点地区" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "select",
-                            {
-                              className: "input",
-                              style: { width: "100%" },
-                              value: snapshot?.nodeRegion ?? "auto",
-                              onChange: (e) => void run("multiplayer.setNodeRegion", { region: e.target.value }),
-                              children: NODE_REGIONS.map((r2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: r2.value, children: r2.label }, r2.value))
-                            }
-                          )
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: "btn btn-primary btn-lg",
-                              disabled: !canPlay,
-                              onClick: () => void run(
-                                "multiplayer.host",
-                                {},
-                                "已开始创建房间，等状态变成「房间已创建」后把邀请码发给好友。"
-                              ),
-                              children: "▶ 创建房间"
-                            }
-                          ),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: "btn",
-                              disabled: !canPlay,
-                              onClick: () => setJoinOpen(true),
-                              children: "⚯ 加入房间"
-                            }
-                          ),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: "btn",
-                              disabled: !canPlay || phase === "idle",
-                              onClick: () => void run("multiplayer.idle", {}, "已回到空闲。"),
-                              children: "↻ 回到空闲重试"
-                            }
-                          ),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: "btn btn-subtle btn-danger",
-                              disabled: !hasSession,
-                              onClick: () => setConfirmStop(true),
-                              children: "✕ 停止联机会话"
-                            }
-                          )
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { display: "block", marginBottom: 4 }, children: "联机方案" }),
-                          providers.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { opacity: 0.55 }, children: "没有可用的联机方案。" }) : providers.map((p2, index) => {
-                            const active = p2.id === snapshot?.activeId;
-                            return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                              "div",
-                              {
-                                className: `row${active ? " row-active" : ""}`,
-                                style: {
-                                  alignItems: "flex-start",
-                                  padding: "9px 10px",
-                                  margin: "0 4px",
-                                  animationDelay: `${index * 39}ms`
-                                },
-                                onClick: () => {
-                                  if (!active) void run("multiplayer.selectProvider", { id: p2.id });
-                                },
-                                children: [
-                                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                    "div",
-                                    {
-                                      style: {
-                                        width: 15,
-                                        height: 15,
-                                        borderRadius: "50%",
-                                        border: `1.6px solid ${active ? "var(--accent)" : "var(--stroke-strong)"}`,
-                                        marginTop: 2,
-                                        flexShrink: 0,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center"
-                                      },
-                                      children: active && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                        "div",
-                                        {
-                                          style: {
-                                            width: 7,
-                                            height: 7,
-                                            borderRadius: "50%",
-                                            background: "var(--accent)"
-                                          }
-                                        }
-                                      )
-                                    }
-                                  ),
-                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body truncate", style: { fontWeight: 600 }, children: [
-                                      p2.displayName,
-                                      !p2.builtIn ? ` · ${p2.vendor}` : ""
-                                    ] }),
-                                    p2.description != null && p2.description.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", children: p2.description })
-                                  ] })
-                                ]
-                              },
-                              p2.id
-                            );
-                          })
-                        ] })
-                      ]
-                    }
-                  )
-                ]
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "div",
-              {
-                className: "card card-flush",
-                style: { height: 200, marginTop: 14, display: "flex", flexDirection: "column" },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(
-                      "div",
-                      {
-                        className: "dot",
-                        style: { background: hasSession ? "var(--accent)" : "var(--text-tertiary)" }
-                      }
-                    ),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "联机日志" }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => void loadLogs(), children: "↻ 刷新" })
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", style: { paddingTop: 0 }, children: logs.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { opacity: 0.5 }, children: "暂无日志。" }) : logs.map((line, index) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: line }, index)) })
-                ]
+                width: 160,
+                value: snap?.nodeRegion ?? "auto",
+                options: [
+                  { value: "auto", label: "自动" },
+                  { value: "cn", label: "中国" },
+                  { value: "overseas", label: "海外" }
+                ],
+                onChange: (region) => void run("multiplayer.setNodeRegion", { region }, "节点已切换")
               }
             )
-          ] }),
-          host
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "btn btn-primary",
+            disabled: busy || snap?.core.installed === false,
+            onClick: () => void run("multiplayer.host", {}, "已开始创建房间，等状态变成「房间已创建」"),
+            children: "创建房间"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "btn",
+            disabled: busy || snap?.core.installed === false,
+            onClick: () => setJoinOpen(true),
+            children: "加入好友的房间"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void openLogs(), children: "查看日志" }),
+        (phase === "hosting" || phase === "joining" || phase === "connected") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn",
+              disabled: busy,
+              onClick: () => void run("multiplayer.stop", {}, "已停止联机会话"),
+              children: "停止会话"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              className: "btn btn-subtle",
+              disabled: busy,
+              onClick: () => void run("multiplayer.idle", {}, "已回到空闲"),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+                " 回到空闲"
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+        snap?.state.room !== void 0 && snap.state.room !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "chip chip-accent", children: [
+          "邀请码 ",
+          snap.state.room
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Expander, { title: "联机核心日志", open: logsOpen, onToggle: () => setLogsOpen((v2) => !v2), children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", style: { maxHeight: 240 }, children: logs.length === 0 ? "暂无日志" : logs.join("\n") }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Expander, { title: "使用步骤", open: stepsOpen, onToggle: () => setStepsOpen((v2) => !v2), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("ol", { className: "t-body", style: { margin: 0, paddingLeft: 18, lineHeight: 1.9 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "点「创建房间」，等状态变成「房间已创建」" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "把邀请码发给好友" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "好友点「加入好友的房间」填邀请码" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "双方启动游戏，在多人游戏里连接本地房间" })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Expander, { title: "第三方联机 SDK", open: sdkOpen, onToggle: () => setSdkOpen((v2) => !v2), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", children: [
+        active === void 0 ? "当前没有可用的联机方案。" : `${active.displayName}（${active.vendor}）—— ${active.description}`,
+        active?.vendorUrl !== void 0 && active.vendorUrl !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { marginTop: 6 }, children: active.vendorUrl })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { textAlign: "center", marginTop: 16 }, children: "联机由 Terracotta | 陶瓦联机 提供技术支持" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
       Modal,
       {
         open: joinOpen,
-        title: "加入房间",
-        width: 460,
+        title: "加入好友的房间",
         onClose: () => setJoinOpen(false),
         footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setJoinOpen(false), children: "取消" }),
@@ -10785,54 +11159,132 @@ function MultiplayerPage() {
             "button",
             {
               className: "btn btn-primary",
-              disabled: joinCode.trim().length === 0 || busy,
-              onClick: joinRoom,
+              disabled: joinCode.trim() === "" || busy,
+              onClick: () => {
+                setJoinOpen(false);
+                void run("multiplayer.join", { room: joinCode.trim() }, "已提交进房请求");
+                setJoinCode("");
+              },
               children: "加入"
             }
           )
         ] }),
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "邀请码" }),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "邀请码" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "input",
             {
               className: "input",
-              style: { width: "100%" },
+              autoFocus: true,
               value: joinCode,
-              placeholder: "房主给你的那串邀请码",
-              onChange: (e) => setJoinCode(e.target.value),
-              onKeyDown: (e) => {
-                if (e.key === "Enter") joinRoom();
-              }
+              placeholder: "粘贴好友发来的邀请码",
+              onChange: (e) => setJoinCode(e.target.value)
             }
           )
-        ]
+        ] })
       }
     ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Modal, { open: logsOpen && false, title: "联机核心日志", onClose: () => setLogsOpen(false), children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", style: { maxHeight: "50vh" }, children: logs.length === 0 ? "暂无日志" : logs.join("\n") }) }),
+    host
+  ] });
+}
+function chunks(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+function ProjectionViewer(props) {
+  const frameRef = reactExports.useRef(null);
+  const [ready, setReady] = reactExports.useState(false);
+  const [loading, setLoading] = reactExports.useState(false);
+  const [status, setStatus] = reactExports.useState("等待投影数据…");
+  const pathRef = reactExports.useRef(props.path);
+  reactExports.useEffect(() => {
+    const onMessage = (e) => {
+      const data = e.data;
+      if (data !== null && typeof data === "object" && data.type === "ready") setReady(true);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+  reactExports.useEffect(() => {
+    pathRef.current = props.path;
+    if (!ready || props.path === void 0 || props.path === "") return;
+    const target = props.path;
+    let cancelled = false;
+    async function push() {
+      setLoading(true);
+      setStatus("正在解析投影与资源…");
+      try {
+        const payload = await request("lab.assets", { path: target });
+        if (cancelled || pathRef.current !== target) return;
+        const win = frameRef.current?.contentWindow;
+        if (win === void 0 || win === null) return;
+        win.postMessage(
+          {
+            type: "voxelBegin",
+            sizeX: payload.sizeX,
+            sizeY: payload.sizeY,
+            sizeZ: payload.sizeZ,
+            truncated: payload.truncated,
+            assetSource: payload.assetSource ?? ""
+          },
+          "*"
+        );
+        for (const part of chunks(Object.entries(payload.states), 200)) {
+          win.postMessage({ type: "voxelStates", items: Object.fromEntries(part) }, "*");
+        }
+        for (const part of chunks(Object.entries(payload.models), 200)) {
+          win.postMessage({ type: "voxelModels", items: Object.fromEntries(part) }, "*");
+        }
+        for (const part of chunks(Object.entries(payload.textures), 60)) {
+          win.postMessage({ type: "voxelTextures", items: Object.fromEntries(part) }, "*");
+        }
+        for (const part of chunks(payload.blocks, 2e4)) {
+          win.postMessage({ type: "voxelBlocks", items: part }, "*");
+        }
+        win.postMessage({ type: "voxelEnd" }, "*");
+        setStatus("");
+      } catch (e) {
+        if (cancelled) return;
+        setStatus("");
+        props.onError?.(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void push();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, props.path]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Modal,
+      "iframe",
       {
-        open: confirmStop,
-        title: "停止联机会话？",
-        width: 460,
-        onClose: () => setConfirmStop(false),
-        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setConfirmStop(false), children: "取消" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              className: "btn btn-primary",
-              style: { background: "var(--danger)", color: "#fff" },
-              disabled: busy,
-              onClick: () => {
-                setConfirmStop(false);
-                void run("multiplayer.stop", {}, "已停止联机会话。");
-              },
-              children: "确认停止"
-            }
-          )
-        ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: "停止后房间会立刻关闭，正在游戏里的其他成员会被踢出。此操作不可撤销。" })
+        ref: frameRef,
+        title: "投影预览",
+        src: "./lab/projection-viewer.html",
+        onLoad: () => setReady(true),
+        style: { width: "100%", height: "100%", border: "none", display: "block" }
+      }
+    ),
+    (loading || status !== "") && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        style: {
+          position: "absolute",
+          left: 12,
+          top: 12,
+          padding: "6px 10px",
+          borderRadius: "var(--r-sm)",
+          background: "var(--surface-acrylic)",
+          backdropFilter: "blur(12px)",
+          fontSize: 12,
+          color: "var(--text-secondary)",
+          pointerEvents: "none"
+        },
+        children: loading ? "正在解析投影与资源…" : status
       }
     )
   ] });
@@ -10861,35 +11313,29 @@ function LabPage() {
   const [loading, setLoading] = reactExports.useState(false);
   const [generating, setGenerating] = reactExports.useState(false);
   const [error, setError] = reactExports.useState("");
+  const [section, setSection] = reactExports.useState("workshop");
+  const [projFiles, setProjFiles] = reactExports.useState([]);
+  const [schematicsDir, setSchematicsDir] = reactExports.useState("");
   const canvasRef = reactExports.useRef(null);
   const viewRef = reactExports.useRef({ zoom: 1, offsetX: 0, offsetY: 0 });
-  const dragRef = reactExports.useRef(null);
+  reactExports.useRef(null);
   const [dragging, setDragging] = reactExports.useState(false);
   const [drawToken, setDrawToken] = reactExports.useState(0);
   const redraw = reactExports.useCallback(() => setDrawToken((n2) => n2 + 1), []);
-  const load = async () => {
-    const target = path.trim();
-    if (target.length === 0) {
-      push("info", "先填写投影文件的绝对路径。");
-      return;
-    }
-    setLoading(true);
-    setError("");
+  const scanProjections = reactExports.useCallback(async () => {
     try {
-      const result = await request("lab.load", { path: target });
-      setPreview(result);
-      viewRef.current = { zoom: 1, offsetX: 0, offsetY: 0 };
-      redraw();
-      if (result.unsupported != null && result.unsupported.length > 0) {
-        push("error", `不支持的投影格式：${result.unsupported}`);
+      const r2 = await request("projections.scan", {});
+      setProjFiles(r2.files);
+      const first = r2.files[0];
+      if (first !== void 0) {
+        setSchematicsDir(first.filePath.replace(/[\/][^\/]+$/, ""));
       }
-    } catch (e) {
-      setError(String(e));
-      push("error", `加载失败：${String(e)}`);
-    } finally {
-      setLoading(false);
+    } catch {
     }
-  };
+  }, []);
+  reactExports.useEffect(() => {
+    void scanProjections();
+  }, [scanProjections]);
   const generateWorldEater = async () => {
     setGenerating(true);
     try {
@@ -10967,34 +11413,6 @@ function LabPage() {
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [redraw]);
-  const onWheel = (e) => {
-    const view = viewRef.current;
-    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    view.zoom = Math.max(0.25, Math.min(6, view.zoom * factor));
-    e.preventDefault();
-    redraw();
-  };
-  const onPointerDown = (e) => {
-    dragRef.current = { x: e.clientX, y: e.clientY };
-    setDragging(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e) => {
-    const drag = dragRef.current;
-    if (drag == null) return;
-    const view = viewRef.current;
-    view.offsetX += e.clientX - drag.x;
-    view.offsetY += e.clientY - drag.y;
-    dragRef.current = { x: e.clientX, y: e.clientY };
-    redraw();
-  };
-  const onPointerUp = (e) => {
-    dragRef.current = null;
-    setDragging(false);
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  };
   const resetView = () => {
     viewRef.current = { zoom: 1, offsetX: 0, offsetY: 0 };
     redraw();
@@ -11002,27 +11420,173 @@ function LabPage() {
   const voxels = preview?.preview ?? [];
   const stats = (preview?.stats ?? []).slice(0, MAX_STATS_ROWS);
   const maxCount = stats.length > 0 ? Math.max(...stats.map((s) => s.count)) : 1;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-    PageShell,
-    {
-      title: "实验室",
-      subtitle: "投影工坊：解析 .litematic 并画等距体素预览；世吞生成器：直接产出分层 TNT 模板。",
-      actions: /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          className: "btn btn-subtle",
-          title: "重新加载",
-          onClick: () => {
-            if (path.trim().length > 0) void load();
-          },
-          children: "↻"
-        }
-      ),
-      children: [
-        loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 3 }),
-        error !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", style: { marginBottom: 12 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, style: { fontSize: 16 }, children: "✕" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", style: { fontSize: 12 }, children: error })
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 16 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", style: { width: 220, flexShrink: 0, padding: 8, alignSelf: "flex-start" }, children: [
+      { id: "workshop", label: "投影工坊", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconList, { size: 15 }) },
+      { id: "color", label: "彩色文字", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconSettings, { size: 15 }) },
+      { id: "community", label: "投影社区", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconWorld, { size: 15 }) },
+      { id: "command", label: "指令助手", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconImport, { size: 15 }) }
+    ].map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: `nav-item${section === t2.id ? " nav-active" : ""}`,
+        style: { height: 40, width: "100%" },
+        onClick: () => {
+          setSection(t2.id);
+          if (t2.id !== "workshop") push("info", `${t2.label}：实验室功能开发中`);
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-icon", style: { fontFamily: "inherit", fontSize: 14 }, children: t2.icon }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.label })
+        ]
+      },
+      t2.id
+    )) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto" }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 14 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "span",
+            {
+              style: { width: 4, height: 16, borderRadius: 2, background: "var(--accent)" }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", style: { fontSize: 15 }, children: "投影工坊" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap truncate", children: schematicsDir })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void scanProjections(), children: "刷新列表" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn",
+              onClick: () => push("info", "打开文件：需要主进程文件对话框，接入后可用"),
+              children: "打开文件…"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn",
+              onClick: () => push("info", "打开投影目录：需要主进程 openPath，接入后可用"),
+              children: "打开投影目录"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              className: "btn btn-subtle",
+              disabled: generating,
+              onClick: () => void generateWorldEater(),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconList, { size: 14 }),
+                " ",
+                generating ? "生成中…" : "生成世吞模板"
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxHeight: 220, overflowY: "auto" }, children: [
+          projFiles.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "暂无投影文件（schematics 目录为空）。" }),
+          projFiles.map((f2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              className: `row${path === f2.filePath ? " row-active" : ""}`,
+              style: { width: "100%", textAlign: "left", minHeight: 0, paddingTop: 8, paddingBottom: 8 },
+              onClick: () => {
+                setPath(f2.filePath);
+                void (async () => {
+                  setLoading(true);
+                  try {
+                    const result = await request("lab.load", {
+                      path: f2.filePath
+                    });
+                    setPreview(result);
+                    viewRef.current = { zoom: 1, offsetX: 0, offsetY: 0 };
+                    redraw();
+                  } catch (e) {
+                    setError(String(e));
+                  } finally {
+                    setLoading(false);
+                  }
+                })();
+              },
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body truncate", style: { flex: 1, color: "var(--text-primary)" }, children: f2.fileName }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-meta", style: { flexShrink: 0 }, children: [
+                  (f2.sizeBytes / 1024).toFixed(0),
+                  " KB ·",
+                  " ",
+                  new Date(f2.modifiedAt).toLocaleDateString()
+                ] })
+              ]
+            },
+            f2.filePath
+          ))
+        ] })
+      ] }),
+      loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 3 }),
+      error !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", style: { marginBottom: 12 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 15 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", style: { fontSize: 12 }, children: error })
+      ] }),
+      preview != null && preview.unsupported != null && preview.unsupported.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-warning", style: { marginBottom: 14 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconWarning, { size: 15 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body t-body", children: [
+          "不支持的投影格式：",
+          preview.unsupported
+        ] })
+      ] }),
+      preview != null && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 14, padding: "14px 16px" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "投影统计" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap truncate", children: preview.path })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                gap: 8,
+                marginTop: 10
+              },
+              children: [
+                { label: "尺寸 X", value: `${preview.sizeX}` },
+                { label: "尺寸 Y", value: `${preview.sizeY}` },
+                { label: "尺寸 Z", value: `${preview.sizeZ}` },
+                { label: "方块总数", value: `${preview.totalBlocks}` },
+                { label: "方块种类", value: `${preview.distinctBlocks}` },
+                {
+                  label: "预览采样",
+                  value: `${voxels.length}${preview.previewTruncated ? " ↓" : ""}`
+                }
+              ].map((cell, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "div",
+                {
+                  style: {
+                    padding: "10px 12px",
+                    borderRadius: "var(--r-card)",
+                    background: "var(--surface-subtle)",
+                    border: "1px solid var(--stroke-subtle)",
+                    animation: `rowIn var(--t-enter) var(--e-enter) both`,
+                    animationDelay: `${index * 39}ms`
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block" }, children: cell.label }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", children: cell.value })
+                  ]
+                },
+                cell.label
+              ))
+            }
+          ),
+          (preview.truncated || preview.previewTruncated) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", style: { display: "block", marginTop: 8 }, children: [
+            preview.truncated ? "文件方块数超出解析上限，统计与预览均基于已读取的部分。" : "",
+            preview.previewTruncated ? "预览已按步长降采样，仅绘制部分方块（不是完整模型）。" : ""
+          ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "div",
@@ -11030,280 +11594,133 @@ function LabPage() {
             className: "card",
             style: {
               display: "flex",
-              alignItems: "flex-end",
-              gap: 12,
-              flexWrap: "wrap",
+              flexDirection: "column",
+              gap: 10,
               padding: "14px 16px",
               marginBottom: 14
             },
             children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 280 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "投影文件路径" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "input",
-                  {
-                    className: "input",
-                    style: { width: "100%" },
-                    value: path,
-                    placeholder: "/home/user/.minecraft/schematics/build.litematic",
-                    onChange: (e) => setPath(e.target.value),
-                    onKeyDown: (e) => {
-                      if (e.key === "Enter") void load();
-                    }
-                  }
-                )
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 16 }, children: "◫" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "等距预览" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn btn-subtle", onClick: resetView, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+                  " 复位视图"
+                ] })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
+                "div",
                 {
-                  className: "btn btn-primary",
-                  disabled: loading,
-                  onClick: () => void load(),
+                  style: {
+                    position: "relative",
+                    height: 420,
+                    borderRadius: "var(--r-card)",
+                    overflow: "hidden",
+                    background: "radial-gradient(120% 100% at 50% 0%, var(--surface-mica-a) 0%, var(--surface-window) 100%)",
+                    border: "1px solid var(--stroke-subtle)"
+                  },
                   children: [
-                    "↻ ",
-                    loading ? "解析中…" : "加载预览"
-                  ]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
-                {
-                  className: "btn",
-                  disabled: generating,
-                  onClick: () => void generateWorldEater(),
-                  children: [
-                    "▤ ",
-                    generating ? "生成中…" : "生成世吞模板"
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(ProjectionViewer, { path, onError: (m2) => setError(m2) }),
+                    "              "
                   ]
                 }
               )
             ]
           }
         ),
-        preview != null && preview.unsupported != null && preview.unsupported.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-warning", style: { marginBottom: 14 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, style: { fontSize: 16 }, children: "⚠" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body t-body", children: [
-            "不支持的投影格式：",
-            preview.unsupported
-          ] })
-        ] }),
-        preview != null && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 14, padding: "14px 16px" }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "投影统计" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap truncate", children: preview.path })
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { padding: "14px 16px" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "方块种类" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", children: [
+              "(",
+              stats.length,
+              ")"
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "div",
-              {
-                style: {
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                  gap: 8,
-                  marginTop: 10
-                },
-                children: [
-                  { label: "尺寸 X", value: `${preview.sizeX}` },
-                  { label: "尺寸 Y", value: `${preview.sizeY}` },
-                  { label: "尺寸 Z", value: `${preview.sizeZ}` },
-                  { label: "方块总数", value: `${preview.totalBlocks}` },
-                  { label: "方块种类", value: `${preview.distinctBlocks}` },
-                  {
-                    label: "预览采样",
-                    value: `${voxels.length}${preview.previewTruncated ? " ↓" : ""}`
-                  }
-                ].map((cell, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                  "div",
-                  {
-                    style: {
-                      padding: "10px 12px",
-                      borderRadius: "var(--r-card)",
-                      background: "var(--surface-subtle)",
-                      border: "1px solid var(--stroke-subtle)",
-                      animation: `rowIn var(--t-enter) var(--e-enter) both`,
-                      animationDelay: `${index * 39}ms`
-                    },
-                    children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block" }, children: cell.label }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", children: cell.value })
-                    ]
-                  },
-                  cell.label
-                ))
-              }
-            ),
-            (preview.truncated || preview.previewTruncated) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", style: { display: "block", marginTop: 8 }, children: [
-              preview.truncated ? "文件方块数超出解析上限，统计与预览均基于已读取的部分。" : "",
-              preview.previewTruncated ? "预览已按步长降采样，仅绘制部分方块（不是完整模型）。" : ""
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+            preview.stats.length > MAX_STATS_ROWS && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-meta", children: [
+              "仅显示前 ",
+              MAX_STATS_ROWS,
+              " 条"
             ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 8 }, children: stats.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "没有方块数据", hint: "换一个投影文件再试试。" }) : stats.map((s, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "div",
             {
-              className: "card",
+              className: "row row-static",
               style: {
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                padding: "14px 16px",
-                marginBottom: 14
+                padding: "7px 10px",
+                margin: "0 4px",
+                animationDelay: `${index * 39}ms`
               },
               children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 16 }, children: "◫" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "等距预览" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: resetView, children: "↻ 复位视图" })
-                ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(
                   "div",
                   {
                     style: {
-                      position: "relative",
-                      height: 420,
-                      borderRadius: "var(--r-card)",
-                      overflow: "hidden",
-                      background: "radial-gradient(120% 100% at 50% 0%, var(--surface-mica-a) 0%, var(--surface-window) 100%)",
-                      border: "1px solid var(--stroke-subtle)"
-                    },
-                    children: voxels.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-                      EmptyState,
-                      {
-                        title: "没有可预览的方块",
-                        hint: "这个投影是空的，或者采样后没有落到任何方块。"
-                      }
-                    ) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "canvas",
-                        {
-                          ref: canvasRef,
-                          style: {
-                            display: "block",
-                            width: "100%",
-                            height: "100%",
-                            cursor: dragging ? "grabbing" : "grab",
-                            touchAction: "none"
-                          },
-                          onWheel,
-                          onPointerDown,
-                          onPointerMove,
-                          onPointerUp,
-                          onPointerCancel: onPointerUp
-                        }
-                      ),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "div",
-                        {
-                          style: {
-                            position: "absolute",
-                            right: 10,
-                            bottom: 10,
-                            fontSize: 11,
-                            opacity: 0.5,
-                            pointerEvents: "none",
-                            background: "var(--surface-layer)",
-                            padding: "3px 8px",
-                            borderRadius: "var(--r-control)"
-                          },
-                          children: "滚轮缩放 · 左键拖拽平移"
-                        }
-                      )
-                    ] })
+                      width: 18,
+                      height: 18,
+                      borderRadius: "var(--r-control)",
+                      flexShrink: 0,
+                      border: "1px solid var(--stroke-strong)",
+                      background: blockColor(s.id)
+                    }
                   }
-                )
-              ]
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { padding: "14px 16px" }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: "方块种类" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", children: [
-                "(",
-                stats.length,
-                ")"
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-              preview.stats.length > MAX_STATS_ROWS && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-meta", children: [
-                "仅显示前 ",
-                MAX_STATS_ROWS,
-                " 条"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 8 }, children: stats.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "没有方块数据", hint: "换一个投影文件再试试。" }) : stats.map((s, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "div",
-              {
-                className: "row row-static",
-                style: {
-                  padding: "7px 10px",
-                  margin: "0 4px",
-                  animationDelay: `${index * 39}ms`
-                },
-                children: [
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body truncate", children: s.id }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx(
                     "div",
                     {
                       style: {
-                        width: 18,
-                        height: 18,
-                        borderRadius: "var(--r-control)",
-                        flexShrink: 0,
-                        border: "1px solid var(--stroke-strong)",
-                        background: blockColor(s.id)
-                      }
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body truncate", children: s.id }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(
-                      "div",
-                      {
-                        style: {
-                          height: 4,
-                          borderRadius: 2,
-                          background: "var(--surface-hover)",
-                          overflow: "hidden",
-                          marginTop: 4
-                        },
-                        children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "div",
-                          {
-                            style: {
-                              width: `${s.count / maxCount * 100}%`,
-                              height: "100%",
-                              background: blockColor(s.id),
-                              transition: "width 450ms cubic-bezier(0.1,0.9,0.2,1)"
-                            }
+                        height: 4,
+                        borderRadius: 2,
+                        background: "var(--surface-hover)",
+                        overflow: "hidden",
+                        marginTop: 4
+                      },
+                      children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "div",
+                        {
+                          style: {
+                            width: `${s.count / maxCount * 100}%`,
+                            height: "100%",
+                            background: blockColor(s.id),
+                            transition: "width 450ms cubic-bezier(0.1,0.9,0.2,1)"
                           }
-                        )
-                      }
-                    )
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "span",
-                    {
-                      className: "t-body",
-                      style: { opacity: 0.75, minWidth: 72, textAlign: "right" },
-                      children: s.count
+                        }
+                      )
                     }
                   )
-                ]
-              },
-              s.id
-            )) })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "span",
+                  {
+                    className: "t-body",
+                    style: { opacity: 0.75, minWidth: 72, textAlign: "right" },
+                    children: s.count
+                  }
+                )
+              ]
+            },
+            s.id
+          )) })
+        ] })
+      ] }),
+      !loading && preview == null && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        EmptyState,
+        {
+          title: "还没有载入投影",
+          hint: "填一个 .litematic 的绝对路径点「加载预览」，或直接生成一份世吞模板试手气。",
+          action: /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", onClick: () => void generateWorldEater(), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconList, { size: 14 }),
+            " 生成世吞模板"
           ] })
-        ] }),
-        !loading && preview == null && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-          EmptyState,
-          {
-            title: "还没有载入投影",
-            hint: "填一个 .litematic 的绝对路径点「加载预览」，或直接生成一份世吞模板试手气。",
-            action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void generateWorldEater(), children: "▤ 生成世吞模板" })
-          }
-        ) }),
-        host
-      ]
-    }
-  ) });
+        }
+      ) }),
+      host
+    ] })
+  ] }) }) });
 }
 function fmtSize(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -11320,276 +11737,346 @@ function ProjectionsPage() {
   const [files, setFiles] = reactExports.useState([]);
   const [versions, setVersions] = reactExports.useState([]);
   const [loading, setLoading] = reactExports.useState(true);
-  const [busy, setBusy] = reactExports.useState(null);
-  const [target, setTarget] = reactExports.useState(null);
-  const [mode, setMode] = reactExports.useState("copy");
-  const [destVersion, setDestVersion] = reactExports.useState("");
+  const [busy, setBusy] = reactExports.useState(false);
+  const [selected, setSelected] = reactExports.useState(null);
+  const [dest, setDest] = reactExports.useState("");
   const [confirmDelete, setConfirmDelete] = reactExports.useState(null);
-  async function reload() {
+  const load = reactExports.useCallback(async () => {
     setLoading(true);
     try {
       const r2 = await request("projections.scan", {});
       setFiles(r2.files);
       setVersions(r2.versions);
+      if (selected !== null && !r2.files.some((f2) => f2.filePath === selected)) {
+        setSelected(null);
+      }
     } catch (e) {
       push("error", `扫描投影失败：${String(e)}`);
-    } finally {
-      setLoading(false);
     }
-  }
+    setLoading(false);
+  }, [push]);
   reactExports.useEffect(() => {
-    void reload();
-  }, []);
-  async function transfer() {
-    if (target === null) return;
-    setBusy(target.filePath);
+    void load();
+  }, [load]);
+  const current = reactExports.useMemo(
+    () => files.find((f2) => f2.filePath === selected) ?? null,
+    [files, selected]
+  );
+  async function transfer(mode) {
+    if (current === null) return;
+    setBusy(true);
     try {
       const r2 = await request(
         mode === "copy" ? "projections.copy" : "projections.move",
-        { filePath: target.filePath, versionId: destVersion === "" ? null : destVersion }
+        { filePath: current.filePath, versionId: dest === "" ? null : dest }
       );
       push("success", `${mode === "copy" ? "已复制" : "已移动"}到 ${r2.path}`);
-      setTarget(null);
-      await reload();
+      await load();
     } catch (e) {
       push("error", String(e));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
   async function remove(file) {
-    setBusy(file.filePath);
+    setBusy(true);
     try {
       await request("projections.delete", { filePath: file.filePath });
       push("success", `已删除 ${file.fileName}`);
-      await reload();
+      setSelected(null);
+      await load();
     } catch (e) {
       push("error", String(e));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-    PageShell,
-    {
-      title: "投影管理",
-      subtitle: "全局与各版本实例的投影文件，跨版本复制或移动",
-      actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void reload(), disabled: loading, children: "↻ 刷新" }),
-      children: [
-        loading ? /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 6, avatar: true }) : files.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "page-title", children: "投影管理" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-sub", children: "扫描全局与各版本实例的投影，可直接复制到需要使用的版本。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => void load(), disabled: loading, children: "刷新" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 16 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card card-flush", style: { flex: 1, minWidth: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 12px" }, children: [
+        loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 6 }),
+        !loading && files.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
           EmptyState,
           {
             title: "还没有投影文件",
             hint: "投影放在游戏目录的 schematics 下（.litematic / .nbt / .schematic / .schem）。"
           }
-        ) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: files.map((file, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: "row row-static",
-            style: { animationDelay: `${index * 39}ms` },
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "icon32", children: "◈" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: file.fileName }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap truncate", children: [
-                  fmtSize(file.sizeBytes),
-                  " · ",
-                  fmtTime(file.modifiedAt),
-                  " ·",
-                  " ",
-                  file.versionId ?? "全局目录"
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "meta", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "位置" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: file.versionId ?? "全局" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-k", children: "大小" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "meta-v", children: fmtSize(file.sizeBytes) })
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn",
-                  disabled: busy !== null,
-                  onClick: () => {
-                    setTarget(file);
-                    setMode("copy");
-                    setDestVersion("");
-                  },
-                  children: "复制到…"
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn",
-                  disabled: busy !== null,
-                  onClick: () => {
-                    setTarget(file);
-                    setMode("move");
-                    setDestVersion("");
-                  },
-                  children: "移动到…"
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn btn-subtle btn-danger",
-                  disabled: busy !== null,
-                  onClick: () => setConfirmDelete(file),
-                  children: "删除"
-                }
-              )
-            ]
-          },
-          file.filePath
-        )) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          Modal,
-          {
-            open: target !== null,
-            title: mode === "copy" ? "复制投影" : "移动投影",
-            onClose: () => setTarget(null),
-            footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setTarget(null), children: "取消" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn btn-primary",
-                  disabled: busy !== null,
-                  onClick: () => void transfer(),
-                  children: busy !== null ? "处理中…" : mode === "copy" ? "复制" : "移动"
-                }
-              )
-            ] }),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-body", style: { marginBottom: 12 }, children: [
-                "将「",
-                target?.fileName,
-                "」",
-                mode === "copy" ? "复制" : "移动",
-                "到："
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "select",
-                {
-                  className: "input",
-                  style: { width: "100%" },
-                  value: destVersion,
-                  onChange: (e) => setDestVersion(e.target.value),
-                  children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "全局 .minecraft/schematics" }),
-                    versions.map((v2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: v2, children: v2 }, v2))
-                  ]
-                }
-              )
-            ]
-          }
         ),
+        files.map((f2) => {
+          const active = f2.filePath === selected;
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              className: `row${active ? " row-active" : ""}`,
+              style: { alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 },
+              onClick: () => setSelected(active ? null : f2.filePath),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: f2.fileName }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", children: [
+                    fmtSize(f2.sizeBytes),
+                    " · ",
+                    fmtTime(f2.modifiedAt),
+                    " ·",
+                    " ",
+                    f2.versionId === void 0 ? "全局目录" : `版本 ${f2.versionId}`
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "div",
+                    {
+                      className: "t-meta truncate",
+                      style: { opacity: 0.65 },
+                      title: f2.filePath,
+                      children: f2.filePath
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", style: { flexShrink: 0 }, children: f2.versionId === void 0 ? "全局" : f2.versionId })
+              ]
+            },
+            f2.filePath
+          );
+        })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { width: 370, flexShrink: 0, alignSelf: "flex-start" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", style: { marginBottom: 12 }, children: "目标版本" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
-          Modal,
+          Select,
           {
-            open: confirmDelete !== null,
-            title: "删除投影？",
-            onClose: () => setConfirmDelete(null),
-            footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setConfirmDelete(null), children: "取消" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn btn-primary",
-                  style: { background: "var(--danger)", color: "#fff" },
-                  onClick: () => {
-                    const t2 = confirmDelete;
-                    setConfirmDelete(null);
-                    if (t2 !== null) void remove(t2);
-                  },
-                  children: "删除"
-                }
-              )
-            ] }),
-            children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dialog-body", children: [
-              "投影文件会从磁盘永久删除：",
-              confirmDelete?.fileName
-            ] })
+            width: 340,
+            value: dest,
+            options: [
+              { value: "", label: "全局（共享目录）" },
+              ...versions.map((v2) => ({ value: v2, label: v2 }))
+            ],
+            onChange: setDest
           }
         ),
-        host
-      ]
-    }
-  );
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn",
+              disabled: current === null || busy,
+              onClick: () => void transfer("copy"),
+              children: "复制到该版本"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn",
+              disabled: current === null || busy,
+              onClick: () => void transfer("move"),
+              children: "移动到该版本"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn",
+              disabled: current === null || busy,
+              onClick: () => {
+                if (current === null) return;
+                void request("shell.openPath", { path: current.filePath }).catch(
+                  (e) => push("error", String(e))
+                );
+              },
+              children: "在文件夹中显示"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-danger",
+              disabled: current === null || busy,
+              onClick: () => {
+                if (current !== null) setConfirmDelete(current);
+              },
+              children: "删除"
+            }
+          )
+        ] }),
+        current !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", style: { marginTop: 12 }, children: [
+          "已选：",
+          current.fileName,
+          /* @__PURE__ */ jsxRuntimeExports.jsx("br", {}),
+          "当前位于：",
+          current.versionId === void 0 ? "全局目录" : current.versionId
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Modal,
+      {
+        open: confirmDelete !== null,
+        title: "删除投影？",
+        onClose: () => setConfirmDelete(null),
+        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setConfirmDelete(null), children: "取消" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-primary",
+              style: { background: "var(--danger)", color: "#fff" },
+              onClick: () => {
+                const f2 = confirmDelete;
+                setConfirmDelete(null);
+                if (f2 !== null) void remove(f2);
+              },
+              children: "删除"
+            }
+          )
+        ] }),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dialog-body", children: [
+          "投影文件会从磁盘永久删除：",
+          confirmDelete?.fileName
+        ] })
+      }
+    ),
+    host
+  ] });
 }
 function RunningPage(props) {
+  const { push, host } = useToasts();
   const session = props.session;
+  async function killGame() {
+    if (session.sessionId === void 0) return;
+    try {
+      await request("game.kill", { sessionId: session.sessionId });
+      push("info", "已结束游戏进程");
+    } catch (e) {
+      push("error", `结束失败：${String(e)}`);
+    }
+  }
   const running = session.pid !== void 0 && session.pid > 0;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", style: { padding: "18px 20px", marginBottom: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12 }, children: [
+  const hasLogs = session.logs.length > 0;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", title: "刷新", onClick: () => window.location.reload(), children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 15 }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", title: "采样设置", children: [
+        "采样设置 ",
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconChevronDown, { size: 14 })
+      ] })
+    ] }),
+    !running && session.status === "" && !hasLogs ? (
+      // 空态（Win 端同款居中卡）
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "div",
         {
-          className: "dot",
+          className: "card",
           style: {
-            background: running ? "var(--success)" : "var(--text-tertiary)",
-            animation: running ? "pulse 1.6s infinite" : void 0
-          }
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          },
+          children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "empty", style: { minHeight: 0 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 26, opacity: 0.5, lineHeight: 1 }, children: "☰" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-title", style: { fontSize: 16 }, children: "现在没有游戏在运行" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-hint", children: "去首页启动一个版本" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: props.onGoHome, children: "去首页" })
+          ] })
         }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: session.status || "当前没有运行中的游戏" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap truncate", children: running ? `进程 pid ${session.pid}` : "在首页选择版本与账户后启动游戏" })
-      ] }),
-      session.logs.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: session.clearLogs, children: "✕ 清空日志" })
-    ] }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "div",
-      {
-        className: "card card-flush",
-        style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 },
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "div",
-              {
-                className: "dot",
-                style: {
-                  background: running ? "var(--accent)" : "var(--surface-hover)",
-                  animation: running ? "pulse 1.6s infinite" : void 0
-                }
+      )
+    ) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", style: { padding: "18px 20px", marginBottom: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            className: "dot",
+            style: {
+              background: running ? "var(--success)" : "var(--text-tertiary)",
+              animation: running ? "pulse 1.6s infinite" : void 0
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: session.status !== "" ? session.status : "当前没有运行中的游戏" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap truncate", children: running ? `进程 pid ${session.pid}` : session.exitCode !== void 0 ? `上次退出码 ${session.exitCode}` : "在首页选择版本与账户后启动游戏" })
+        ] }),
+        running && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-danger", onClick: () => void killGame(), children: "结束游戏" }),
+        hasLogs && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn btn-subtle", onClick: session.clearLogs, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 13 }),
+          " 清空日志"
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "span",
+            {
+              className: "dot",
+              style: {
+                background: running ? "var(--accent)" : "var(--surface-hover)",
+                animation: running ? "pulse 1.6s infinite" : void 0
               }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "实时日志" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "chip", children: [
-              session.logs.length,
-              " 行"
-            ] })
-          ] }),
-          session.logs.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "暂无日志", hint: "游戏启动后，这里会实时显示输出。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", children: session.logs.map((line, index) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { animation: "fadeIn 150ms ease both" }, children: line }, index)) })
-        ]
-      }
-    )
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "实时日志" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "chip", children: [
+            session.logs.length,
+            " 行"
+          ] })
+        ] }),
+        hasLogs ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", children: session.logs.map((line, index) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: line }, index)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "暂无日志", hint: "游戏启动后，这里会实时显示输出。" })
+      ] })
+    ] }),
+    host
   ] });
 }
-const NAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/;
-function typeLabel(account) {
-  if (account.type === "offline") return "离线账户";
-  return account.serverAlias ?? account.serverName ?? account.type;
+function avatarUrl(a) {
+  const id2 = a.type === "microsoft" ? a.uuid : a.name;
+  return `https://minotar.net/helm/${encodeURIComponent(id2)}/128`;
 }
-function typeColor(account) {
-  return account.type === "offline" ? "#8A8A8A" : "#6FA852";
-}
+const TYPE_LABEL = {
+  microsoft: "微软账户",
+  external: "外置账户",
+  offline: "离线账户"
+};
+const ADD_KIND_LABEL = {
+  microsoft: "微软账户",
+  external: "外置账户",
+  offline: "离线账户"
+};
+const MIN_POLL_INTERVAL_SEC = 3;
 function AccountsPage() {
   const { push, host } = useToasts();
   const [accounts, setAccounts] = reactExports.useState([]);
-  const [current, setCurrent] = reactExports.useState(void 0);
+  const [current, setCurrent] = reactExports.useState();
   const [loading, setLoading] = reactExports.useState(true);
-  const [switching, setSwitching] = reactExports.useState(null);
-  const [addOpen, setAddOpen] = reactExports.useState(false);
-  const [draftName, setDraftName] = reactExports.useState("");
-  const [adding, setAdding] = reactExports.useState(false);
+  const [failedAvatars, setFailedAvatars] = reactExports.useState(/* @__PURE__ */ new Set());
   const [pendingRemove, setPendingRemove] = reactExports.useState(null);
-  const [removing, setRemoving] = reactExports.useState(false);
+  const [detailFor, setDetailFor] = reactExports.useState(null);
+  const [addOpen, setAddOpen] = reactExports.useState(false);
+  const [addKind, setAddKind] = reactExports.useState("microsoft");
+  const [addBusy, setAddBusy] = reactExports.useState(false);
+  const [addError, setAddError] = reactExports.useState("");
+  const [device, setDevice] = reactExports.useState(null);
+  const [msStatus, setMsStatus] = reactExports.useState("");
+  const [codeCopied, setCodeCopied] = reactExports.useState(false);
+  const addErrorRef = reactExports.useRef("");
+  const closeAddRef = reactExports.useRef(() => void 0);
+  const loadRef = reactExports.useRef(async () => void 0);
+  const pushToastRef = reactExports.useRef(
+    () => void 0
+  );
+  const generationRef = reactExports.useRef(0);
+  const pollRef = reactExports.useRef(null);
+  const [extUrl, setExtUrl] = reactExports.useState("");
+  const [extName, setExtName] = reactExports.useState("");
+  const [extPwd, setExtPwd] = reactExports.useState("");
+  const [draftName, setDraftName] = reactExports.useState("");
   const load = reactExports.useCallback(async () => {
     setLoading(true);
     try {
@@ -11597,204 +12084,484 @@ function AccountsPage() {
       setAccounts(data.accounts);
       setCurrent(data.current);
     } catch (e) {
-      push("error", `账户列表读取失败：${String(e)}`);
+      push("error", `读取账户失败：${String(e)}`);
     }
     setLoading(false);
   }, [push]);
   reactExports.useEffect(() => {
     void load();
   }, [load]);
-  reactExports.useEffect(() => {
-    if (!addOpen) setDraftName("");
-  }, [addOpen]);
-  const nameValid = NAME_PATTERN.test(draftName);
+  reactExports.useEffect(
+    () => () => {
+      if (pollRef.current !== null) window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    },
+    []
+  );
+  const stopPolling = reactExports.useCallback(() => {
+    if (pollRef.current !== null) window.clearInterval(pollRef.current);
+    pollRef.current = null;
+  }, []);
+  const nameValid = /^[A-Za-z0-9_]{3,16}$/.test(draftName.trim());
+  const extReady = extUrl.trim() !== "" && extName.trim() !== "" && extPwd !== "";
+  function closeAdd() {
+    stopPolling();
+    generationRef.current += 1;
+    setAddOpen(false);
+    setAddBusy(false);
+    setAddError("");
+    addErrorRef.current = "";
+    setDevice(null);
+    setMsStatus("");
+    setCodeCopied(false);
+    setDraftName("");
+    setExtUrl("");
+    setExtName("");
+    setExtPwd("");
+  }
+  function syncRefs() {
+    closeAddRef.current = closeAdd;
+    loadRef.current = load;
+    pushToastRef.current = push;
+  }
+  syncRefs();
+  const startPolling = reactExports.useCallback((session, generation) => {
+    const intervalMs = Math.max(session.interval, MIN_POLL_INTERVAL_SEC) * 1e3;
+    setMsStatus("等待授权…");
+    const timer = window.setInterval(() => {
+      void (async () => {
+        if (generation !== generationRef.current) return;
+        try {
+          const r2 = await request("auth.microsoft.poll", {
+            deviceCode: session.deviceCode
+          });
+          if (generation !== generationRef.current) return;
+          if (r2.state === "success") {
+            stopPolling();
+            pushToastRef.current(
+              "success",
+              r2.account !== void 0 ? `Microsoft 账户已登录：${r2.account.name}` : "Microsoft 账户已登录"
+            );
+            closeAddRef.current();
+            await loadRef.current();
+            return;
+          }
+          setMsStatus(r2.message !== void 0 && r2.message !== "" ? r2.message : "等待授权…");
+        } catch (e) {
+          if (generation !== generationRef.current) return;
+          stopPolling();
+          setMsStatus("");
+          const message = `登录失败：${String(e)}`;
+          addErrorRef.current = message;
+          setAddError(message);
+        }
+      })();
+    }, intervalMs);
+    pollRef.current = timer;
+  }, [stopPolling]);
+  async function startMicrosoft() {
+    setAddBusy(true);
+    setAddError("");
+    try {
+      const session = await request("auth.microsoft.start");
+      const generation = generationRef.current + 1;
+      generationRef.current = generation;
+      setDevice(session);
+      startPolling(session, generation);
+    } catch (e) {
+      setAddError(`获取设备码失败：${String(e)}`);
+    } finally {
+      setAddBusy(false);
+    }
+  }
+  async function openVerification() {
+    if (device === null) return;
+    try {
+      await navigator.clipboard?.writeText(device.userCode);
+      setCodeCopied(true);
+    } catch {
+    }
+    try {
+      const api = nativeApi();
+      if (api === null) {
+        push("info", `请手动打开 ${device.verificationUri} 并输入代码 ${device.userCode}`);
+        return;
+      }
+      await api.openExternal(device.verificationUri);
+    } catch (e) {
+      setAddError(`打开验证网站失败：${String(e)}`);
+    }
+  }
+  async function loginExternal() {
+    if (!extReady) return;
+    setAddBusy(true);
+    setAddError("");
+    try {
+      const r2 = await request("auth.yggdrasil.login", {
+        url: extUrl.trim(),
+        username: extName.trim(),
+        password: extPwd
+      });
+      push("success", `第三方登录 ${r2.account.name} 已添加`);
+      setExtPwd("");
+      closeAdd();
+      await load();
+    } catch (e) {
+      setAddError(`登录失败：${String(e)}`);
+    } finally {
+      setAddBusy(false);
+    }
+  }
   async function addOffline() {
     if (!nameValid) return;
-    setAdding(true);
+    setAddBusy(true);
+    setAddError("");
     try {
       await request("accounts.addOffline", { name: draftName.trim() });
-      push("success", `已添加离线账户 ${draftName.trim()}`);
-      setAddOpen(false);
+      push("success", `离线账户 ${draftName.trim()} 已添加`);
+      closeAdd();
       await load();
     } catch (e) {
-      push("error", `添加失败：${String(e)}`);
+      setAddError(`添加失败：${String(e)}`);
     } finally {
-      setAdding(false);
+      setAddBusy(false);
     }
   }
-  async function setCurrentAccount(account) {
-    if (switching !== null) return;
-    setSwitching(account.uuid);
+  async function setAsCurrent(a) {
     try {
-      await request("accounts.setCurrent", { uuid: account.uuid });
-      push("success", `已将 ${account.name} 设为当前账户`);
+      await request("accounts.setCurrent", { uuid: a.uuid });
+      push("success", `已将 ${a.name} 设为当前账户`);
       await load();
     } catch (e) {
-      push("error", `切换失败：${String(e)}`);
-    } finally {
-      setSwitching(null);
+      push("error", String(e));
     }
   }
-  async function confirmRemove() {
-    if (!pendingRemove) return;
-    const target = pendingRemove;
-    setRemoving(true);
+  async function remove(a) {
     try {
-      await request("accounts.remove", { uuid: target.uuid });
-      push("success", `已移除账户 ${target.name}`);
+      await request("accounts.remove", { uuid: a.uuid });
+      push("success", `已移除账户 ${a.name}`);
       setPendingRemove(null);
       await load();
     } catch (e) {
       push("error", `移除失败：${String(e)}`);
-    } finally {
-      setRemoving(false);
     }
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
-      {
-        title: "账户",
-        subtitle: `共 ${accounts.length} 个账户${current !== void 0 ? `，当前：${accounts.find((a) => a.uuid === current)?.name ?? "未知"}` : ""}`,
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => setAddOpen(true), children: "☺ 添加离线账户" }),
-        children: [
-          loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 3, avatar: true }),
-          !loading && accounts.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            EmptyState,
+  syncRefs();
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-body", style: { display: "flex", flexDirection: "column", gap: 18 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", style: { padding: "18px 22px" }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 14, alignItems: "center" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            style: {
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              background: "var(--accent)",
+              color: "var(--text-on-accent)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontWeight: 700,
+              fontSize: 18,
+              flexShrink: 0
+            },
+            children: "?"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", children: "未登录 Starcloud ID" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "登录后可使用云端模型、邀请与时刻等在线能力" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "btn btn-primary",
+            onClick: () => push("info", "Starcloud ID 登录：内核能力接入后可用"),
+            children: "登录"
+          }
+        )
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 12
+            },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  style: {
+                    width: 4,
+                    height: 18,
+                    borderRadius: 2,
+                    background: "var(--accent)",
+                    flexShrink: 0
+                  }
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", style: { fontSize: 16 }, children: "游戏账户" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", children: [
+                accounts.length,
+                " 个账户"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  className: "btn btn-primary",
+                  onClick: () => {
+                    setAddOpen(true);
+                    setAddError("");
+                  },
+                  children: "添加账户"
+                }
+              )
+            ]
+          }
+        ),
+        loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 2, avatar: true }),
+        !loading && accounts.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          EmptyState,
+          {
+            title: "还没有游戏账户",
+            hint: "点右上角「添加账户」用微软账户登录，或建一个离线账户。",
+            action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => setAddOpen(true), children: "添加账户" })
+          }
+        ),
+        accounts.map((a) => {
+          const isCurrent = a.uuid === current || a.isDefault === true;
+          const failed = failedAvatars.has(a.uuid);
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
             {
-              title: "还没有账户",
-              hint: "点右上角「添加离线账户」创建一个 3-16 位字母数字玩家名即可开始游戏。",
-              action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => setAddOpen(true), children: "☺ 添加离线账户" })
-            }
-          ),
-          !loading && accounts.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 10, paddingTop: 4 }, children: accounts.map((account, index) => {
-            const isCurrent = account.uuid === current || account.isDefault;
-            const online = account.type !== "offline";
-            const expired = online && account.hasSession !== true;
-            const busy = switching !== null;
-            const statusColor = online ? expired ? "var(--warning)" : "var(--success)" : "var(--text-tertiary)";
-            return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "div",
-              {
-                className: `row glow${isCurrent ? " row-active" : ""}`,
-                style: {
-                  animationDelay: `${index * 39}ms`,
-                  "--glow": "radial-gradient(420px circle at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%)"
-                },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "div",
-                    {
-                      className: "icon32",
-                      style: {
+              className: "row",
+              style: { minHeight: 72 },
+              onClick: () => setDetailFor(a),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "div",
+                  {
+                    className: "icon32",
+                    style: { width: 48, height: 48, borderRadius: 8, overflow: "hidden" },
+                    children: failed ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 18 }, children: a.name[0]?.toUpperCase() }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "img",
+                      {
+                        src: avatarUrl(a),
+                        alt: "",
                         width: 48,
                         height: 48,
-                        fontSize: 22,
-                        fontWeight: 600,
-                        background: "linear-gradient(180deg,#3a2a1a,#241a10)",
-                        color: "#e0a76a",
-                        animation: expired ? "pulse 2.4s infinite" : void 0
-                      },
-                      children: account.name[0]?.toUpperCase()
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }, children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong truncate", children: account.name }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                      "div",
-                      {
-                        style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", style: { color: typeColor(account) }, children: typeLabel(account) }),
-                          isCurrent && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "当前账户" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(
-                              "span",
-                              {
-                                style: { color: statusColor, fontSize: 13 },
-                                title: !online ? "无需凭证" : expired ? "凭证已过期" : "凭证有效",
-                                children: expired ? "!" : "✓"
-                              }
-                            ),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", children: !online ? "无需凭证" : expired ? "凭证已过期" : "凭证有效" })
-                          ] })
-                        ]
+                        style: { objectFit: "cover" },
+                        onError: () => setFailedAvatars((prev) => new Set(prev).add(a.uuid))
                       }
                     )
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong truncate", children: a.name }),
+                    isCurrent && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "首选" }),
+                    a.hasSession === false && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-danger", children: "需重新登录" })
                   ] }),
-                  !isCurrent && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      className: "btn btn-primary",
-                      disabled: busy,
-                      onClick: () => void setCurrentAccount(account),
-                      children: switching === account.uuid ? "切换中…" : "设为当前"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      className: "btn btn-danger",
-                      onClick: () => setPendingRemove(account),
-                      "aria-label": `移除 ${account.name}`,
-                      children: "✕ 移除"
-                    }
-                  )
-                ]
-              },
-              account.uuid
-            );
-          }) })
-        ]
-      }
-    ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+                    TYPE_LABEL[a.type] ?? a.type,
+                    a.serverName !== void 0 && a.serverName !== "" ? ` · ${a.serverName}` : ""
+                  ] })
+                ] }),
+                a.skinId !== void 0 && a.skinId !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", style: { textAlign: "right" }, children: [
+                  "皮肤",
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("br", {}),
+                  a.skinId
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    className: "btn btn-subtle btn-sm btn-danger",
+                    title: "移除账户",
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      setPendingRemove(a);
+                    },
+                    children: "移除"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(IconChevronRight, { size: 15, style: { opacity: 0.45 } })
+              ]
+            },
+            a.uuid
+          );
+        })
+      ] })
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Modal,
       {
         open: addOpen,
-        title: "添加离线账户",
-        onClose: () => setAddOpen(false),
-        width: 480,
-        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setAddOpen(false), disabled: adding, children: "取消" }),
+        title: "添加账户",
+        onClose: closeAdd,
+        width: 560,
+        footer: addKind === "microsoft" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: closeAdd, children: "取消" }),
+          device === null ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-primary",
+              disabled: addBusy,
+              onClick: () => void startMicrosoft(),
+              children: addBusy ? "获取中…" : "开始登录"
+            }
+          ) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: closeAdd, children: "取消登录" })
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: closeAdd, children: "取消" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
               className: "btn btn-primary",
-              onClick: () => void addOffline(),
-              disabled: !nameValid || adding,
-              children: adding ? "添加中…" : "添加"
+              disabled: addKind === "offline" ? !nameValid || addBusy : !extReady || addBusy,
+              onClick: () => {
+                if (addKind === "offline") void addOffline();
+                else void loginExternal();
+              },
+              children: addBusy ? "处理中…" : addKind === "offline" ? "添加" : "登录"
             }
           )
         ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 12 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "玩家名" }),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 14 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Segmented,
+            {
+              value: addKind,
+              options: [
+                { value: "microsoft", label: ADD_KIND_LABEL.microsoft },
+                { value: "external", label: ADD_KIND_LABEL.external },
+                { value: "offline", label: ADD_KIND_LABEL.offline }
+              ],
+              onChange: (v2) => {
+                setAddKind(v2);
+                setAddError("");
+              }
+            }
+          ),
+          addError !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", children: addError })
+          ] }),
+          addKind === "microsoft" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 12 }, children: device === null ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: "使用一次性验证代码登录 Microsoft 账户：点「开始登录」拿到代码后， 用浏览器打开验证网站输入代码完成授权，启动器会自动把账户加进来。" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 10,
+                padding: "6px 0"
+              },
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { textAlign: "center" }, children: "使用一次性验证代码登录到你的 Microsoft 账户" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "div",
+                  {
+                    className: "t-mono",
+                    style: {
+                      fontSize: 30,
+                      fontWeight: 600,
+                      letterSpacing: 3,
+                      color: "var(--text-primary)",
+                      userSelect: "text"
+                    },
+                    children: device.userCode
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", style: { textAlign: "center" }, children: [
+                  "使用浏览器打开 ",
+                  device.verificationUri,
+                  "，输入以上代码并按照网页提示完成授权。 完成后启动器将自动把账户添加至启动器内。"
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    className: "btn btn-primary",
+                    style: { width: "100%" },
+                    onClick: () => void openVerification(),
+                    children: codeCopied ? "已复制并打开验证网站" : "复制并打开验证网站"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "div",
+                  {
+                    style: { display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)" },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spinner" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: msStatus === "" ? "等待授权…" : msStatus })
+                    ]
+                  }
+                )
+              ]
+            }
+          ) }),
+          addKind === "external" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "认证服务器地址" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  className: "input",
+                  value: extUrl,
+                  placeholder: "例如 https://littleskin.cn/api/yggdrasil",
+                  onChange: (e) => setExtUrl(e.target.value)
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "邮箱或用户名" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  className: "input",
+                  autoFocus: true,
+                  value: extName,
+                  onChange: (e) => setExtName(e.target.value)
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "密码" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  className: "input",
+                  type: "password",
+                  value: extPwd,
+                  onChange: (e) => setExtPwd(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter" && extReady && !addBusy) void loginExternal();
+                  }
+                }
+              )
+            ] })
+          ] }),
+          addKind === "offline" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "玩家名（3–16 位字母、数字或下划线）" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "input",
               {
                 className: "input",
-                style: { width: "100%" },
-                value: draftName,
-                onChange: (e) => setDraftName(e.target.value),
-                placeholder: "Steve",
                 autoFocus: true,
-                disabled: adding,
+                value: draftName,
+                placeholder: "例如 Steve",
+                onChange: (e) => setDraftName(e.target.value),
                 onKeyDown: (e) => {
                   if (e.key === "Enter" && nameValid) void addOffline();
                 }
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "div",
-              {
-                className: "t-meta",
-                style: { marginTop: 4, color: draftName !== "" && !nameValid ? "var(--danger)" : void 0 },
-                children: draftName !== "" && !nameValid ? "玩家名不合法：需 3-16 位字母、数字或下划线" : "3-16 位字母、数字或下划线"
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", children: "离线账户不需要登录微软账号，凭证永不失效；存档与皮肤由本地玩家名决定。" })
+            draftName.trim() !== "" && !nameValid ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", style: { color: "var(--danger)" }, children: "名字不合法：3–16 位字母/数字/下划线" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "离线账户无需登录，可用于单人游戏、局域网联机与允许离线登录的服务器。" })
+          ] })
         ] })
       }
     ),
@@ -11802,92 +12569,471 @@ function AccountsPage() {
       Modal,
       {
         open: pendingRemove !== null,
-        title: `移除账户「${pendingRemove?.name ?? ""}」？`,
+        title: "移除账户？",
         onClose: () => setPendingRemove(null),
-        width: 480,
         footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setPendingRemove(null), disabled: removing, children: "取消" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setPendingRemove(null), children: "取消" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
               className: "btn btn-primary",
-              style: { background: "var(--danger)", color: "#fff" },
-              onClick: () => void confirmRemove(),
-              disabled: removing,
-              children: [
-                "✕ ",
-                removing ? "移除中…" : "确认移除"
-              ]
+              style: { background: "var(--danger)", color: "var(--text-on-accent)" },
+              onClick: () => {
+                const a = pendingRemove;
+                if (a !== null) void remove(a);
+              },
+              children: "移除"
             }
           )
         ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: "只会移除本地的账户记录，不会删除任何存档或版本文件。移除后需要重新添加才能使用该玩家名。" })
+        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dialog-body", children: [
+          "将从启动器移除账户 ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: pendingRemove?.name }),
+          "（不会删除游戏内的玩家数据）。"
+        ] })
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Modal,
+      {
+        open: detailFor !== null,
+        title: detailFor?.name ?? "",
+        width: 480,
+        onClose: () => setDetailFor(null),
+        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setDetailFor(null), children: "返回账户列表" }),
+          detailFor !== null && detailFor.uuid !== current && /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-primary",
+              onClick: () => {
+                const a = detailFor;
+                setDetailFor(null);
+                if (a !== null) void setAsCurrent(a);
+              },
+              children: "设为首选"
+            }
+          )
+        ] }),
+        children: detailFor !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 14 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 14, alignItems: "center" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                className: "icon32",
+                style: { width: 72, height: 72, borderRadius: 8, overflow: "hidden" },
+                children: failedAvatars.has(detailFor.uuid) ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 28 }, children: detailFor.name[0]?.toUpperCase() }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "img",
+                  {
+                    src: avatarUrl(detailFor),
+                    alt: "",
+                    width: 72,
+                    height: 72,
+                    style: { objectFit: "cover" },
+                    onError: () => setFailedAvatars((prev) => new Set(prev).add(detailFor.uuid))
+                  }
+                )
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 17, fontWeight: 600 }, className: "truncate", children: detailFor.name }),
+                detailFor.uuid === current && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "首选" })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+                TYPE_LABEL[detailFor.type] ?? detailFor.type,
+                detailFor.serverName !== void 0 && detailFor.serverName !== "" ? ` · ${detailFor.serverName}` : ""
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+              "UUID：",
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-mono", children: detailFor.uuid })
+            ] }),
+            detailFor.skinId !== void 0 && detailFor.skinId !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+              "皮肤：",
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-mono", children: detailFor.skinId })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: [
+            (detailFor.type === "microsoft" || detailFor.type === "external") && /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: "btn",
+                onClick: () => {
+                  setDetailFor(null);
+                  setAddKind(detailFor.type === "microsoft" ? "microsoft" : "external");
+                  setAddOpen(true);
+                },
+                children: "重新登录该账号"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setDetailFor(null), children: "前往换肤" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: "btn btn-danger",
+                onClick: () => {
+                  const a = detailFor;
+                  setDetailFor(null);
+                  if (a !== null) setPendingRemove(a);
+                },
+                children: "删除账户"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "删除只移除本机保存的身份信息，不动游戏存档与版本文件。" })
+        ] })
       }
     ),
     host
   ] });
 }
+function textOf(node, bindings) {
+  if (node.value === void 0 || node.value === null) return "";
+  if (node.value.bind !== void 0 && node.value.bind !== null) {
+    const key = `${node.value.bind.scope}.${node.value.bind.key}`;
+    const v2 = bindings[key];
+    return v2 === void 0 || v2 === null ? "" : String(v2);
+  }
+  return node.value.text;
+}
+function PluginViewNodeView(props) {
+  const { node, bindings, pluginId } = props;
+  const [busy, setBusy] = reactExports.useState(false);
+  async function run(action) {
+    if (action === void 0 || action === null) return;
+    const api = action.handler.length > 0 ? action.handler : action.api;
+    if (api === "") return;
+    let args = [];
+    try {
+      args = JSON.parse(action.argsJson === "" ? "[]" : action.argsJson);
+    } catch {
+      args = [];
+    }
+    setBusy(true);
+    try {
+      const r2 = await request("plugins.invoke", {
+        id: pluginId,
+        api,
+        args
+      });
+      if (!r2.ok) props.onError(r2.error ?? "动作执行失败");
+      props.onRefresh();
+    } catch (e) {
+      props.onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const children = (node.children ?? []).map((child, i) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+    PluginViewNodeView,
+    {
+      node: child,
+      bindings,
+      pluginId,
+      onRefresh: props.onRefresh,
+      onError: props.onError
+    },
+    `${child.type}-${i}`
+  ));
+  switch (node.type) {
+    case "stack":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          style: {
+            display: "flex",
+            flexDirection: node.direction === "row" ? "row" : "column",
+            gap: node.spacing !== void 0 && node.spacing > 0 ? node.spacing : 8,
+            alignItems: node.direction === "row" ? "center" : "stretch",
+            flexWrap: "wrap"
+          },
+          children
+        }
+      );
+    case "text":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          className: "t-body",
+          style: { whiteSpace: node.wrap === false ? "nowrap" : "pre-wrap" },
+          children: textOf(node, bindings)
+        }
+      );
+    case "title":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", children: textOf(node, bindings) });
+    case "caption":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: textOf(node, bindings) });
+    case "button":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: `btn${node.kind === "accent" ? " btn-primary" : ""}${node.kind === "danger" ? " btn-danger" : ""}`,
+          disabled: busy,
+          onClick: () => void run(node.action),
+          children: textOf(node, bindings)
+        }
+      );
+    case "toggle": {
+      const key = node.bind !== void 0 && node.bind !== null ? `${node.bind.scope}.${node.bind.key}` : "";
+      const checked = bindings[key] === true || bindings[key] === "true";
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "toggle",
+            role: "switch",
+            "aria-checked": checked,
+            disabled: busy,
+            onClick: () => void run(node.action)
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", children: textOf(node, bindings) })
+      ] });
+    }
+    case "input": {
+      const key = node.bind !== void 0 && node.bind !== null ? `${node.bind.scope}.${node.bind.key}` : "";
+      const value = bindings[key];
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: textOf(node, bindings) }),
+        node.multiline === true ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "textarea",
+          {
+            className: "input",
+            style: { minHeight: 72 },
+            placeholder: node.placeholder,
+            defaultValue: value === void 0 || value === null ? "" : String(value)
+          }
+        ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "input",
+            placeholder: node.placeholder,
+            defaultValue: value === void 0 || value === null ? "" : String(value)
+          }
+        )
+      ] });
+    }
+    case "select": {
+      const key = node.bind !== void 0 && node.bind !== null ? `${node.bind.scope}.${node.bind.key}` : "";
+      const value = bindings[key];
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: textOf(node, bindings) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { className: "input", defaultValue: value === void 0 || value === null ? "" : String(value), children: (node.options ?? []).map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: opt, children: opt }, opt)) })
+      ] });
+    }
+    case "list": {
+      const key = node.itemsBind !== void 0 && node.itemsBind !== null ? `${node.itemsBind.scope}.${node.itemsBind.key}` : "";
+      const raw = bindings[key];
+      const items = Array.isArray(raw) ? raw : [];
+      if (items.length === 0) {
+        return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "（空）" });
+      }
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: items.map((item, i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "row row-static", style: { minHeight: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", children: typeof item === "string" ? item : JSON.stringify(item) }) }, i)) });
+    }
+    case "table": {
+      const key = node.itemsBind !== void 0 && node.itemsBind !== null ? `${node.itemsBind.scope}.${node.itemsBind.key}` : "";
+      const raw = bindings[key];
+      const rows = Array.isArray(raw) ? raw : [];
+      const cols = node.columns ?? [];
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 2 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 12 }, children: cols.map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", style: { flex: 1 }, children: c }, c)) }),
+        rows.map((row, i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 12 }, children: cols.map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", style: { flex: 1 }, children: typeof row === "object" && row !== null ? String(row[c] ?? "") : "" }, c)) }, i))
+      ] });
+    }
+    case "image":
+      return node.source === "" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "（图片）" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "img",
+        {
+          src: node.source,
+          alt: "",
+          style: { maxWidth: "100%", borderRadius: "var(--r-sm)" }
+        }
+      );
+    case "progress":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "progress", style: { width: "100%" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          className: "progress-fill",
+          style: { width: `${Math.max(0, Math.min(100, node.progress ?? 0))}%` }
+        }
+      ) });
+    case "badge":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: textOf(node, bindings) });
+    case "divider":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: 1, background: "var(--stroke-divider)" } });
+    case "link":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "a",
+        {
+          className: "t-body",
+          style: { color: "var(--accent)" },
+          href: node.href,
+          onClick: (e) => {
+            e.preventDefault();
+            void run(node.action);
+          },
+          children: textOf(node, bindings)
+        }
+      );
+    case "code":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "pre",
+        {
+          className: "log",
+          style: {
+            margin: 0,
+            padding: 10,
+            background: "var(--surface-subtle)",
+            borderRadius: "var(--r-sm)",
+            maxHeight: (node.height ?? 0) > 0 ? node.height : 240
+          },
+          children: textOf(node, bindings)
+        }
+      );
+    default:
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+        "未支持的组件：",
+        node.type
+      ] });
+  }
+}
+function PluginPanelView(props) {
+  const [result, setResult] = reactExports.useState(null);
+  const [loading, setLoading] = reactExports.useState(true);
+  const [tick, setTick] = reactExports.useState(0);
+  reactExports.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    void request("plugins.view", {
+      id: props.pluginId,
+      panelId: props.panelId
+    }).then((r2) => {
+      if (alive) setResult(r2);
+    }).catch((e) => {
+      if (alive) props.onError(String(e));
+    }).finally(() => {
+      if (alive) setLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [props.pluginId, props.panelId, tick]);
+  if (loading) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "加载面板…" });
+  if (result === null) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "面板加载失败" });
+  if (!result.ok) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-danger", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-body", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", children: "面板定义不合法" }),
+        (result.errors ?? []).map((e) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: e }, e))
+      ] })
+    ] });
+  }
+  const view = result.view ?? null;
+  if (view === null) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "面板没有内容" });
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    PluginViewNodeView,
+    {
+      node: view,
+      bindings: result.bindings ?? {},
+      pluginId: props.pluginId,
+      onRefresh: () => setTick((n2) => n2 + 1),
+      onError: props.onError
+    }
+  );
+}
+const CORE_PLUGINS = [
+  {
+    kind: "引擎",
+    name: "图标缓存",
+    version: "1.0.0",
+    desc: "把远程图标/封面落到本地磁盘并复用（走下载引擎）",
+    provides: "IIconCache"
+  },
+  {
+    kind: "引擎",
+    name: "多线程下载引擎",
+    version: "1.0.0",
+    desc: "多文件批量下载 + 多源分片竞速 + 重试 + 断点续传；可在局域网内复用同账号设备的已下载文件",
+    provides: "IDownloadEngine"
+  },
+  {
+    kind: "引擎",
+    name: "搜索词翻译",
+    version: "1.0.0",
+    desc: "中文搜索词 → 英文项目名（内置词典 → MC 百科 → 机器翻译，带缓存）",
+    provides: "ITranslationEngine"
+  },
+  {
+    kind: "功能",
+    name: "投影管理",
+    version: "1.0.0",
+    desc: "扫描全局与各版本实例的投影文件，可把投影复制/移动到指定版本",
+    provides: "IProjectionLibrary"
+  },
+  {
+    kind: "功能",
+    name: "版本管理",
+    version: "1.0.0",
+    desc: "官方版本清单拉取与缓存、本地已安装版本枚举、版本删除",
+    provides: "IVersionCatalog"
+  }
+];
 function PluginsPage() {
   const { push, host } = useToasts();
   const [plugins, setPlugins] = reactExports.useState([]);
   const [loading, setLoading] = reactExports.useState(true);
-  const [busy, setBusy] = reactExports.useState(null);
+  const [installOpen, setInstallOpen] = reactExports.useState(false);
   const [installPath, setInstallPath] = reactExports.useState("");
-  const [confirm, setConfirm] = reactExports.useState(null);
-  const [disclaimer, setDisclaimer] = reactExports.useState(null);
-  async function reload() {
+  const [busy, setBusy] = reactExports.useState(null);
+  const [pendingUninstall, setPendingUninstall] = reactExports.useState(null);
+  const [pendingDisclaimer, setPendingDisclaimer] = reactExports.useState(null);
+  const [panelFor, setPanelFor] = reactExports.useState(null);
+  const [panels, setPanels] = reactExports.useState([]);
+  const [activePanelId, setActivePanelId] = reactExports.useState("");
+  const [panelBusy, setPanelBusy] = reactExports.useState(false);
+  const load = reactExports.useCallback(async () => {
     setLoading(true);
     try {
       const r2 = await request("plugins.list");
       setPlugins(r2.plugins);
     } catch (e) {
-      push("error", `读取插件列表失败：${String(e)}`);
-    } finally {
-      setLoading(false);
+      push("error", `读取插件失败：${String(e)}`);
     }
-  }
+    setLoading(false);
+  }, [push]);
   reactExports.useEffect(() => {
-    void reload();
-  }, []);
+    void load();
+  }, [load]);
   async function install() {
     if (installPath.trim() === "") return;
     setBusy("__install__");
     try {
-      const p2 = await request("plugins.install", { path: installPath.trim() });
-      push("success", `已安装 ${p2.name} v${p2.version}`);
+      const p2 = await request("plugins.install", {
+        path: installPath.trim()
+      });
+      push("success", `已安装插件 ${p2.name} ${p2.version}`);
+      setInstallOpen(false);
       setInstallPath("");
-      await reload();
+      await load();
     } catch (e) {
       push("error", `安装失败：${String(e)}`);
     } finally {
       setBusy(null);
     }
   }
-  async function toggle(p2, enabled) {
+  async function togglePlugin(p2, enabled) {
     if (enabled && !p2.official && !p2.disclaimerAccepted) {
-      setDisclaimer(p2);
+      setPendingDisclaimer(p2);
       return;
     }
     setBusy(p2.id);
     try {
       await request("plugins.setEnabled", { id: p2.id, enabled });
-      push("success", enabled ? `已启用 ${p2.name}` : `已停用 ${p2.name}`);
-      await reload();
-    } catch (e) {
-      push("error", String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-  async function confirmEnable() {
-    const p2 = disclaimer;
-    setDisclaimer(null);
-    if (!p2) return;
-    setBusy(p2.id);
-    try {
-      await request("plugins.setEnabled", { id: p2.id, enabled: true, acceptDisclaimer: true });
-      push("success", `已启用 ${p2.name}`);
-      await reload();
+      await load();
     } catch (e) {
       push("error", String(e));
     } finally {
@@ -11899,189 +13045,285 @@ function PluginsPage() {
     try {
       await request("plugins.uninstall", { id: p2.id });
       push("success", `已卸载 ${p2.name}`);
-      await reload();
+      setPendingUninstall(null);
+      await load();
     } catch (e) {
       push("error", String(e));
     } finally {
       setBusy(null);
     }
   }
-  async function openFolder(p2) {
+  async function openPanels(p2) {
+    setPanelFor(p2);
+    setPanelBusy(true);
     try {
-      await request("plugins.openFolder", { id: p2.id });
+      const r2 = await request(
+        "plugins.panels",
+        { id: p2.id }
+      );
+      setPanels(r2.panels);
+      setActivePanelId(r2.panels[0]?.id ?? "");
     } catch (e) {
       push("error", String(e));
+      setPanelFor(null);
+    } finally {
+      setPanelBusy(false);
     }
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
-      {
-        title: "插件",
-        subtitle: "外部插件（v2 沙箱）：.mclplug 安装、JS / Python / 声明式运行时",
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => void reload(), children: "↻ 刷新" }),
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { padding: 16, marginBottom: 12 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", style: { display: "block", marginBottom: 10 }, children: "安装插件" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 10 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "input",
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => setInstallOpen(true), children: "安装插件…" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-body", style: { display: "flex", flexDirection: "column", gap: 14 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", style: { fontSize: 15 }, children: "内核插件" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-cap", children: [
+            "共 ",
+            CORE_PLUGINS.length,
+            " 个 · 内核 1.0.0"
+          ] })
+        ] }),
+        CORE_PLUGINS.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: "row row-static",
+            style: { alignItems: "flex-start", minHeight: 0, paddingTop: 10, paddingBottom: 10 },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", style: { marginTop: 2 }, children: p2.kind }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: p2.name }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", children: p2.version })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-cap", children: [
+                  p2.desc,
+                  "　提供：",
+                  p2.provides
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", style: { flexShrink: 0 }, children: "运行中" })
+            ]
+          },
+          p2.name
+        ))
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-strong", style: { fontSize: 15, marginBottom: 6 }, children: "已安装" }),
+        loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 2 }),
+        !loading && plugins.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { padding: "12px 0" }, children: "还没有安装第三方插件。" }),
+        plugins.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: "row row-static",
+            style: { alignItems: "flex-start", minHeight: 0, paddingTop: 12, paddingBottom: 12 },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", children: p2.name }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-meta", children: p2.version }),
+                  !p2.official && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "第三方未验证" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "chip", children: [
+                    "API ",
+                    p2.apiVersion
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: p2.description }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", style: { opacity: 0.8 }, children: [
+                  "作者 ",
+                  p2.author === "" ? "未知" : p2.author,
+                  p2.permissions.length > 0 && ` · 能力：${p2.permissions.join(" · ")}`
+                ] })
+              ] }),
+              p2.panelCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
                 {
-                  className: "input",
-                  style: { flex: 1 },
-                  value: installPath,
-                  placeholder: ".mclplug 安装包绝对路径",
-                  onChange: (e) => setInstallPath(e.target.value),
-                  onKeyDown: (e) => {
-                    if (e.key === "Enter") void install();
-                  }
+                  className: "btn btn-sm",
+                  disabled: busy !== null || panelBusy,
+                  onClick: () => void openPanels(p2),
+                  children: "打开面板"
                 }
               ),
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "button",
                 {
-                  className: "btn btn-primary",
+                  className: "btn btn-sm",
                   disabled: busy !== null,
-                  onClick: () => void install(),
-                  children: busy === "__install__" ? "安装中…" : "安装"
+                  onClick: () => setPendingUninstall(p2),
+                  children: "卸载"
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                Toggle,
+                {
+                  checked: p2.enabled,
+                  disabled: busy !== null,
+                  label: `启用 ${p2.name}`,
+                  onChange: (v2) => void togglePlugin(p2, v2)
                 }
               )
-            ] })
-          ] }),
-          loading ? /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 3 }) : plugins.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "还没有安装外部插件", hint: "从 .mclplug 安装包安装第三方插件。" }) : plugins.map((p2, index) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "div",
+            ]
+          },
+          p2.id
+        ))
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "把 .mclplug 文件放到这里：点「安装插件…」选择插件包，安装后打开开关启用。" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Modal,
+      {
+        open: installOpen,
+        title: "安装插件",
+        onClose: () => setInstallOpen(false),
+        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setInstallOpen(false), children: "取消" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
             {
-              className: "card",
-              style: {
-                padding: 16,
-                marginBottom: 8,
-                animation: `slideUp var(--t-enter) var(--e-enter) both`,
-                animationDelay: `${index * 39}ms`
-              },
-              children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "div",
-                  {
-                    className: "icon32",
-                    style: {
-                      fontSize: 22,
-                      color: p2.enabled ? "var(--accent)" : "var(--text-tertiary)",
-                      background: p2.enabled ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "var(--surface-subtle)"
-                    },
-                    children: "◫"
-                  }
-                ),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                    "div",
-                    {
-                      style: {
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        flexWrap: "wrap"
-                      },
-                      children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-strong truncate", children: [
-                          p2.name,
-                          " ",
-                          p2.version
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: p2.id }),
-                        p2.official && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: "官方" }),
-                        p2.enabled && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "已启用" }),
-                        p2.loaded && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "运行中" })
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: p2.description }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }, children: p2.permissions.slice(0, 6).map((perm) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip", children: perm }, perm)) })
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "button",
-                  {
-                    className: `btn${p2.enabled ? "" : " btn-primary"}`,
-                    disabled: busy !== null,
-                    onClick: () => void toggle(p2, !p2.enabled),
-                    children: p2.enabled ? "停用" : "启用"
-                  }
-                ),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "button",
-                  {
-                    className: "btn btn-subtle",
-                    disabled: busy !== null,
-                    onClick: () => void openFolder(p2),
-                    children: "▤ 目录"
-                  }
-                ),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "button",
-                  {
-                    className: "btn btn-subtle btn-danger",
-                    disabled: busy !== null,
-                    onClick: () => setConfirm(p2),
-                    children: "✕ 卸载"
-                  }
-                )
-              ] })
-            },
-            p2.id
-          )),
-          host
-        ]
+              className: "btn btn-primary",
+              disabled: installPath.trim() === "" || busy !== null,
+              onClick: () => void install(),
+              children: "安装"
+            }
+          )
+        ] }),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "插件包路径（.mclplug 或已解压目录）" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              className: "input",
+              autoFocus: true,
+              value: installPath,
+              placeholder: "例如 /home/user/Downloads/demo.mclplug",
+              onChange: (e) => setInstallPath(e.target.value)
+            }
+          )
+        ] })
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Modal,
       {
-        open: confirm !== null,
-        title: `卸载 ${confirm?.name}？`,
-        width: 460,
-        onClose: () => setConfirm(null),
+        open: pendingDisclaimer !== null,
+        title: "启用第三方插件？",
+        onClose: () => setPendingDisclaimer(null),
         footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setConfirm(null), children: "取消" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setPendingDisclaimer(null), children: "取消" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-primary",
+              onClick: () => {
+                const p2 = pendingDisclaimer;
+                setPendingDisclaimer(null);
+                if (p2 === null) return;
+                void request("plugins.setEnabled", {
+                  id: p2.id,
+                  enabled: true,
+                  acceptDisclaimer: true
+                }).then(() => load()).catch((e) => push("error", String(e)));
+              },
+              children: "我了解风险，启用"
+            }
+          )
+        ] }),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dialog-body", children: "该插件不是 Starcloud 官方发布，未经审核。插件可以访问它声明过的能力， 请确认来源可信后再启用。" })
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Modal,
+      {
+        open: pendingUninstall !== null,
+        title: "卸载插件？",
+        onClose: () => setPendingUninstall(null),
+        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setPendingUninstall(null), children: "取消" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
               className: "btn btn-primary",
               style: { background: "var(--danger)", color: "#fff" },
               onClick: () => {
-                const t2 = confirm;
-                setConfirm(null);
-                if (t2) void uninstall(t2);
+                const p2 = pendingUninstall;
+                if (p2 !== null) void uninstall(p2);
               },
               children: "卸载"
             }
           )
         ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: "插件目录与启用状态会被删除，不可恢复。" })
+        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dialog-body", children: [
+          "将删除插件 ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: pendingUninstall?.name }),
+          " 的目录与配置。"
+        ] })
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Modal,
       {
-        open: disclaimer !== null,
-        title: "启用第三方插件？",
-        width: 460,
-        onClose: () => setDisclaimer(null),
-        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setDisclaimer(null), children: "取消" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => void confirmEnable(), children: "确认并启用" })
-        ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: "插件由第三方独立开发，启动器不对其内容与合法性负责。" })
+        open: panelFor !== null,
+        title: panelFor === null ? "" : `${panelFor.name} · 面板`,
+        width: 720,
+        onClose: () => setPanelFor(null),
+        footer: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setPanelFor(null), children: "关闭" }),
+        children: panelBusy ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "加载面板列表…" }) : panels.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "该插件没有声明面板。" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 12, minHeight: 240 }, children: [
+          panels.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 160, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }, children: panels.map((panel) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: `nav-item${activePanelId === panel.id ? " nav-active" : ""}`,
+              style: { height: 36, width: "100%" },
+              onClick: () => setActivePanelId(panel.id),
+              children: panel.title
+            },
+            panel.id
+          )) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1, minWidth: 0, overflowY: "auto" }, children: panels.find((x2) => x2.id === activePanelId)?.declarative === false ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info info-warning", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconWarning, { size: 14 }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body", children: "HTML 面板需要主进程文件 IPC，当前版本暂以声明式面板为准。" })
+          ] }) : panelFor !== null && activePanelId !== "" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            PluginPanelView,
+            {
+              pluginId: panelFor.id,
+              panelId: activePanelId,
+              onError: (msg) => push("error", msg)
+            }
+          ) : null })
+        ] })
       }
-    )
+    ),
+    host
+  ] });
+}
+function SectionCard(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "span",
+        {
+          style: { width: 4, height: 16, borderRadius: 2, background: "var(--accent)", flexShrink: 0 }
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", style: { fontSize: 15 }, children: props.title }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+      props.action
+    ] }),
+    props.children
   ] });
 }
 function NovaPage() {
   const { push, host } = useToasts();
+  const [config, setConfig] = reactExports.useState({ baseUrl: "", apiKey: "", model: "" });
+  const [draft, setDraft] = reactExports.useState({ baseUrl: "", apiKey: "", model: "" });
+  const [useCloud, setUseCloud] = reactExports.useState(false);
+  const [overlay, setOverlay] = reactExports.useState(false);
+  const [chatOpen, setChatOpen] = reactExports.useState(false);
+  const [plan, setPlan] = reactExports.useState(null);
+  const [planBusy, setPlanBusy] = reactExports.useState(false);
   const [messages, setMessages] = reactExports.useState([]);
   const [input, setInput] = reactExports.useState("");
   const [busy, setBusy] = reactExports.useState(false);
-  const [config, setConfig] = reactExports.useState({ baseUrl: "", apiKey: "", model: "" });
-  const [configOpen, setConfigOpen] = reactExports.useState(false);
-  const [draft, setDraft] = reactExports.useState({ baseUrl: "", apiKey: "", model: "" });
   const seq = reactExports.useRef(1);
   const streamingId = reactExports.useRef(null);
   const bodyRef = reactExports.useRef(null);
@@ -12097,7 +13339,8 @@ function NovaPage() {
   reactExports.useEffect(() => {
     void loadConfig();
   }, [loadConfig]);
-  const saveConfig = async () => {
+  const configured = config.baseUrl.length > 0 && config.model.length > 0;
+  async function saveConfig() {
     try {
       const value = await request("nova.config.set", {
         baseUrl: draft.baseUrl.trim(),
@@ -12105,23 +13348,20 @@ function NovaPage() {
         model: draft.model.trim()
       });
       setConfig(value);
-      setConfigOpen(false);
-      const configured2 = value.baseUrl.length > 0 && value.model.length > 0;
-      push(configured2 ? "success" : "info", configured2 ? "模型配置已保存。" : "已清除模型配置。");
+      const ok2 = value.baseUrl.length > 0 && value.model.length > 0;
+      push(ok2 ? "success" : "info", ok2 ? "模型配置已保存。" : "已清除模型配置。");
     } catch (e) {
       push("error", String(e));
     }
-  };
+  }
   reactExports.useEffect(() => {
     onBridgeEvent((event, params) => {
       if (event === "nova.delta") {
         const text = String(params.text ?? "");
-        if (text.length === 0) return;
+        if (text === "") return;
         const id2 = streamingId.current;
         setMessages(
-          (prev) => prev.map(
-            (m2) => m2.id === id2 ? { ...m2, content: m2.content + text, streaming: true } : m2
-          )
+          (prev) => prev.map((m2) => m2.id === id2 ? { ...m2, content: m2.content + text, streaming: true } : m2)
         );
       } else if (event === "nova.tool") {
         const tool = String(params.tool ?? "");
@@ -12129,602 +13369,1249 @@ function NovaPage() {
         setMessages((prev) => prev.map((m2) => m2.id === id2 ? { ...m2, tool } : m2));
       } else if (event === "nova.done") {
         const text = String(params.text ?? "");
-        const plan = params.plan;
-        const planTitle = params.planTitle != null ? String(params.planTitle) : plan != null && plan.length > 0 ? plan[0].title : void 0;
-        const fromCloud = Boolean(params.fromCloud);
+        const planItems = params.plan;
+        if (planItems !== void 0 && planItems.length > 0 && params.planId != null) {
+          setPlan({ planId: String(params.planId), items: planItems, title: params.planTitle != null ? String(params.planTitle) : void 0 });
+        }
         const id2 = streamingId.current;
         streamingId.current = null;
         setBusy(false);
         setMessages(
           (prev) => prev.map(
-            (m2) => m2.id === id2 ? {
-              ...m2,
-              // 增量已经写进去了，done 只在整段没回时兜底
-              content: text.length > 0 ? text : m2.content,
-              tool: void 0,
-              streaming: false,
-              fromCloud,
-              plan,
-              planTitle
-            } : m2
+            (m2) => m2.id === id2 ? { ...m2, content: text !== "" ? text : m2.content, streaming: false, plan: planItems } : m2
           )
         );
       } else if (event === "nova.failed") {
-        const message = String(params.error ?? "未知错误");
+        const error = String(params.error ?? "未知错误");
         const id2 = streamingId.current;
         streamingId.current = null;
         setBusy(false);
         setMessages(
           (prev) => prev.map(
-            (m2) => m2.id === id2 ? { ...m2, streaming: false, tool: void 0, error: true, content: message } : m2
+            (m2) => m2.id === id2 ? { ...m2, content: `请求失败：${error}`, streaming: false } : m2
           )
         );
-        push("error", message);
       }
     });
-  }, [push]);
+  }, []);
   reactExports.useEffect(() => {
-    const body = bodyRef.current;
-    if (body != null) body.scrollTop = body.scrollHeight;
+    if (bodyRef.current !== null) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
   }, [messages]);
-  const send = async () => {
+  async function send() {
     const text = input.trim();
-    if (text.length === 0 || busy) return;
-    const userMsg = { id: seq.current++, role: "user", content: text };
-    const aiMsg = {
-      id: seq.current++,
-      role: "ai",
-      content: "",
-      streaming: true
-    };
-    streamingId.current = aiMsg.id;
-    setMessages((prev) => [...prev, userMsg, aiMsg]);
+    if (text === "" || busy) return;
+    if (!configured) {
+      push("info", "先在「模型设置」里填好 Base URL 与模型名");
+      return;
+    }
     setInput("");
     setBusy(true);
-    const history = messages.map((m2) => ({
-      role: m2.role === "user" ? "user" : "assistant",
-      content: m2.content
-    }));
+    const userId = seq.current++;
+    const assistantId = seq.current++;
+    streamingId.current = assistantId;
+    setMessages((prev) => [
+      ...prev,
+      { id: userId, role: "user", content: text },
+      { id: assistantId, role: "assistant", content: "", streaming: true }
+    ]);
     try {
-      await request("nova.chat", {
-        message: text,
-        history
-      });
+      await request("nova.chat", { message: text });
     } catch (e) {
       streamingId.current = null;
       setBusy(false);
       setMessages(
         (prev) => prev.map(
-          (m2) => m2.id === aiMsg.id ? { ...m2, streaming: false, content: `发送失败：${String(e)}`, error: true } : m2
+          (m2) => m2.id === assistantId ? { ...m2, content: `请求失败：${String(e)}`, streaming: false } : m2
         )
       );
-      push("error", String(e));
-    }
-  };
-  const clear = () => {
-    if (busy) return;
-    setMessages([]);
-    streamingId.current = null;
-  };
-  const configured = config.baseUrl.length > 0 && config.model.length > 0;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
-      {
-        title: "Nova",
-        subtitle: "能读启动器状态、能调用本地工具的助手；没配模型时仍可回答本地能力范围内的问题。",
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              className: "btn btn-subtle",
-              onClick: () => {
-                setDraft(config);
-                setConfigOpen(true);
-              },
-              children: "⚙ 模型设置"
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", disabled: busy, onClick: clear, children: "✕ 清空" })
-        ] }),
-        children: [
-          !configured && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "div",
-            {
-              className: "info info-warning",
-              style: { marginBottom: 12 },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": true, style: { fontSize: 16 }, children: "ⓘ" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "info-body t-body", children: "当前未配置模型：本地能力无需模型，可直接提问版本/存档/联机这类问题； 需要联网推理时点右上角「模型设置」。" })
-              ]
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "div",
-            {
-              className: "card card-flush",
-              style: { height: "calc(100% - 46px)", display: "flex", flexDirection: "column" },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                  "div",
-                  {
-                    ref: bodyRef,
-                    style: {
-                      flex: 1,
-                      minHeight: 0,
-                      overflowY: "auto",
-                      padding: 16,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 12
-                    },
-                    children: [
-                      messages.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        EmptyState,
-                        {
-                          title: "和 Nova 聊点什么",
-                          hint: "试试：「有哪些已安装版本」「帮我把 1.20.1 的内存调到 4G」「现在联机是什么状态」。",
-                          action: /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: "btn",
-                              onClick: () => setInput("现在联机是什么状态？"),
-                              children: "✳ 来一句"
-                            }
-                          )
-                        }
-                      ),
-                      messages.map((m2, index) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "div",
-                        {
-                          style: {
-                            display: "flex",
-                            justifyContent: m2.role === "user" ? "flex-end" : "flex-start",
-                            animation: `slideUp var(--t-enter) var(--e-enter) both`,
-                            animationDelay: `${Math.min(index, 8) * 39}ms`
-                          },
-                          children: m2.role === "user" ? (
-                            // 用户气泡：品牌黄实心，右侧
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "nova-bubble-user", children: m2.content })
-                          ) : (
-                            // AI 气泡：暗色卡 + 左侧，形状上就分得开
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                              "div",
-                              {
-                                className: "nova-bubble-ai",
-                                style: {
-                                  borderColor: m2.error === true ? "color-mix(in srgb, var(--danger) 45%, transparent)" : void 0,
-                                  // 流式输出中：整块气泡轻微呼吸，告诉用户"还在写"
-                                  animation: m2.streaming === true ? "pulse 1.5s ease-in-out infinite" : void 0
-                                },
-                                children: [
-                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "nova-meta", children: [
-                                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Nova" }),
-                                    m2.fromCloud === true && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "· 云端模型" }),
-                                    m2.fromCloud === false && m2.streaming !== true && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "· 本地能力" })
-                                  ] }),
-                                  m2.tool != null && m2.tool.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "nova-tool", children: [
-                                    "⚒ 正在调用工具：",
-                                    m2.tool
-                                  ] }),
-                                  m2.content.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: m2.content }) : m2.streaming === true && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nova-typing-dot" }),
-                                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nova-typing-dot" }),
-                                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nova-typing-dot" })
-                                  ] }),
-                                  m2.plan != null && m2.plan.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "nova-plan", children: [
-                                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "nova-plan-head", children: [
-                                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--accent)" }, children: "▤" }),
-                                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body truncate", style: { fontWeight: 600 }, children: m2.planTitle ?? "建议的执行清单" }),
-                                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-meta", children: [
-                                        m2.plan.length,
-                                        " 项"
-                                      ] })
-                                    ] }),
-                                    m2.plan.map((item, planIndex) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                                      "div",
-                                      {
-                                        style: {
-                                          display: "flex",
-                                          alignItems: "flex-start",
-                                          gap: 8,
-                                          padding: "7px 11px",
-                                          borderBottom: planIndex === m2.plan.length - 1 ? "none" : "1px solid var(--stroke-divider)",
-                                          animation: `rowIn var(--t-enter) var(--e-enter) both`,
-                                          animationDelay: `${planIndex * 39}ms`
-                                        },
-                                        children: [
-                                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                            "div",
-                                            {
-                                              style: {
-                                                width: 6,
-                                                height: 6,
-                                                borderRadius: 2,
-                                                background: "var(--accent)",
-                                                marginTop: 6,
-                                                flexShrink: 0
-                                              }
-                                            }
-                                          ),
-                                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                                            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { fontWeight: 600 }, children: item.title }),
-                                            item.detail != null && item.detail.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", children: item.detail })
-                                          ] })
-                                        ]
-                                      },
-                                      `${m2.id}-plan-${planIndex}`
-                                    ))
-                                  ] })
-                                ]
-                              }
-                            )
-                          )
-                        },
-                        m2.id
-                      ))
-                    ]
-                  }
-                ),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "nova-composer", children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "textarea",
-                    {
-                      className: "input nova-textarea",
-                      value: input,
-                      placeholder: "问点什么…（Enter 发送，Shift+Enter 换行）",
-                      onChange: (e) => setInput(e.target.value),
-                      onKeyDown: (e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          void send();
-                        }
-                      }
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                    "button",
-                    {
-                      className: "btn btn-primary",
-                      style: { height: 38, padding: "0 18px" },
-                      disabled: input.trim().length === 0 || busy,
-                      onClick: () => void send(),
-                      children: [
-                        busy ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spinner" }) : "➤",
-                        busy ? "思考中…" : "发送"
-                      ]
-                    }
-                  )
-                ] })
-              ]
-            }
-          ),
-          host
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Modal,
-      {
-        open: configOpen,
-        title: "模型设置",
-        width: 560,
-        onClose: () => setConfigOpen(false),
-        footer: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => setConfigOpen(false), children: "取消" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn btn-primary", onClick: () => void saveConfig(), children: [
-            !configured && "⚠ ",
-            "保存"
-          ] })
-        ] }),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 12 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { opacity: 0.7 }, children: "三项都留空即可清除配置，回到纯本地能力模式。API Key 只保存在本机设置里。" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "Base URL" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                className: "input",
-                style: { width: "100%" },
-                value: draft.baseUrl,
-                placeholder: "https://api.example.com/v1",
-                onChange: (e) => setDraft({ ...draft, baseUrl: e.target.value })
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "API Key" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                className: "input",
-                style: { width: "100%" },
-                type: "password",
-                value: draft.apiKey,
-                placeholder: "sk-...",
-                onChange: (e) => setDraft({ ...draft, apiKey: e.target.value })
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", style: { display: "block", marginBottom: 4 }, children: "模型" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                className: "input",
-                style: { width: "100%" },
-                value: draft.model,
-                placeholder: "例如 gpt-4o-mini",
-                onChange: (e) => setDraft({ ...draft, model: e.target.value })
-              }
-            )
-          ] })
-        ] })
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("style", { children: `
-.nova-bubble-user{max-width:68%;padding:10px 14px;border-radius:var(--r-card);border-bottom-right-radius:4px;background:var(--accent);color:var(--text-on-accent);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 10px rgba(255,194,31,0.18)}
-.nova-bubble-ai{max-width:76%;padding:12px 15px;border-radius:var(--r-card);border-bottom-left-radius:4px;background:var(--surface-card);border:1px solid var(--stroke-subtle);font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
-.nova-meta{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:10.5px;opacity:0.55}
-.nova-tool{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:var(--r-pill);background:var(--surface-subtle);border:1px solid var(--stroke-default);font-size:11px;opacity:0.85;margin-bottom:6px;animation:fadeIn var(--t-enter) var(--e-enter) both}
-.nova-plan{margin-top:10px;border-radius:var(--r-card);border:1.2px solid color-mix(in srgb, var(--accent) 35%, transparent);background:color-mix(in srgb, var(--accent) 6%, transparent);overflow:hidden}
-.nova-plan-head{display:flex;align-items:center;gap:6px;padding:8px 11px;border-bottom:1px solid var(--stroke-divider);background:color-mix(in srgb, var(--accent) 8%, transparent)}
-.nova-composer{display:flex;align-items:flex-end;gap:10px;padding:12px 14px;border-top:1px solid var(--stroke-divider)}
-.nova-textarea{flex:1;height:auto;min-height:38px;max-height:180px;padding:8px 10px;resize:none;line-height:1.5;font-family:inherit}
-.nova-typing-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:pulse 1.2s infinite}
-` })
-  ] });
-}
-const MEM_MIN = 1024;
-const MEM_MAX = 16384;
-const MEM_STEP = 512;
-const SOURCE_OPTIONS = [
-  { value: "auto", label: "自动（多源竞速）" },
-  { value: "official", label: "官方（piston-meta）" },
-  { value: "bmclapi", label: "BMCLAPI 镜像" }
-];
-function SettingsPage() {
-  const { push, host } = useToasts();
-  const [loading, setLoading] = reactExports.useState(true);
-  const [gameDir, setGameDir] = reactExports.useState("");
-  const [javaPath, setJavaPath] = reactExports.useState("");
-  const [memory, setMemory] = reactExports.useState(4096);
-  const [source, setSource] = reactExports.useState("auto");
-  const [saving, setSaving] = reactExports.useState(false);
-  const [javaInfo, setJavaInfo] = reactExports.useState("");
-  async function reload() {
-    setLoading(true);
-    try {
-      const s = await request("settings.get");
-      setGameDir(s.gameDir);
-      setJavaPath(s.javaExecutable ?? "");
-      setMemory(s.maxMemoryMb);
-      setSource(s.downloadSource);
-    } catch (e) {
-      push("error", `读取设置失败：${String(e)}`);
-    } finally {
-      setLoading(false);
     }
   }
-  reactExports.useEffect(() => {
-    void reload();
-  }, []);
-  async function probeJava() {
-    setJavaInfo("探测中…");
-    try {
-      const r2 = await request(
-        "java.list"
-      );
-      if (r2.runtimes.length === 0) {
-        setJavaInfo("未找到可用的 Java —— 请安装 JRE 17+ 或在上方指定路径");
-      } else {
-        setJavaInfo(
-          r2.runtimes.slice(0, 3).map((x2) => `Java ${x2.majorVersion}（${x2.versionString}）`).join(" · ")
-        );
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-body", style: { display: "flex", flexDirection: "column", gap: 14 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        SectionCard,
+        {
+          title: "Nova 账户",
+          action: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-sm",
+              onClick: () => push("info", "Starcloud ID 登录：内核能力接入后可用"),
+              children: "登录"
+            }
+          ),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 10 }, children: "登录后可用云端模型与邀请、时刻等在线能力；凭据只保存在本机。" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(IconSparkle, { size: 18, style: { color: "var(--accent)" } }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", children: "未登录" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-meta", children: "当前使用下面接入的本地模型" })
+              ] })
+            ] })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        SectionCard,
+        {
+          title: "云端模型",
+          action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-sm", onClick: () => void loadConfig(), children: "刷新" }),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 10 }, children: "登录 Starcloud ID 后 Nova 默认走云端模型，不用自己填 Key；用量记在账号上。" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { marginBottom: 6 }, children: "使用云端模型" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Toggle,
+              {
+                checked: useCloud,
+                disabled: true,
+                label: "使用云端模型",
+                onChange: setUseCloud
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginTop: 10 }, children: "未登录时不可用；关掉后 Nova 只用下面接入的模型。" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        SectionCard,
+        {
+          title: "模型设置",
+          action: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-sm", onClick: () => void saveConfig(), children: "保存" }),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 12 }, children: "接入任意 OpenAI 兼容服务：填 Base URL、Key 与模型名。Key 只保存在本机。" }),
+            configured && /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                className: "row row-static",
+                style: { background: "var(--surface-subtle)", marginBottom: 12 },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong truncate", children: config.model }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "chip chip-accent", children: "当前使用" })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta truncate", children: [
+                    config.baseUrl,
+                    " · Key ",
+                    config.apiKey === "" ? "未设置" : config.apiKey.slice(0, 8) + "…"
+                  ] })
+                ] })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 10 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "Base URL" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    value: draft.baseUrl,
+                    placeholder: "例如 https://api.example.com/v1",
+                    onChange: (e) => setDraft({ ...draft, baseUrl: e.target.value })
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "API Key" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    type: "password",
+                    value: draft.apiKey,
+                    placeholder: "sk-…",
+                    onChange: (e) => setDraft({ ...draft, apiKey: e.target.value })
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", children: "模型名" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    value: draft.model,
+                    placeholder: "例如 gpt-4o-mini / deepseek-chat",
+                    onChange: (e) => setDraft({ ...draft, model: e.target.value })
+                  }
+                )
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 14 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", onClick: () => setChatOpen(true), children: "打开 Nova 对话" }) })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(SectionCard, { title: "游戏内辅助浮窗", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 10 }, children: "启动游戏时自动弹出浮窗，游戏内随时查资料；与顶栏 Nova 共用同一份对话。" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          Toggle,
+          {
+            checked: overlay,
+            onChange: (v2) => {
+              setOverlay(v2);
+              if (v2) push("info", "游戏内浮窗：内核能力接入后可用");
+            },
+            label: "游戏内辅助浮窗"
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { open: chatOpen, title: "Nova", onClose: () => setChatOpen(false), width: 720, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          ref: bodyRef,
+          style: { maxHeight: "52vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 },
+          children: [
+            messages.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { padding: "16px 0" }, children: configured ? "问点什么吧：查版本、算配置、写指令都可以。" : "先在「模型设置」里填好 Base URL 与模型名。" }),
+            messages.map((m2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "div",
+              {
+                style: {
+                  alignSelf: m2.role === "user" ? "flex-end" : "flex-start",
+                  maxWidth: "78%",
+                  padding: "8px 12px",
+                  borderRadius: 12,
+                  background: m2.role === "user" ? "var(--accent)" : "var(--surface-subtle)",
+                  color: m2.role === "user" ? "var(--text-on-accent)" : "var(--text-primary)",
+                  border: m2.role === "user" ? "none" : "1px solid var(--stroke-subtle)",
+                  whiteSpace: "pre-wrap",
+                  fontSize: 13,
+                  animation: m2.streaming ? "pulse 1.5s infinite" : void 0
+                },
+                children: [
+                  m2.tool !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "t-meta", style: { marginBottom: 4, opacity: 0.8 }, children: [
+                    "正在调用：",
+                    m2.tool
+                  ] }),
+                  m2.content,
+                  m2.plan !== void 0 && m2.plan.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }, children: [
+                    m2.plan.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        className: "t-meta",
+                        style: { padding: "6px 8px", borderRadius: 8, background: "var(--surface-hover)" },
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: p2.title }),
+                          p2.detail !== "" ? ` — ${p2.detail}` : ""
+                        ]
+                      },
+                      p2.title
+                    )),
+                    plan !== null && plan.items === m2.plan && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, marginTop: 4 }, children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "btn btn-primary btn-sm",
+                          disabled: planBusy,
+                          onClick: async () => {
+                            setPlanBusy(true);
+                            try {
+                              const r2 = await request(
+                                "nova.plan.execute",
+                                { id: plan.planId }
+                              );
+                              push("success", r2.message ?? "已应用");
+                              setPlan(null);
+                            } catch (e) {
+                              push("error", String(e));
+                            } finally {
+                              setPlanBusy(false);
+                            }
+                          },
+                          children: planBusy ? "执行中…" : "执行"
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "btn btn-sm",
+                          disabled: planBusy,
+                          onClick: async () => {
+                            try {
+                              await request("nova.plan.discard", { id: plan.planId });
+                            } catch {
+                            }
+                            setPlan(null);
+                          },
+                          children: "放弃"
+                        }
+                      )
+                    ] })
+                  ] })
+                ]
+              },
+              m2.id
+            ))
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, marginTop: 12 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "input",
+            style: { flex: 1 },
+            value: input,
+            placeholder: "给 Nova 发消息…",
+            onChange: (e) => setInput(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter" && !e.shiftKey) void send();
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", disabled: busy || input.trim() === "", onClick: () => void send(), children: busy ? "回复中…" : "发送" })
+      ] })
+    ] }),
+    host
+  ] });
+}
+const SECTIONS = [
+  { id: "game", label: "游戏", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconHome, { size: 15 }) },
+  { id: "java", label: "Java", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconCube, { size: 15 }) },
+  { id: "download", label: "下载与资源", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconImport, { size: 15 }) },
+  { id: "general", label: "通用", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconSettings, { size: 15 }) },
+  { id: "crossdevice", label: "跨设备", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(IconLink, { size: 15 }) }
+];
+function SectionTitle(props) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        style: { width: 4, height: 16, borderRadius: 2, background: "var(--accent)", flexShrink: 0 }
       }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-strong", style: { fontSize: 15 }, children: props.children })
+  ] });
+}
+function Field(props) {
+  if (props.inline === true) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { color: "var(--text-primary)" }, children: props.label }),
+        props.hint !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: props.hint })
+      ] }),
+      props.children
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 14 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { color: "var(--text-primary)", marginBottom: 6 }, children: props.label }),
+    props.children,
+    props.hint !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginTop: 6 }, children: props.hint })
+  ] });
+}
+function Slider(props) {
+  const pct = (props.value - props.min) / (props.max - props.min) * 100;
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "input",
+    {
+      type: "range",
+      min: props.min,
+      max: props.max,
+      step: props.step ?? 1,
+      value: props.value,
+      onChange: (e) => props.onChange(Number(e.target.value)),
+      style: {
+        width: "100%",
+        "--fill": `${pct}%`
+      }
+    }
+  );
+}
+const EMPTY = {
+  gameDir: "",
+  javaExecutable: "",
+  minMemoryMb: 512,
+  maxMemoryMb: 4096,
+  downloadSource: "auto",
+  downloadConcurrency: 16,
+  downloadMaxRetries: 3,
+  downloadCustomMirrorUrl: "",
+  versionIsolated: true,
+  useBuiltinJvmArgs: true,
+  extraJvmArgs: [],
+  language: "zh_CN",
+  theme: "system",
+  accountWalkAnimation: true,
+  microsoftLoginEmbedded: true,
+  curseforgeApiKey: "",
+  windowWidth: 854,
+  windowHeight: 480,
+  fullscreen: false,
+  globalEnvVars: {},
+  launchAutoRetry: true,
+  showGameLogOnLaunch: false,
+  novaOverlayEnabled: false,
+  resourceCacheEnabled: true,
+  motionLevel: "",
+  backgroundMode: "none",
+  backgroundBuiltinId: "",
+  backgroundImagePath: "",
+  backgroundImageOpacity: 0.7,
+  backgroundBlurRadius: 24,
+  backgroundMaskOpacity: 0,
+  backgroundFollowTheme: true,
+  deviceLinkEnabled: false,
+  deviceName: "",
+  p2pDownloadEnabled: true,
+  autoUpdateEnabled: true,
+  updateManifestUrl: ""
+};
+function SettingsPage(props) {
+  const { push, host } = useToasts();
+  const [section, setSection] = reactExports.useState("game");
+  const [loading, setLoading] = reactExports.useState(true);
+  const [saving, setSaving] = reactExports.useState(false);
+  const [s, setS] = reactExports.useState(EMPTY);
+  const [jvmArgsText, setJvmArgsText] = reactExports.useState("");
+  const [javaProbe, setJavaProbe] = reactExports.useState("");
+  const load = reactExports.useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await request("settings.get");
+      setS({ ...EMPTY, ...snap });
+      setJvmArgsText((snap.extraJvmArgs ?? []).join("\n"));
     } catch (e) {
-      setJavaInfo(`探测失败：${String(e)}`);
+      push("error", `读取设置失败：${String(e)}`);
+    }
+    setLoading(false);
+  }, [push]);
+  reactExports.useEffect(() => {
+    void load();
+  }, [load]);
+  const set = (key, value) => setS((prev) => {
+    const next = { ...prev, [key]: value };
+    applyVisualSettings(next);
+    return next;
+  });
+  async function probeJava() {
+    setJavaProbe("探测中…");
+    try {
+      const r2 = await request("java.list");
+      setJavaProbe(
+        r2.runtimes.length === 0 ? "未找到可用的 Java —— 请安装 JRE 17+ 或在上方指定路径" : "已发现：" + r2.runtimes.map((j) => `${j.versionString}（Java ${j.majorVersion}）`).join("、")
+      );
+    } catch (e) {
+      setJavaProbe(`探测失败：${String(e)}`);
     }
   }
   async function save() {
     setSaving(true);
     try {
-      await request("settings.apply", {
-        gameDir,
-        javaExecutable: javaPath,
-        maxMemoryMb: memory,
-        downloadSource: source
+      const snapshot = await request("settings.apply", {
+        gameDir: s.gameDir,
+        javaExecutable: s.javaExecutable,
+        minMemoryMb: s.minMemoryMb,
+        maxMemoryMb: s.maxMemoryMb,
+        downloadSource: s.downloadSource,
+        downloadConcurrency: s.downloadConcurrency,
+        downloadMaxRetries: s.downloadMaxRetries,
+        downloadCustomMirrorUrl: s.downloadCustomMirrorUrl,
+        versionIsolated: s.versionIsolated,
+        useBuiltinJvmArgs: s.useBuiltinJvmArgs,
+        extraJvmArgs: jvmArgsText.split("\n").map((x2) => x2.trim()).filter((x2) => x2 !== ""),
+        language: s.language,
+        theme: props.theme.mode,
+        accountWalkAnimation: s.accountWalkAnimation,
+        microsoftLoginEmbedded: s.microsoftLoginEmbedded,
+        curseforgeApiKey: s.curseforgeApiKey,
+        windowWidth: s.windowWidth,
+        windowHeight: s.windowHeight,
+        fullscreen: s.fullscreen,
+        globalEnvVars: s.globalEnvVars,
+        launchAutoRetry: s.launchAutoRetry,
+        showGameLogOnLaunch: s.showGameLogOnLaunch,
+        novaOverlayEnabled: s.novaOverlayEnabled,
+        resourceCacheEnabled: s.resourceCacheEnabled,
+        motionLevel: s.motionLevel,
+        backgroundMode: s.backgroundMode,
+        backgroundBuiltinId: s.backgroundBuiltinId,
+        backgroundImagePath: s.backgroundImagePath,
+        backgroundImageOpacity: s.backgroundImageOpacity,
+        backgroundBlurRadius: s.backgroundBlurRadius,
+        backgroundMaskOpacity: s.backgroundMaskOpacity,
+        backgroundFollowTheme: s.backgroundFollowTheme,
+        deviceLinkEnabled: s.deviceLinkEnabled,
+        deviceName: s.deviceName,
+        p2pDownloadEnabled: s.p2pDownloadEnabled,
+        autoUpdateEnabled: s.autoUpdateEnabled,
+        updateManifestUrl: s.updateManifestUrl
       });
-      push("success", "设置已保存并同步到 C# 核心");
-      await reload();
+      setS({ ...EMPTY, ...snapshot });
+      push("success", "设置已保存");
     } catch (e) {
       push("error", `保存失败：${String(e)}`);
     } finally {
       setSaving(false);
     }
   }
-  if (loading) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsxs(PageShell, { title: "设置", subtitle: "启动器全局配置", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(LoadingCard, {}),
-      host
-    ] });
-  }
-  const memPct = (memory - MEM_MIN) / (MEM_MAX - MEM_MIN) * 100;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      PageShell,
-      {
-        title: "设置",
-        subtitle: "启动器全局配置（与 Windows 端共享同一份 launcher.settings.json）",
-        actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-primary", disabled: saving, onClick: () => void save(), children: saving ? "保存中…" : "保存全部" }),
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 12 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 16, fontWeight: 600, marginBottom: 4 }, children: "游戏" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", alignItems: "flex-end", gap: 16, marginTop: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "游戏目录（.minecraft）" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "input",
-                {
-                  className: "input",
-                  style: { width: "100%" },
-                  value: gameDir,
-                  onChange: (e) => setGameDir(e.target.value)
-                }
-              )
-            ] }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "flex-end", gap: 16, marginTop: 12 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "游戏最大堆（MB）" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "input",
-                  {
-                    type: "range",
-                    min: MEM_MIN,
-                    max: MEM_MAX,
-                    step: MEM_STEP,
-                    value: memory,
-                    onChange: (e) => setMemory(Number(e.target.value)),
-                    style: {
-                      width: "100%",
-                      accentColor: "var(--accent)",
-                      background: `linear-gradient(to right, var(--accent) ${memPct}%, var(--surface-hover) ${memPct}%)`,
-                      height: 4,
-                      borderRadius: 2,
-                      appearance: "none",
-                      outline: "none"
+  const envEntries = Object.entries(s.globalEnvVars);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 16 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card", style: { width: 230, flexShrink: 0, padding: 8, alignSelf: "flex-start" }, children: SECTIONS.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          className: `nav-item${section === item.id ? " nav-active" : ""}`,
+          style: { height: 40, width: "100%" },
+          onClick: () => setSection(item.id),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-icon", style: { fontFamily: "inherit" }, children: item.icon }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.label })
+          ]
+        },
+        item.id
+      )) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          style: {
+            flex: 1,
+            minWidth: 0,
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14
+          },
+          children: [
+            loading && /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonList, { rows: 3 }),
+            !loading && section === "game" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "游戏目录" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: ".minecraft 目录", hint: "版本、资源与库文件将安装到该目录", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
+                    {
+                      className: "input",
+                      style: { flex: 1 },
+                      value: s.gameDir,
+                      onChange: (e) => set("gameDir", e.target.value)
                     }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      className: "btn",
+                      title: "打开目录",
+                      onClick: () => void request("shell.openPath", { path: s.gameDir }).catch(
+                        (e) => push("error", String(e))
+                      ),
+                      children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconFolder, { size: 14 })
+                    }
+                  )
+                ] }) })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "内存分配" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: `最大内存（${Math.round(s.maxMemoryMb / 1024)} GB）`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    min: 1,
+                    max: 16,
+                    value: Math.max(1, Math.round(s.maxMemoryMb / 1024)),
+                    onChange: (v2) => set("maxMemoryMb", v2 * 1024)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: `最小内存（${s.minMemoryMb} MB）`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    min: 256,
+                    max: 4096,
+                    step: 256,
+                    value: s.minMemoryMb,
+                    onChange: (v2) => set("minMemoryMb", v2)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "内存并非越大越流畅；整合包一般 4–8 GB 足够。" })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "启动可靠性" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "启动失败自动重试一次",
+                    hint: "游戏启动后 8 秒内异常退出时，自动重试一次（不重复环境体检）",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.launchAutoRetry,
+                        onChange: (v2) => set("launchAutoRetry", v2),
+                        label: "自动重试"
+                      }
+                    )
                   }
                 ),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                  "div",
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
                   {
-                    style: {
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginTop: 4
+                    label: "启动页默认展开实时日志",
+                    hint: "启动时在启动页显示游戏实时输出，便于排查启动问题",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.showGameLogOnLaunch,
+                        onChange: (v2) => set("showGameLogOnLaunch", v2),
+                        label: "展开实时日志"
+                      }
+                    )
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "默认窗口" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 12, alignItems: "flex-end" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 160 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "窗口宽度", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
+                    {
+                      className: "input",
+                      style: { width: "100%" },
+                      value: `${s.windowWidth}`,
+                      onChange: (e) => set("windowWidth", Number(e.target.value) || 854)
+                    }
+                  ) }) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 160 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "窗口高度", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
+                    {
+                      className: "input",
+                      style: { width: "100%" },
+                      value: `${s.windowHeight}`,
+                      onChange: (e) => set("windowHeight", Number(e.target.value) || 480)
+                    }
+                  ) }) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { paddingBottom: 14 }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.fullscreen,
+                        onChange: (v2) => set("fullscreen", v2),
+                        label: "全屏启动"
+                      }
+                    ),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-body", style: { marginLeft: 8 }, children: "全屏启动" })
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "启动参数" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "额外 JVM 参数（每行一条）", hint: "例如 -XX:+UseG1GC", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "textarea",
+                  {
+                    className: "input",
+                    style: { width: "100%", minHeight: 90, fontFamily: "var(--font-mono)" },
+                    value: jvmArgsText,
+                    onChange: (e) => setJvmArgsText(e.target.value)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "内置 JVM 参数",
+                    hint: "关闭后将不再自动附加官方推荐 JVM 参数",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.useBuiltinJvmArgs,
+                        onChange: (v2) => set("useBuiltinJvmArgs", v2),
+                        label: "内置 JVM 参数"
+                      }
+                    )
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "全局环境变量" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 10 }, children: "对所有版本生效；版本级同名变量会覆盖此处。" }),
+                envEntries.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: "还没有环境变量。" }),
+                envEntries.map(([key, value]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, marginBottom: 8 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("input", { className: "input", style: { width: 180 }, value: key, readOnly: true }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
+                    {
+                      className: "input",
+                      style: { flex: 1 },
+                      value,
+                      onChange: (e) => set("globalEnvVars", { ...s.globalEnvVars, [key]: e.target.value })
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      className: "btn btn-subtle btn-danger",
+                      onClick: () => {
+                        const next = { ...s.globalEnvVars };
+                        delete next[key];
+                        set("globalEnvVars", next);
+                      },
+                      children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 14 })
+                    }
+                  )
+                ] }, key)),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: () => {
+                      const name = `VAR_${envEntries.length + 1}`;
+                      set("globalEnvVars", { ...s.globalEnvVars, [name]: "" });
                     },
                     children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-meta", children: [
-                        MEM_MIN,
-                        " MB"
-                      ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-meta", children: [
-                        MEM_MAX,
-                        " MB"
-                      ] })
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(IconPlus, { size: 14 }),
+                      " 添加环境变量"
                     ]
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "t-strong", style: { minWidth: 90 }, children: [
-                memory,
-                " MB"
-              ] })
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", style: { marginBottom: 12 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 16, fontWeight: 600, marginBottom: 4 }, children: "Java" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "flex-end", gap: 16, marginTop: 12 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "Java 可执行文件路径（留空 = 自动探测）" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "版本隔离（默认）" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 10 }, children: "新版本的默认隔离方式。开启后只隔离 mods/存档/配置/资源包/光影， 库与资源文件仍共享；单个版本可在详情页覆盖。" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Segmented,
+                  {
+                    value: s.versionIsolated ? "isolated" : "shared",
+                    options: [
+                      { value: "isolated", label: "版本隔离（推荐）" },
+                      { value: "shared", label: "共享目录" }
+                    ],
+                    onChange: (v2) => set("versionIsolated", v2 === "isolated")
+                  }
+                )
+              ] })
+            ] }),
+            !loading && section === "java" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "Java" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "Java 可执行文件路径",
+                    hint: "留空 = 自动探测；进入本页可点「搜索 Java」扫描本机运行时",
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "input",
+                        {
+                          className: "input",
+                          style: { flex: 1 },
+                          value: s.javaExecutable,
+                          placeholder: "例如 /usr/lib/jvm/java-17-openjdk/bin/java",
+                          onChange: (e) => set("javaExecutable", e.target.value)
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn", onClick: () => void probeJava(), children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, { size: 14 }),
+                        " 搜索 Java"
+                      ] })
+                    ] })
+                  }
+                ),
+                javaProbe !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", children: javaProbe })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "下载 Java" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 10 }, children: "Temurin 运行时下载由内核提供；当前版本请在系统里安装 JRE 17/21。" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", disabled: true, children: "下载 Java 21（Temurin）" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", disabled: true, children: "下载 Java 8（Temurin）" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", disabled: true, children: "删除选中运行时" })
+                ] })
+              ] })
+            ] }),
+            !loading && section === "download" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "下载" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: `下载并发数（${s.downloadConcurrency}）`, hint: "1–64，过高可能被镜像限速", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    min: 1,
+                    max: 64,
+                    value: s.downloadConcurrency,
+                    onChange: (v2) => set("downloadConcurrency", v2)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: `失败重试次数（${s.downloadMaxRetries}）`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    min: 0,
+                    max: 10,
+                    value: s.downloadMaxRetries,
+                    onChange: (v2) => set("downloadMaxRetries", v2)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "下载源", hint: "自动模式会并发测速，选最快的源下载同一个文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Select,
+                  {
+                    width: 360,
+                    value: s.downloadSource,
+                    options: [
+                      { value: "auto", label: "自动（多源聚合）" },
+                      { value: "official", label: "仅官方" },
+                      { value: "bmclapi", label: "BMCLAPI" },
+                      { value: "fastmirror", label: "FastMinecraftMirror" },
+                      { value: "rainyun", label: "RainYun" },
+                      { value: "custom", label: "自定义镜像地址" }
+                    ],
+                    onChange: (v2) => set("downloadSource", v2)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "自定义镜像根 URL", hint: "留空 = 不启用", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
                   "input",
                   {
                     className: "input",
                     style: { width: "100%" },
-                    value: javaPath,
-                    onChange: (e) => setJavaPath(e.target.value)
+                    value: s.downloadCustomMirrorUrl,
+                    placeholder: "https://mirror.example.com/",
+                    onChange: (e) => set("downloadCustomMirrorUrl", e.target.value)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "CurseForge API Key（可空）",
+                    hint: "留空走社区只读代理；填了就直连官方 api.curseforge.com",
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "input",
+                      {
+                        className: "input",
+                        style: { width: "100%" },
+                        value: s.curseforgeApiKey,
+                        onChange: (e) => set("curseforgeApiKey", e.target.value)
+                      }
+                    )
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => void probeJava(), children: "探测" })
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "资源列表与图标缓存" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "启用资源列表拉取缓存",
+                    hint: "打开资源页时先用缓存瞬时展示，后台拉到新内容后替换；关闭后完全不读不写缓存",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.resourceCacheEnabled,
+                        onChange: (v2) => set("resourceCacheEnabled", v2),
+                        label: "资源缓存"
+                      }
+                    )
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: () => push("info", "清空缓存：内核能力接入后可用"),
+                    children: "清空缓存"
+                  }
+                )
+              ] })
             ] }),
-            javaInfo !== "" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-body", style: { marginTop: 8 }, children: javaInfo })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 16, fontWeight: 600, marginBottom: 4 }, children: "下载" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", alignItems: "flex-end", gap: 16, marginTop: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, maxWidth: 360 }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "t-cap", style: { marginBottom: 4 }, children: "下载源" }),
+            !loading && section === "general" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "主题" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "主题", hint: "跟随系统时会随操作系统亮暗自动切换", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Segmented,
+                  {
+                    value: props.theme.mode,
+                    options: [
+                      { value: "system", label: "跟随系统" },
+                      { value: "light", label: "浅色" },
+                      { value: "dark", label: "深色" }
+                    ],
+                    onChange: props.theme.setMode
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "界面语言", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Select,
+                  {
+                    width: 240,
+                    value: s.language,
+                    options: [
+                      { value: "zh_CN", label: "简体中文" },
+                      { value: "en_US", label: "English" }
+                    ],
+                    onChange: (v2) => set("language", v2)
+                  }
+                ) })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "性能与动效" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "动效档位",
+                    hint: "极少：只保留页面转场；较少：+ 悬停反馈；均衡：+ 跟手光斑；全部：+ 弹簧形变",
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Segmented,
+                      {
+                        value: s.motionLevel === "" ? "balanced" : s.motionLevel,
+                        options: [
+                          { value: "minimal", label: "极少" },
+                          { value: "lite", label: "较少" },
+                          { value: "balanced", label: "均衡" },
+                          { value: "full", label: "全部" }
+                        ],
+                        onChange: (v2) => set("motionLevel", v2)
+                      }
+                    )
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "背景与外观" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "背景", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Select,
+                  {
+                    width: 280,
+                    value: s.backgroundMode,
+                    options: [
+                      { value: "none", label: "关闭（纯毛玻璃）" },
+                      { value: "builtin", label: "内置壁纸" },
+                      { value: "image", label: "本地图片" }
+                    ],
+                    onChange: (v2) => set("backgroundMode", v2)
+                  }
+                ) }),
+                s.backgroundMode === "image" && /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "图片文件", hint: "填本地图片的绝对路径", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    style: { width: "100%" },
+                    value: s.backgroundImagePath,
+                    placeholder: "/home/user/Pictures/bg.png",
+                    onChange: (e) => set("backgroundImagePath", e.target.value)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: `模糊强度（${Math.round(s.backgroundBlurRadius)}）`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    min: 0,
+                    max: 64,
+                    value: Math.round(s.backgroundBlurRadius),
+                    onChange: (v2) => set("backgroundBlurRadius", v2)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: `不透明度（${Math.round(s.backgroundImageOpacity * 100)}%）`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    min: 0,
+                    max: 100,
+                    value: Math.round(s.backgroundImageOpacity * 100),
+                    onChange: (v2) => set("backgroundImageOpacity", v2 / 100)
+                  }
+                ) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "背景跟随主题",
+                    hint: "深色主题下自动压暗背景",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.backgroundFollowTheme,
+                        onChange: (v2) => set("backgroundFollowTheme", v2),
+                        label: "背景跟随主题"
+                      }
+                    )
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "账户与登录" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "账户页走路动画",
+                    hint: "关闭后，账户页右侧的玩家形象将保持站立姿势",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.accountWalkAnimation,
+                        onChange: (v2) => set("accountWalkAnimation", v2),
+                        label: "走路动画"
+                      }
+                    )
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "使用内置登录窗口",
+                    hint: "微软登录在启动器内完成；关闭后改为显示验证码并打开浏览器",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.microsoftLoginEmbedded,
+                        onChange: (v2) => set("microsoftLoginEmbedded", v2),
+                        label: "内置登录窗口"
+                      }
+                    )
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "Nova 游戏内浮窗" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "显示 Nova 浮窗",
+                    hint: "游戏运行时在屏幕角落显示浮窗，Ctrl+N 随时呼出对话；下局生效",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.novaOverlayEnabled,
+                        onChange: (v2) => set("novaOverlayEnabled", v2),
+                        label: "Nova 浮窗"
+                      }
+                    )
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "软件更新" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Field,
+                  {
+                    label: "自动检查更新",
+                    hint: "启动几秒后后台检查新版本，发现时询问；游戏运行期间不打扰",
+                    inline: true,
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Toggle,
+                      {
+                        checked: s.autoUpdateEnabled,
+                        onChange: (v2) => set("autoUpdateEnabled", v2),
+                        label: "自动检查更新"
+                      }
+                    )
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn", onClick: () => push("info", "检查更新：内核能力接入后可用"), children: "检查更新" })
+              ] })
+            ] }),
+            !loading && section === "crossdevice" && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { children: "跨设备与 P2P" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(
-                Segmented,
+                Field,
                 {
-                  value: source,
-                  options: SOURCE_OPTIONS,
-                  onChange: setSource
+                  label: "跨设备存档同步",
+                  hint: "同一 Starcloud ID 的设备在局域网内互相可见，可把世界与版本配置推送到其他设备",
+                  inline: true,
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    Toggle,
+                    {
+                      checked: s.deviceLinkEnabled,
+                      onChange: (v2) => set("deviceLinkEnabled", v2),
+                      label: "跨设备存档同步"
+                    }
+                  )
                 }
-              )
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "设备名称", hint: "留空 = 使用主机名", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { width: 320 },
+                  value: s.deviceName,
+                  onChange: (e) => set("deviceName", e.target.value)
+                }
+              ) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                Field,
+                {
+                  label: "P2P 下载加速",
+                  hint: "在局域网内从同账号设备下载已缓存的文件",
+                  inline: true,
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    Toggle,
+                    {
+                      checked: s.p2pDownloadEnabled,
+                      onChange: (v2) => set("p2pDownloadEnabled", v2),
+                      label: "P2P 下载加速"
+                    }
+                  )
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(InfoBar, { kind: "info", title: "需要 Starcloud ID", children: "同步与 P2P 加速需要登录 Starcloud ID。" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 10 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  className: "btn btn-primary",
+                  onClick: () => push("info", "Starcloud ID 登录：内核能力接入后可用"),
+                  children: "去登录"
+                }
+              ) })
             ] }) })
-          ] })
+          ]
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginTop: 14,
+          padding: "10px 14px",
+          borderRadius: "var(--r-card)",
+          background: "var(--surface-subtle)",
+          border: "1px solid var(--stroke-subtle)",
+          flexShrink: 0
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "t-cap", style: { flex: 1 }, children: "修改后点右侧保存；未保存的改动会在切换分类时保留。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "btn btn-primary",
+              disabled: saving || loading,
+              onClick: () => void save(),
+              children: saving ? "保存中…" : "保存设置"
+            }
+          )
         ]
       }
     ),
     host
   ] });
 }
-function LogsPage() {
-  const [lines, setLines] = reactExports.useState([]);
+function stamp(d) {
+  const p2 = (n2, w2 = 2) => n2.toString().padStart(w2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(
+    d.getHours()
+  )}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${p2(d.getMilliseconds(), 3)}`;
+}
+function LogsPage(props) {
+  const { push, host } = useToasts();
+  const [tab, setTab] = reactExports.useState("launcher");
+  const [launcherLines, setLauncherLines] = reactExports.useState([]);
+  const [gameLines, setGameLines] = reactExports.useState([]);
   const seq = reactExports.useRef(1);
   reactExports.useEffect(() => {
     let alive = true;
     onBridgeEvent((event, params) => {
-      if (!alive) return;
-      if (event === "game.output") {
-        setLines(
-          (prev) => [
-            ...prev,
-            {
-              id: seq.current++,
-              text: String(params.line ?? ""),
-              time: (/* @__PURE__ */ new Date()).toLocaleTimeString("zh-CN")
-            }
-          ].slice(-500)
-        );
-      }
+      if (!alive || event === "game.output") return;
+      setLauncherLines((prev) => [
+        ...prev.slice(-499),
+        {
+          id: seq.current++,
+          at: stamp(/* @__PURE__ */ new Date()),
+          channel: event.split(".")[0] ?? "app",
+          text: `${event} ${JSON.stringify(params).slice(0, 200)}`
+        }
+      ]);
     });
     return () => {
       alive = false;
     };
   }, []);
-  const merged = lines;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(
-    PageShell,
-    {
-      title: "启动器日志",
-      subtitle: "桥接事件与游戏输出",
-      actions: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "btn btn-subtle", onClick: () => setLines([]), children: "✕ 清空" }),
-      children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "div",
+  const lastGameCount = reactExports.useRef(0);
+  reactExports.useEffect(() => {
+    const incoming = props.session.logs;
+    if (incoming.length === lastGameCount.current) return;
+    const added = incoming.slice(lastGameCount.current);
+    lastGameCount.current = incoming.length;
+    const now2 = /* @__PURE__ */ new Date();
+    setGameLines((prev) => [
+      ...prev.slice(-999),
+      ...added.map((line) => ({
+        id: seq.current++,
+        at: stamp(now2),
+        channel: "game",
+        text: line
+      }))
+    ]);
+  }, [props.session.logs]);
+  const lines = tab === "launcher" ? launcherLines : gameLines;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-head", children: [
+      [
+        { id: "launcher", label: "启动器日志" },
+        { id: "game", label: "游戏日志" }
+      ].map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
         {
-          className: "card card-flush",
-          style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 },
+          className: "btn btn-subtle",
+          style: { display: "flex", alignItems: "center", gap: 8 },
+          onClick: () => setTab(t2.id),
           children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-head", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dot", style: { background: "var(--text-tertiary)" } }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "card-title", children: "输出" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "chip", children: [
-                merged.length,
-                " 行"
-              ] })
-            ] }),
-            merged.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "暂无日志", hint: "启动游戏后这里会实时滚动输出。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", style: { paddingTop: 0 }, children: merged.map((line) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { animation: "fadeIn 150ms ease both" }, children: [
-              line.time !== "" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { opacity: 0.45 }, children: [
-                "[",
-                line.time,
-                "] "
-              ] }),
-              line.text
-            ] }, line.id)) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                style: {
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  border: tab === t2.id ? "5px solid var(--accent)" : "1.5px solid var(--stroke-strong)",
+                  background: "transparent",
+                  flexShrink: 0
+                }
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: tab === t2.id ? "t-strong" : "t-body", children: t2.label })
+          ]
+        },
+        t2.id
+      )),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: "btn",
+          onClick: () => push("info", "打开日志目录：主进程 openPath 接入后可用"),
+          children: "打开日志目录"
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          className: "btn btn-subtle btn-sm",
+          onClick: () => {
+            if (tab === "launcher") setLauncherLines([]);
+            else setGameLines([]);
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(IconClose, { size: 13 }),
+            " 清空"
           ]
         }
       )
-    }
-  );
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card card-flush", style: { flex: 1, minHeight: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "log", children: lines.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty", style: { minHeight: 120 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-hint", children: tab === "launcher" ? "暂无启动器日志。切换页面或触发桥接事件后会记录在这里。" : "暂无游戏日志。启动游戏后这里会显示输出。" }) }) : lines.map((l2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { opacity: 0.55, flexShrink: 0 }, children: [
+        "[",
+        l2.at,
+        "]"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { opacity: 0.7, flexShrink: 0, width: 54 }, children: [
+        "[",
+        l2.channel,
+        "]"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { minWidth: 0, wordBreak: "break-word" }, children: l2.text })
+    ] }, l2.id)) }) }),
+    host
+  ] });
 }
 function App(props) {
   const theme = useTheme(props.initialTheme);
   const [page, setPage] = reactExports.useState("home");
   const session = useGameSession();
+  useTaskCenter();
+  const [tasksOpen, setTasksOpen] = reactExports.useState(false);
+  reactExports.useEffect(() => {
+    void loadAndApplyVisualSettings();
+  }, []);
   const [appVersion$1, setAppVersion] = reactExports.useState("");
   reactExports.useEffect(() => {
     void appVersion().then(setAppVersion).catch(() => void 0);
@@ -12788,7 +14675,7 @@ function App(props) {
       case "projections":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(ProjectionsPage, {});
       case "running":
-        return /* @__PURE__ */ jsxRuntimeExports.jsx(RunningPage, { session });
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(RunningPage, { session, onGoHome: () => setPage("home") });
       case "accounts":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(AccountsPage, {});
       case "plugins":
@@ -12796,20 +14683,53 @@ function App(props) {
       case "nova":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(NovaPage, {});
       case "logs":
-        return /* @__PURE__ */ jsxRuntimeExports.jsx(LogsPage, {});
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(LogsPage, { session });
       case "settings":
-        return /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsPage, {});
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsPage, { theme });
       default:
         return /* @__PURE__ */ jsxRuntimeExports.jsx(HomePage, { session, onNavigate: (t2) => setPage(t2) });
     }
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "win mica", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bg-layer", "aria-hidden": true }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       TitleBar,
       {
         title: PAGE_LABEL[page],
         themeMode: theme.mode,
         onCycleTheme: theme.cycle,
+        actions: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "tb-action-btn",
+              title: "Nova 助手",
+              "aria-label": "Nova 助手",
+              onClick: () => setPage("nova"),
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: brandMark, alt: "", width: 16, height: 16 })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "tb-action-btn",
+              title: "调度中心",
+              "aria-label": "调度中心",
+              onClick: () => setTasksOpen(true),
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconTasks, { size: 16 })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "tb-action-btn",
+              title: "账户",
+              "aria-label": "账户",
+              onClick: () => setPage("accounts"),
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconUser, { size: 16 })
+            }
+          )
+        ] }),
         children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "tb-brand", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: brandMark, alt: "", width: 18, height: 18 }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "tb-appname", children: "Starcloud" }),
@@ -12819,7 +14739,17 @@ function App(props) {
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "win-body", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(Nav, { page, dark: theme.resolved === "dark", running, onNavigate: setPage }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "content", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: PAGE_LABEL[page], children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page", children: render() }, page) }, page) })
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          LaunchOverlay,
+          {
+            session,
+            versionId: session.launchVersion,
+            onCancel: session.dismissLaunchError
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: PAGE_LABEL[page], children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page", children: render() }, page) }, page)
+      ] })
     ] })
   ] });
 }

@@ -58,6 +58,53 @@ android {
     }
 }
 
+/**
+ * 把 Electron 的 Web 前端产物同步到安卓 Web 壳的 assets。
+ *
+ * 两端跑的是同一份 React 页面，但产物是两份（electron/out/renderer 与
+ * android/.../assets/web/app）。以前靠手工拷贝，产物与源码会漂移 ——
+ * 安卓上看到的还是旧界面还查不出来。现在有 Gradle 任务兜着：
+ *   gradle :app:syncWebAssets
+ * 需要先在 electron/ 下 npm run build。
+ */
+val syncWebAssets by tasks.registering(Copy::class) {
+    group = "web"
+    description = "同步 Electron 的 Web 前端产物到安卓 Web 壳 assets"
+    val rendererDir = rootProject.file("../../electron/out/renderer")
+    val webAppDir = file("src/main/assets/web/app")
+    doFirst {
+        require(rendererDir.exists()) {
+            "找不到 Electron 构建产物 ${rendererDir}：先在 electron/ 下执行 npm run build"
+        }
+    }
+    from(rendererDir) {
+        into(webAppDir)
+    }
+    // index.html 里引用的是带内容哈希的文件名（index-<hash>.js），复制后要改写
+    doLast {
+        val assetsDir = File(webAppDir, "assets")
+        val indexHtml = File(webAppDir, "index.html")
+        if (indexHtml.exists() && assetsDir.exists()) {
+            val js = assetsDir.listFiles()?.firstOrNull { it.name.startsWith("index-") && it.name.endsWith(".js") }?.name
+            val css = assetsDir.listFiles()?.firstOrNull { it.name.startsWith("index-") && it.name.endsWith(".css") }?.name
+            var html = indexHtml.readText()
+            if (js != null) {
+                html = html.replace(Regex("src=\"\\./assets/index-[^\"]+\\.js\""), "src=\"./assets/$js\"")
+            }
+            if (css != null) {
+                html = html.replace(Regex("href=\"\\./assets/index-[^\"]+\\.css\""), "href=\"./assets/$css\"")
+            }
+            indexHtml.writeText(html)
+            logger.lifecycle("[syncWebAssets] index.html -> $js / $css")
+        }
+    }
+}
+
+// 打包前自动同步：安卓 APK 里的 Web 界面永远跟着 electron 源码走
+tasks.named("preBuild") {
+    dependsOn("syncWebAssets")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
