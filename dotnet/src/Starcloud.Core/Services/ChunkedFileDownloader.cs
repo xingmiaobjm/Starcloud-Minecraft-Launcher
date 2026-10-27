@@ -396,6 +396,10 @@ public sealed class ChunkedFileDownloader
             if (result.Ranged)
             {
                 _sources.RecordSuccess(kind);
+                // 把实测吞吐回填给源注册表：源池据此给慢源降权，
+                // 避免「能连但很慢」的镜像一直排在最前面拖住整个下载
+                if (result.ElapsedMs > 0)
+                    _sources.RecordSpeed(kind, result.Bytes, result.ElapsedMs);
                 ParallelGovernor.ReportSuccess(host);
                 pool.ReportSpeed(kind, result.Bytes, result.ElapsedMs);
                 // 记下这一片已完成：下次失败重试时它不用再下（分片级断点续传）
@@ -445,6 +449,7 @@ public sealed class ChunkedFileDownloader
             if (resp.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
             {
                 ParallelGovernor.ReportThrottled(host); // 按主机记住：下次这个域名少开几条连接
+                _sources.RecordThrottled(kind);        // 源级：慢源降权时也扣分
                 throw new IOException($"{label} 限流（HTTP {(int)resp.StatusCode}）");
             }
 

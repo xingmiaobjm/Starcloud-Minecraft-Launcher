@@ -62,6 +62,13 @@ public sealed class DownloadSourceRegistry
         public bool Degraded;
         /// <summary>各通道上「无视 Range」的连续计数（命中 206 即清零）</summary>
         public readonly ConcurrentDictionary<SourceChannel, int> RangeIgnored = new();
+        /// <summary>实测吞吐（字节/毫秒）的指数滑动平均；0 = 还没测过</summary>
+        public double SpeedEma;
+        public int SpeedSamples;
+        /// <summary>最近一次成功的时间（TickCount64）；用于让健康度随时间衰减</summary>
+        public long LastSuccessAt;
+        /// <summary>是否被限流过（429/503）</summary>
+        public int Throttles;
     }
 
     private readonly Func<LauncherSettings> _settings;
@@ -174,6 +181,9 @@ public sealed class DownloadSourceRegistry
     /// 竞速池：健康镜像 → 降级镜像 → 官方兜底；官方恒为最后一个。
     /// 用户显式指定单一源时只含该源（不受降级影响，否则会把用户锁死）；
     /// 已被判定不支持 Range 的源退出分片池，未配置地址的自定义源不参与。
+    /// <para>排序在「是否降级」之上再加一层健康度评分：能连但很慢的镜像不再霸占首位
+    /// （原来只看降级标记，慢源一直排前面，整个下载被它拖慢 —— 表现就是时快时慢）。
+    /// 评分相同的按声明顺序（镜像 → 官方）保持稳定。</para>
     /// </summary>
     public IReadOnlyList<SourceKind> RacingPool()
     {
@@ -186,8 +196,14 @@ public sealed class DownloadSourceRegistry
             if (k == SourceKind.Custom && custom is null) continue;
             mirrors.Add(k);
         }
-        // 降级源靠后；OrderBy 稳定，故同一健康档位内保持声明顺序
-        var pool = mirrors.OrderBy(k => Get(k).Degraded ? 1 : 0).ToList();
+        // 降级源靠后；同档位内按健康度评分降序（评分相同的保持声明顺序，故用 ThenBy 索引）
+        var indexed = mirrors.Select((k, i) => (k, i)).ToList();
+        var pool = indexed
+            .OrderBy(x => Get(x.k).Degraded ? 1 : 0)
+            .ThenByDescending(x => ScoreOf(x.k))
+            .ThenBy(x => x.i)
+            .Select(x => x.k)
+            .ToList();
         pool.Add(SourceKind.Official);
         return pool;
     }
@@ -213,6 +229,31 @@ public sealed class DownloadSourceRegistry
         var h = Get(k);
         Interlocked.Exchange(ref h.Failures, 0);
         h.Degraded = false;
+        h.LastSuccessAt = Environment.TickCount64;
+    }
+
+    /// <summary>
+    /// 记录一次实测吞吐（字节/毫秒）。用来给慢源降权 ——
+    /// 源质量不只是「能不能连上」，还有「连上之后有多快」：
+    /// 一个能连但很慢的镜像排在前面，整个下载都会被它拖住。
+    /// </summary>
+    public void RecordSpeed(SourceKind k, long bytes, long elapsedMs)
+    {
+        if (bytes <= 0 || elapsedMs <= 0) return;
+        var h = Get(k);
+        var instant = bytes / (double)elapsedMs;
+        lock (h)
+        {
+            h.SpeedEma = h.SpeedSamples == 0 ? instant : h.SpeedEma * 0.6 + instant * 0.4;
+            h.SpeedSamples++;
+        }
+    }
+
+    /// <summary>记录一次限流（429/503）。</summary>
+    public void RecordThrottled(SourceKind k)
+    {
+        var h = Get(k);
+        lock (h) { h.Throttles = Math.Min(h.Throttles + 1, 8); }
     }
 
     /// <summary>记录请求失败：连续失败达到阈值自动降级</summary>
@@ -220,6 +261,39 @@ public sealed class DownloadSourceRegistry
     {
         var h = Get(k);
         if (Interlocked.Increment(ref h.Failures) >= DegradeAfterFailures) h.Degraded = true;
+    }
+
+    /// <summary>
+    /// 源健康度评分（越大越好）。
+    /// <para>要解决的问题：源池原来只按「有没有被降级」排序，一个「能连但很慢」的镜像
+    /// 会一直排在前面，整个下载速度被它拖住 —— 用户看到的就是「时快时慢」。
+    /// 这里把实测吞吐、失败次数、限流次数合成一个分数，池按分数排序。</para>
+    /// <para>速度样本的权重随时间衰减（半衰期约 5 分钟）：镜像质量会漂移，
+    /// 十分钟前的测速不该一直主导现在的排序。</para>
+    /// </summary>
+    internal double ScoreOf(SourceKind k)
+    {
+        var h = Get(k);
+        double speed;
+        int samples;
+        int throttles;
+        lock (h)
+        {
+            speed = h.SpeedEma;
+            samples = h.SpeedSamples;
+            throttles = h.Throttles;
+        }
+        if (samples == 0) return 0;   // 没测过：交给后面的实测择优
+
+        // 样本过期打折（半衰期 5 分钟）
+        var age = Environment.TickCount64 - h.LastSuccessAt;
+        var freshness = age <= 0 ? 1.0 : Math.Pow(0.5, Math.Min(age / 300_000.0, 4.0));
+
+        // 吞吐归一化：1 MB/s 记 1 分，线性放大后取对数（避免快源一家独大）
+        var mbPerSec = speed * 1000.0 / (1024 * 1024);
+        var speedScore = Math.Log(1 + Math.Max(0, mbPerSec)) * 10;
+
+        return speedScore * freshness - h.Failures * 2 - throttles * 1.5;
     }
 
     /// <summary>该源是否已被预检/失败计数降级（分片池据此跳过它）</summary>

@@ -349,6 +349,7 @@ public sealed class DownloadService
             // 整文件请求也会被限流：按主机记下来，后续请求先等冷却，别再撞
             var host = DownloadSourceRegistry.HostOf(url);
             ParallelGovernor.ReportThrottled(host);
+            _sources.RecordThrottled(SourceKind.Official);   // 整文件路径的限流也算源健康度
             resp.Dispose();
             throw new IOException($"{host} 限流（HTTP {(int)resp.StatusCode}）");
         }
