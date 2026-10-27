@@ -129,7 +129,46 @@ public static class ModPackDetector
     {
         if (!File.Exists(archivePath)) return null;
         using var zip = PackZip.Open(archivePath);
-        return Detect(zip);
+        var probe = Detect(zip);
+        if (probe is not null) return probe;
+        return DetectNested(zip, archivePath);
+    }
+
+    /// <summary>
+    /// 嵌套包：外层 zip 只是把内层 .mrpack / .zip 又包了一层（不少站点的下载就是这种形态）。
+    /// 外层识别不出任何结构时，若包内恰好有唯一的内层归档（且 ≤2GB 防呆），抽出来再识别一次。
+    /// </summary>
+    private static ModPackProbe? DetectNested(ZipArchive outer, string outerPath)
+    {
+        try
+        {
+            var candidates = outer.Entries
+                .Where(e => !e.FullName.EndsWith('/')
+                            && (e.FullName.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)
+                                || e.FullName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                            && e.Length > 0 && e.Length <= 2L * 1024 * 1024 * 1024)
+                .ToList();
+            if (candidates.Count != 1) return null;
+
+            var nestedPath = Path.Combine(Path.GetTempPath(), "starcloud-nested",
+                Guid.NewGuid().ToString("N") + Path.GetExtension(candidates[0].FullName));
+            Directory.CreateDirectory(Path.GetDirectoryName(nestedPath)!);
+            try
+            {
+                candidates[0].ExtractToFile(nestedPath, overwrite: true);
+                using var inner = PackZip.Open(nestedPath);
+                return Detect(inner);
+            }
+            finally
+            {
+                try { File.Delete(nestedPath); } catch { }
+            }
+        }
+        catch
+        {
+            // 嵌套识别只是多一次机会：失败按「识别不了」走原报错路径
+            return null;
+        }
     }
 
     public static ModPackProbe? Detect(ZipArchive zip)
@@ -261,6 +300,8 @@ public static class ModPackDetector
         ("saves/", 8, false),
         ("resourcepacks/", 8, false),
         ("shaderpacks/", 8, false),
+        ("kubejs/", 9, false),              // 技术型整合包常只有 kubejs 脚本而无 versions/libraries
+        ("defaultconfigs/", 9, false),      // 服务器包常见：默认配置随包分发
     ];
 
     /// <summary>packwiz 的 pack.toml 必须是 TOML（含 [index] 段或 name/version 键），排除同名杂项</summary>

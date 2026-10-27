@@ -89,12 +89,19 @@ public static class AuthDialogs
                 {
                     using var winCts = new CancellationTokenSource();
                     var settled = false;
-                    // 用户关窗 = 取消这次登录（只取消轮询，不再弹任何窗口）
-                    embedded.Closed += (_, _) => { if (!settled) winCts.Cancel(); };
+                    var userClosed = false;
+                    // 用户关窗**不能立刻取消轮询**：微软网页显示「登录成功」后用户顺手关窗时，
+                    // 服务端可能还要 1~3 秒才把设备码标记为已授权（轮询间隔是 5 秒），
+                    // 立刻取消会丢掉已经完成的授权——这正是「窗口关了但没登录上」的原因。
+                    // 改成进入宽限冲刺：关窗后 1 秒一次、最多 4 次，兑现到就按成功处理。
+                    embedded.Closed += (_, _) => { if (!settled) userClosed = true; };
+                    var pollNow = false;
+                    embedded.AuthPageNavigated += () => pollNow = true;
                     try
                     {
                         var viaWindow = await PollDeviceCodeAsync(
-                            auth, accounts, deviceCode, embedded.SetStatus, onError, winCts.Token);
+                            auth, accounts, deviceCode, embedded.SetStatus, onError, winCts.Token,
+                            () => userClosed, () => { if (!pollNow) return false; pollNow = false; return true; });
                         settled = true;
                         embedded.Finish(); // 收尾关窗（用户已自己关掉时无事发生）
                         return viaWindow;
@@ -209,15 +216,36 @@ public static class AuthDialogs
     /// 用户取消（<paramref name="ct"/> 被取消）或失败返回 null，失败原因走 <paramref name="onError"/>。
     /// 界面收尾（关窗口 / 关弹窗）由调用方负责——这里只管协议。</para>
     /// </summary>
+    /// <summary>关窗宽限：最多几次「1 秒一次」的补兑现尝试</summary>
+    private const int CloseGraceAttempts = 4;
+
     private static async Task<MicrosoftAuthService.LoginResult?> PollDeviceCodeAsync(
         MicrosoftAuthService auth, AccountStore accounts, MicrosoftAuthService.DeviceCodeInfo deviceCode,
-        Action<string> setStatus, Action<string>? onError, CancellationToken ct)
+        Action<string> setStatus, Action<string>? onError, CancellationToken ct,
+        Func<bool>? windowClosed = null, Func<bool>? pollNowRequested = null)
     {
         var interval = Math.Max(deviceCode.Interval, 3);
         var consecutiveFailures = 0;
+        var graceLeft = CloseGraceAttempts;
         while (!ct.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(interval), ct);
+            var inGrace = windowClosed?.Invoke() == true;
+            if (inGrace)
+            {
+                // 用户已经关窗：再给几次快速机会（授权多半已在服务端完成，只差轮询兑现）
+                if (graceLeft-- <= 0) return null;
+                setStatus(Loc.T("正在确认登录结果…"));
+                await Task.Delay(TimeSpan.FromSeconds(1), ct);
+            }
+            else if (pollNowRequested?.Invoke() == true)
+            {
+                // 授权页已经跳走（多半已完成）：立即补一次，不再干等满一个间隔
+                await Task.Delay(TimeSpan.FromMilliseconds(300), ct);
+            }
+            else
+            {
+                await Task.Delay(TimeSpan.FromSeconds(interval), ct);
+            }
             try
             {
                 var (state, message, result) = await auth.PollAsync(deviceCode, ct);

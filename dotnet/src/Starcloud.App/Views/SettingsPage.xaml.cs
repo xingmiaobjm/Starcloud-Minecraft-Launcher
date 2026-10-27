@@ -13,6 +13,7 @@ using Starcloud.App.Views.Behaviors;
 using Starcloud.App.Views.Controls;
 using Starcloud.App.Views.Dialogs;
 using Starcloud.Core.Services;
+using Starcloud.Core.Services.P2P;
 using System.Text.RegularExpressions;
 using Windows.Storage.Pickers;
 
@@ -55,6 +56,7 @@ public sealed partial class SettingsPage : Page
             LaunchAutoRetrySwitch.IsOn = s.LaunchAutoRetry;
             ShowGameLogSwitch.IsOn = s.ShowGameLogOnLaunch;
             RefreshMemoryRecommend();
+            _ = InitJavaVendorsAsync();
 
             // 正版账户：登录令牌加密落盘开关（默认开）
             MsTokenPersistSwitch.IsOn = s.MicrosoftTokenPersist;
@@ -80,6 +82,7 @@ public sealed partial class SettingsPage : Page
             ConcurrencyBox.Value = s.DownloadConcurrency;
             RetriesBox.Value = s.DownloadMaxRetries;
             ResourceCacheSwitch.IsOn = s.ResourceCacheEnabled;
+            AutoModDepsSwitch.IsOn = s.AutoInstallModDependencies;
             // 未知 ID 回落「自动（多源聚合）」
             SourceCombo.SelectedIndex = s.DownloadSource?.Trim().ToLowerInvariant() switch
             {
@@ -119,9 +122,18 @@ public sealed partial class SettingsPage : Page
             DeviceLinkSwitch.IsOn = s.DeviceLinkEnabled;
             P2pSwitch.IsOn = s.P2pDownloadEnabled;
             P2pCrossSwitch.IsOn = s.DeviceP2PCrossAccount;
+            P2pInternetSwitch.IsOn = s.P2pInternetEnabled;
+            P2pUploadBox.SelectedIndex = s.P2pInternetUploadMbps switch
+            {
+                <= 1 => 0,
+                <= 2 => 1,
+                <= 4 => 2,
+                <= 8 => 3,
+                _ => 4,
+            };
             DeviceNameBox.Text = s.DeviceName ?? "";
             UpdateSyncLoginHint();
-            _ = RefreshChannelStatusAsync();
+            RefreshLinkStatus();
             StartPeerTimer();
             RefreshPeers();
 
@@ -518,28 +530,81 @@ public sealed partial class SettingsPage : Page
         }
     }
 
-    private async void DownloadJava_Click(object s, RoutedEventArgs e) => await DownloadJavaAsync(21);
-    private async void DownloadJava8_Click(object s, RoutedEventArgs e) => await DownloadJavaAsync(8);
+    // ── Java 运行时下载：发行版（Temurin / 龙井）+ 版本列表 ──
 
-    private async Task DownloadJavaAsync(int major)
+    /// <summary>初始化发行版下拉并加载版本列表（页面加载时调用一次）</summary>
+    private async Task InitJavaVendorsAsync()
     {
-        JavaProgress.Visibility = Visibility.Visible;
+        if (JavaVendorCombo.Items.Count > 0) return;
+        JavaVendorCombo.Items.Add(new ComboBoxItem
+        {
+            Content = JavaDistributionsService.Name(JavaVendor.Temurin), Tag = JavaVendor.Temurin,
+        });
+        JavaVendorCombo.Items.Add(new ComboBoxItem
+        {
+            Content = JavaDistributionsService.Name(JavaVendor.Dragonwell), Tag = JavaVendor.Dragonwell,
+        });
+        JavaVendorCombo.SelectedIndex = 0;
+        await LoadJavaVersionsAsync();
+    }
+
+    private async void JavaVendor_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        await LoadJavaVersionsAsync();
+    }
+
+    /// <summary>按当前发行版拉可用版本；失败时把原因说清楚（连不上 / 404 都能看出来）</summary>
+    private async Task LoadJavaVersionsAsync()
+    {
+        JavaVersionCombo.Items.Clear();
+        JavaVendorStatus.Text = Loc.T("正在获取可用版本…");
+        JavaDownloadBtn.IsEnabled = false;
         try
         {
-            var progress = new Progress<BatchProgress>(p => _dq.TryEnqueue(() =>
-                JavaProgress.Value = p.TotalFiles > 0 ? p.Percentage : 0));
-            var exe = await _s.Java.DownloadRuntimeAsync(major, progress);
-            _javaOverride = exe;
-            await ScanJavaAsync();
+            var vendor = (JavaVendorCombo.SelectedItem as ComboBoxItem)?.Tag as JavaVendor? ?? JavaVendor.Temurin;
+            var releases = await _s.JavaDistros.ListAsync(vendor);
+            foreach (var r in releases)
+                JavaVersionCombo.Items.Add(new ComboBoxItem { Content = r.Display, Tag = r });
+            if (JavaVersionCombo.Items.Count > 0) JavaVersionCombo.SelectedIndex = 0;
+            JavaVendorStatus.Text = releases.Count == 0
+                ? Loc.T("没有取到可用版本：可切换另一个发行版再试。")
+                : Loc.T("共 {0} 个版本可选。", releases.Count);
+            JavaDownloadBtn.IsEnabled = releases.Count > 0;
         }
         catch (Exception ex)
         {
-            ErrorBar.Message = ex.Message;
+            // 「显示无连接」这类问题多半是发行版域名在该网络下不可达：直接建议换发行版
+            JavaVendorStatus.Text = Loc.T("获取版本列表失败：{0}\n可切换另一个发行版，或检查网络/代理后重试。", ex.Message);
+            JavaDownloadBtn.IsEnabled = false;
+        }
+    }
+
+    private async void DownloadJavaVendor_Click(object s, RoutedEventArgs e)
+    {
+        if ((JavaVersionCombo.SelectedItem as ComboBoxItem)?.Tag is not JavaRelease release) return;
+        JavaDownloadBtn.IsEnabled = false;
+        JavaProgress.Visibility = Visibility.Visible;
+        JavaProgress.IsIndeterminate = true;
+        try
+        {
+            var status = new Progress<string>(t => _dq.TryEnqueue(() => JavaVendorStatus.Text = t));
+            var exe = await _s.JavaDistros.InstallAsync(release, status);
+            _javaOverride = exe;
+            await ScanJavaAsync();
+            JavaVendorStatus.Text = Loc.T("已安装 {0}。", release.Display);
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("下载失败：{0}", ex.Message);
             ErrorBar.IsOpen = true;
+            JavaVendorStatus.Text = Loc.T("下载失败：{0}\n若提示无法连接，请换一个发行版（龙井走 GitHub，Temurin 走 Adoptium）。", ex.Message);
         }
         finally
         {
+            JavaProgress.IsIndeterminate = false;
             JavaProgress.Visibility = Visibility.Collapsed;
+            JavaDownloadBtn.IsEnabled = true;
         }
     }
 
@@ -611,6 +676,51 @@ public sealed partial class SettingsPage : Page
         SavedBar.IsOpen = true;
     }
 
+    /// <summary>
+    /// 高级传递优化开关：落盘 + 当场启停。STUN 探测与 announce 都在后台线程，
+    /// 启停只 await 一个 Task.Run，UI 不冻结。
+    /// </summary>
+    private async void P2pInternetSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        var enable = P2pInternetSwitch.IsOn;
+
+        if (enable && !_s.StarcloudId.IsLoggedIn)
+        {
+            // 开关拨回并落盘同步：留着 ON 会让设置与实际状态脱节（下次启动也不会跑）
+            P2pInternetSwitch.IsOn = false;
+            _s.Settings.P2pInternetEnabled = false;
+            try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+            ErrorBar.Message = Loc.T("高级传递优化需要登录 Starcloud ID");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+
+        _s.Settings.P2pInternetEnabled = enable;
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+
+        SavedBar.IsOpen = true;
+        await Task.Run(() =>
+        {
+            if (enable) _s.InternetP2P.Start();
+            else _s.InternetP2P.Stop();
+        });
+    }
+
+    private void P2pUploadBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.P2pInternetUploadMbps = P2pUploadBox.SelectedIndex switch
+        {
+            0 => 1,
+            1 => 2,
+            2 => 4,
+            3 => 8,
+            _ => 16,
+        };
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+    }
+
     /// <summary>设备链路开关：落盘 + 当场启停（beacon/服务随开关起，不需要重启启动器）。</summary>
     /// <summary>
     /// 设备链路开关：落盘 + 当场启停。
@@ -639,8 +749,31 @@ public sealed partial class SettingsPage : Page
             await Task.Run(() => link.Stop());
         }
         try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
-        await RefreshChannelStatusAsync();
+        RefreshLinkStatus();
         RefreshPeers();
+    }
+
+    /// <summary>高级传递优化的实时状态：探测中 / 已参与（N 个公网端点）/ 网络不可用。</summary>
+    private void RefreshInternetP2pStatus()
+    {
+        var settings = _s.Settings;
+        var text = !settings.P2pInternetEnabled
+            ? Loc.T("未开启：不会向其他用户分享文件")
+            : !_s.StarcloudId.IsLoggedIn
+                ? Loc.T("需要登录 Starcloud ID")
+                : _s.InternetP2P.State switch
+                {
+                    InternetP2PState.Ready =>
+                        Loc.T("已参与：{0} 个公网端点，可与在线用户直连", _s.InternetP2P.CandidateCount),
+                    InternetP2PState.Probing => Loc.T("正在探测公网端点…"),
+                    InternetP2PState.Unavailable =>
+                        Loc.T("当前网络无法打洞（UDP 或 STUN 不通），不会参与"),
+                    _ => Loc.T("未参与"),
+                };
+        var fetched = _s.InternetP2P.BytesFetched;
+        if (settings.P2pInternetEnabled && fetched > 0)
+            text += " · " + Loc.T("已从对端取到 {0} MB", (fetched / 1024.0 / 1024.0).ToString("0.0"));
+        P2pInternetStatus.Text = text;
     }
 
     private void UpdateSyncLoginHint()
@@ -653,22 +786,20 @@ public sealed partial class SettingsPage : Page
         if (App.MainWindow is MainWindow win) win.NavigateTo("accounts");
     }
 
-    /// <summary>三条通道的实时状态（蓝牙 / 星闪探针在这里才执行，需要前台窗口）。</summary>
-    private async Task RefreshChannelStatusAsync()
+    /// <summary>跨设备链路状态一行（在线设备卡顶部）。</summary>
+    private void RefreshLinkStatus()
     {
         try
         {
-            var channels = await _s.DeviceLink.ChannelsAsync();
             var peers = _s.DeviceLink.Peers.Count;
             var link = _s.DeviceLink.Running
                 ? Loc.T("链路运行中 · 本机名称 {0} · 在线设备 {1} 台", _s.DeviceLink.DeviceName, peers)
                 : Loc.T("链路未运行：开启开关后，同一 Starcloud ID 的设备即可互相发现");
             LinkStatusText.Text = link;
-            ChannelStatusText.Text = string.Join(" · ", channels.Select(c => Loc.T("{0}：{1}", c.Name, c.Note)));
         }
         catch
         {
-            ChannelStatusText.Text = "";
+            // 状态拿不到就保持上一帧
         }
     }
 
@@ -684,7 +815,9 @@ public sealed partial class SettingsPage : Page
         _peerTimer.IsRepeating = true;
         _peerTimer.Tick += (_, _) =>
         {
-            if (SectionCross.Visibility == Visibility.Visible) RefreshPeers();
+            if (SectionCross.Visibility != Visibility.Visible) return;
+            RefreshPeers();
+            RefreshInternetP2pStatus();
         };
         _peerTimer.Start();
     }
@@ -699,6 +832,7 @@ public sealed partial class SettingsPage : Page
             p.Name,
             p.Address,
             Loc.T("在线 {0} 秒前", (int)(DateTime.Now - p.LastSeen).TotalSeconds))).ToList();
+        MotionFx.StaggerListItems(PeerList);
 
         PeerCountText.Text = Loc.T("{0} 台", peers.Count);
         if (selected is not null)
@@ -879,7 +1013,7 @@ public sealed partial class SettingsPage : Page
             UpdateStatusText.Text = "";
             var xamlRoot = Content.XamlRoot;
             if (xamlRoot is not null)
-                await UpdateDialog.ShowAsync(xamlRoot, m);
+                UpdateDialog.Show(xamlRoot, m);
         }
         catch (Exception ex)
         {
@@ -1115,6 +1249,7 @@ public sealed partial class SettingsPage : Page
         s0.DownloadConcurrency = Math.Max(1, IntOf(ConcurrencyBox, s0.DownloadConcurrency));
         s0.DownloadMaxRetries = Math.Max(0, IntOf(RetriesBox, s0.DownloadMaxRetries));
         s0.ResourceCacheEnabled = ResourceCacheSwitch.IsOn;
+        s0.AutoInstallModDependencies = AutoModDepsSwitch.IsOn;
         s0.DownloadSource = (SourceCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
         s0.DownloadCustomMirrorUrl = CustomMirrorBox.Text.Trim();
         s0.CurseForgeApiKey = CurseForgeKeyBox.Text.Trim();

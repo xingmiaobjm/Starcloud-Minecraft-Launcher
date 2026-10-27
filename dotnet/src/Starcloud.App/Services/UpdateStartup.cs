@@ -34,7 +34,7 @@ internal static class UpdateStartup
 
             LauncherLog.Write("update", $"发现新版本 {m.Version}（当前 {SelfUpdateService.CurrentVersion()}）");
             App.MainWindow?.DispatcherQueue?.TryEnqueue(() =>
-                _ = UpdateDialog.ShowAsync((App.MainWindow!.Content as FrameworkElement)!.XamlRoot, m));
+                UpdateDialog.Show((App.MainWindow!.Content as FrameworkElement)!.XamlRoot, m));
         }
         catch (Exception ex)
         {

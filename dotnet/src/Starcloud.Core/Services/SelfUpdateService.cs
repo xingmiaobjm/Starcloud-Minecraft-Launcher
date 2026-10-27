@@ -180,9 +180,58 @@ public sealed class SelfUpdateService
         // 遇到开头 U+FEFF 会直接判为非法 JSON。生成端已经改成无 BOM 写出，
         // 这里再兜一层，免得手工传的清单把自动更新整条路堵死。
         var json = (await _http.GetStringAsync(ManifestUrl, ct)).TrimStart('\uFEFF');
+        await VerifyManifestSignatureAsync(json, ct);
         var m = JsonSerializer.Deserialize<UpdateManifest>(json, JsonOptions)
                 ?? throw new InvalidDataException("清单为空");
         return m;
+    }
+
+    /// <summary>
+    /// 清单签名公钥（ECDSA P-256，SubjectPublicKeyInfo DER，hex）。发布构建必须有值；
+    /// 签名由 tools/sign-manifest.py 在打包时写下（latest.json.sig，与清单一起上传）。
+    /// </summary>
+    internal static readonly string ManifestSigningPublicKeyHex =
+        "3059301306072a8648ce3d020106082a8648ce3d030107034200048cd2f43fccc42cd82aa65a71710f3116c9e46f335558c62486e5b92a41b3c1bf92ae4075f2eabd60202057842850eefe71fecaf5bd10e3faf80e05e2a9a24278";
+
+#if DEBUG
+    /// <summary>
+    /// 仅 Debug 构建存在：允许 localhost 清单跳过验签。Release 构建里这个字段和下面的
+    /// 跳过分支都不参与编译，二进制里没有任何「不验签也能更新」的路径。
+    /// </summary>
+    internal static bool AllowUnsignedManifestForTests = false;
+#endif
+
+    /// <summary>
+    /// 清单 ECDSA P-256 验签：对清单原始字节（去 BOM 后）验签，签名在同目录 .sig 文件。
+    /// 验签失败直接拒绝本次更新——这是「清单被篡改 = 推任意 exe」的唯一根治手段。
+    /// </summary>
+    internal async Task VerifyManifestSignatureAsync(string json, CancellationToken ct = default)
+    {
+        // 唯一的跳过路径，且只在 Debug 构建里存在：显式置位测试开关 + 地址为本机。
+        // 不存在按 host 自动跳过的分支——那会让「设置里改个 URL」绕过整段验签。
+#if DEBUG
+        if (AllowUnsignedManifestForTests &&
+            Uri.TryCreate(ManifestUrl, UriKind.Absolute, out var uri) &&
+            uri.Host is "localhost" or "127.0.0.1" or "[::1]")
+            return;
+#endif
+
+        var sigText = (await _http.GetStringAsync(ManifestUrl + ".sig", ct)).Trim();
+        VerifyWithKey(ManifestSigningPublicKeyHex, json, sigText);
+    }
+
+    /// <summary>验签核心（纯函数）：公钥作为参数传入，测试无需改动生产字段。</summary>
+    internal static void VerifyWithKey(string publicKeyHex, string json, string signatureBase64)
+    {
+        using var ecdsa = ECDsa.Create();
+        ecdsa.ImportSubjectPublicKeyInfo(Convert.FromHexString(publicKeyHex), out _);
+        // 无「公钥为空则跳过」的分支：公钥缺失 = 配置错误，直接抛
+        var signature = Convert.FromBase64String(signatureBase64);
+        // 显式要求 DER（Rfc3279）签名：Windows CNG 的默认输出是 r||s 固定拼接，
+        // 而 tools/sign-manifest.py（Python cryptography）签出的是 DER——不指定格式两端无法互验。
+        if (!ecdsa.VerifyData(Encoding.UTF8.GetBytes(json), signature,
+                HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            throw new InvalidDataException("更新源签名校验失败：清单可能被篡改，已拒绝本次更新");
     }
 
     /// <summary>
@@ -241,8 +290,16 @@ public sealed class SelfUpdateService
     /// <summary>产物 URL = 清单地址所在目录 + 文件名（构建脚本只填文件名，上传整体拷贝即可）</summary>
     private Uri ResolveArtifactUrl(string fileName)
     {
-        if (!Uri.TryCreate(ManifestUrl, UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("http" or "https"))
+        // 产物地址与清单同源：Release 只认 https；Debug 额外放行本机 http 联调
+        if (!Uri.TryCreate(ManifestUrl, UriKind.Absolute, out var baseUri))
             throw new InvalidOperationException($"清单地址无效：{ManifestUrl}");
+#if DEBUG
+        if (baseUri.Scheme != Uri.UriSchemeHttps &&
+            !(baseUri.Scheme == Uri.UriSchemeHttp && baseUri.Host is "localhost" or "127.0.0.1" or "[::1]"))
+#else
+        if (baseUri.Scheme != Uri.UriSchemeHttps)
+#endif
+            throw new InvalidOperationException($"更新源必须使用 https：{ManifestUrl}");
         return new Uri(baseUri, fileName);
     }
 
@@ -261,11 +318,15 @@ public sealed class SelfUpdateService
     public static void VerifyArtifact(string file, UpdateArtifact artifact)
     {
         var fi = new FileInfo(file);
-        if (artifact.Size > 0 && fi.Length != artifact.Size)
+        if (artifact.Size <= 0)
+            throw new InvalidDataException("清单里的文件大小非法（必须为正数）");
+        if (fi.Length != artifact.Size)
             throw new InvalidDataException($"文件大小不匹配（期望 {artifact.Size}，实际 {fi.Length}）");
 
+        // 清单是发布方签过名的：字段残缺 = 清单本身被篡改或生成出错，拒绝而不是降级
         var expected = artifact.Sha256?.Trim() ?? "";
-        if (expected.Length == 0) return; // 清单未提供哈希时只校验大小
+        if (expected.Length != 64 || !expected.All(Uri.IsHexDigit))
+            throw new InvalidDataException("清单里的 SHA256 缺失或格式非法，已拒绝该更新包");
         var actual = ComputeSha256(file);
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"SHA256 校验失败（期望 {expected[..Math.Min(12, expected.Length)]}…）");

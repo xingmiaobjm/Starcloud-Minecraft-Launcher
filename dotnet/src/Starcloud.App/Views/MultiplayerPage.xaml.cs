@@ -11,6 +11,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views.Behaviors;
@@ -222,7 +223,6 @@ public sealed partial class MultiplayerPage : Page
     {
         InstallBtn.IsEnabled = !_busy && !_installing;
         CancelInstallBtn.Visibility = _installing ? Visibility.Visible : Visibility.Collapsed;
-        HostBtn.IsEnabled = !_busy;
         StopBtn.IsEnabled = !_busy;
         IdleBtn.IsEnabled = !_busy;
     }
@@ -319,6 +319,27 @@ public sealed partial class MultiplayerPage : Page
         var room = await Dialogs.MultiplayerDialogs.AskJoinCodeAsync(Content.XamlRoot);
         if (string.IsNullOrWhiteSpace(room)) return;
         await RunAsync(ct => _mp.JoinAsync(room, ct));
+    }
+
+    /// <summary>「我要当房主」卡片：与创建房间同一条链路（建房 + 自动端口搜索）。</summary>
+    private void HostCard_Tapped(object sender, TappedRoutedEventArgs e) =>
+        Host_Click(sender, new RoutedEventArgs());
+
+    /// <summary>「我要进房间」卡片：输入邀请码直接进房，进来后自动打通双方 StarcloudID。</summary>
+    private void JoinRoom_Click(object sender, RoutedEventArgs e)
+    {
+        var room = JoinCodeBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(room))
+        {
+            Notify(InfoBarSeverity.Warning, Loc.T("先输入邀请码。"));
+            return;
+        }
+        _ = RunAsync(ct => _mp.JoinAsync(room, ct));
+    }
+
+    private void JoinCodeBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter) JoinRoom_Click(sender, new RoutedEventArgs());
     }
 
     private async void Idle_Click(object sender, RoutedEventArgs e) => await RunAsync(async ct =>

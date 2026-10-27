@@ -1,0 +1,4 @@
+# 所有改动都必须由仓库所有者审核：
+# 其他人提交的 PR 只能由 @xingmiaobjm 批准后合并（配合 main 的
+# "Require review from Code Owners" 使用）；所有者自己的 PR 走管理员旁路。
+* @xingmiaobjm

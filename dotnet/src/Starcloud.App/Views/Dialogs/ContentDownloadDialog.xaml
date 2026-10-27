@@ -99,10 +99,6 @@
                                         <TextBlock x:Name="DlMeta4" FontSize="12"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
-                                    <!-- 前置依赖（Mod 类别；拉取成功后填充显示） -->
-                                    <TextBlock x:Name="DlDeps" FontSize="12" TextWrapping="Wrap"
-                                               Visibility="Collapsed"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
                             </Grid>
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -127,6 +123,13 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
+
+                    <!-- 前置资源（PCL 风格）：和「自动安装前置」开关无关，始终展示 -->
+                    <StackPanel x:Name="DlDepsSection" Spacing="6" Visibility="Collapsed">
+                        <TextBlock loc:Loc.Text="前置资源" FontSize="13" FontWeight="Medium"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="2,0,0,0" />
+                        <StackPanel x:Name="DlDepsList" Spacing="6" />
+                    </StackPanel>
 
                     <!-- 版本芯片行（MC 版本筛选，默认当前版本） -->
                     <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden"

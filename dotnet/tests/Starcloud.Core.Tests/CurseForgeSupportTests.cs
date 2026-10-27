@@ -93,20 +93,34 @@ public class CurseForgeSupportTests
     // ── MCIM 简介翻译 ────────────────────────────────────────────────────
 
     [Fact]
-    public void 解析MCIM翻译响应()
+    public void 解析MCIM批量翻译响应_CurseForge数字id()
     {
         const string json = """
-        { "modId": 238222, "translated": "查看物品和配方", "original": "View Items and Recipes",
-          "translated_at": "2025-02-02T10:01:52.805000" }
+        [ { "modid": 238222, "translated": "查看物品和配方", "original": "View Items and Recipes" },
+          { "modid": 306612, "translated": "  ", "original": "Core API library" } ]
         """;
-        Assert.Equal("查看物品和配方", ModSummaryTranslationService.ParseTranslated(json));
+        var map = ModSummaryTranslationService.ParseBatch(json);
+        var only = Assert.Single(map);
+        Assert.Equal("238222", only.Key);
+        Assert.Equal("查看物品和配方", only.Value);
+    }
+
+    [Fact]
+    public void 解析MCIM批量翻译响应_Modrinth字符串id()
+    {
+        const string json = """
+        [ { "project_id": "P7dR8mSH", "translated": "轻量级模块化API", "original": "Fabric API" } ]
+        """;
+        var map = ModSummaryTranslationService.ParseBatch(json);
+        Assert.True(map.TryGetValue("P7dR8mSH", out var zh));
+        Assert.Equal("轻量级模块化API", zh);
     }
 
     [Theory]
     [InlineData("{}")]
-    [InlineData("{\"translated\":\"   \"}")]
     [InlineData("[]")]
     [InlineData("not json")]
-    public void 空译文或非法响应返回null(string json) =>
-        Assert.Null(ModSummaryTranslationService.ParseTranslated(json));
+    [InlineData("[{\"translated\":\"缺id的条目\"}]")]
+    public void 空译文或非法响应返回空表(string json) =>
+        Assert.Empty(ModSummaryTranslationService.ParseBatch(json));
 }

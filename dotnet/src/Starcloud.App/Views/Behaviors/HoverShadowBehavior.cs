@@ -933,7 +933,7 @@ public static class HoverShadowBehavior
         FillAutoBrush(brush, element.ActualTheme, soft);
 
         var size = new Vector2((float)element.ActualWidth, (float)element.ActualHeight);
-        // 必须用圆角矩形：按钮是圆角的（本主题 ControlCornerRadius=12），直角矩形会把光斑
+        // 必须用圆角矩形：按钮是圆角的（本主题 ControlCornerRadius=8），直角矩形会把光斑
         // 填进四个圆角缺口——两个按钮之间的缝隙正好是四个缺角交汇处，看着就是"阴影渲染到了按钮外"。
         var geometry = compositor.CreateRoundedRectangleGeometry();
         geometry.CornerRadius = new Vector2((float)CornerRadiusOf(element));

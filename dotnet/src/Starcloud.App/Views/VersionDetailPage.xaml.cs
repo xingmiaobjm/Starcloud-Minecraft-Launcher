@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
@@ -37,6 +38,17 @@ public sealed partial class VersionDetailPage : Page
 
     /// <summary>内容分区行模型缓存（检查更新时遍历）。</summary>
     private readonly List<ContentFileRow> _contentRows = [];
+
+    /// <summary>等待远程图标的 Image（key = 文件名）：jar 里没有 icon.png 时按 modId 查 Modrinth。</summary>
+    private readonly Dictionary<string, Image> _remoteIconTargets =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>内容重建的世代号：流式补行期间用户重新加载了，旧的一轮要自己停。</summary>
+    private int _contentGeneration;
+
+    /// <summary>Mod 区的「路径 + 打开目录」行（分批追加时保持垫底）与总数。</summary>
+    private FrameworkElement? _modTail;
+    private int _modTotalCount;
 
     /// <summary>内容分区对应的游戏根目录。</summary>
     private string _contentGameRoot = "";
@@ -79,8 +91,7 @@ public sealed partial class VersionDetailPage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e) => FlushSave();
 
-    private static Brush ErrorBrush() =>
-        (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
+    private Brush ErrorBrush() => ThemedBrush("SystemFillColorCriticalBrush");
 
     // ── 刷新 ──
 
@@ -237,10 +248,123 @@ public sealed partial class VersionDetailPage : Page
     {
         _contentGameRoot = gameRoot;
         _displayedBroken = broken;
-        var data = await Task.Run(() => CollectContentData(gameRoot));
-        if (!string.Equals(gameRoot, _contentGameRoot, StringComparison.OrdinalIgnoreCase)) return;
-        BuildContentSections(data, broken);
+        _contentGeneration++;
+        var gen = _contentGeneration;
+        _modTail = null;
+        ShowContentSkeleton();
+
+        // 1) 资源包/光影/存档 + mod 文件清单：都不解析 jar，很快
+        var modsDir = Path.Combine(gameRoot, "mods");
+        var shell = await Task.Run(() =>
+        {
+            var packsDir = Path.Combine(gameRoot, "resourcepacks");
+            var shadersDir = Path.Combine(gameRoot, "shaderpacks");
+            var savesDir = Path.Combine(gameRoot, "saves");
+            var saves = new List<(string Save, List<ContentFileRow> Rows)>();
+            if (Directory.Exists(savesDir))
+                foreach (var save in Directory.EnumerateDirectories(savesDir))
+                    saves.Add((Path.GetFileName(save),
+                        BuildFileRows(Path.Combine(save, "datapacks"), "datapack")));
+            var modFiles = Directory.Exists(modsDir)
+                ? Directory.EnumerateFiles(modsDir)
+                    .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase).ToList()
+                : [];
+            return (PacksDir: packsDir, ShadersDir: shadersDir, SavesDir: savesDir,
+                Packs: BuildFileRows(packsDir, "resourcepack"),
+                Shaders: BuildFileRows(shadersDir, "shader"),
+                Saves: saves, ModFiles: modFiles);
+        });
+        if (_contentGeneration != gen) return;
+
+        // 2) 先把分区结构摆出来（Mod 只出标题，行稍后逐批追加）
+        _modTotalCount = shell.ModFiles.Count;
+        var empty = new ContentData(modsDir, [], shell.PacksDir, shell.Packs,
+            shell.ShadersDir, shell.Shaders, shell.SavesDir, shell.Saves);
+        await BuildContentSectionsAsync(empty, broken);
+
+        // 3) 每批 10 个解析并逐个追加（首屏先出 10 个，之后每批补齐）
+        for (var i = 0; i < shell.ModFiles.Count; i += 10)
+        {
+            if (_contentGeneration != gen) return;
+            var batch = shell.ModFiles.GetRange(i, Math.Min(10, shell.ModFiles.Count - i));
+            var rows = await Task.Run(() => ReadModRows(batch));
+            if (_contentGeneration != gen) return;
+            await AppendModRowsAsync(rows, gen);
+        }
+        // 0 个 Mod：显示空状态（原版提示不可用，有加载器引导去下载）
+        if (_contentGeneration == gen && _modTail is null)
+        {
+            _modTail = CategoryTail(0, _modTotalCount, Path.Combine(gameRoot, "mods"));
+            ModSection.Children.Add(_modTail);
+        }
         if (broken is null) _ = AnnotateBrokenModsAsync(gameRoot);
+    }
+
+    /// <summary>并行解析一批 jar 并生成行（每批 10 个，元数据缓存命中时几乎瞬时）。</summary>
+    private static List<ContentFileRow> ReadModRows(IReadOnlyList<string> files)
+    {
+        var metas = new ModFileInfo?[files.Count];
+        Parallel.For(0, files.Count, i => metas[i] = ModConflictService.Read(files[i]));
+        var rows = new List<ContentFileRow>(files.Count);
+        for (var i = 0; i < files.Count; i++)
+        {
+            var file = files[i];
+            var name = Path.GetFileName(file);
+            var enabled = !name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+            var display = enabled ? name : name[..^".disabled".Length];
+            var meta = metas[i];
+            rows.Add(new ContentFileRow(
+                display, FormatSize(new FileInfo(file).Length),
+                enabled ? Loc.T("启用") : Loc.T("已停用"), enabled, "mod", file,
+                meta?.ModName is { Length: > 0 } modName ? ModTitleHelper.Display(modName) : null,
+                meta?.ModVersion, meta?.GameVersion, meta?.Loader,
+                meta?.IconPath, meta?.ModId));
+        }
+        return rows;
+    }
+
+    /// <summary>把一批行逐个追加到 Mod 区（Tail 始终垫底，每行 40ms 让"一个一个出来"看得出来）。</summary>
+    private async Task AppendModRowsAsync(List<ContentFileRow> rows, int gen)
+    {
+        if (rows.Count == 0) return;
+        if (_modTail is null)
+        {
+            _modTail = CategoryTail(0, _modTotalCount, Path.Combine(_contentGameRoot, "mods"));
+            ModSection.Children.Add(_modTail);
+        }
+        foreach (var row in rows)
+        {
+            if (_contentGeneration != gen) return;
+            var shown = _displayedBroken is not null && _displayedBroken.Contains(row.FileName)
+                ? row with { StatusText = Loc.T("无法解析") }
+                : row;
+            _contentRows.Add(shown);
+            var element = BuildFileRow(shown);
+            element.Transitions = new TransitionCollection
+            {
+                new EntranceThemeTransition { FromHorizontalOffset = -70, FromVerticalOffset = 0 },
+            };
+            ModSection.Children.Remove(_modTail);
+            ModSection.Children.Add(element);
+            ModSection.Children.Add(_modTail);
+            await Task.Delay(40);
+        }
+    }
+
+    /// <summary>扫描期间先显示「正在读取内容…」，四个分区清空避免残留旧版本的行。</summary>
+    private void ShowContentSkeleton()
+    {
+        ModSection.Children.Clear();
+        PackSection.Children.Clear();
+        ShaderSection.Children.Clear();
+        SaveSection.Children.Clear();
+        ModSection.Children.Add(new TextBlock
+        {
+            Text = Loc.T("正在读取内容…"),
+            FontSize = 12,
+            Margin = new Thickness(4, 8, 0, 8),
+            Foreground = SecondaryBrush(),
+        });
     }
 
     private static ContentData CollectContentData(string gameRoot)
@@ -256,6 +380,7 @@ public sealed partial class VersionDetailPage : Page
                 saves.Add((Path.GetFileName(save),
                     BuildFileRows(Path.Combine(save, "datapacks"), "datapack")));
         }
+        ModMetaCache.Save();   // 扫描结束统一落盘，下次启动直接复用
         return new ContentData(modsDir, BuildFileRows(modsDir, "mod"),
             packsDir, BuildFileRows(packsDir, "resourcepack"),
             shadersDir, BuildFileRows(shadersDir, "shader"),
@@ -263,28 +388,23 @@ public sealed partial class VersionDetailPage : Page
     }
 
     /// <summary>重建四分类；broken 非空时把对应 Mod 行状态改为「无法解析」。</summary>
-    private void BuildContentSections(ContentData d, HashSet<string>? broken)
+    private async Task BuildContentSectionsAsync(ContentData d, HashSet<string>? broken)
     {
         ModSection.Children.Clear();
         PackSection.Children.Clear();
         ShaderSection.Children.Clear();
         SaveSection.Children.Clear();
         _contentRows.Clear();
+        _remoteIconTargets.Clear();
 
-        // Mod（含 .disabled）
-        ModSection.Children.Add(SectionHeader(Loc.T("Mod 模组"), d.ModRows.Count));
-        foreach (var row in d.ModRows)
-        {
-            var shown = broken is not null && broken.Contains(row.FileName)
-                ? row with { StatusText = Loc.T("无法解析") }
-                : row;
-            _contentRows.Add(shown);
-            ModSection.Children.Add(BuildFileRow(shown));
-        }
-        ModSection.Children.Add(CategoryTail(0, d.ModRows.Count, d.ModsDir));
+        // Mod（含 .disabled）：这里只摆标题；行由 AppendModRowsAsync 每批 10 个逐个追加
+        // 0 个 Mod 时不显示「Mod 模组（0）」这行标题，直接交给空状态
+        if (_modTotalCount > 0 || d.ModRows.Count > 0)
+            ModSection.Children.Add(SectionHeader(Loc.T("Mod 模组"), _modTotalCount > 0 ? _modTotalCount : d.ModRows.Count));
 
-        // 资源包
-        PackSection.Children.Add(SectionHeader(Loc.T("资源包"), d.PackRows.Count));
+        // 资源包：0 个时不显示「资源包（0）」标题，交给空状态
+        if (d.PackRows.Count > 0)
+            PackSection.Children.Add(SectionHeader(Loc.T("资源包"), d.PackRows.Count));
         foreach (var row in d.PackRows)
         {
             _contentRows.Add(row);
@@ -293,7 +413,9 @@ public sealed partial class VersionDetailPage : Page
         PackSection.Children.Add(CategoryTail(1, d.PackRows.Count, d.PacksDir));
 
         // 光影包
-        ShaderSection.Children.Add(SectionHeader(Loc.T("光影包"), d.ShaderRows.Count));
+        // 光影包：0 个时不显示标题
+        if (d.ShaderRows.Count > 0)
+            ShaderSection.Children.Add(SectionHeader(Loc.T("光影包"), d.ShaderRows.Count));
         foreach (var row in d.ShaderRows)
         {
             _contentRows.Add(row);
@@ -302,7 +424,9 @@ public sealed partial class VersionDetailPage : Page
         ShaderSection.Children.Add(CategoryTail(2, d.ShaderRows.Count, d.ShadersDir));
 
         // 存档（每个存档下的数据包）
-        SaveSection.Children.Add(SectionHeader(Loc.T("存档"), d.Saves.Count));
+        // 存档：0 个时不显示标题
+        if (d.Saves.Count > 0)
+            SaveSection.Children.Add(SectionHeader(Loc.T("存档"), d.Saves.Count));
         foreach (var (save, rows) in d.Saves)
         {
             SaveSection.Children.Add(new TextBlock
@@ -321,11 +445,56 @@ public sealed partial class VersionDetailPage : Page
         SaveSection.Children.Add(CategoryTail(3, d.Saves.Count, d.SavesDir));
 
         // 计数落定后再决定说明行要不要露面（当前分类为空 → 交给空状态说话）
-        _categoryCounts[0] = d.ModRows.Count;
+        _categoryCounts[0] = _modTotalCount > 0 ? _modTotalCount : d.ModRows.Count;
         _categoryCounts[1] = d.PackRows.Count;
         _categoryCounts[2] = d.ShaderRows.Count;
         _categoryCounts[3] = d.Saves.Count;
         SyncContentHint();
+        // jar 里没有图标的 Mod：批量问 Modrinth 要项目图标（一个请求最多 50 个 slug）
+        // 远程图标在分批追加全部完成后统一补齐（行里只有 jar 内的 iconPath 时先显示通用字形）
+        _ = FillRemoteModIconsAsync(_contentRows.Where(r => r.Kind == "mod").ToList());
+    }
+
+    /// <summary>
+    /// 给「jar 内没有 icon.png」的 Mod 补上 MC 百科的图标。
+    /// 百科按名字（中文/英文都行）搜索 → 类页面封面 → 本地缓存；
+    /// 每次最多处理 40 个（首屏够用），并发 3，避免把百科打限流。
+    /// </summary>
+    private async Task FillRemoteModIconsAsync(IReadOnlyList<ContentFileRow> rows)
+    {
+        var targets = rows
+            .Where(r => string.IsNullOrWhiteSpace(r.IconPath) && !string.IsNullOrWhiteSpace(r.Name))
+            .Where(r => _remoteIconTargets.ContainsKey(r.FileName))
+            .Take(120)   // 覆盖绝大多数 mod（原 40 个，后面的永远拿不到图标）
+            .ToList();
+        if (targets.Count == 0) return;
+
+        using var gate = new SemaphoreSlim(3);
+        var tasks = targets.Select(async row =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                // 只解析封面 URL；图片本体走共享 IconCache（与下载页社区图标同一份缓存）
+                var url = await McModIconService.ResolveUrlAsync(row.Name!);
+                // 中文名搜不到时再用 modId（如 sodium）试一次，覆盖英文/别名条目
+                if (url is null && !string.IsNullOrWhiteSpace(row.ModId))
+                    url = await McModIconService.ResolveUrlAsync(row.ModId!);
+                if (url is null) return;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (!_remoteIconTargets.TryGetValue(row.FileName, out var image)) return;
+                    image.Source = RemoteIconHelper.Resolve(url);
+                    image.Visibility = Visibility.Visible;
+                });
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }).ToList();
+        try { await Task.WhenAll(tasks); }
+        catch { /* 图标是锦上添花 */ }
     }
 
     /// <summary>四个分类当前的条目数（0~3 与分类下标同序），说明行与空状态按它决定谁露面。</summary>
@@ -340,11 +509,17 @@ public sealed partial class VersionDetailPage : Page
     {
         if (count > 0) return OpenDirRow(dir);
 
+        // Mod 分类空态分两种：原版（没有加载器）说清楚不可用，有加载器就引导去下载
+        var noLoader = category == 0 && !HasModLoader();
         var empty = new EmptyStateView
         {
             Glyph = GlyphForKind(CategoryKind(category)),
-            Title = Loc.T(CategoryEmptyTitle(category)),
-            Subtitle = Loc.T(CategoryEmptySubtitle(category)),
+            Title = noLoader
+                ? Loc.T("Mod 在当前版本不可用")
+                : Loc.T(CategoryEmptyTitle(category)),
+            Subtitle = noLoader
+                ? ""   // 空 Mod 时只保留标题与按钮，不再堆一段说明
+                : Loc.T(CategoryEmptySubtitle(category)),
             ActionText = Loc.T("打开目录"),
             Margin = new Thickness(0, 12, 0, 12),
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -352,6 +527,12 @@ public sealed partial class VersionDetailPage : Page
         empty.ActionClick += (_, _) => OpenPath(dir);
         return empty;
     }
+
+    /// <summary>当前实例是否带 Mod 加载器（版本 JSON 的 libraries / inheritsFrom 判定）。</summary>
+    private bool HasModLoader() =>
+        !string.Equals(
+            LoaderDetector.Detect(_s.Settings.DotMinecraft, _versionId).Loader,
+            "vanilla", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>分类对应的内容类型（决定空状态的图标）。</summary>
     private static string CategoryKind(int category) => category switch
@@ -365,16 +546,19 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>空分类的主文案：说清「这里该有什么」，而不是只报一个 0。</summary>
     private static string CategoryEmptyTitle(int category) => category switch
     {
-        0 => "还没有安装 Mod",
+        0 => "当前版本还没有 Mod",
         1 => "还没有资源包",
         2 => "还没有光影包",
         _ => "暂无存档",
     };
 
     /// <summary>空分类的引导文案：拖入的语义按分类不同（存档是文件夹，不走 .jar / .zip 那条路）。</summary>
-    private static string CategoryEmptySubtitle(int category) => category == 3
-        ? "把存档文件夹放进 saves 目录即可。"
-        : "把 .jar / .zip 拖进这张卡片即可安装；停用仅改名为 .disabled，可随时还原。";
+    private static string CategoryEmptySubtitle(int category) => category switch
+    {
+        3 => "把存档文件夹放进 saves 目录即可。",
+        0 => "点右上「下载 Mod」挑一个装上吧。",
+        _ => "把 .jar / .zip 拖进这张卡片即可安装。",
+    };
 
     /// <summary>说明行只在当前分类有内容时露面（空分类由空状态接管，同一件事不说两遍）。</summary>
     private void SyncContentHint() =>
@@ -507,21 +691,37 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>枚举目录内文件（含 .disabled）生成行模型；mod 额外读 jar 元数据（名称/版本/适配版本）。</summary>
     private static List<ContentFileRow> BuildFileRows(string dir, string kind)
     {
-        var rows = new List<ContentFileRow>();
-        if (!Directory.Exists(dir)) return rows;
-        foreach (var file in Directory.EnumerateFiles(dir))
+        if (!Directory.Exists(dir)) return [];
+        var files = Directory.EnumerateFiles(dir).ToArray();
+
+        // jar 解析（打开 zip 读元数据 + 找图标）是主要耗时：并行跑。
+        // 155 个 mod 串行要 1~2 秒，并行后几百毫秒；缓存命中时几乎瞬时。
+        var metas = new ModFileInfo?[files.Length];
+        if (kind == "mod")
+            Parallel.For(0, files.Length, i =>
+            {
+                var name = Path.GetFileName(files[i]);
+                var display = name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
+                    ? name[..^".disabled".Length] : name;
+                if (display.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+                    metas[i] = ModConflictService.Read(files[i]);
+            });
+
+        var rows = new List<ContentFileRow>(files.Length);
+        for (var i = 0; i < files.Length; i++)
         {
+            var file = files[i];
             var name = Path.GetFileName(file);
             var enabled = !name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
             var display = enabled ? name : name[..^".disabled".Length];
-            // 只对 mod 解析 jar：资源包/光影包没有 mod 元数据；损坏的 jar 读失败就退回文件名
-            ModFileInfo? meta = kind == "mod" && display.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)
-                ? ModConflictService.Read(file)
-                : null;
+            var meta = metas[i];
             rows.Add(new ContentFileRow(
                 display, FormatSize(new FileInfo(file).Length),
                 enabled ? Loc.T("启用") : Loc.T("已停用"), enabled, kind, file,
-                meta?.ModName, meta?.ModVersion, meta?.GameVersion, meta?.Loader));
+                // 有中文译名就用中文（缓存没命中时先显示原名并在后台解析，下次进入即中文）
+                meta?.ModName is { Length: > 0 } modName ? ModTitleHelper.Display(modName) : null,
+                meta?.ModVersion, meta?.GameVersion, meta?.Loader,
+                meta?.IconPath, meta?.ModId));
         }
         return rows.OrderBy(r => r.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -532,20 +732,49 @@ public sealed partial class VersionDetailPage : Page
     /// </summary>
     private Grid BuildFileRow(ContentFileRow row)
     {
+        // 图标块：优先用 jar 里抠出来的模组图标（assets/<modid>/icon.png 等），
+        // 没有就退回「按种类」的通用字形 —— 资源包/光影包/前置库大多没有 icon。
+        var iconGrid = new Grid();
+        iconGrid.Children.Add(new FontIcon
+        {
+            FontFamily = IconFont.Family,
+            Glyph = GlyphForKind(row.Kind),
+            FontSize = 16,
+            Foreground = SecondaryBrush(),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        if (!string.IsNullOrWhiteSpace(row.IconPath) &&
+            VersionRowHelpers.ResolveIconSource(row.IconPath) is { } iconSource)
+            iconGrid.Children.Add(new Image
+            {
+                Width = 36,
+                Height = 36,
+                Stretch = Stretch.UniformToFill,
+                Source = iconSource,
+            });
+        else if (string.IsNullOrWhiteSpace(row.IconPath) && !string.IsNullOrWhiteSpace(row.Name))
+        {
+            // jar 里没有 icon.png：先留空，稍后按模组名从 MC 百科拿图标填进来
+            var remote = new Image
+            {
+                Width = 36,
+                Height = 36,
+                Stretch = Stretch.UniformToFill,
+                Visibility = Visibility.Collapsed,
+            };
+            iconGrid.Children.Add(remote);
+            _remoteIconTargets[row.FileName] = remote;
+        }
+
         var iconBox = new Border
         {
             Width = 36,
             Height = 36,
             CornerRadius = new CornerRadius(8),
             VerticalAlignment = VerticalAlignment.Center,
-            Background = (Brush)Application.Current.Resources["SubtleFillColorTertiaryBrush"],
-            Child = new FontIcon
-            {
-                FontFamily = IconFont.Family,
-                Glyph = GlyphForKind(row.Kind),
-                FontSize = 16,
-                Foreground = SecondaryBrush(),
-            },
+            Background = ThemedBrush("SubtleFillColorTertiaryBrush"),
+            Child = iconGrid,
         };
 
         var titleLine = new StackPanel
@@ -751,21 +980,79 @@ public sealed partial class VersionDetailPage : Page
 
     private void Cat_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement fe && fe.Tag is string t && int.TryParse(t, out var i))
+        // 芯片 = 切换查看本版本已有的内容（资源包 / 光影 / 存档都在本页管理）；
+        // 下载入口只有「下载 Mod」按钮。
+        if (sender is not FrameworkElement fe || fe.Tag is not string t || !int.TryParse(t, out var i))
+            return;
+        SetCategory(i);
+        if (i == 2) CheckShaderLoader();
+    }
+
+    /// <summary>光影依赖光影加载器（Iris / OptiFine）：没装就明确提示，别让用户以为挂了光影就生效。</summary>
+    private void CheckShaderLoader()
+    {
+        try
         {
-            SetCategory(i);
-            if (i <= 2) _ = OpenDownloadDialogAsync(i); // Mod / 资源包 / 光影包 → 弹出下载窗口（PCL2 式）
+            var modsDir = Path.Combine(_contentGameRoot, "mods");
+            var hasLoader = Directory.Exists(modsDir) && Directory.EnumerateFiles(modsDir)
+                .Any(f =>
+                {
+                    var n = Path.GetFileName(f).ToLowerInvariant();
+                    return n.Contains("iris") || n.Contains("optifine");
+                });
+            ShaderLoaderTip.Visibility = hasLoader ? Visibility.Collapsed : Visibility.Visible;
         }
+        catch
+        {
+            ShaderLoaderTip.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>「下载 Mod」按钮：与 Mod 芯片同一条链路 —— 自动按本版本 MC 版本 + 加载器筛选，
+    /// 下载默认装入本版本（不是首页选中的那个）。</summary>
+    /// <summary>「下载 Mod」按钮：跳到下载页并自动带好本版本的 MC 版本 + 加载器筛选
+    /// （原版仍然走拦截提示：没有加载器时装了也不生效）。</summary>
+    private void DownloadMod_Click(object sender, RoutedEventArgs e)
+    {
+        var (loader, detectedMc) = LoaderDetector.Detect(_s.Settings.DotMinecraft, _versionId);
+        if (loader == "vanilla")
+        {
+            _ = OpenDownloadDialogAsync(0);   // 弹「这个版本还没有加载器」
+            return;
+        }
+        DownloadPage.PendingEntry =
+            ("mod", detectedMc ?? ContentLibraryService.ResolveMc(_versionId), loader);
+        (App.MainWindow as MainWindow)?.NavigateTo("download");
     }
 
     /// <summary>打开对应分类的下载弹窗（搜索 Modrinth → 选择 → 安装到当前版本）。</summary>
     private async Task OpenDownloadDialogAsync(int category)
     {
         var kind = category switch { 1 => "resourcepack", 2 => "shader", _ => "mod" };
-        var loader = ContentLibraryService.ResolveLoader(_versionId, out _);
+        // 版本 id 可能是整合包的自定义名字：按版本 JSON 的 libraries / inheritsFrom 判加载器，
+        // 只看 id 前缀会把「机械动力航空学整合包」当成原版并误拦下载。
+        var (loader, detectedMc) = LoaderDetector.Detect(_s.Settings.DotMinecraft, _versionId);
+        if (kind == "mod" && loader == "vanilla")
+        {
+            // 原版没有加载器：Mod 装进去也不会被加载，拦下来把话说清楚
+            await new Dialogs.ThemedDialog
+            {
+                Title = Loc.T("这个版本还没有加载器"),
+                Content = new TextBlock
+                {
+                    Text = Loc.T("Mod 需要 Fabric / Forge / NeoForge / Quilt 之类的加载器才能运行，" +
+                                 "原版装了也不会生效。请先在「下载与资源」页为这个版本安装一个加载器，再回来下载 Mod。"),
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 380,
+                },
+                CloseButtonText = Loc.T("知道了"),
+                XamlRoot = XamlRoot,
+            }.ShowAsync();
+            return;
+        }
         var loaderForSearch = category == 0 && loader != "vanilla" ? loader : null;
         var dialog = new ContentDownloadDialog(_s, kind, loaderForSearch,
-            ContentLibraryService.ResolveMc(_versionId), _versionId,
+            detectedMc ?? ContentLibraryService.ResolveMc(_versionId), _versionId,
             () => ContentPanelFill(_contentGameRoot));
         dialog.XamlRoot = XamlRoot;
         await dialog.ShowAsync();
@@ -1918,18 +2205,16 @@ public sealed partial class VersionDetailPage : Page
             .ToList();
 
     /// <summary>内容行里的小芯片（版本 / 适配游戏版本 / 加载器 / 已停用）</summary>
-    private static Border FileChip(string text) => new()
+    private Border FileChip(string text) => new()
     {
         Padding = new Thickness(7, 1, 7, 2),
         CornerRadius = new CornerRadius(6),
         VerticalAlignment = VerticalAlignment.Center,
-        Background = (Brush)Application.Current.Resources["SubtleFillColorTertiaryBrush"],
+        Background = ThemedBrush("SubtleFillColorTertiaryBrush"),
         Child = new TextBlock { Text = text, FontSize = 11, Foreground = SecondaryBrush() },
     };
 
-    private static Brush SecondaryBrush() =>
-        (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+    private Brush SecondaryBrush() => ThemedBrush("TextFillColorSecondaryBrush");
 
-    private static Brush CautionBrush() =>
-        (Brush)Application.Current.Resources["SystemFillColorCautionBrush"];
+    private Brush CautionBrush() => ThemedBrush("SystemFillColorCautionBrush");
 }

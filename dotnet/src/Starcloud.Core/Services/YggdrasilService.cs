@@ -149,14 +149,47 @@ public sealed class YggdrasilService
     /// properties[].textures（base64）→ textures.SKIN.url。任何失败返回 null（皮肤是尽力而为）。
     /// </summary>
     public async Task<string?> GetSkinUrlAsync(string baseUrl, string uuid, CancellationToken ct = default)
+        => (await GetTexturesAsync(baseUrl, uuid, ct)).SkinUrl;
+
+    /// <summary>
+    /// 按角色名查 UUID：POST {base}/api/profiles/minecraft（Yggdrasil 规范子集）。
+    /// OAuth 建号时只有角色名、没有账密，用这个接口补齐账户所需的 UUID。
+    /// 找不到 / 请求失败返回 null，由调用方给可读提示。
+    /// </summary>
+    public async Task<string?> LookupProfileUuidAsync(
+        string baseUrl, string name, CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await _http.PostAsync($"{baseUrl}/api/profiles/minecraft",
+                new StringContent(JsonSerializer.Serialize(new[] { name }), Encoding.UTF8, "application/json"), ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                if (!item.TryGetProperty("name", out var n) ||
+                    !string.Equals(n.GetString(), name, StringComparison.OrdinalIgnoreCase)) continue;
+                return item.TryGetProperty("id", out var id) ? id.GetString() : null;
+            }
+            return null;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return null; }
+    }
+
+    /// <summary>会话接口解出的纹理地址：SKIN.url 与 CAPE.url（任一缺失为 null）。</summary>
+    public async Task<(string? SkinUrl, string? CapeUrl)> GetTexturesAsync(
+        string baseUrl, string uuid, CancellationToken ct = default)
     {
         try
         {
             using var resp = await _http.GetAsync(
                 $"{baseUrl}/sessionserver/session/minecraft/profile/{uuid}", ct);
-            if (!resp.IsSuccessStatusCode) return null;
+            if (!resp.IsSuccessStatusCode) return (null, null);
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-            if (!doc.RootElement.TryGetProperty("properties", out var props)) return null;
+            if (!doc.RootElement.TryGetProperty("properties", out var props)) return (null, null);
             foreach (var p in props.EnumerateArray())
             {
                 if (!p.TryGetProperty("name", out var n) || n.GetString() != "textures" ||
@@ -164,14 +197,16 @@ public sealed class YggdrasilService
                     continue;
                 var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(v.GetString() ?? ""));
                 using var tex = JsonDocument.Parse(decoded);
-                if (tex.RootElement.TryGetProperty("textures", out var tx) &&
-                    tx.TryGetProperty("SKIN", out var skin) &&
-                    skin.TryGetProperty("url", out var u))
-                    return u.GetString();
+                if (!tex.RootElement.TryGetProperty("textures", out var tx)) return (null, null);
+
+                string? UrlOf(string slot) =>
+                    tx.TryGetProperty(slot, out var e) &&
+                    e.TryGetProperty("url", out var u) ? u.GetString() : null;
+                return (UrlOf("SKIN"), UrlOf("CAPE"));
             }
-            return null;
+            return (null, null);
         }
         catch (OperationCanceledException) { throw; }
-        catch { return null; }
+        catch { return (null, null); }
     }
 }

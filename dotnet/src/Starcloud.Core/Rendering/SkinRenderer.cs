@@ -72,10 +72,18 @@ public static class SkinRenderer
         // 单线程下这台机器实测 630×1020 要 58ms（约 17fps，走路动画会发跳）；
         // 这台机器的单核算力地板就在 50ns 量级（同密度空循环实测 51ns/次），
         // 所以把并行度用起来比继续抠算法有效。
+        // 披风面片用披风纹理采样（UV 指向披风图），与其余面片分开光栅化
+        var bodyFaces = new List<ScreenQuad>();
+        var capeFaces = new List<ScreenQuad>();
+        foreach (var f in faces)
+            (f.Source.Part == "cape" ? capeFaces : bodyFaces).Add(f);
+
         var bands = Math.Max(1, Math.Min(Environment.ProcessorCount, (height + 127) / 128));
+        var capeTexture = skin.CapeTexture ?? skin.Texture;
         if (bands == 1)
         {
-            RasterizeAll(faces, color, depth, width, height, 0, height, skin.Texture);
+            RasterizeAll(bodyFaces, color, depth, width, height, 0, height, skin.Texture);
+            RasterizeAll(capeFaces, color, depth, width, height, 0, height, capeTexture);
         }
         else
         {
@@ -83,7 +91,8 @@ public static class SkinRenderer
             {
                 var y0 = band * height / bands;
                 var y1 = (band + 1) * height / bands;
-                RasterizeAll(faces, color, depth, width, height, y0, y1, skin.Texture);
+                RasterizeAll(bodyFaces, color, depth, width, height, y0, y1, skin.Texture);
+                RasterizeAll(capeFaces, color, depth, width, height, y0, y1, capeTexture);
             });
         }
 

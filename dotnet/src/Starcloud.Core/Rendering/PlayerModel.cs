@@ -51,9 +51,16 @@ public static class PlayerModel
         "leftArm" or "leftArm_overlay" => new Vec3(slim ? 5.5 : 6, 22, 0),
         "rightLeg" or "rightLeg_overlay" => new Vec3(-2, 12, 0),
         "leftLeg" or "leftLeg_overlay" => new Vec3(2, 12, 0),
-        "cape" => new Vec3(0, 24, 2),
+        "cape" => new Vec3(0, 24, -2.2),  // 披风在 -Z 侧，pivot 跟着挪
         _ => new Vec3(0, 12, 0), // body 等不旋转
     };
+
+    /// <summary>
+    /// 披风的基础倾角（度）：静止时也微微上翘，不完全垂直贴背。
+    /// <para>绕 X 轴正向 = 下沿朝背后翘、上沿留在肩后，视觉上像布被风或动作带起；
+    /// 走路时的摆动叠加在这个基础上。</para>
+    /// </summary>
+    private const double CapeBaseTiltDeg = 14;
 
     private static double RotationOf(string part, Pose pose) => part switch
     {
@@ -62,7 +69,7 @@ public static class PlayerModel
         "rightArm" or "rightArm_overlay" => pose.RightArmX,
         "leftArm" or "leftArm_overlay" => pose.LeftArmX,
         "head" or "head_overlay" => pose.HeadX,
-        "cape" => pose.CapeX,
+        "cape" => pose.CapeX + CapeBaseTiltDeg * (Math.PI / 180.0),
         _ => 0,
     };
 

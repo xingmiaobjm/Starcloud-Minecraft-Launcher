@@ -34,6 +34,10 @@ public sealed partial class FriendsPage : Page
     private readonly Dictionary<string, int> _unread = new(StringComparer.Ordinal);
     private List<FriendMessage> _messages = [];
     private List<ConversationRowModel> _allRows = [];
+    private List<Starcloud.Core.Services.GroupSummary> _groups = [];
+    private string? _activeGroupId;
+    private Starcloud.Core.Services.GroupDetail? _activeGroup;
+    private List<Starcloud.Core.Services.GroupMessage> _groupMessages = [];
     private string? _selectedUserId;
     private FriendProfile? _selectedFriend;
     private int _requestCount;
@@ -125,6 +129,7 @@ public sealed partial class FriendsPage : Page
         {
             await RefreshFriendsAsync();
             await RefreshCountsAsync();
+            await RefreshGroupsAsync();
         }
         finally
         {
@@ -252,9 +257,25 @@ public sealed partial class FriendsPage : Page
         .ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase);
 
         _allRows.AddRange(friends);
+
+        // 群聊会话行：房间进入后自动建的群、手动创建的群都在这里
+        var groupRows = _groups.Select(g =>
+        {
+            var unread = Math.Max(g.Unread, 0);
+            return new ConversationRowModel(
+                "group", g.GroupId, g.Name, InitialOf(g.Name, g.GroupId),
+                Loc.T("{0} 位成员", g.MemberCount), "",
+                unread > 99 ? "99+" : unread.ToString(),
+                unread > 0 ? Visibility.Visible : Visibility.Collapsed,
+                DateTime.MaxValue);
+        });
+        _allRows.AddRange(groupRows);
+
         ApplyFilter();
-        FriendsEmpty.Visibility = _friends.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        FriendCountText.Text = _friends.Count == 0 ? "" : Loc.T("{0} 位好友", _friends.Count);
+        FriendsEmpty.Visibility = _friends.Count == 0 && _groups.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+        FriendCountText.Text = _friends.Count == 0
+            ? "" : Loc.T("{0} 位好友", _friends.Count);
     }
 
     private void ApplyFilter()
@@ -268,6 +289,8 @@ public sealed partial class FriendsPage : Page
 
         _suppressSelection = true;
         ConversationList.ItemsSource = rows;
+        // 与版本/存档页同一套入场：好友申请、联机邀请、会话行逐条从左往右羽化
+        Starcloud.App.Services.MotionFx.StaggerListItems(ConversationList);
         if (_selectedUserId is { Length: > 0 } selected)
             ConversationList.SelectedItem = rows.FirstOrDefault(r => r.Kind == "friend" && r.UserId == selected);
         _suppressSelection = false;
@@ -283,7 +306,8 @@ public sealed partial class FriendsPage : Page
         if (row.Kind != "friend")
         {
             RestoreFriendSelection();
-            if (row.Kind == "requests") await OpenRequestsDialogAsync();
+            if (row.Kind == "group") await OpenGroupAsync(row.UserId);
+            else if (row.Kind == "requests") await OpenRequestsDialogAsync();
             else await OpenInvitesDialogAsync();
             return;
         }
@@ -329,6 +353,77 @@ public sealed partial class FriendsPage : Page
         {
             ShowError(ex.Message);
         }
+    }
+
+    // ── 群聊 ──
+
+    private async Task OpenGroupAsync(string groupId)
+    {
+        _activeGroupId = groupId;
+        _selectedUserId = null;
+        _selectedFriend = null;
+        _groupMessages = [];
+        RenderMessages(scrollToEnd: false);
+        try
+        {
+            var detail = await _s.Friends.GetGroupDetailAsync(groupId);
+            if (_activeGroupId != groupId) return;
+            _activeGroup = detail;
+            ChatAvatarText.Text = InitialOf(detail.Name, detail.GroupId);
+            ChatNameText.Text = detail.Name;
+            ChatIdText.Text = Loc.T("{0} 位成员", detail.Members.Count);
+            InviteSelectedItem.IsEnabled = false;
+            RemoveFriendItem.IsEnabled = false;
+            ChatHeader.Visibility = Visibility.Visible;
+            Composer.Visibility = Visibility.Visible;
+            ChatEmpty.Visibility = Visibility.Collapsed;
+            MessageList.Visibility = Visibility.Visible;
+
+            var messages = await _s.Friends.GetGroupMessagesAsync(groupId);
+            if (_activeGroupId != groupId) return;
+            _groupMessages = messages.OrderBy(m => m.Id).ToList();
+            RenderGroupMessages(scrollToEnd: true);
+            await _s.Friends.MarkGroupReadAsync(groupId);
+            _ = RefreshGroupsAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
+    /// <summary>群消息渲染：头像首字用发送者 ID 首字区分成员。</summary>
+    private void RenderGroupMessages(bool scrollToEnd)
+    {
+        var me = _s.StarcloudId.Current?.UserId;
+        var rows = new List<ChatMessageRowModel>();
+        DateTime? previous = null;
+        foreach (var m in _groupMessages)
+        {
+            var time = ParseTime(m.CreatedAt);
+            if (time is { } current && (previous is null || current - previous > TimeSpan.FromMinutes(5)))
+                rows.Add(new ChatMessageRowModel(true, "", FormatSeparator(current), "", true));
+            if (time is { } stamp) previous = stamp;
+            var attachment = FriendsService.TryParseFileMessage(m.Content);
+            rows.Add(new ChatMessageRowModel(
+                m.FromUserId == me,
+                attachment is null ? m.Content : "",
+                "", InitialOf(m.FromUserId, m.FromUserId), false, attachment));
+        }
+        MessageList.ItemsSource = rows;
+        if (scrollToEnd && rows.Count > 0)
+            _dq?.TryEnqueue(() => MessageList.ScrollIntoView(rows[^1]));
+    }
+
+    /// <summary>拉群列表并刷新会话（未读 / 成员数）。</summary>
+    private async Task RefreshGroupsAsync()
+    {
+        try
+        {
+            _groups = (await _s.Friends.GetGroupsAsync()).ToList();
+            RenderConversations();
+        }
+        catch { /* 群列表是尽力而为 */ }
     }
 
     private void UpdateChatHeader()
@@ -393,8 +488,12 @@ public sealed partial class FriendsPage : Page
             if (time is { } stamp) previous = stamp;
 
             var mine = message.FromUserId == meId;
+            var attachment = FriendsService.TryParseFileMessage(message.Content);
             rows.Add(new ChatMessageRowModel(
-                mine, message.Content, "", mine ? myInitial : friendInitial, false));
+                mine,
+                attachment is null ? message.Content : "",
+                "", mine ? myInitial : friendInitial, false,
+                attachment));
         }
 
         MessageList.ItemsSource = rows;
@@ -419,7 +518,9 @@ public sealed partial class FriendsPage : Page
     private async Task SendMessageAsync()
     {
         if (_sending) return;
-        if (_selectedUserId is not { Length: > 0 } userId) return;
+        var userId = _selectedUserId;
+        var groupId = _activeGroupId;
+        if (string.IsNullOrEmpty(userId) && string.IsNullOrEmpty(groupId)) return;
         var text = MessageInput.Text.Trim();
         if (text.Length == 0) return;
 
@@ -427,6 +528,17 @@ public sealed partial class FriendsPage : Page
         SendBtn.IsEnabled = false;
         try
         {
+            // 群聊会话：走 /v1/groups 管道
+            if (!string.IsNullOrEmpty(groupId))
+            {
+                var groupMessage = await _s.Friends.SendGroupMessageAsync(groupId, text);
+                MessageInput.Text = "";
+                _groupMessages.Add(groupMessage);
+                RenderGroupMessages(scrollToEnd: true);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(userId)) return;
             var message = await _s.Friends.SendMessageAsync(userId, text);
             MessageInput.Text = "";
             _messages.Add(message);
@@ -449,6 +561,103 @@ public sealed partial class FriendsPage : Page
     private static bool IsShiftDown() =>
         InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
             .HasFlag(CoreVirtualKeyStates.Down);
+
+    // ── 文件 / 图片 / 视频传输（接口：docs/api-files.md） ──
+
+    private async void PickImage_Click(object sender, RoutedEventArgs e) =>
+        await PickAndSendAsync(isImage: true);
+
+    private async void PickFile_Click(object sender, RoutedEventArgs e) =>
+        await PickAndSendAsync(isImage: false);
+
+    /// <summary>选文件 → 校验大小 → 上传 → 以附件消息发出。</summary>
+    private async Task PickAndSendAsync(bool isImage)
+    {
+        if (_selectedUserId is not { Length: > 0 } userId) return;
+
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
+        if (isImage)
+        {
+            foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" })
+                picker.FileTypeFilter.Add(ext);
+        }
+        else
+        {
+            picker.FileTypeFilter.Add("*");
+        }
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+
+        var size = new FileInfo(file.Path).Length;
+        var limit = isImage ? FriendsService.MaxImageBytes : FriendsService.MaxFileBytes;
+        if (size > limit)
+        {
+            ShowError(Loc.T("文件超过大小限制（{0}）。", isImage ? "30 MB" : "200 MB"));
+            return;
+        }
+
+        var kind = Path.GetExtension(file.Name).ToLowerInvariant() switch
+        {
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => "image",
+            ".mp4" or ".mkv" or ".mov" or ".avi" or ".webm" or ".flv" => "video",
+            _ => "file",
+        };
+
+        StatusBar.Message = Loc.T("正在上传 {0}…", file.Name);
+        StatusBar.Severity = InfoBarSeverity.Informational;
+        StatusBar.IsOpen = true;
+        try
+        {
+            var (id, confirmed) = await _s.Friends.UploadFileAsync(file.Path);
+            var message = await _s.Friends.SendMessageAsync(userId,
+                FriendsService.EncodeFileMessage(file.Name, confirmed, kind, id));
+            _messages.Add(message);
+            _lastMessages[userId] = message;
+            RenderMessages(scrollToEnd: true);
+            RenderConversations();
+            StatusBar.IsOpen = false;
+        }
+        catch (Exception ex)
+        {
+            StatusBar.Message = Loc.T("上传失败：{0}", ex.Message);
+            StatusBar.Severity = InfoBarSeverity.Error;
+        }
+    }
+
+    /// <summary>点附件气泡：弹保存框（默认下载目录），下载到用户选的位置。</summary>
+    private async void MessageBubble_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ChatMessageRowModel { HasFile: true } row ||
+            row.File is null) return;
+
+        var downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var ext = Path.GetExtension(row.File.Name);
+        var dest = SystemSaveFileDialog.Show(
+            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow),
+            Loc.T("保存文件"), row.File.Name,
+            string.IsNullOrEmpty(ext) ? "bin" : ext.TrimStart('.'), downloads);
+        if (dest is null) return;
+
+        StatusBar.Message = Loc.T("正在下载 {0}…", row.File.Name);
+        StatusBar.Severity = InfoBarSeverity.Informational;
+        StatusBar.IsOpen = true;
+        try
+        {
+            await _s.Friends.DownloadFileAsync(row.File.Id, dest);
+            StatusBar.Message = Loc.T("已保存到 {0}。", dest);
+            StatusBar.Severity = InfoBarSeverity.Success;
+            NotificationCenter.Instance.Info(Loc.T("文件已保存：{0}", Path.GetFileName(dest)));
+        }
+        catch (Exception ex)
+        {
+            StatusBar.Message = Loc.T("下载失败：{0}", ex.Message);
+            StatusBar.Severity = InfoBarSeverity.Error;
+        }
+    }
 
     private void FilterBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
 
@@ -563,6 +772,24 @@ public sealed partial class FriendsPage : Page
 
     private async Task HandleEventAsync(FriendEvent evt)
     {
+        if (evt.Type == "group_message")
+        {
+            // 群消息：当前打开的群实时追加；其余群只刷新列表未读
+            var message = FriendEventData.Parse<Starcloud.Core.Services.GroupMessage>(evt.Data);
+            if (message is null) return;
+            if (message.GroupId == _activeGroupId)
+            {
+                if (_groupMessages.All(m => m.Id != message.Id)) _groupMessages.Add(message);
+                RenderGroupMessages(scrollToEnd: true);
+                if (message.FromUserId != _s.StarcloudId.Current?.UserId)
+                {
+                    try { await _s.Friends.MarkGroupReadAsync(message.GroupId); } catch { }
+                }
+            }
+            _ = RefreshGroupsAsync();
+            return;
+        }
+
         if (evt.Type == "friend_message")
         {
             var message = FriendEventData.Parse<FriendMessage>(evt.Data);
@@ -591,6 +818,64 @@ public sealed partial class FriendsPage : Page
         }
 
         await RefreshAllAsync();
+    }
+
+    /// <summary>创建群聊：群名 + 成员 Starcloud ID（逗号分隔）。</summary>
+    private async void CreateGroupMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var nameBox = new TextBox { PlaceholderText = Loc.T("群名称") };
+        var memberList = new ListBox
+        {
+            SelectionMode = SelectionMode.Multiple,
+            MaxHeight = 220,
+        };
+        foreach (var f in _friends)
+            memberList.Items.Add(new ListBoxItem
+            {
+                Content = $"{f.DisplayName}（{f.Id}）",
+                Tag = f.UserId,
+            });
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 380 };
+        panel.Children.Add(nameBox);
+        panel.Children.Add(new TextBlock
+        {
+            Text = Loc.T("从好友选择成员（可多选）"),
+            FontSize = 12,
+        });
+        panel.Children.Add(memberList);
+        var dlg = new Dialogs.ThemedDialog
+        {
+            Title = Loc.T("创建群聊"),
+            Content = panel,
+            PrimaryButtonText = Loc.T("创建"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        var name = nameBox.Text.Trim();
+        var members = memberList.Items.OfType<ListBoxItem>()
+            .Where(i => i.IsSelected)
+            .Select(i => i.Tag as string)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Cast<string>()
+            .ToList();
+        if (name.Length == 0 || members.Count == 0)
+        {
+            ShowError(Loc.T("请填写群名称并至少选择一位好友。"));
+            return;
+        }
+        try
+        {
+            await _s.Friends.CreateGroupAsync(name, members);
+            await RefreshGroupsAsync();
+            ShowStatus(Loc.T("群「{0}」已创建，成员会在列表里看到它。", name));
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
     }
 
     private void OnSessionChanged() => _dq?.TryEnqueue(() => _ = RefreshAllAsync());
@@ -674,6 +959,31 @@ internal sealed record ConversationRowModel(
     public Visibility IconVisibility => IconSource is null ? Visibility.Collapsed : Visibility.Visible;
 }
 
-/// <summary>聊天区一行：普通气泡或居中的时间分隔</summary>
+/// <summary>聊天区一行：普通气泡或居中的时间分隔；带附件时渲染成文件卡片（点击保存）</summary>
 internal sealed record ChatMessageRowModel(
-    bool IsMine, string Content, string TimeText, string SenderInitial, bool IsSeparator);
+    bool IsMine, string Content, string TimeText, string SenderInitial, bool IsSeparator,
+    Starcloud.Core.Services.FileAttachment? File = null)
+{
+    public bool HasFile => File is not null;
+
+    /// <summary>气泡正文：附件显示「文件名 (大小)」，普通消息原样</summary>
+    public string Display => HasFile ? $"{File!.Name} ({FormatBytes(File.Size)})" : Content;
+
+    public Visibility TextVisibility => HasFile ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility FileVisibility => HasFile ? Visibility.Visible : Visibility.Collapsed;
+
+    public string FileGlyph => File?.Kind switch
+    {
+        "image" => "\uEB9F",
+        "video" => "\uE8B2",
+        _ => "\uE8E5",
+    };
+
+    internal static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1L << 30 => $"{bytes / 1073741824.0:F1} GB",
+        >= 1L << 20 => $"{bytes / 1048576.0:F1} MB",
+        >= 1L << 10 => $"{bytes / 1024.0:F0} KB",
+        _ => $"{bytes} B",
+    };
+}

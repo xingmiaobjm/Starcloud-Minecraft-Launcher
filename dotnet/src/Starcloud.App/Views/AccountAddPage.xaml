@@ -83,7 +83,7 @@
                     BorderThickness="1" CornerRadius="16" Padding="20">
                 <StackPanel Spacing="12">
                     <TextBlock loc:Loc.Text="Microsoft 正版账户（在线验证）" FontWeight="Medium" />
-                    <TextBlock loc:Loc.Text="登录后即可进入正版服务器；登录凭证加密保存在本机，30 天内启动游戏无需重复登录。"
+                    <TextBlock loc:Loc.Text="微软正版登录，也是我们最推荐的方式，登录凭证将保存 30 天。"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                     <TextBlock loc:Loc.Text="登录会打开内置登录窗口，在里面完成微软验证即可（也可以在「设置 → 通用 → 使用内置登录窗口」改为浏览器方式）。"
                                FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
@@ -107,8 +107,25 @@
                     BorderThickness="1" CornerRadius="16" Padding="20">
                 <StackPanel Spacing="12" MaxWidth="520" HorizontalAlignment="Left">
                     <TextBlock loc:Loc.Text="第三方认证服务器账户（外置登录）" FontWeight="Medium" />
-                    <TextBlock loc:Loc.Text="填写你自己认证服务器的 Yggdrasil API 地址与账密；启动器会注入 authlib-injector 让游戏走该服务器。"
+                    <TextBlock loc:Loc.Text="推荐用 LittleSkin 一键登录；也可以填写其他认证服务器的 Yggdrasil API 地址与账密。"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+
+                    <!-- 一键入口：LittleSkin 的 OAuth 授权页完成登录，不用手填服务器地址与账密 -->
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="LittleSkinBtn" loc:Loc.Text="使用 LittleSkin 登录"
+                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium"
+                                Click="LittleSkinLogin_Click" />
+                        <ProgressRing x:Name="LittleSkinProgress" Width="20" Height="20" IsActive="False"
+                                      Visibility="Collapsed" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock loc:Loc.Text="会打开浏览器完成 OAuth 授权，不用填写服务器地址、用户名和密码。"
+                               FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextWrapping="Wrap" />
+
+                    <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Margin="0,4" />
+
+                    <TextBlock loc:Loc.Text="或手动填写认证服务器" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     <TextBlock loc:Loc.Text="认证服务器地址" />
                     <TextBox x:Name="ExtUrlBox" loc:Loc.Placeholder="认证服务器地址" />
                     <TextBlock loc:Loc.Text="用户名" />

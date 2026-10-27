@@ -1,0 +1,32 @@
+0.3.10
+
+New
+· Advanced Delivery Optimization. Downloads are accelerated by other users on the network: idle bandwidth serves files to others, and missing files are fetched from online peers. The server only brokers connections and never carries file data; everything is verified against official checksums and falls back to official downloads on mismatch. Upload speed can be capped, or the feature turned off entirely, in Settings.
+· Cloud announcements. The launcher now receives and displays official announcements with rich text and links. Announcement content is display-only.
+· Multiple Java distributions. The Java section in Settings now offers a distribution choice (Temurin / Dragonwell) and lists every available release of each; when one source is unreachable, the other can be used.
+· First-run guide. Introduces each page and walks through Starcloud ID sign-in, game account creation, and importing an existing game directory. Skippable, and everything can be finished later in Settings.
+· Taskbar icon now follows the system light/dark theme automatically.
+· The installer now creates a Starcloud subfolder inside the chosen directory instead of scattering files into the folder itself.
+
+Improved
+· CurseForge modpack imports are much faster: file resolution now uses a batch API, reducing minutes of sequential requests for large packs down to seconds.
+· Modrinth modpack imports are more robust: server-only files are skipped automatically, and failed primary downloads fall back to mirrors declared inside the pack.
+· Broader modpack detection: nested archives (a zip wrapping another pack) and packs containing only kubejs scripts or server configs are now recognized.
+· Skin station wardrobe improvements: Blessing Skin 4 API support, full pagination beyond 100 items, parallel thumbnail loading, and no more cross-account mix-ups.
+· List items on content pages (saves, downloads, etc.) now fade and slide in one by one while the page skeleton renders first.
+· Installer launch time reduced from ~13 seconds to about 1 second.
+· The update and announcement dialogs share the new visual style and no longer overflow small windows.
+
+Changed
+· The cross-device & P2P settings section has been renamed to Delivery Optimization / Advanced Delivery Optimization / Max upload speed, and the channel status line was removed.
+· The startup self-check card was removed from the home page.
+· Control corner radius reduced from 12 to 8.
+· Removed the self-check line from launch tips.
+
+Fixed
+· Fixed Microsoft sign-in losing authorization the moment the browser window closed, appearing as a successful login that never registered.
+· Fixed modpack imports creating extra "vanilla / loader" entries in the version list; dependency versions installed alongside a pack are no longer listed separately, and existing lists converge automatically.
+· Fixed some mod descriptions missing their Chinese translation (adapted to the revised translation API, now batched per page).
+· Fixed batch downloads being slowed down by per-file lookups when Delivery Optimization was enabled.
+· Fixed the state mismatch when enabling Advanced Delivery Optimization while signed out.
+· Update manifests are now signature-verified and strictly checked: tampered manifests or installers are rejected, and a signature file ships alongside every release.

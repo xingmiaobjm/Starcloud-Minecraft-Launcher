@@ -49,6 +49,7 @@ public sealed partial class ProjectionManagerPage : Page
         {
             var files = _s.ProjectionLibrary.Scan();
             ProjectionList.ItemsSource = files.Select(f => new ProjectionRow(f)).ToList();
+            MotionFx.StaggerListItems(ProjectionList);
             EmptyText.Visibility = files.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             var selected = TargetCombo.SelectedIndex;

@@ -2,6 +2,7 @@
 // 三条身份路径互不替代：微软与第三方是在线身份（走各自会话服务器），离线身份不参与任何在线验证。
 // 登录/添加成功后不弹任何提示框，而是回到账户列表并把结果交给它显示（AccountsPage.PendingStatus）。
 
+using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -69,6 +70,61 @@ public sealed partial class AccountAddPage : Page
     }
 
     // ── 第三方（外置登录） ──
+
+    /// <summary>
+    /// LittleSkin 一键登录：OAuth2 授权码 + PKCE（本地回调，和衣柜共用同一个应用凭据）。
+    /// 授权成功即可拿到角色名，再按角色名查 UUID 建账户——服务器地址、用户名、密码都不用填。
+    /// 注意 OAuth 只覆盖皮肤站权限（角色/衣柜），不包含 Yggdrasil 游戏令牌；
+    /// 首次启动游戏时会走就地登录补一次账密（令牌本来就不落盘）。
+    /// </summary>
+    private async void LittleSkinLogin_Click(object sender, RoutedEventArgs e)
+    {
+        ErrorBar.IsOpen = false;
+        LittleSkinBtn.IsEnabled = false;
+        LittleSkinProgress.Visibility = Visibility.Visible;
+        LittleSkinProgress.IsActive = true;
+        ExtStatus.Text = Loc.T("已在浏览器打开 LittleSkin 授权页：登录并点「授权」，完成后会自动回到这里。");
+        try
+        {
+            const string root = "https://littleskin.cn";
+            var baseUrl = root + "/api/yggdrasil";
+            var bs6 = new BlessingSkin6Service();
+            var tokens = await bs6.AuthorizeAsync(root,
+                BlessingSkin6Service.LittleSkinClientId,
+                BlessingSkin6Service.LittleSkinClientSecret,
+                uri => Process.Start(new ProcessStartInfo
+                {
+                    FileName = uri.ToString(),
+                    UseShellExecute = true,
+                }));
+
+            var players = await bs6.ListPlayersAsync(root, tokens.AccessToken);
+            var picked = players.FirstOrDefault(p =>
+                !string.IsNullOrWhiteSpace(p.Name) && p.Pid is not null);
+            if (string.IsNullOrWhiteSpace(picked.Name))
+                throw new InvalidOperationException("这个 LittleSkin 账号还没有角色，请先在皮肤站创建角色。");
+
+            var uuid = await _s.Yggdrasil.LookupProfileUuidAsync(baseUrl, picked.Name)
+                ?? throw new InvalidOperationException("无法从 LittleSkin 获取角色 UUID，请稍后重试。");
+
+            _s.Accounts.AddOrUpdateExternal(uuid, picked.Name, baseUrl, baseUrl, "LittleSkin");
+            // 衣柜 token 先存好：账户建好后皮肤站衣柜直接可用，不必再点一次「连接皮肤站」
+            Bs6TokenStore.Set(_s.Settings.DotMinecraft, uuid, tokens);
+            _s.NovaRuntime.NotifyLoginChanged();
+            Finish(Loc.T("LittleSkin 账户 {0} 已添加", picked.Name));
+        }
+        catch (Exception ex)
+        {
+            ExtStatus.Text = "";
+            ShowError(Loc.T("LittleSkin 登录失败：{0}", ex.Message));
+        }
+        finally
+        {
+            LittleSkinBtn.IsEnabled = true;
+            LittleSkinProgress.Visibility = Visibility.Collapsed;
+            LittleSkinProgress.IsActive = false;
+        }
+    }
 
     private async void ExtPwdBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {

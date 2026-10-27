@@ -37,6 +37,52 @@ public class PackArchiveCompatTests : IDisposable
     }
 
     [Fact]
+    public void 嵌套包_外层zip包着内层mrpack时解一层再识别()
+    {
+        // 内层：标准 .mrpack
+        var inner = Path.Combine(Path.GetTempPath(), "sc-pack-" + Guid.NewGuid().ToString("N")[..8] + ".mrpack");
+        _files.Add(inner);
+        using (var fs = File.Create(inner))
+        using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+        {
+            var e = zip.CreateEntry("modrinth.index.json", CompressionLevel.Fastest);
+            using var w = new StreamWriter(e.Open(), new UTF8Encoding(false));
+            w.Write("""{"formatVersion":1,"game":"minecraft","versionId":"1.0","name":"Nested","files":[],"dependencies":{"minecraft":"1.20.1"}}""");
+        }
+        // 外层：什么都不带，只有内层归档
+        var outer = MakeZipFromBytes("packs/nested.mrpack", File.ReadAllBytes(inner));
+        var probe = ModPackDetector.Detect(outer);
+        Assert.NotNull(probe);
+        Assert.Equal(ModPackFormat.Modrinth, probe!.Format);
+    }
+
+    [Fact]
+    public void 裸包_只有kubejs脚本也能识别()
+    {
+        var path = MakeZip(
+            ("MyPack/kubejs/startup_scripts/boot.js", "// boot"),
+            ("MyPack/defaultconfigs/create.toml", "# cfg"));
+        var probe = ModPackDetector.Detect(path);
+        Assert.NotNull(probe);
+        Assert.Equal(ModPackFormat.Raw, probe!.Format);
+        Assert.Equal("MyPack", probe.Root);
+    }
+
+    private string MakeZipFromBytes(string name, byte[] bytes)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "sc-pack-" + Guid.NewGuid().ToString("N")[..8] + ".zip");
+        using (var fs = File.Create(path))
+        using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+        {
+            var e = zip.CreateEntry(name, CompressionLevel.Fastest);
+            using var s = e.Open();
+            s.Write(bytes, 0, bytes.Length);
+        }
+        _files.Add(path);
+        return path;
+    }
+
+    [Fact]
     public void 识别packwiz包()
     {
         var path = MakeZip(

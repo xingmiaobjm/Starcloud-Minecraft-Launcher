@@ -62,6 +62,7 @@ public sealed class PluginSettingsApi(PluginApiCore c)
         "version_isolated", "java_executable", "use_builtin_jvm_args",
         "theme", "language", "ui_language", "ui_animations", "ui_motion_level", "account_walk_animation",
         "device_link_enabled", "device_name", "p2p_download_enabled",
+        "p2p_internet_enabled", "p2p_internet_upload_mbps",
         "auto_update_enabled", "launch_auto_retry", "show_game_log_on_launch",
         "resource_cache_enabled", "microsoft_login_embedded",
         "background_mode", "background_builtin_id", "background_image_path",
