@@ -25,11 +25,14 @@ Download engine
 - Chunk-level resume: an interrupted large file only re-downloads the chunks that were missing instead of starting over.
 - Concurrency is derived from the download source actually in use, avoiding repeated requests against a source that is already rate limited.
 - Large files are processed first in a batch so they receive the concurrency budget earlier.
+- Download sources are ranked by a health score combining measured throughput, failures and rate limits, so slow mirrors move back automatically (5-minute half-life follows the drift in mirror quality).
 
 Launch arguments
 - The classpath is cached by library set fingerprint instead of stat-ing hundreds of library files on every launch.
 - Duplicate JVM arguments are removed: a custom -Xmx no longer coexists with the memory setting, so the interface matches what actually takes effect.
 - --class-path is now recognized alongside -cp and -classpath.
+- Forge's legacyClassPath field is now honored; previously it was ignored and Forge installs failed with "main class not found".
+- The official logging argument (log4j configuration since 1.16) is passed through, putting game logs back in the official location and format.
 
 P2P acceleration
 - Removed the interface freeze during downloads: peer requests are now awaited asynchronously.
@@ -49,3 +52,7 @@ Security
 - The installer refuses a drive root or network share root as the install location.
 - When a legacy install in a drive root is detected, uninstallation removes only the files this product installed instead of the whole volume.
 - Version deletion validates the version name and rejects illegal characters and out-of-tree paths.
+
+Fixes
+- Version and save icons occasionally appeared blank: the row model's icon property created a new bitmap on every access, so the two bindings got different instances and the image was unavailable before decoding finished.
+- Icon caches are now thread safe, and missing resources are no longer permanently cached as empty.
