@@ -159,4 +159,191 @@ public class HomeLayoutTests
         Assert.Equal(2, loaded.Cards.Count);
         Directory.Delete(dir, recursive: true);
     }
+
+    // ── 落位决策（腾位规则） ──
+
+    /// <summary>出厂布局铺满 12×6（版本卡 8×6 + 账户卡 4×6）。</summary>
+    private static List<HomeCardLayout> FullGrid() =>
+    [
+        new HomeCardLayout { Id = "versions", Type = "versions", Column = 0, Row = 0, ColumnSpan = 8, RowSpan = 6, Visible = true },
+        new HomeCardLayout { Id = "account", Type = "account", Column = 8, Row = 0, ColumnSpan = 4, RowSpan = 6, Visible = true },
+    ];
+
+    [Fact]
+    public void 网格占满时优先原地缩放而不是挪走()
+    {
+        // 收藏卡出厂 3×2。目标格 (0,0) 被版本卡占着、且整网格无空位：
+        // 应当缩小版本卡腾位，而不是把新卡挪到别处。
+        var cards = FullGrid();
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Favorites);
+
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 0);
+
+        Assert.True(placement.Success);
+        Assert.Equal(0, placement.Column);
+        Assert.Equal(0, placement.Row);
+        Assert.NotEmpty(placement.Displaced!);
+    }
+
+    [Fact]
+    public void 网格有空位时按原档位落在空位而不是缩小()
+    {
+        var cards = FullGrid();
+        // 把账户卡缩到 4×3，右下空出 4×3
+        cards[1].RowSpan = 3;
+
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Favorites);
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 0);
+
+        Assert.True(placement.Success);
+        // 收藏卡出厂 3×2：目标格 (0,0) 被版本卡占着，但右下有空位 → 挪过去，尺寸不变
+        Assert.Equal(3, placement.ColumnSpan);
+        Assert.Equal(2, placement.RowSpan);
+        Assert.True(placement.MovedAway);
+        Assert.False(placement.Shrunk);
+        // 落点必须真的空着
+        Assert.DoesNotContain(cards.Where(b => b.Visible), b => HomeGridMath.Overlaps(
+            new HomeCardLayout { Column = placement.Column, Row = placement.Row,
+                ColumnSpan = placement.ColumnSpan, RowSpan = placement.RowSpan }, b));
+    }
+
+    [Fact]
+    public void 目标格放不下且整网格无空位时换小档位()
+    {
+        // 只留右下角 2×1 的空位
+        var cards = new List<HomeCardLayout>
+        {
+            new() { Id = "big", Type = "versions", Column = 0, Row = 0, ColumnSpan = 10, RowSpan = 6, Visible = true },
+            new() { Id = "edge", Type = "account", Column = 10, Row = 0, ColumnSpan = 2, RowSpan = 5, Visible = true },
+        };
+
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Launch);
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 0);
+
+        // 启动按钮最小 2×1：右下角那格正好放得下
+        Assert.True(placement.Success);
+        Assert.Equal(2, placement.ColumnSpan);
+        Assert.Equal(1, placement.RowSpan);
+    }
+
+    [Fact]
+    public void 已占满且没有卡片能再缩小时才真的放不下()
+    {
+        // 12 张账户卡（规格最小 2×3，都已是最小档、缩不动）正好铺满 12 列 × 6 行，
+        // 再加一张最小 2×1 的启动卡就无处可放 —— 这时才该报「空间不足」。
+        var cards = new List<HomeCardLayout>();
+        for (var i = 0; i < 12; i++)
+        {
+            cards.Add(new HomeCardLayout
+            {
+                Id = $"acc{i}", Type = "account",
+                Column = (i % 6) * 2, Row = (i / 6) * 3,
+                ColumnSpan = 2, RowSpan = 3, Visible = true,
+            });
+        }
+
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Launch);
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 3);
+
+        Assert.False(placement.Success);
+        Assert.Equal(-1, placement.Column);
+        Assert.Equal(-1, placement.Row);
+    }
+
+    [Fact]
+    public void 网格占满时缩小已有卡片给新卡腾位()
+    {
+        // 出厂布局：版本卡 8×6 + 账户卡 4×6，把 12×6 铺满
+        var cards = FullGrid();
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Favorites);
+
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 0);
+
+        Assert.True(placement.Success);
+        // 收藏卡出厂 3×2
+        Assert.Equal(3, placement.ColumnSpan);
+        Assert.Equal(2, placement.RowSpan);
+        // 必须有卡片被挤开腾位
+        Assert.NotNull(placement.Displaced);
+        Assert.NotEmpty(placement.Displaced!);
+        // 被挤开的卡片要么缩小、要么挪位（两者皆变也可以）
+        foreach (var shift in placement.Displaced!)
+        {
+            var victim = cards.Single(c => c.Id == shift.Id);
+            var shrunk = shift.ColumnSpan * shift.RowSpan < victim.ColumnSpan * victim.RowSpan;
+            var moved = shift.Column != victim.Column || shift.Row != victim.Row;
+            Assert.True(shrunk || moved, shift.Id);
+        }
+    }
+
+    [Fact]
+    public void 缩小腾位后新卡与所有卡片都不重叠()
+    {
+        var cards = FullGrid();
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Favorites);
+
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 0);
+
+        Assert.True(placement.Success);
+        // 把被挤开的卡片按新占格与新位置算一遍
+        var final = cards.Select(c =>
+        {
+            var d = placement.Displaced?.FirstOrDefault(x => x.Id == c.Id);
+            return new HomeCardLayout
+            {
+                Id = c.Id,
+                Column = d?.Column ?? c.Column,
+                Row = d?.Row ?? c.Row,
+                ColumnSpan = d?.ColumnSpan ?? c.ColumnSpan,
+                RowSpan = d?.RowSpan ?? c.RowSpan,
+                Visible = true,
+            };
+        }).ToList();
+
+        var newCard = new HomeCardLayout
+        {
+            Id = "favorites",
+            Column = placement.Column,
+            Row = placement.Row,
+            ColumnSpan = placement.ColumnSpan,
+            RowSpan = placement.RowSpan,
+        };
+        Assert.DoesNotContain(final, c => HomeGridMath.Overlaps(c, newCard));
+        // 新卡本身也要在网格内
+        Assert.True(newCard.Column + newCard.ColumnSpan <= 12);
+        Assert.True(newCard.Row + newCard.RowSpan <= 6);
+    }
+
+    [Fact]
+    public void 移动自己的卡片时不把自己算作占位()
+    {
+        var cards = new List<HomeCardLayout>
+        {
+            new() { Id = "versions", Type = "versions", Column = 0, Row = 0, ColumnSpan = 6, RowSpan = 3, Visible = true },
+            new() { Id = "account", Type = "account", Column = 6, Row = 0, ColumnSpan = 6, RowSpan = 3, Visible = true },
+        };
+
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Versions);
+        // 把 versions 拖回自己的原位：应当落回原处，而不是被当成与自己重叠
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 0, desiredRow: 0,
+            ignoreId: "versions");
+
+        Assert.True(placement.Success);
+        Assert.Equal(0, placement.Column);
+        Assert.Equal(0, placement.Row);
+    }
+
+    [Fact]
+    public void 隐藏的卡片不占位()
+    {
+        var cards = FullGrid();
+        cards[1].Visible = false;
+
+        var spec = HomeCardCatalog.Resolve(HomeCardCatalog.Account);
+        var placement = HomeCardPlacer.Place(cards, 12, 6, spec, desiredColumn: 8, desiredRow: 0);
+
+        Assert.True(placement.Success);
+        Assert.Equal(8, placement.Column);
+        Assert.Equal(0, placement.Row);
+    }
 }

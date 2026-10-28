@@ -9,7 +9,10 @@
 
 Home card grid
 - The home page is now an editable card grid: cards are placed by column, row and span. In edit mode you drag a card to a new position and pick a fixed size from the button in its lower-right corner.
-- The edit toolbox sits vertically along the right edge, floating above every other element: all card types are preset in it, drag one onto the page to place it, and the size presets and a remove button for the selected card live there too.
+- While dragging, the card itself follows the pointer; a dashed outline stays in its original slot and the card snaps into place only when you let go.
+- The edit toolbox floats above the right edge of the page and never moves or resizes anything on the home page. Drag its title bar to move it elsewhere; the position is remembered.
+- Every card type in the toolbox comes with a thumbnail sketch, so you can tell at a glance what that card looks like.
+- Adding a card no longer does nothing: when the default layout fills the grid, the layout makes room - the new card gets a smaller size preset first, and if that is still not enough the other cards are rearranged to give it space. A message tells you when a card was adjusted.
 - Card sizes: installed versions 4x3 to 12x6, account and launch 2x3 to 4x6, account picker 2x2 to 6x4, launch button 2x1 to 6x2, favorites and recent 3x2 or 3x3.
 - Three new cards: Favorites, Recent and Play time, plus standalone account picker and launch button cards.
 - Play time is only counted when a game exits normally after at least 30 seconds, and versions are ranked by accumulated play time.

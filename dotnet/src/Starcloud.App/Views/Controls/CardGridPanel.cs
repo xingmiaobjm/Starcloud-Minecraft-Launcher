@@ -1,4 +1,4 @@
-// 主页卡片网格宿主：子卡片按「列 / 行 / 跨几格」排布，编辑模式下整卡拖动换格、
+﻿// 主页卡片网格宿主：子卡片按「列 / 行 / 跨几格」排布，编辑模式下整卡拖动换格、
 // 右下角把手按格缩放。
 //
 // 为什么不用 Grid / VariableSizedWrapGrid：Grid 的行列是静态定义的，卡片数量与跨度
@@ -10,6 +10,7 @@
 // 松手才提交，途中有明确的目标格反馈，也不会因为实时重排让整页抖动。
 
 using Microsoft.UI.Xaml;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Markup;
@@ -30,7 +31,14 @@ public sealed class CardHost : Grid
         VerticalContentAlignment = VerticalAlignment.Stretch,
     };
 
-    private readonly Border _dragLayer = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+    // 拖动面：透明底但必须能命中。
+    // Border 的命中测试要求背景 Alpha > 0 —— 纯透明（Alpha=0）的 Border 会被穿透，
+    // 点击落到下面的内容上，拖动永远起不来。所以用 Alpha=1 的近全黑：视觉上完全看不见，
+    // 但命中测试通过。
+    private readonly Border _dragLayer = new()
+    {
+        Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)),
+    };
 
     private readonly Button _sizeButton = new()
     {
@@ -59,6 +67,9 @@ public sealed class CardHost : Grid
         IsHitTestVisible = false,
     };
 
+    /// <summary>拖动时的合成变换：卡片本体跟着指针走，原位由网格画占位框。</summary>
+    private readonly TranslateTransform _dragTransform = new();
+
     public CardHost()
     {
         _dragLayer.Tag = "card-drag";
@@ -69,7 +80,39 @@ public sealed class CardHost : Grid
         Children.Add(_presenter);
         Children.Add(_editFrame);
         Children.Add(_dragLayer);
+
+        // 拖动变换挂在卡片自身上：位置变的是卡片本体，不是网格里的占位
+        RenderTransform = _dragTransform;
         SetEditing(false);
+    }
+
+    /// <summary>拖动中：把卡片沿指针方向平移，并抬起一点（Z 轴位移 + 轻微放大感）。</summary>
+    public void BeginDragVisual()
+    {
+        _dragTransform.X = 0;
+        _dragTransform.Y = 0;
+        Opacity = 0.92;
+        // 抬起来的感觉：Z 轴推高一点（Grid 没有 Elevation，用 Translation 的 Z）
+        Translation = new System.Numerics.Vector3(0, 0, 16);
+        // 注意：这里不能设 IsHitTestVisible=false —— 卡片自己一旦退出命中链，
+        // 指针移动事件就不再路由过来、也不再冒泡到网格，拖动会「按下去就没反应」。
+        // 指针已被捕获，保持可命中不影响任何交互。
+    }
+
+    /// <summary>拖动中：按指针位移平移卡片本体。</summary>
+    public void UpdateDragVisual(double dx, double dy)
+    {
+        _dragTransform.X = dx;
+        _dragTransform.Y = dy;
+    }
+
+    /// <summary>结束拖动：清掉变换与抬起效果，卡片回到网格位置。</summary>
+    public void EndDragVisual()
+    {
+        _dragTransform.X = 0;
+        _dragTransform.Y = 0;
+        Opacity = 1;
+        Translation = new System.Numerics.Vector3(0, 0, 0);
     }
 
     /// <summary>点了右下角的尺寸按钮：页面据此弹出固定尺寸档位菜单。</summary>
@@ -142,6 +185,17 @@ public sealed class CardGridPanel : Panel
         Visibility = Visibility.Collapsed,
     };
 
+    /// <summary>原位占位框：卡片本体被拖走后，原格留一个虚线框表示「这里空出来了」。</summary>
+    private readonly Border _vacancy = new()
+    {
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(16),
+        BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xD3, 0x22)),
+        Background = new SolidColorBrush(Color.FromArgb(0x0A, 0xFF, 0xD3, 0x22)),
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed,
+    };
+
     private readonly PointerEventHandler _pressedHandler;
     private readonly PointerEventHandler _movedHandler;
     private readonly PointerEventHandler _releasedHandler;
@@ -165,6 +219,7 @@ public sealed class CardGridPanel : Panel
         _movedHandler = OnGridPointerMoved;
         _releasedHandler = OnGridPointerReleased;
         _canceledHandler = OnGridPointerCanceled;
+        Children.Add(_vacancy);
         Children.Add(_preview);
     }
 
@@ -283,6 +338,8 @@ public sealed class CardGridPanel : Panel
             SchemaVersion = template?.SchemaVersion ?? 1,
             Columns = Columns,
             RowHeight = RowHeight,
+            ToolboxOffsetX = template?.ToolboxOffsetX ?? 0,
+            ToolboxOffsetY = template?.ToolboxOffsetY ?? 0,
         };
         var types = template?.Cards.ToDictionary(c => c.Id, c => c.Type, StringComparer.Ordinal)
                     ?? new Dictionary<string, string>(StringComparer.Ordinal);
@@ -351,20 +408,6 @@ public sealed class CardGridPanel : Panel
         return (step, step + ColumnGap);
     }
 
-    /// <summary>按指针位置把预览框摆到最近的格（工具箱拖出卡片时用）。</summary>
-    private void MovePreview(Point position, int spanW, int spanH)
-    {
-        var (cellWidth, stepX) = GetCellMetrics(ActualWidth);
-        var cellHeight = GetCellHeight(ActualHeight);
-        var columns = Math.Max(1, Columns);
-        _previewColumn = Math.Clamp((int)Math.Round(position.X / stepX), 0, columns - Math.Max(1, spanW));
-        _previewRow = Math.Clamp((int)Math.Round(position.Y / (cellHeight + RowGap)), 0,
-            Math.Max(0, Math.Max(1, Rows) - Math.Max(1, spanH)));
-        _previewColumnSpan = spanW;
-        _previewRowSpan = spanH;
-        ArrangePreview(cellWidth, cellHeight);
-    }
-
     private double GetCellHeight(double availableHeight)
     {
         var rows = Math.Max(1, Rows);
@@ -422,6 +465,30 @@ public sealed class CardGridPanel : Panel
         RemoveHandler(PointerCaptureLostEvent, _canceledHandler);
     }
 
+    /// <summary>
+    /// 取当前光标的屏幕物理坐标。
+    /// <para>
+    /// 为什么不用 GetCurrentPoint：指针被捕获后它返回的是「按下那一刻」的位置，
+    /// 不再随光标走 —— 拿它算位移永远是 0，卡片会一动不动。
+    /// WinUI 3 的 PointerPoint 也没有 RawPosition，只能问 Win32 要。</para>
+    /// </summary>
+    private static Point GetCursorScreenPosition()
+    {
+        if (GetCursorPos(out var p)) return new Point(p.X, p.Y);
+        return new Point(0, 0);
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out POINT lpPoint);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
     private static CardHost? HostFrom(object? source)
     {
         var node = source as DependencyObject;
@@ -450,7 +517,9 @@ public sealed class CardGridPanel : Panel
         if (host is null) return;
 
         _dragHost = host;
-        _dragStart = e.GetCurrentPoint(this).Position;
+        // 起点用屏幕物理坐标：指针捕获后 GetCurrentPoint 会锁死在按下那一刻的位置，
+        // 只有 RawPosition 才随光标走。全程统一用物理坐标，格位换算时再折回 DIP。
+        _dragStart = GetCursorScreenPosition();
         _originColumn = host.Column;
         _originRow = host.Row;
         _originColumnSpan = host.ColumnSpan;
@@ -460,8 +529,9 @@ public sealed class CardGridPanel : Panel
         _previewColumnSpan = host.ColumnSpan;
         _previewRowSpan = host.RowSpan;
 
-        host.Opacity = 0.55;
+        host.BeginDragVisual();
         ShowPreview();
+        ShowVacancy(_originColumn, _originRow, _originColumnSpan, _originRowSpan);
         CapturePointer(e.Pointer);
         e.Handled = true;
     }
@@ -474,8 +544,22 @@ public sealed class CardGridPanel : Panel
         var (cellWidth, stepX) = GetCellMetrics(ActualWidth);
         var cellHeight = GetCellHeight(ActualHeight);
         var stepY = cellHeight + RowGap;
-        var dx = point.Position.X - _dragStart.X;
-        var dy = point.Position.Y - _dragStart.Y;
+
+        // 指针位置：必须用 RawPosition（屏幕物理坐标）自己换算。
+        // 指针被捕获后，GetCurrentPoint 返回的是「按下那一刻」的位置，不再随光标走 ——
+        // 拿它算位移永远是 0，卡片就一动不动。
+        var raw = GetCursorScreenPosition();
+        var dxPhysical = raw.X - _dragStart.X;
+        var dyPhysical = raw.Y - _dragStart.Y;
+
+        // 折回 DIP：格位换算与合成变换都用 DIP 单位
+        var scale = XamlRoot?.RasterizationScale is > 0 ? XamlRoot.RasterizationScale : 1.0;
+        var dx = dxPhysical / scale;
+        var dy = dyPhysical / scale;
+
+        // 卡片本体跟着指针走：合成变换只改绘制位置，不动网格里的格位。
+        // 格位要等松手才定 —— 途中重排会让整页抖动。
+        _dragHost.UpdateDragVisual(dx, dy);
 
         // 卡片尺寸固定，拖动只换位置（尺寸在右下角按钮里选档位）
         var columns = Math.Max(1, Columns);
@@ -483,6 +567,27 @@ public sealed class CardGridPanel : Panel
             columns - Math.Max(1, _originColumnSpan));
         _previewRow = Math.Clamp(_originRow + (int)Math.Round(dy / stepY), 0,
             Math.Max(0, Math.Max(1, Rows) - Math.Max(1, _originRowSpan)));
+
+        // 预览框按「真正会落下的占格」画：目标格放不下时腾位会换小档位，
+        // 预览若还画原尺寸，用户松手后会看到卡片突然变小。
+        if (_dragHost is not null)
+        {
+            var placement = HomeCardPlacer.Place(
+                Hosts().Select(ToLayout).ToList(),
+                Columns,
+                Rows,
+                HomeCardCatalog.Resolve(_dragHost.CardType),
+                _previewColumn,
+                _previewRow,
+                _dragHost.CardId);
+            if (placement.Success)
+            {
+                _previewColumn = placement.Column;
+                _previewRow = placement.Row;
+                _previewColumnSpan = placement.ColumnSpan;
+                _previewRowSpan = placement.RowSpan;
+            }
+        }
 
         ArrangePreview(cellWidth, cellHeight);
         e.Handled = true;
@@ -492,46 +597,53 @@ public sealed class CardGridPanel : Panel
     {
         if (_dragHost is null) return;
         var host = _dragHost;
-        var position = e.GetCurrentPoint(this).Position;
+        // 松手位置同样取 RawPosition：捕获期间 GetCurrentPoint 拿不到真实光标位置
+        var position = GetCursorScreenPosition();
         var moved = (position.X - _dragStart.X) * (position.X - _dragStart.X)
             + (position.Y - _dragStart.Y) * (position.Y - _dragStart.Y) > 64;
         ReleasePointerCapture(e.Pointer);
-        CancelDrag();
+
+        // 收尾拖动状态，但不急着清视觉 —— 卡片还要保持「跟着手」的样子落到新格位，
+        // 先落位再清变换，中间才不会闪一下原位。
+        _dragHost = null;
+        _preview.Visibility = Visibility.Collapsed;
+        _vacancy.Visibility = Visibility.Collapsed;
 
         // 没怎么动 = 一次点选：进入选中态，参数区（编辑浮条）随之显示这张卡的档位
         if (!moved)
         {
+            host.EndDragVisual();
             SelectedHost = host;
             SelectionChanged?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
             return;
         }
 
-        // 与其它卡重叠就退回原位：网格里两张卡叠着没有意义，也不做自动推挤
-        var candidate = new HomeCardLayout
-        {
-            Id = host.CardId,
-            Column = _previewColumn,
-            Row = _previewRow,
-            ColumnSpan = _previewColumnSpan,
-            RowSpan = _previewRowSpan,
-        };
-        var blocked = Hosts()
-            .Where(h => !ReferenceEquals(h, host) && h.Visibility == Visibility.Visible)
-            .Select(ToLayout)
-            .Any(other => HomeGridMath.Overlaps(candidate, other));
+        // 与其它卡重叠就腾位：换小档位、再整网格找空位（与「加卡」同一套规则）。
+        // 旧实现是重叠就退回原位 —— 默认布局占满网格时，用户会发现卡片「拖不动」。
+        var spec = HomeCardCatalog.Resolve(host.CardType);
+        var placement = HomeCardPlacer.Place(
+            Hosts().Select(ToLayout).ToList(),
+            Columns,
+            Rows,
+            spec,
+            _previewColumn,
+            _previewRow,
+            host.CardId);
 
-        host.Opacity = 1;
-        if (!blocked)
+        if (placement.Success)
         {
-            host.Column = candidate.Column;
-            host.Row = candidate.Row;
-            host.ColumnSpan = candidate.ColumnSpan;
-            host.RowSpan = candidate.RowSpan;
+            // 腾位时可能有别的卡片被缩小 —— 一并落实
+            ApplyDisplaced(placement.Displaced);
+            host.Column = placement.Column;
+            host.Row = placement.Row;
+            host.ColumnSpan = placement.ColumnSpan;
+            host.RowSpan = placement.RowSpan;
             NotifyCardSize(host);
             InvalidateMeasure();
             LayoutChanged?.Invoke(this, EventArgs.Empty);
         }
+        host.EndDragVisual();
         e.Handled = true;
     }
 
@@ -557,19 +669,59 @@ public sealed class CardGridPanel : Panel
     }
 
     /// <summary>
-    /// 从工具箱拖出一张卡片时的落点预览：<paramref name="position"/> 是相对网格的指针位置，
-    /// 跨度取该类型卡片的出厂占格。
+    /// 从工具箱拖出一张卡片时的落点预览：<paramref name="position"/> 是相对网格的指针位置。
+    /// <para>预览按「真正会落下的位置与占格」画：默认布局铺满网格时，
+    /// 腾位规则会把新卡换小档位并挪到空位，预览必须提前反映出来，
+    /// 否则用户松手后会看到卡片凭空换了位置与大小。</para>
     /// </summary>
     public void ShowDropPreview(string cardType, Point position)
     {
         var spec = HomeCardCatalog.Resolve(cardType);
         ShowPreview();
-        MovePreview(position, Math.Min(spec.DefaultColumnSpan, Columns),
-            Math.Min(spec.DefaultRowSpan, Math.Max(1, Rows)));
+
+        var (cellWidth, stepX) = GetCellMetrics(ActualWidth);
+        var cellHeight = GetCellHeight(ActualHeight);
+        var columns = Math.Max(1, Columns);
+        var rowLimit = Math.Max(1, Rows);
+        var spanW = Math.Min(spec.DefaultColumnSpan, columns);
+        var spanH = Math.Min(spec.DefaultRowSpan, rowLimit);
+
+        var column = Math.Clamp((int)Math.Round(position.X / stepX), 0, columns - Math.Max(1, spanW));
+        var row = Math.Clamp((int)Math.Round(position.Y / (cellHeight + RowGap)), 0,
+            Math.Max(0, rowLimit - Math.Max(1, spanH)));
+
+        var host = FindHost(cardType);
+        var placement = HomeCardPlacer.Place(
+            Hosts().Select(ToLayout).ToList(),
+            Columns,
+            Rows,
+            spec,
+            column,
+            row,
+            host?.CardId);
+
+        if (placement.Success)
+        {
+            _previewColumn = placement.Column;
+            _previewRow = placement.Row;
+            _previewColumnSpan = placement.ColumnSpan;
+            _previewRowSpan = placement.RowSpan;
+        }
+        else
+        {
+            _previewColumn = column;
+            _previewRow = row;
+            _previewColumnSpan = spanW;
+            _previewRowSpan = spanH;
+        }
+        ArrangePreview(cellWidth, cellHeight);
     }
 
     /// <summary>
-    /// 提交工具箱拖出的卡片：落在预览格；与其它卡重叠或出界时返回 false（不改动布局）。
+    /// 提交工具箱拖出的卡片：落在预览格。
+    /// <para>放不下时不是直接失败：交给 <see cref="HomeCardPlacer"/> 腾位
+    /// （先换小档位，再整网格找空位），这样默认布局占满网格时也能把新卡加进来。
+    /// 完全放不下才返回 false，由页面弹提示。</para>
     /// </summary>
     public bool CommitDrop(string cardType)
     {
@@ -577,25 +729,30 @@ public sealed class CardGridPanel : Panel
         var host = FindHost(cardType);
         if (host is null) return false;
 
-        var candidate = new HomeCardLayout
-        {
-            Id = host.CardId,
-            Column = _previewColumn,
-            Row = _previewRow,
-            ColumnSpan = _previewColumnSpan,
-            RowSpan = _previewRowSpan,
-        };
-        var blocked = Hosts()
-            .Where(h => !ReferenceEquals(h, host) && h.Visibility == Visibility.Visible)
-            .Select(ToLayout)
-            .Any(other => HomeGridMath.Overlaps(candidate, other));
+        var spec = HomeCardCatalog.Resolve(cardType);
+        var placement = HomeCardPlacer.Place(
+            Hosts().Select(ToLayout).ToList(),
+            Columns,
+            Rows,
+            spec,
+            _previewColumn,
+            _previewRow,
+            host.CardId);
+        LauncherLog.Write("home",
+            $"落卡 {cardType}：目标 ({_previewColumn},{_previewRow}) → " +
+            (placement.Success
+                ? $"({placement.Column},{placement.Row}) {placement.ColumnSpan}×{placement.RowSpan}"
+                : "失败（无处可放）"));
         CancelDrag();
-        if (blocked) return false;
+        if (!placement.Success) return false;
 
-        host.Column = candidate.Column;
-        host.Row = candidate.Row;
-        host.ColumnSpan = candidate.ColumnSpan;
-        host.RowSpan = candidate.RowSpan;
+        // 腾位时可能有别的卡片被缩小 —— 一并落实，否则布局与显示会不一致
+        ApplyDisplaced(placement.Displaced);
+
+        host.Column = placement.Column;
+        host.Row = placement.Row;
+        host.ColumnSpan = placement.ColumnSpan;
+        host.RowSpan = placement.RowSpan;
         host.Visibility = Visibility.Visible;
         NotifyCardSize(host);
         SelectedHost = host;
@@ -607,6 +764,25 @@ public sealed class CardGridPanel : Panel
 
     /// <summary>取消工具箱拖拽（指针移出网格等）。</summary>
     public void CancelDrop() => CancelDrag();
+
+    /// <summary>
+    /// 落实腾位时被挤开的卡片：改占格与位置、通知内容重排。
+    /// <para>只动一张卡 —— 一次动太多张会让主页面目全非。</para>
+    /// </summary>
+    private void ApplyDisplaced(IReadOnlyList<HomeCardShift>? displaced)
+    {
+        if (displaced is null || displaced.Count == 0) return;
+        foreach (var shift in displaced)
+        {
+            var victim = FindHost(shift.Id);
+            if (victim is null) continue;
+            victim.Column = shift.Column;
+            victim.Row = shift.Row;
+            victim.ColumnSpan = shift.ColumnSpan;
+            victim.RowSpan = shift.RowSpan;
+            NotifyCardSize(victim);
+        }
+    }
 
     /// <summary>把新的占格告诉卡片内容（实现 ICardSizeAware 的内容据此切换排版档位）。</summary>
     private static void NotifyCardSize(CardHost host)
@@ -624,9 +800,10 @@ public sealed class CardGridPanel : Panel
 
     private void CancelDrag()
     {
-        if (_dragHost is not null) _dragHost.Opacity = 1;
+        if (_dragHost is not null) _dragHost.EndDragVisual();
         _dragHost = null;
         _preview.Visibility = Visibility.Collapsed;
+        _vacancy.Visibility = Visibility.Collapsed;
     }
 
     private void ShowPreview()
@@ -637,10 +814,37 @@ public sealed class CardGridPanel : Panel
         _preview.Visibility = Visibility.Visible;
     }
 
+    /// <summary>在原格画一个占位框（卡片被拖走后原位留白）。</summary>
+    private void ShowVacancy(int column, int row, int spanW, int spanH)
+    {
+        _vacancy.Visibility = Visibility.Visible;
+        // 占位框在卡片之下：把它挪到子元素开头
+        Children.Remove(_vacancy);
+        Children.Insert(0, _vacancy);
+    }
+
     private void ArrangePreview(double cellWidth, double cellHeight)
     {
-        if (_preview.Visibility != Visibility.Visible) return;
         var stepX = cellWidth + ColumnGap;
+
+        // 原位占位框：拖动中的卡片离开后，原格显示一个淡边框
+        if (_vacancy.Visibility == Visibility.Visible)
+        {
+            var vw = SpanWidth(cellWidth, _originColumnSpan);
+            var vh = SpanHeight(cellHeight, _originRowSpan);
+            _vacancy.Width = vw;
+            _vacancy.Height = vh;
+            _vacancy.HorizontalAlignment = HorizontalAlignment.Left;
+            _vacancy.VerticalAlignment = VerticalAlignment.Top;
+            _vacancy.Measure(new Size(vw, vh));
+            _vacancy.Arrange(new Rect(
+                _originColumn * stepX,
+                _originRow * (cellHeight + RowGap),
+                vw,
+                vh));
+        }
+
+        if (_preview.Visibility != Visibility.Visible) return;
         var width = SpanWidth(cellWidth, _previewColumnSpan);
         var height = SpanHeight(cellHeight, _previewRowSpan);
         _preview.Width = width;

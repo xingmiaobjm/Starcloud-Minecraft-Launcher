@@ -2,6 +2,7 @@
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -160,8 +161,99 @@ public sealed partial class HomePage : Page
     {
         HomeGrid.IsEditing = true;
         LayoutEditBar.Visibility = Visibility.Visible;
+        // 工具箱是悬浮层：绝对定位、压在所有控件之上，不参与主页布局 ——
+        // 主界面卡片的位置与大小一概不动。
+        // 位置沿用上次拖动的地方（用户拖走过就别每次弹回原位）。
+        _toolboxOffsetX = _homeLayout.ToolboxOffsetX;
+        _toolboxOffsetY = _homeLayout.ToolboxOffsetY;
         BuildPaletteChips();
         UpdateCardParams();
+        PositionLayoutToolbox();
+    }
+
+    /// <summary>
+    /// 摆工具箱：贴在主页内容区右沿的外侧。
+    /// <para>
+    /// 为什么按内容区而不是窗口右沿：内容区有 MaxWidth=1280 并居中，
+    /// 窗口宽时右侧本就留着一块空白 —— 工具箱落在那里既不遮卡片，
+    /// 也和卡片区保持一条边。窗口窄到内容区铺满时，工具箱仍浮在上层，
+    /// 只是压在最右那张卡上；这是悬浮层的固有代价，不动主界面布局。</para>
+    /// </summary>
+    private void PositionLayoutToolbox()
+    {
+        // 内容区有 MaxWidth=1280，在根 Grid 里是居中的 —— ActualWidth 只是它自己的宽度，
+        // 不含左偏移。要拿真实右沿，得把它换算到页面坐标里。
+        var origin = HomeContent.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var contentLeft = origin.X;
+        var contentRight = contentLeft + HomeContent.ActualWidth;
+        var pageWidth = ActualWidth;
+
+        // 工具箱默认落在内容区右沿「之外」的留白里（内容区 MaxWidth=1280 居中，
+        // 窗口宽时右侧本就空着）；留白不够就贴内容区右沿内侧 —— 仍是浮在上层，
+        // 不改主页布局，用户可以按住标题条把它拖走。
+        var x = contentRight + ToolboxGap + _toolboxOffsetX;
+        if (x + ToolboxWidth > pageWidth - ToolboxGap)
+            x = contentRight - ToolboxWidth - ToolboxGap + _toolboxOffsetX;
+        if (x < ToolboxGap) x = ToolboxGap;
+        if (x > pageWidth - ToolboxWidth - ToolboxGap) x = Math.Max(ToolboxGap, pageWidth - ToolboxWidth - ToolboxGap);
+
+        var top = 14 + _toolboxOffsetY;
+        if (top < 0) top = 0;
+        var height = Math.Max(0, ActualHeight - top - 14);
+
+        LayoutEditBar.SetValue(Canvas.LeftProperty, x);
+        LayoutEditBar.SetValue(Canvas.TopProperty, top);
+        LayoutEditBar.Height = height;
+    }
+
+    /// <summary>工具箱宽度与它与内容区右沿的间隙。</summary>
+    private const double ToolboxWidth = 196;
+    private const double ToolboxGap = 14;
+
+    // ── 工具箱拖动：按住标题条可把它拖到别处（悬浮层，用户自己决定挡不挡卡片） ──
+    private bool _toolboxDragging;
+    private Point _toolboxDragStart;
+    private double _toolboxOffsetX;
+    private double _toolboxOffsetY;
+
+    /// <summary>工具箱相对默认位置（内容区右沿内侧）的偏移；随布局一起存。</summary>
+    private double ToolboxOffsetX
+    {
+        get => _toolboxOffsetX;
+        set => _toolboxOffsetX = value;
+    }
+
+    private void ToolboxHandle_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _toolboxDragging = true;
+        _toolboxDragStart = e.GetCurrentPoint(this).Position;
+        if (sender is UIElement el) el.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void ToolboxHandle_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_toolboxDragging) return;
+        var point = e.GetCurrentPoint(this);
+        if (!point.Properties.IsLeftButtonPressed) return;
+        var position = point.Position;
+        _toolboxOffsetX += position.X - _toolboxDragStart.X;
+        _toolboxOffsetY += position.Y - _toolboxDragStart.Y;
+        _toolboxDragStart = position;
+        PositionLayoutToolbox();
+        e.Handled = true;
+    }
+
+    private void ToolboxHandle_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_toolboxDragging) return;
+        _toolboxDragging = false;
+        if (sender is UIElement el) el.ReleasePointerCapture(e.Pointer);
+        // 记住位置：下次进编辑模式还在这儿
+        _homeLayout.ToolboxOffsetX = _toolboxOffsetX;
+        _homeLayout.ToolboxOffsetY = _toolboxOffsetY;
+        _homeLayoutStore.Save(_homeLayout);
+        e.Handled = true;
     }
 
     /// <summary>退出编辑模式；格位在每次拖动提交时就已经落盘，这里只收编辑层。</summary>
@@ -175,22 +267,47 @@ public sealed partial class HomePage : Page
 
     private string? _paletteDragType;
 
-    /// <summary>工具箱里的卡片条目：每类一张，直接拖到主页格位上落卡。</summary>
+    /// <summary>
+    /// 工具箱里的卡片条目：每类一张，带缩略示意图与说明，直接拖到主页格位上落卡。
+    /// <para>条目做成「缩略图 + 名称 + 一句说明」：只看名字分不清卡片长什么样，
+    /// 缩略图标出这张卡的内部结构（标题条 / 列表行 / 头像 / 主按钮）。</para>
+    /// </summary>
     private void BuildPaletteChips()
     {
         PaletteChips.Children.Clear();
         foreach (var spec in HomeCardCatalog.All)
         {
+            var thumbnail = new CardThumbnail { CardType = spec.Type };
+            var content = new StackPanel
+            {
+                Spacing = 3,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            content.Children.Add(thumbnail);
+            content.Children.Add(new TextBlock
+            {
+                Text = spec.DisplayName,
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 160,
+            });
+
             var chip = new Button
             {
-                Content = spec.DisplayName,
+                Content = content,
                 Tag = spec.Type,
-                FontSize = 12,
-                Padding = new Thickness(10, 4, 10, 4),
+                Padding = new Thickness(4, 4, 4, 4),
                 MinWidth = 0,
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 BorderThickness = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
             };
+            // 内容是「缩略图 + 名称」的多层元素，读屏会读成一长串；
+            // 给一个干净的名字，说明挂在帮助文本里。
+            AutomationProperties.SetName(chip, spec.DisplayName);
+            AutomationProperties.SetHelpText(chip, spec.Summary);
+            ToolTipService.SetToolTip(chip, spec.Summary);
             // Button 基类会把按下 / 抬起标记为已处理，必须用 handledEventsToo 才能收得到
             chip.AddHandler(PointerPressedEvent,
                 new PointerEventHandler(PaletteChip_PointerPressed), handledEventsToo: true);
@@ -231,9 +348,24 @@ public sealed partial class HomePage : Page
         var point = e.GetCurrentPoint(HomeGrid).Position;
         var inside = point.X >= 0 && point.Y >= 0
             && point.X <= HomeGrid.ActualWidth && point.Y <= HomeGrid.ActualHeight;
-        if (!(inside && HomeGrid.CommitDrop(type)))
+        if (inside && HomeGrid.CommitDrop(type))
+        {
+            // 腾位规则可能把卡片挪到别处、或换成更小的档位 —— 说清楚，别让用户以为拖错了
+            var spec = HomeCardCatalog.Resolve(type);
+            var host = HomeGrid.FindHost(type);
+            if (host is not null)
+            {
+                var (w, h) = spec.Clamp(host.ColumnSpan, host.RowSpan);
+                if (w != spec.DefaultColumnSpan || h != spec.DefaultRowSpan)
+                    ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"));
+                else
+                    ShowHomeToast(Loc.T("已添加卡片"), ok: true);
+            }
+        }
+        else
         {
             HomeGrid.CancelDrop();
+            if (inside) WarnNoHomeSpace();
         }
         e.Handled = true;
     }
@@ -249,16 +381,29 @@ public sealed partial class HomePage : Page
     {
         CardParams.Children.Clear();
         var host = HomeGrid.SelectedHost;
-        CardParams.Children.Add(new TextBlock
+        if (host is null)
         {
-            Text = host is null ? Loc.T("点选卡片后在这里改尺寸") : Loc.T("尺寸"),
-            FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center,
-            Opacity = 0.65,
-        });
-        if (host is null) return;
+            CardParams.Children.Add(new TextBlock
+            {
+                Text = Loc.T("点选卡片后在这里改尺寸"),
+                FontSize = 12,
+                Opacity = 0.65,
+            });
+            return;
+        }
 
         var spec = HomeCardCatalog.Resolve(host.CardType);
+
+        // 标题
+        CardParams.Children.Add(new TextBlock
+        {
+            Text = $"{spec.DisplayName} · {Loc.T("尺寸")}",
+            FontSize = 12,
+            Opacity = 0.65,
+        });
+
+        // 档位按钮横排一排
+        var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         foreach (var size in spec.Presets)
         {
             var width = Math.Min(size.ColumnSpan, HomeGrid.Columns);
@@ -272,8 +417,9 @@ public sealed partial class HomePage : Page
             };
             if (isCurrent) button.Style = (Style)Application.Current.Resources["ScAccentButtonStyle"];
             button.Click += (_, _) => ApplyCardSize(host, width, size.RowSpan);
-            CardParams.Children.Add(button);
+            sizeRow.Children.Add(button);
         }
+        CardParams.Children.Add(sizeRow);
 
         var remove = new Button
         {
@@ -319,7 +465,14 @@ public sealed partial class HomePage : Page
     /// <summary>主页不滚动：固定行数里放不下时只提示，不偷偷拉高页面。</summary>
     private void WarnNoHomeSpace()
     {
-        HomeToast.Message = Loc.T("主页空间不足：先把其它卡片换成更小的尺寸，或移除不用的卡片");
+        ShowHomeToast(Loc.T("主页空间不足：先把其它卡片换成更小的尺寸，或移除不用的卡片"));
+    }
+
+    /// <summary>页面级悬浮提示（卡片操作结果）：默认是错误态，成功时传 ok=true 走提示态。</summary>
+    private void ShowHomeToast(string message, bool ok = false)
+    {
+        HomeToast.Severity = ok ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+        HomeToast.Message = message;
         HomeToast.IsOpen = true;
         _toastTimer.Stop();
         _toastTimer.Start();
@@ -331,39 +484,56 @@ public sealed partial class HomePage : Page
         _homeLayoutStore.Save(_homeLayout);
     }
 
-    /// <summary>套用固定尺寸档位：放不下就顺延到第一个空位，然后落盘。</summary>
+    /// <summary>套用固定尺寸档位：放不下就腾位（换小档位或挪到空位），然后落盘。</summary>
     private void ApplyCardSize(CardHost host, int columnSpan, int rowSpan)
     {
-        var others = HomeGrid.Hosts()
-            .Where(h => !ReferenceEquals(h, host) && h.Visibility == Visibility.Visible)
-            .Select(ToCardLayout)
-            .ToList();
-        var candidate = new HomeCardLayout
+        var spec = HomeCardCatalog.Resolve(host.CardType);
+        var placement = HomeCardPlacer.Place(
+            HomeGrid.Hosts().Select(ToCardLayout).ToList(),
+            HomeGrid.Columns,
+            HomeGrid.Rows,
+            spec,
+            host.Column,
+            host.Row,
+            host.CardId);
+
+        if (!placement.Success)
         {
-            Id = host.CardId,
-            Column = host.Column,
-            Row = host.Row,
-            ColumnSpan = columnSpan,
-            RowSpan = rowSpan,
-        };
-        if (others.Any(other => HomeGridMath.Overlaps(candidate, other)))
-        {
-            var (column, row) = HomeGridMath.FindSlot(others, HomeGrid.Columns, columnSpan, rowSpan,
-                maxRows: HomeGrid.Rows);
-            if (column < 0)
-            {
-                WarnNoHomeSpace();
-                return;
-            }
-            host.Column = column;
-            host.Row = row;
+            WarnNoHomeSpace();
+            return;
         }
 
-        host.ColumnSpan = columnSpan;
-        host.RowSpan = rowSpan;
-        (host.CardContent as ICardSizeAware)?.ApplyCardSize(columnSpan, rowSpan);
+        // 腾位时可能有别的卡片被缩小/挪开 —— 一并落实
+        if (placement.Displaced is { Count: > 0 })
+        {
+            foreach (var shift in placement.Displaced)
+            {
+                var victim = HomeGrid.FindHost(shift.Id);
+                if (victim is null) continue;
+                victim.Column = shift.Column;
+                victim.Row = shift.Row;
+                victim.ColumnSpan = shift.ColumnSpan;
+                victim.RowSpan = shift.RowSpan;
+                (victim.CardContent as ICardSizeAware)?.ApplyCardSize(shift.ColumnSpan, shift.RowSpan);
+            }
+        }
+
+        // 用户点的是某个档位；腾位后可能被换成别的档位/挪到别处 —— 如实说明
+        var changed = placement.ColumnSpan != columnSpan || placement.RowSpan != rowSpan;
+        var moved = placement.Column != host.Column || placement.Row != host.Row;
+
+        host.Column = placement.Column;
+        host.Row = placement.Row;
+        host.ColumnSpan = placement.ColumnSpan;
+        host.RowSpan = placement.RowSpan;
+        (host.CardContent as ICardSizeAware)?.ApplyCardSize(placement.ColumnSpan, placement.RowSpan);
         HomeGrid.InvalidateMeasure();
         PersistCardLayout();
+
+        if (changed)
+            ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"));
+        else if (moved)
+            ShowHomeToast(Loc.T("目标位置放不下，这张卡片已挪到空位"));
     }
 
     private static HomeCardLayout ToCardLayout(CardHost host) => new()
@@ -607,6 +777,8 @@ public sealed partial class HomePage : Page
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
         _expandedMetricsValid = false;
+        // 窗口尺寸变了：工具箱要跟着内容区右沿重新摆（编辑模式才摆）
+        if (LayoutEditBar.Visibility == Visibility.Visible) PositionLayoutToolbox();
     }
 
     private void Initialize()

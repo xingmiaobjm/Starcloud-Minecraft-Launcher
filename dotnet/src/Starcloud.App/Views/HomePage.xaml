@@ -190,13 +190,16 @@
     </Page.Resources>
 
     <!-- 不用 ScrollViewer：整体填满视口，卡片与窗口同高（PCL2 式） -->
-    <!-- 根节点两层：HomeContent（主页两列）+ LaunchOverlay（启动页覆盖层，见文件尾） -->
+    <!-- 根节点三层：HomeContent（主页两列）+ 布局编辑悬浮层（Canvas 绝对定位）
+         + LaunchOverlay（启动页覆盖层，见文件尾） -->
     <Grid>
-        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch">
+        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch"
+              AutomationProperties.Name="主页内容区">
             <!-- 卡片网格：固定 12 列 × 6 行，主页永远不滚动。
                  卡片按固定尺寸档位摆放，放不下就提示，不靠拉高页面解决。 -->
             <ctrl:CardGridPanel x:Name="HomeGrid" Columns="12" Rows="6" ColumnGap="24" RowGap="16"
                                 StretchRows="True"
+                                AutomationProperties.Name="主页卡片网格"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <ctrl:CardHost x:Name="VersionsHost" CardId="versions" CardType="versions"
                            Column="0" Row="0" ColumnSpan="8" RowSpan="6">
@@ -864,36 +867,73 @@
             </ctrl:CardGridPanel>
         </Grid>
 
-        <!-- 布局编辑工具箱：竖条，贴着主页右沿悬浮在所有控件上方。
+        <!-- 布局编辑工具箱：浮层面板，贴在主页右缘、压在所有控件之上，不参与主页布局 ——
+             主界面卡片的位置与大小一概不动。
+             放在独立的 Canvas 里、用绝对坐标定位：Canvas 不参与 Grid 的尺寸分配，
+             工具箱既不会把主页内容挤窄，也不会让内容区变成 0 宽。
+
+             宽度取窄条（196）：主页内容区本身占满窗口宽（MaxWidth=1280 DIP 居中，
+             右侧只剩约 100 DIP 留白），宽面板会把账户卡整块盖住。
+             窄条单列排，每条是「缩略图 + 名称」，竖向可滚。
+             按住标题条可把工具箱拖到别处（位置会记住）。
+
              所有卡片都预设在里面，从这里拖到主页任意格位落卡；
              点选某张卡后，尺寸档位 / 移除也在这一条里改。 -->
-        <Grid x:Name="LayoutEditBar" Visibility="Collapsed"
-              HorizontalAlignment="Right" VerticalAlignment="Stretch"
-              Width="170" Margin="0,14,14,14"
-              Canvas.ZIndex="10">
-            <Border Background="{ThemeResource GlassCardBrush}"
+        <Canvas Canvas.ZIndex="10" IsHitTestVisible="True">
+            <Grid x:Name="LayoutEditBar" Visibility="Collapsed"
+                  Canvas.Left="0" Canvas.Top="14" Width="196" Height="0"
+                  AutomationProperties.Name="布局编辑工具箱">
+            <!-- 工具箱底色用不透明：玻璃底（半透明）会把下面的账户卡透出来，
+                 浮层压在内容上时一片糊，反而看不清自己这边是什么。 -->
+            <Border Background="{ThemeResource ScFloatingPanelBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="16" Padding="12,12">
+                    BorderThickness="1" CornerRadius="16" Padding="10,8">
                 <Grid RowSpacing="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <TextBlock loc:Loc.Text="拖到主页" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <StackPanel x:Name="PaletteChips" Grid.Row="1" Orientation="Vertical" Spacing="6" />
+                    <!-- 标题条：按住可把整条工具箱拖到别处（悬浮层，不挡主界面）。
+                         底色用 Alpha=1 的近全黑：纯透明背景不参与命中测试，
+                         拖不动。视觉上完全看不出来。 -->
+                    <Grid x:Name="ToolboxHandle" Background="#01000000"
+                          ColumnSpacing="6" Height="20"
+                          PointerPressed="ToolboxHandle_PointerPressed"
+                          PointerMoved="ToolboxHandle_PointerMoved"
+                          PointerReleased="ToolboxHandle_PointerReleased"
+                          PointerCanceled="ToolboxHandle_PointerReleased">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE8A7;" FontSize="11"
+                                  VerticalAlignment="Center" Opacity="0.55" />
+                        <TextBlock Grid.Column="1" loc:Loc.Text="拖到主页" FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <!-- 卡片列表：窄条单列竖排；缩略图让每条更高，七条要滚动，
+                         但每条的「长什么样」始终看得见。 -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="PaletteChips" Orientation="Vertical" Spacing="2" />
+                    </ScrollViewer>
                     <Border Grid.Row="2" Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <StackPanel x:Name="CardParams" Grid.Row="3" Orientation="Vertical" Spacing="6" />
-                    <Button Grid.Row="5" Content="完成" Click="LayoutDone_Click"
+                    <!-- 参数区（尺寸档位 + 移除）：横排一排，档位按钮并排显示 -->
+                    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="CardParams" Orientation="Vertical" Spacing="6" />
+                    </ScrollViewer>
+                    <Button Grid.Row="4" Content="完成" Click="LayoutDone_Click"
                             Style="{StaticResource ScAccentButtonStyle}" Padding="8,4"
                             HorizontalAlignment="Stretch" />
                 </Grid>
             </Border>
         </Grid>
+        </Canvas>
 
         <!-- 页面级悬浮提示：卡片的操作结果（空间不足等）浮在所有控件之上，
              不再塞进某张卡片内部（卡片会被拖动/缩放/隐藏，提示跟着跑没有意义）。 -->
@@ -901,8 +941,10 @@
                  HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
                  MaxWidth="560" Canvas.ZIndex="20" />
 
-        <!-- ═══ 启动页覆盖层：点启动后盖住两列内容（PCL2 式，设计：launch-overlay-design.md §3.1） ═══ -->
+        <!-- ═══ 启动页覆盖层：点启动后盖住两列内容（PCL2 式，设计：launch-overlay-design.md §3.1） ═══
+             ZIndex 高于工具箱：启动过程中不该还看见编辑浮条。 -->
         <Grid x:Name="LaunchOverlay" Visibility="Collapsed"
+              Canvas.ZIndex="30"
               Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
             <StackPanel MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Spacing="14">
