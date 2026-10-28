@@ -1,4 +1,4 @@
-// WinUI 3 应用入口
+﻿// WinUI 3 应用入口
 
 using System.IO;
 using Microsoft.UI.Xaml;
@@ -11,6 +11,9 @@ public partial class App : Application
 {
     /// <summary>首次向导窗口的强引用（WinUI 的 Window 不持有引用就会被 GC 关掉）</summary>
     private Views.Dialogs.OnboardingWindow? _onboarding;
+
+    /// <summary>主页布局编辑工具箱窗口（独立顶层窗口，同样需要强引用否则会被 GC 关掉）</summary>
+    public static Views.Dialogs.ToolboxWindow? Toolbox { get; set; }
 
     /// <summary>启动参数（向导结束、主窗口延后创建时仍要处理 starcloud://join）</summary>
     private LaunchActivatedEventArgs? _launchArgs;

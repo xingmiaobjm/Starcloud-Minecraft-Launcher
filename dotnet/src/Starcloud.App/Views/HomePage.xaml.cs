@@ -156,14 +156,63 @@ public sealed partial class HomePage : Page
     private readonly HomeLayoutStore _homeLayoutStore = new();
     private HomeLayoutConfig _homeLayout = HomeLayoutConfig.Default();
 
-    /// <summary>进入卡片布局编辑模式（版本卡卡头的「布局」按钮）。</summary>
-    private void EditLayout_Click(object sender, RoutedEventArgs e)
+    /// <summary>主页卡片网格（独立工具箱窗口跨窗口落位时要用）。</summary>
+    public CardGridPanel Grid => HomeGrid;
+
+    /// <summary>进入卡片布局编辑模式（由独立工具箱窗口驱动）。</summary>
+    public void EnterLayoutEditing()
     {
         HomeGrid.IsEditing = true;
+        _toolboxOffsetX = _homeLayout.ToolboxOffsetX;
+        _toolboxOffsetY = _homeLayout.ToolboxOffsetY;
+    }
+
+    /// <summary>退出卡片布局编辑模式（工具箱窗口关闭时）。</summary>
+    public void ExitLayoutEditing()
+    {
+        HomeGrid.IsEditing = false;
+        HomeGrid.ClearSelection();
+        LayoutEditBar.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>把提示交给主页显示（独立工具箱窗口在另一个进程内的窗口里，提示走主页更合适）。</summary>
+    public void ShowLayoutToast(string message, bool ok = false) => ShowHomeToast(message, ok);
+
+    /// <summary>
+    /// 打开布局编辑工具箱（版本卡卡头的「布局」按钮）。
+    /// <para>常态是独立顶层窗口：主页内容区本身占满窗口宽，页内浮层必然盖住账户卡。
+    /// 独立窗口起不来时降级到页内浮层（LayoutEditBar 那套）。</para>
+    /// </summary>
+    private void EditLayout_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (App.Toolbox is { } existing)
+            {
+                // 已经开着：把它唤到前面，不重复开
+                existing.Activate();
+                return;
+            }
+            if (App.MainWindow is not MainWindow main) throw new InvalidOperationException("主窗口不可用");
+            var window = new Dialogs.ToolboxWindow();
+            App.Toolbox = window;
+            // 先 Attach 再 Activate：窗口首次激活时才会摆位置，
+            // 那时要靠 _main 算「贴在主窗口右侧外面」，晚了就找不到主窗口了。
+            window.Attach(main);
+            window.Activate();
+            // 窗口显示之后再做收尾（摆位置、设图标、套主题）：
+            // 构造期间这些属性还不可用
+            window.FinishSetup();
+            return;
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("home", "独立工具箱窗口打开失败，降级为页内浮层", ex);
+        }
+
+        // 降级：页内浮层（原来的实现）
+        HomeGrid.IsEditing = true;
         LayoutEditBar.Visibility = Visibility.Visible;
-        // 工具箱是悬浮层：绝对定位、压在所有控件之上，不参与主页布局 ——
-        // 主界面卡片的位置与大小一概不动。
-        // 位置沿用上次拖动的地方（用户拖走过就别每次弹回原位）。
         _toolboxOffsetX = _homeLayout.ToolboxOffsetX;
         _toolboxOffsetY = _homeLayout.ToolboxOffsetY;
         BuildPaletteChips();
@@ -2439,6 +2488,8 @@ public sealed partial class HomePage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         base.OnNavigatedFrom(e);
+        // 离开主页：独立工具箱窗口关掉（它只对主页有意义）
+        try { App.Toolbox?.CloseToolbox(); } catch { /* 已经关了 */ }
         if (LaunchOverlay.Visibility != Visibility.Visible) return;
         _stageTimer.Stop();
         _windowTimer.Stop();

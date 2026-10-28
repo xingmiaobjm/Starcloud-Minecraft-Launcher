@@ -1,4 +1,4 @@
-// 卡片缩略图：工具箱里每类卡片画一张示意图，让人一眼看出这张卡片长什么样。
+﻿// 卡片缩略图：工具箱里每类卡片画一张示意图，让人一眼看出这张卡片长什么样。
 //
 // 为什么不用截图或真实控件渲染：真实卡片内容依赖运行时数据（版本列表、账户），
 // 在工具箱里渲染会把整份主页数据都拉起来；而这里只需要示意「这张卡有哪几块内容」，
@@ -21,6 +21,7 @@ public sealed class CardThumbnail : Grid
 {
     // Color 是结构体，不能 const（CS0283）——用 static readonly
     private static readonly Color Line = Color.FromArgb(0xFF, 0xDD, 0xE0, 0xE5);
+    private static readonly Color GlassEdge = Color.FromArgb(0xB3, 0xFF, 0xFF, 0xFF);
     private static readonly Color Fill = Color.FromArgb(0xFF, 0xEE, 0xF0, 0xF3);
     private static readonly Color Accent = Color.FromArgb(0xFF, 0xFF, 0xD3, 0x22);
     private static readonly Color Avatar = Color.FromArgb(0xFF, 0xC5, 0xD3, 0xEF);
@@ -33,7 +34,16 @@ public sealed class CardThumbnail : Grid
         // 每条要控制在 80 DIP 以内（缩略图 40 + 名称 18 + 间距与内边距 22）。
         Width = 58;
         Height = 40;
+        // 主题翻转时重画：构造时机早于宿主套主题（独立窗口在激活后才 ApplyTheme），
+        // 第一次画走的是系统主题，宿主套完浅色/深色后要跟着翻一次。
+        ActualThemeChanged += (_, _) => Redraw();
         Children.Add(CanvasFor(""));
+    }
+
+    private void Redraw()
+    {
+        Children.Clear();
+        Children.Add(CanvasFor(_cardType));
     }
 
     /// <summary>卡片类型（决定画哪种结构）；改了会重画。</summary>
@@ -44,18 +54,26 @@ public sealed class CardThumbnail : Grid
         {
             if (_cardType == value) return;
             _cardType = value;
-            Children.Clear();
-            Children.Add(CanvasFor(value));
+            Redraw();
         }
     }
 
     private Grid CanvasFor(string type)
     {
+        // 卡面：主题半透明实色 + 玻璃缘（半透明白描边）—— 液态玻璃的标准做法。
+        // <para>为什么不用主页卡片同款的 GlassCardBrush（AcrylicBrush，应用内亚克力）：
+        // 应用内亚克力取样的是窗口背后的内容 —— 主窗口背后是壁纸层，取出来是浅色；
+        // 工具箱窗口背后是 DesktopAcrylic + 桌面（用户毛玻璃强度为 0 时壁纸原样透出），
+        // 取出来是深色。同一个画刷在两个窗口渲染不一致，实测卡片发黑。
+        // 半透明实色不依赖取样，任何窗口、任何桌面下都是同一张玻璃面。</para>
+        var face = ActualTheme == ElementTheme.Dark
+            ? Color.FromArgb(0xC8, 0x20, 0x20, 0x20)
+            : Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF);
         var grid = new Grid
         {
             Padding = new Thickness(5),
-            Background = new SolidColorBrush(Microsoft.UI.Colors.White),
-            BorderBrush = new SolidColorBrush(Line),
+            Background = new SolidColorBrush(face),
+            BorderBrush = new SolidColorBrush(GlassEdge),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7),
         };
@@ -99,6 +117,24 @@ public sealed class CardThumbnail : Grid
             grid.Children.Add(element);
         }
         return grid;
+    }
+
+    /// <summary>
+    /// 沿 ActualTheme 在合并字典的 ThemeDictionaries 里查主题画刷。
+    /// <para>Application.Current.Resources 的索引器不认当前窗口的主题
+    /// （独立窗口尤甚），直接取会拿到另一个主题的画刷 —— 与 MainWindow.ThemedBrush
+    /// 同一套做法。</para>
+    /// </summary>
+    private Brush? ThemedBrush(string key)
+    {
+        var want = ActualTheme.ToString();
+        foreach (var d in Application.Current.Resources.MergedDictionaries)
+            if (d.ThemeDictionaries.TryGetValue(want, out var v) &&
+                v is ResourceDictionary rd && rd.TryGetValue(key, out var b) &&
+                b is Brush brush)
+                return brush;
+        return Application.Current.Resources.TryGetValue(key, out var fallback) &&
+            fallback is Brush fb ? fb : null;
     }
 
     private enum PieceKind { Bar, Pill, Avatar }

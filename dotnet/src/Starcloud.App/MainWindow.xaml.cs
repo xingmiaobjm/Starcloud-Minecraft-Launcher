@@ -1,4 +1,4 @@
-// 主窗口：Acrylic 毛玻璃背景（自定义透明度）+ NavigationView 导航
+﻿// 主窗口：Acrylic 毛玻璃背景（自定义透明度）+ NavigationView 导航
 
 using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -483,6 +483,9 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>页面内跳转入口：通过设置导航栏选中项驱动 Frame 导航，保证左侧选中状态同步。</summary>
+    /// <summary>当前内容页（独立工具箱窗口用它找到主页）。</summary>
+    public Page? CurrentPage => ContentFrame.Content as Page;
+
     public void NavigateTo(string tag)
     {
         var target = Nav.MenuItems.Concat(Nav.FooterMenuItems)

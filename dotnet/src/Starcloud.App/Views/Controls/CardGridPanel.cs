@@ -273,6 +273,13 @@ public sealed class CardGridPanel : Panel
     /// <summary>某张卡被拖动或缩放后提交了新格位（页面据此落盘）。</summary>
     public event EventHandler? LayoutChanged;
 
+    /// <summary>
+    /// 通知外部：格位变了，需要落盘。
+    /// <para>独立工具箱窗口改了主页里的卡片后要落盘，但事件不能从外部 invoke
+    /// （C# 只允许在声明类型内触发），所以给外部一个显式入口。</para>
+    /// </summary>
+    public void NotifyLayoutChanged() => LayoutChanged?.Invoke(this, EventArgs.Empty);
+
     public IReadOnlyList<CardHost> Hosts() => Children.OfType<CardHost>().ToList();
 
     public CardHost? FindHost(string id) =>
@@ -715,6 +722,44 @@ public sealed class CardGridPanel : Panel
             _previewRowSpan = spanH;
         }
         ArrangePreview(cellWidth, cellHeight);
+    }
+
+    /// <summary>
+    /// 跨窗口拖拽入口：<paramref name="screenPoint"/> 是屏幕物理坐标。
+    /// <para>
+    /// 工具箱做成独立顶层窗口后，拖拽时的指针在另一个窗口里，
+    /// 拿不到本窗口的相对坐标。这里用框架的坐标转换器把屏幕坐标换到
+    /// 本窗口的本地坐标，再减去网格在窗口内的偏移，得到网格内相对 DIP。
+    /// 走框架而不是自己除 RasterizationScale：跨窗口跨 DPI 时由框架兜底。</para>
+    /// </summary>
+    public void ShowDropPreviewAtScreenPoint(string cardType, Windows.Graphics.PointInt32 screenPoint)
+    {
+        var local = ToLocalDip(screenPoint);
+        if (local is null) return;
+        ShowDropPreview(cardType, local.Value);
+    }
+
+    /// <summary>屏幕物理坐标 → 网格内相对 DIP；换算不了时返回 null。</summary>
+    private Point? ToLocalDip(Windows.Graphics.PointInt32 screenPoint)
+    {
+        try
+        {
+            var root = XamlRoot;
+            if (root is null) return null;
+
+            // 屏幕物理坐标 → 本窗口本地 DIP
+            var windowLocal = root.CoordinateConverter.ConvertScreenToLocal(screenPoint);
+
+            // 本窗口本地 DIP → 网格内相对 DIP（减去网格原点偏移）。
+            // TransformToVisual(null) 变换到当前 XamlRoot 的根，即窗口内容根。
+            var origin = TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
+            return new Point(windowLocal.X - origin.X, windowLocal.Y - origin.Y);
+        }
+        catch
+        {
+            // 转换器不可用（窗口正在关闭等）：本次不更新预览
+            return null;
+        }
     }
 
     /// <summary>

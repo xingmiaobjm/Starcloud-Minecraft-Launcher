@@ -343,6 +343,13 @@ public sealed class LauncherSettings
     [JsonPropertyName("nova_overlay_y")]
     public int? NovaOverlayY { get; set; }
 
+    // ── 主页布局编辑工具箱窗口位置（独立顶层窗口；物理像素） ──
+    [JsonPropertyName("toolbox_window_x")]
+    public int? ToolboxWindowX { get; set; }
+
+    [JsonPropertyName("toolbox_window_y")]
+    public int? ToolboxWindowY { get; set; }
+
     // ── 资源列表缓存开关（设计：resource-cache-multi-java-global-settings-design.md §3.1） ──
     [JsonPropertyName("resource_cache_enabled")]
     public bool ResourceCacheEnabled { get; set; } = true;
