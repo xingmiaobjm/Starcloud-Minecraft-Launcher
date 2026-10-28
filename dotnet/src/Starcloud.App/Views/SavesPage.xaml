@@ -15,15 +15,17 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 状态提示 -->
+        <!-- 状态提示：成功与失败各占一行。
+             原来两条都在 Row 0，同时打开会叠在一起（只能看到上面那条）。 -->
         <InfoBar x:Name="OkBar" Grid.Row="0" Severity="Success" IsOpen="False" IsClosable="True" />
-        <InfoBar x:Name="ErrorBar" Grid.Row="0" Severity="Error" IsOpen="False" IsClosable="True" />
+        <InfoBar x:Name="ErrorBar" Grid.Row="1" Severity="Error" IsOpen="False" IsClosable="True" />
 
         <!-- 跨版本运行态 -->
-        <InfoBar x:Name="RunBar" Grid.Row="1" Severity="Informational" IsOpen="False" IsClosable="False"
+        <InfoBar x:Name="RunBar" Grid.Row="2" Severity="Informational" IsOpen="False" IsClosable="False"
                  loc:Loc.Title="正在运行" Message="">
             <InfoBar.ActionButton>
                 <ctrl:GlowButton loc:Loc.Text="停止游戏" Click="StopGame_Click" />
@@ -31,7 +33,7 @@
         </InfoBar>
 
         <!-- 工具条 -->
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <Grid Grid.Row="3" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -71,7 +73,7 @@
         </Grid>
 
         <!-- 世界列表 -->
-        <Border Grid.Row="3"
+        <Border Grid.Row="4"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">

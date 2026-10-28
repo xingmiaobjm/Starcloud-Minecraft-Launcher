@@ -380,6 +380,18 @@ public sealed class ChunkedFileDownloader
             }
             catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
             {
+                // 404 / 410：文件在这个源上就是不存在，换源重试也没意义 ——
+                // 摘掉这个源后换下一个，别在同一个源上空等退避
+                if (ex is PermanentHttpException)
+                {
+                    _sources.RecordFailure(kind);
+                    pool.ReleaseProbe(kind);
+                    if (pool.Count > 1) pool.Remove(kind);
+                    Log?.Invoke($"{label} 分片永久失败（{ex.Message}）→ 换源，不重试本源");
+                    if (++failed >= attempts) throw;
+                    continue;
+                }
+
                 _sources.RecordFailure(kind);
                 // 本文件内直接摘掉这个坏源：否则 8 个 worker 会轮流撞它，每片都先超时再换源
                 pool.ReleaseProbe(kind);
@@ -450,8 +462,22 @@ public sealed class ChunkedFileDownloader
             {
                 ParallelGovernor.ReportThrottled(host); // 按主机记住：下次这个域名少开几条连接
                 _sources.RecordThrottled(kind);        // 源级：慢源降权时也扣分
+                // 服务端给了 Retry-After 就按它说的等（比我们自己猜的准）。
+                // 参照 PrismLauncher 的 Request::downloadError。
+                var retryAfter = ParseRetryAfter(resp.Headers.RetryAfter);
+                if (retryAfter is { } wait)
+                {
+                    ParallelGovernor.ReportRetryAfter(host, wait);
+                    throw new IOException($"{label} 限流（HTTP {(int)resp.StatusCode}），服务端要求等待 {wait.TotalSeconds:F0} 秒");
+                }
                 throw new IOException($"{label} 限流（HTTP {(int)resp.StatusCode}）");
             }
+
+            // 404 / 410：文件在这个源上就是不存在，重试多少次都没用。
+            // 不区分就白等满退避（PrismLauncher 明确「404 没有重试的意义」）。
+            if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+                throw new PermanentHttpException(
+                    $"下载源 {label} 返回 {(int)resp.StatusCode}（文件不存在）");
 
             resp.EnsureSuccessStatusCode();
             if (resp.StatusCode != HttpStatusCode.PartialContent)
@@ -548,6 +574,24 @@ public sealed class ChunkedFileDownloader
 
     private static string HostOf(string url) =>
         DownloadSourceRegistry.HostOf(url);
+
+    /// <summary>
+    /// 解析 Retry-After 响应头（秒数或 HTTP 日期两种格式）。
+    /// <para>服务端明确说了要等多久，就按它说的等 —— 比我们自己猜的指数冷却准
+    /// （参照 PrismLauncher 的 Request::downloadError）。</para>
+    /// </summary>
+    private static TimeSpan? ParseRetryAfter(System.Net.Http.Headers.RetryConditionHeaderValue? header)
+    {
+        if (header is null) return null;
+        if (header.Delta is { } delta)
+            return delta > TimeSpan.Zero ? delta : null;
+        if (header.Date is { } date)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait > TimeSpan.Zero ? wait : null;
+        }
+        return null;
+    }
 
     /// <summary>展示用源名：Mojang 镜像报镜像名，非 Mojang 域名（不会被改写）直接报主机名</summary>
     private static string Label(SourceKind kind, string host) =>

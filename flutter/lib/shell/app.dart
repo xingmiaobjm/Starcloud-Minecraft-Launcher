@@ -5,12 +5,12 @@
 library;
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/foundation.dart' show ValueListenableBuilder;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bootstrap.dart';
 import '../kernel/contribution_registry.dart';
-import '../main.dart' show kernelBootState;
+import '../main.dart' show KernelBootState, kernelBootState;
+import '../kernel/plugin_host.dart' show Kernel;
 import 'theme.dart';
 
 class StarcloudApp extends StatelessWidget {
@@ -66,8 +66,9 @@ class _LauncherShellState extends ConsumerState<LauncherShell> {
           );
         }
         // 选中项被撤下（贡献者停用）→ 回落到第一个。
-        final selectedId =
-            all.any((c) => c.id == _selectedId) ? _selectedId! : all.first.id;
+        final selectedId = all.any((c) => c.id == _selectedId)
+            ? (_selectedId ?? all.first.id)
+            : all.first.id;
         _selectedId = selectedId;
 
         // 页面贡献按 id 索引；导航项没有对应页面时降级为说明（不崩、不空白）。

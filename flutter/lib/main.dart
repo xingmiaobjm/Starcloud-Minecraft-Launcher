@@ -10,7 +10,7 @@ import 'dart:async';
 import 'dart:io' show Platform, ProcessSignal, exit, stdout;
 import 'dart:ui' show AppExitResponse;
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint;
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, WidgetsFlutterBinding, runApp;
 import 'package:flutter_riverpod/flutter_riverpod.dart';

@@ -271,6 +271,14 @@ public sealed class DownloadService
                     Log?.Invoke($"整文件下载 {Path.GetFileName(destFile)}（{DownloadSourceRegistry.Name(kind)}）");
                 return;
             }
+            catch (PermanentHttpException)
+            {
+                // 404 / 410：换源也没用（文件就是不存在），直接放弃这个源，
+                // 不进退避 —— 白等满整轮只会拖慢整批下载
+                _sources.RecordFailure(kind);
+                Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 返回 404/410，跳过该源");
+                return;
+            }
             catch (Exception) when (attempt < attempts && !ct.IsCancellationRequested)
             {
                 _sources.RecordFailure(kind);
@@ -350,8 +358,17 @@ public sealed class DownloadService
             var host = DownloadSourceRegistry.HostOf(url);
             ParallelGovernor.ReportThrottled(host);
             _sources.RecordThrottled(SourceKind.Official);   // 整文件路径的限流也算源健康度
+            // 服务端给了 Retry-After 就按它说的等（比我们自己猜的准）
+            if (resp.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+                ParallelGovernor.ReportRetryAfter(host, delta);
             resp.Dispose();
             throw new IOException($"{host} 限流（HTTP {(int)resp.StatusCode}）");
+        }
+        // 404 / 410：文件在这个源上就是不存在，重试也没用 —— 换源或放弃
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+        {
+            resp.Dispose();
+            throw new PermanentHttpException($"下载源返回 {(int)resp.StatusCode}（文件不存在）");
         }
         resp.EnsureSuccessStatusCode();
 
@@ -445,9 +462,27 @@ public sealed class DownloadService
         File.Move(tmp, destFile, overwrite: true);
     }
 
-    /// <summary>探测远端文件大小（HEAD，逐源尝试）；失败返回 0 = 按未知处理</summary>
-    private async Task<long> ProbeSizeAsync(string url, CancellationToken ct)
+    /// <summary>
+    /// 校验已落盘文件的 sha512（新版 Modrinth 索引给的是 sha512，不是 sha1）。
+    /// <para>下载层只认 sha1，这里在落盘后补一道校验 —— 校验不过就删掉，
+    /// 宁可不装也别装个坏的。参照 PrismLauncher 的 parseManifest 用 sha512。</para>
+    /// </summary>
+    internal static bool VerifySha512(string path, string expectedHex)
     {
+        try
+        {
+            using var read = File.OpenRead(path);
+            var actual = Convert.ToHexString(System.Security.Cryptography.SHA512.HashData(read));
+            return actual.Equals(expectedHex, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>探测远端文件大小（HEAD，逐源尝试）；失败返回 0 = 按未知处理</summary>
+    private async Task<long> ProbeSizeAsync(string url, CancellationToken ct)    {
         foreach (var kind in _sources.RacingPoolFor(url))
         {
             try
@@ -639,7 +674,8 @@ public sealed class DownloadService
         int concurrency,
         int maxRetries,
         IProgress<BatchProgress>? progress,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyDictionary<string, string>? sha512ByDest = null)
     {
         // 去重（同 hash 已存在则跳过）
         var pending = new List<(string Url, string Dest, string? Sha1, long Size)>();
@@ -818,6 +854,19 @@ public sealed class DownloadService
                         Interlocked.Add(ref reported, n);
                         Report();
                     }, preferred);
+                // sha512 二次校验：整合包索引给的 sha512（新版 Modrinth 常见），
+                // 下载层只认 sha1，这里按落盘后的文件补一道校验，
+                // 校验不过就把文件删掉（宁可不装，也别装个坏的）。
+                if (sha512ByDest is not null &&
+                    sha512ByDest.TryGetValue(f.Dest, out var expected512) &&
+                    !string.IsNullOrWhiteSpace(expected512))
+                {
+                    if (!VerifySha512(f.Dest, expected512))
+                    {
+                        try { File.Delete(f.Dest); } catch { }
+                        throw new IOException($"SHA512 校验失败: {Path.GetFileName(f.Dest)}");
+                    }
+                }
                 // 整文件兜底路径无增量上报，补齐差额保证进度最终到位
                 Interlocked.Add(ref doneBytes, Math.Max(0, Math.Max(f.Size, 0) - Interlocked.Read(ref reported)));
                 Interlocked.Increment(ref doneFiles);

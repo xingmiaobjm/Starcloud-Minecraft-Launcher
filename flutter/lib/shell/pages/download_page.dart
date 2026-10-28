@@ -160,7 +160,7 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
                       ? '没有拉取到版本清单（点右上角「刷新」重试）'
                       : '没有匹配的版本',
                   style: TextStyle(
-                    color: FluentTheme.of(context).disabledColor,
+                    color: FluentTheme.of(context).inactiveColor,
                   ),
                 ),
               ),
@@ -168,7 +168,7 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
           if (shown.length > _limit)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: TextButton(
+              child: Button(
                 onPressed: () => setState(() => _limit += 80),
                 child: Text('还有 ${shown.length - _limit} 个，加载更多'),
               ),

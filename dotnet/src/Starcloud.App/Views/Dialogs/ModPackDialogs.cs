@@ -540,6 +540,20 @@ public static class ModPackDialogs
                 Opacity = 0.8,
                 TextWrapping = TextWrapping.Wrap,
             });
+            // 整合包要求一个我们不认识的加载器：得说清楚，而不是装完启动时才崩
+            // （PCL 的 NotifyIncompatibleLoader 就是问用户「跳过该加载器继续吗」）
+            var unknown = FindUnknownDependencies(preview.Dependencies);
+            if (unknown.Count > 0)
+            {
+                panel.Children.Add(new InfoBar
+                {
+                    Title = Loc.T("不兼容的加载器"),
+                    Content = Loc.T("该整合包要求 {0}，当前版本暂不支持。导入后可能无法启动，可先移除相关模组再试。",
+                        string.Join("、", unknown)),
+                    Severity = InfoBarSeverity.Warning,
+                    IsClosable = false,
+                });
+            }
             panel.Children.Add(new TextBlock { Text = Loc.T("新建版本名称"), FontSize = 12, Opacity = 0.8 });
             panel.Children.Add(nameBox);
             if (IsLooseContent(preview.Format))
@@ -849,6 +863,24 @@ public static class ModPackDialogs
     }
 
     /// <summary>联动安装后实际存在的加载器版本目录名（fabric-loader-&lt;ver&gt;-&lt;mc&gt; / &lt;mc&gt;-forge-&lt;build&gt; / neoforge-&lt;build&gt;）</summary>
+    /// <summary>
+    /// 找出整合包依赖里我们不认识的加载器键。
+    /// <para>minecraft 是游戏本体，不算加载器；其余（fabric-loader / quilt-loader /
+    /// forge / neoforge）是我们支持的；再往后的键就是「装上去也不认」，
+    /// 得提前告诉用户（PCL 的 NotifyIncompatibleLoader 同思路）。</para>
+    /// </summary>
+    private static List<string> FindUnknownDependencies(IReadOnlyDictionary<string, string> deps)
+    {
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "minecraft", "fabric-loader", "quilt-loader", "forge", "neoforge",
+        };
+        return deps.Keys
+            .Where(k => !known.Contains(k))
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private static string? LoaderVersionId(string dotMc, string mc, IReadOnlyDictionary<string, string> deps)
     {
         string? id = null;

@@ -69,6 +69,22 @@ internal static class ParallelGovernor
         return left > 0 ? TimeSpan.FromMilliseconds(left) : TimeSpan.Zero;
     }
 
+    /// <summary>
+    /// 服务端给了 Retry-After：按它说的等，比我们自己猜的指数冷却准
+    /// （参照 PrismLauncher 的 Request::downloadError）。
+    /// </summary>
+    public static void ReportRetryAfter(string? host, TimeSpan wait)
+    {
+        var s = Get(host);
+        lock (s)
+        {
+            // 服务端说的时长优先，但不短于我们自己那套冷却
+            var own = TimeSpan.FromSeconds(Math.Min(30 * (1 << Math.Max(0, s.Throttles - 1)), MaxCooldownSec));
+            var effective = wait > own ? wait : own;
+            s.CooldownUntilMs = Environment.TickCount64 + (long)effective.TotalMilliseconds;
+        }
+    }
+
     /// <summary>测试用：清空全部记忆</summary>
     internal static void ResetForTests() => States.Clear();
 }

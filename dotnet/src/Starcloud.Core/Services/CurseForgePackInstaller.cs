@@ -86,14 +86,50 @@ public sealed class CurseForgePackInstaller
         var optionalCount = manifest.Files.Count - requiredFiles.Count;
         var byId = await _curseForge.GetFilesByIdsAsync(
             requiredFiles.Select(f => (f.ProjectId, f.FileId)).ToList(), ct);
+
+        // 批量接口没返回的（作者禁分发 / 已下架 / 批量接口不认）再逐个兜底。
+        // 原来是一个一个串行等：几百个文件就是几百次往返，导入慢得离谱。
+        // 改成有限并发（8 路），既快又不至于把 CF 的接口打爆。
+        var missing = requiredFiles
+            .Where(f => !byId.ContainsKey(f.FileId))
+            .ToList();
+        // 兜底结果单独放：取不到的文件记 null，下面统一按「解析不出直链」跳过
+        var fetched = new Dictionary<long, ModrinthVersion?>();
+        if (missing.Count > 0)
+        {
+            status?.Report($"正在逐个解析 {missing.Count} 个文件…");
+            var gate = new SemaphoreSlim(8);
+            var results = new System.Collections.Concurrent.ConcurrentDictionary<long, ModrinthVersion?>();
+            await Task.WhenAll(missing.Select(async f =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    var v = await _curseForge.GetFileAsync(
+                        f.ProjectId.ToString(), f.FileId.ToString(), ct);
+                    results[f.FileId] = v;
+                }
+                catch
+                {
+                    results[f.FileId] = null;
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+            foreach (var (fileId, version) in results)
+                fetched[fileId] = version;
+        }
+
         var batch = new List<(string Url, string Dest, string? Sha1, long Size)>();
         var skipped = 0;
         foreach (var file in requiredFiles)
         {
             ct.ThrowIfCancellationRequested();
-            var version = byId.TryGetValue(file.FileId, out var batched)
-                ? batched
-                : await _curseForge.GetFileAsync(file.ProjectId.ToString(), file.FileId.ToString(), ct);
+            var version = byId.TryGetValue(file.FileId, out var found) ? found : null;
+            if (version is null && fetched.TryGetValue(file.FileId, out var fallback))
+                version = fallback;
             if (version?.PrimaryFile is not { } pf || string.IsNullOrWhiteSpace(pf.Url))
             {
                 skipped++;

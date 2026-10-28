@@ -17,6 +17,7 @@ import 'contracts/skins.dart';
 import 'kernel/paths.dart';
 import 'kernel/plugin_host.dart';
 import 'kernel/scheduler.dart';
+import 'kernel/service_registry.dart' show MissingContractException;
 import 'plugins/builtin/accounts/accounts_page_plugin.dart';
 import 'plugins/builtin/csharp_core/csharp_core_plugin.dart';
 import 'plugins/builtin/download_page/download_page_plugin.dart';

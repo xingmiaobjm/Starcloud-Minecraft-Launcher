@@ -92,6 +92,65 @@ public static class PackZip
             entry.ExtractToFile(dest, overwrite: true);
         }
     }
+
+    /// <summary>
+    /// 只解压「在指定前缀下」的条目（逐条过 PackPathGuard）。
+    /// <para>为什么需要：Modrinth 整合包的 overrides 往往有几百 MB，原来的做法是
+    /// <b>整包解压到临时目录 → 再把 overrides 拷到实例目录</b> ——
+    /// 同一份数据写两遍磁盘，大包要几分钟。改成按需只取 overrides 与索引，
+    /// 直接落到目标目录，省掉一次全量解压 + 一次全量拷贝。</para>
+    /// </summary>
+    /// <param name="archivePath">压缩包路径</param>
+    /// <param name="destDir">目标目录（条目的相对路径原样落在这里）</param>
+    /// <param name="prefixes">要解压的条目名前缀（如 overrides / client-overrides）</param>
+    /// <returns>实际解压的文件数</returns>
+    public static int ExtractPrefixes(string archivePath, string destDir, IReadOnlyList<string> prefixes)
+    {
+        if (prefixes.Count == 0) return 0;
+        Directory.CreateDirectory(destDir);
+        var count = 0;
+        using var zip = Open(archivePath);
+        foreach (var entry in zip.Entries)
+        {
+            if (entry.Name.Length == 0) continue;
+            var full = entry.FullName.Replace('\\', '/');
+            // 只要前缀下的条目；前缀本身是目录项时跳过（entry.Name 为空已在上面挡掉）
+            var matched = false;
+            foreach (var prefix in prefixes)
+            {
+                if (full.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) continue;
+
+            // 落盘时去掉前缀（overrides/xxx → xxx），与原来「解压到临时目录再整目录拷贝」的结果一致
+            var relative = StripPrefix(full, prefixes);
+            var dest = PackPathGuard.Resolve(destDir, relative);
+            if (dest is null)
+            {
+                LauncherLog.Write("pack", $"跳过非法压缩包路径：{entry.FullName}");
+                continue;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            entry.ExtractToFile(dest, overwrite: true);
+            count++;
+        }
+        return count;
+    }
+
+    /// <summary>去掉条目名里匹配到的前缀（取最长的那个），返回包内相对路径。</summary>
+    private static string StripPrefix(string fullName, IReadOnlyList<string> prefixes)
+    {
+        var best = prefixes[0];
+        foreach (var prefix in prefixes)
+            if (fullName.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase) &&
+                prefix.Length > best.Length)
+                best = prefix;
+        return fullName[(best.Length + 1)..];
+    }
 }
 
 /// <summary>

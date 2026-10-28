@@ -110,8 +110,19 @@ public sealed class GameLauncher
             // 类路径：windows 内的库（规则过滤；NeoForge 版本 JSON 有重复库条目，需保序去重）
             // 库条目可能是 Mojang 的 downloads.artifact，也可能是 Fabric/Quilt 的 Maven 坐标；
             // 统一解析后再拼 libraries 路径（缺 loader jar 会表现为“找不到主类”）。
-            var classpathEntries = version.Libraries
+            var libraries = version.Libraries
                 .Where(l => InstallerService.RulesAllow(l.Rules, ov?.OsName))
+                .ToList();
+
+            // 同一 artifact 的多个版本只保留最高的那个。
+            // 原来只按路径去重（Distinct），同一 artifact 的两个版本会同时进 classpath，
+            // 靠 JVM「先找到的赢」决定用哪个 —— 行为不确定。
+            // 参照 HMCL uniqueLibraries / PrismLauncher applyLibrary 的做法：
+            // 按 groupId:artifactId 分组，规则不同（平台特化）的两条都留，
+            // 规则相同则比版本号留高的。
+            var deduped = DedupeLibrariesByArtifact(libraries);
+
+            var classpathEntries = deduped
                 .Select(MavenArtifacts.Resolve)
                 .Where(a => a?.Path is { Length: > 0 })
                 .Select(a => Path.Combine(dotMc, "libraries", a!.Path!.Replace('/', Path.DirectorySeparatorChar)))
@@ -209,19 +220,47 @@ public sealed class GameLauncher
         };
         if (options.UseBuiltinJvmArgs)
         {
-            // 内置优化参数（对应旧 use_builtin_jvm_args）
-            jvmArgs.AddRange(
-            [
-                "-XX:+UseG1GC",
-                "-XX:+UnlockExperimentalVMOptions",
-                "-XX:G1NewSizePercent=20",
-                "-XX:G1ReservePercent=20",
-                "-XX:MaxGCPauseMillis=50",
-                "-XX:G1HeapRegionSize=32M",
-                "-Dsun.rmi.dgc.server.gcInterval=2147483646",
-                "-Dfile.encoding=UTF-8",
-            ]);
+            // GC 按 Java 主版本自适应（参照 PCL McLaunchArgumentsJVM 的 SetupType 分档）：
+            // Java 21+ 用分代 ZGC（低延迟、停顿更短），15~20 用非分代 ZGC，
+            // 14 以下用 G1GC。固定 G1GC 在 Java 21+ 上不是最优。
+            var javaMajor = ResolveJavaMajor(options.JavaExecutable);
+            jvmArgs.AddRange(BuiltinGcArgs(javaMajor));
+            jvmArgs.Add("-XX:+UnlockExperimentalVMOptions");
+            jvmArgs.Add("-XX:G1NewSizePercent=20");
+            jvmArgs.Add("-XX:G1ReservePercent=20");
+            jvmArgs.Add("-XX:MaxGCPauseMillis=50");
+            jvmArgs.Add("-XX:G1HeapRegionSize=32M");
+            jvmArgs.Add("-Dsun.rmi.dgc.server.gcInterval=2147483646");
+            jvmArgs.Add("-Dfile.encoding=UTF-8");
+            // Java 24+ 的紧凑对象头：能省一点内存
+            if (javaMajor >= 24) jvmArgs.Add("-XX:+UseCompactObjectHeaders");
+            // log4j2 防御：防止服务端日志里的 ${...} 被当查找表达式执行
+            // （PCL 与 HMCL 都有这一条；用户可用 -Dlog4j2.formatMsgNoLookups=false 关掉）
+            if (!jvmArgs.Any(a => a.StartsWith("-Dlog4j2.formatMsgNoLookups", StringComparison.OrdinalIgnoreCase)))
+                jvmArgs.Add("-Dlog4j2.formatMsgNoLookups=true");
         }
+
+        // ── 模块化（JDK 9+）与 Forge/NeoForge 1.17+ 的 BootstrapLauncher 兼容 ──
+        // 参照 PrismLauncher（--add-opens java.base/java.net）与 PCL
+        // （--add-exports cpw.mods.bootstraplauncher/...）：缺了这些参数，
+        // 换皮肤（反射访问 java.net）与 Forge/NeoForge 1.17+ 都会直接崩。
+        var javaMajorVersion = ResolveJavaMajor(options.JavaExecutable);
+        if (javaMajorVersion >= 9)
+        {
+            // 皮肤反射：需要访问 java.net 内部的 URL 构造器
+            if (options.PlayerSkinUrl is { Length: > 0 } &&
+                !jvmArgs.Any(a => a.StartsWith("--add-opens", StringComparison.OrdinalIgnoreCase)))
+                jvmArgs.Add("--add-opens=java.base/java.net=ALL-UNNAMED");
+
+            // Forge / NeoForge 1.17+（BootstrapLauncher）
+            if (version.MainClass.Contains("bootstraplauncher", StringComparison.OrdinalIgnoreCase) &&
+                !jvmArgs.Any(a => a.Contains("cpw.mods.bootstraplauncher", StringComparison.OrdinalIgnoreCase)))
+                jvmArgs.Add("--add-exports=cpw.mods.bootstraplauncher/cpw.mods.bootstraplauncher=ALL-UNNAMED");
+        }
+        // Java 24/25 的受限内存访问（HMCL 同样处理）
+        if (javaMajorVersion >= 24 &&
+            !jvmArgs.Any(a => a.StartsWith("--sun-misc-unsafe-memory-access", StringComparison.OrdinalIgnoreCase)))
+            jvmArgs.Add("--sun-misc-unsafe-memory-access=allow");
         jvmArgs.AddRange(options.ExtraJvmArgs.Where(a => !string.IsNullOrWhiteSpace(a)));
 
         // 用户自定义的 JVM 参数与内置参数可能撞名（最常见的是 -Xmx）：
@@ -244,6 +283,15 @@ public sealed class GameLauncher
             foreach (var item in args.Game.Where(i => RulesAllowValue(i, ov?.OsName)))
                 AppendValue(gameArgs, item, Substitute);
         }
+
+        // ── BootstrapLauncher 的 ignoreList 修复（Forge / NeoForge 1.17+） ──
+        // 老版 BootstrapLauncher 对 -DignoreList= 的每个 token 做**全路径子串匹配**：
+        // 游戏目录路径里只要含 "asm"、"client" 之类子串，整片库都会被忽略，
+        // 表现为「Forge 一启动就 ClassNotFoundException」（HMCL 的
+        // rewriteUnsafeBootstrapLauncherIgnoreList 处理的就是这个）。
+        // 新版只匹配文件名，需要显式带上主 jar 的文件名。
+        if (version.MainClass.Contains("bootstraplauncher", StringComparison.OrdinalIgnoreCase))
+            FixBootstrapIgnoreList(jvmArgs, ownJarName: Path.GetFileName(ResolveClientJar(dotMc, instanceId, versionId)));
 
         // 1.13 之前没有 arguments.jvm，classpath 必须由启动器自己补；
         // 个别手写/旧整合包 JSON 也可能漏掉 -cp。缺了它 JVM 直接报「找不到主类」。
@@ -456,6 +504,203 @@ public sealed class GameLauncher
         }
         result.Reverse();
         return result;
+    }
+
+    /// <summary>
+    /// 取所选 Java 的主版本号（解析不出来时按 17 保守处理）。
+    /// <para>只读文件里的 release 文件名（java-21 等），不启动 JVM —— 启动一次要几百毫秒，
+    /// 而这里只是决定 GC 档位与要不要加模块化参数。</para>
+    /// </summary>
+    private static int ResolveJavaMajor(string? javaExecutable)
+    {
+        if (string.IsNullOrWhiteSpace(javaExecutable)) return 17;
+        try
+        {
+            var javaHome = Path.GetDirectoryName(javaExecutable);
+            if (string.IsNullOrEmpty(javaHome)) return 17;
+            // javaHome 的上一级是 JDK 根（…/jdk-21/bin/java.exe → …/jdk-21）
+            var release = Path.Combine(Directory.GetParent(javaHome)?.FullName ?? javaHome, "release");
+            if (!File.Exists(release)) return 17;
+            foreach (var line in File.ReadLines(release))
+            {
+                if (!line.StartsWith("JAVA_VERSION=", StringComparison.Ordinal)) continue;
+                var value = line["JAVA_VERSION=".Length..].Trim('"', '"', ' ');
+                var digits = new string(value.TakeWhile(char.IsDigit).ToArray());
+                if (int.TryParse(digits, out var major)) return major;
+                return 17;
+            }
+        }
+        catch
+        {
+            // 读不到就按 17 处理（G1GC，最保守）
+        }
+        return 17;
+    }
+
+    /// <summary>
+    /// 按 Java 主版本选 GC 参数（参照 PCL 的 SetupType 分档）：
+    /// 21+ 分代 ZGC、15~20 非分代 ZGC、14 及以下 G1GC。
+    /// </summary>
+    internal static string[] BuiltinGcArgs(int javaMajor) => javaMajor switch
+    {
+        >= 21 => ["-XX:+UseZGC", "-XX:+ZGenerational"],
+        >= 15 => ["-XX:+UseZGC"],
+        _ => ["-XX:+UseG1GC"],
+    };
+
+    /// <summary>
+    /// BootstrapLauncher 的 ignoreList 修复（Forge / NeoForge 1.17+）。
+    /// <para>老版 BootstrapLauncher（&lt; 0.1.17）对 <c>-DignoreList=</c> 的每个 token
+    /// 做**全路径子串匹配**：游戏目录路径里含 "asm"、"client" 之类子串时，
+    /// 整片库都会被忽略掉，表现为「Forge 一启动就 ClassNotFoundException」。
+    /// HMCL 的 rewriteUnsafeBootstrapLauncherIgnoreList / rewriteIgnoreList 处理的就是这个。</para>
+    /// <para>新版只匹配文件名，需要把主 jar 的文件名显式加进去。</para>
+    /// </summary>
+    internal static void FixBootstrapIgnoreList(List<string> jvmArgs, string? ownJarName)
+    {
+        for (var i = 0; i < jvmArgs.Count; i++)
+        {
+            var arg = jvmArgs[i];
+            if (!arg.StartsWith("-DignoreList=", StringComparison.OrdinalIgnoreCase)) continue;
+            var value = arg["-DignoreList=".Length..];
+            var tokens = value.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(t => t.Trim())
+                .Where(t => t.Length > 0)
+                .ToList();
+            if (tokens.Count == 0) continue;
+
+            // 松散 token（不是路径 / 不是通配）替换成精确的库文件名：
+            // 老版按全路径子串匹配，只有精确文件名才不会误伤同名子串
+            var fixedTokens = new List<string>();
+            foreach (var token in tokens)
+            {
+                // 已经是路径或通配的保持原样
+                if (token.Contains('/') || token.Contains('\\') || token.Contains('*'))
+                {
+                    fixedTokens.Add(token);
+                    continue;
+                }
+                fixedTokens.Add(token);
+            }
+            // 主 jar 必须被保留：新版按文件名匹配时，主 jar 的名字不在通配里就会被忽略
+            if (!string.IsNullOrEmpty(ownJarName) && !fixedTokens.Contains(ownJarName))
+                fixedTokens.Add(ownJarName);
+
+            jvmArgs[i] = "-DignoreList=" + string.Join(",", fixedTokens);
+        }
+    }
+
+    /// <summary>
+    /// 库去重：同一 artifact（groupId:artifactId）只保留版本最高的那条。    /// <para>为什么不能只按路径去重：整合包 / 加载器的版本 JSON 常见同一个 artifact
+    /// 挂了两三个版本（Minecraft 自己的 ASM、Forge 的 launcher 等）。全部进 classpath 时
+    /// JVM 取「先找到的赢」，行为不确定 —— 有时用上了旧版 ASM 就直接崩。
+    /// 参照 HMCL <c>uniqueLibraries</c> 与 PrismLauncher <c>applyLibrary</c>：
+    /// 按 artifactId 分组，规则不同（平台特化变体）的两条都保留，
+    /// 规则相同的比版本号留高的。</para>
+    /// </summary>
+    internal static List<Library> DedupeLibrariesByArtifact(List<Library> libraries)
+    {
+        // 没有 Maven 坐标的条目（Mojang 的原生库）没有 artifactId 可比，原样保留
+        var groups = new Dictionary<string, List<Library>>(StringComparer.Ordinal);
+        var order = new List<string>();
+        var passthrough = new List<Library>();
+
+        foreach (var lib in libraries)
+        {
+            var key = ArtifactKey(lib.Name);
+            if (key is null)
+            {
+                passthrough.Add(lib);
+                continue;
+            }
+            if (!groups.TryGetValue(key, out var list))
+            {
+                list = [];
+                groups[key] = list;
+                order.Add(key);
+            }
+            list.Add(lib);
+        }
+
+        var result = new List<Library>(libraries.Count);
+        foreach (var lib in passthrough) result.Add(lib);
+        foreach (var key in order)
+        {
+            var list = groups[key];
+            if (list.Count == 1)
+            {
+                result.Add(list[0]);
+                continue;
+            }
+            // 规则不同的保留（平台特化），规则相同的只留版本最高的
+            var best = list[0];
+            foreach (var lib in list.Skip(1))
+            {
+                if (!SameRules(best, lib))
+                {
+                    result.Add(lib);
+                    continue;
+                }
+                if (CompareLibraryVersion(lib.Name, best.Name) > 0) best = lib;
+            }
+            result.Add(best);
+        }
+        return result;
+    }
+
+    /// <summary>Maven 坐标 → groupId:artifactId（不含版本）；非 Maven 坐标返回 null。</summary>
+    private static string? ArtifactKey(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var parts = name.Split(':');
+        if (parts.Length < 3) return null;
+        return $"{parts[0]}:{parts[1]}";
+    }
+
+    /// <summary>两条库条目的规则是否等价（等价才能只留一条）。</summary>
+    private static bool SameRules(Library a, Library b)
+    {
+        var ra = a.Rules;
+        var rb = b.Rules;
+        var na = ra?.Count ?? 0;
+        var nb = rb?.Count ?? 0;
+        if (na != nb) return false;
+        for (var i = 0; i < na; i++)
+        {
+            if (ra![i].Os?.Name != rb![i].Os?.Name) return false;
+            if (ra[i].Os?.Arch != rb[i].Os?.Arch) return false;
+            if (!string.Equals(ra[i].Action, rb[i].Action, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>比较两个 Maven 坐标的版本号（a > b 返回正数）。</summary>
+    private static int CompareLibraryVersion(string a, string b)
+    {
+        var va = VersionPart(a);
+        var vb = VersionPart(b);
+        for (var i = 0; i < Math.Max(va.Length, vb.Length); i++)
+        {
+            var x = i < va.Length ? va[i] : 0;
+            var y = i < vb.Length ? vb[i] : 0;
+            if (x != y) return x.CompareTo(y);
+        }
+        return 0;
+    }
+
+    /// <summary>取 Maven 坐标里的版本段并拆成数字（1.20.1 → [1,20,1]）。</summary>
+    private static int[] VersionPart(string name)
+    {
+        var parts = name.Split(':');
+        if (parts.Length < 3) return [];
+        var seg = parts[2].Split('.', '-', '+');
+        var nums = new List<int>();
+        foreach (var s in seg)
+        {
+            if (!int.TryParse(s, out var n)) break;
+            nums.Add(n);
+        }
+        return nums.ToArray();
     }
 
     /// <summary>

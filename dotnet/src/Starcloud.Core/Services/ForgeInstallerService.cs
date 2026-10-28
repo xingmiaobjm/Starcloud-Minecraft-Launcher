@@ -230,33 +230,126 @@ public sealed class ForgeInstallerService
         psi.ArgumentList.Add("--installClient");
         psi.ArgumentList.Add(settings.DotMinecraft);
 
+        // 安装失败时要清掉的版本目录：官方安装器半途失败会留下残缺的 versions/<id>，
+        // 留着会变成一个「装了但启动就崩」的坏版本（PCL 的 McInstallFailedClearFolder 同思路）。
+        var targetVersionId = GuessForgeVersionId(mcVersion, installerUrl);
+        var targetVersionDir = string.IsNullOrEmpty(targetVersionId)
+            ? null
+            : Path.Combine(settings.DotMinecraft, "versions", targetVersionId);
+
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("无法启动 Java 进程");
         var stdErrTask = p.StandardError.ReadToEndAsync(ct);
         string? lastLine = null;
+        // 安装器最后几行里会打印 "true" 表示成功（PCL 靠这个判定而不是 exit code：
+        // 官方安装器在部分路径下 exit code 不可靠）
+        var successMarker = false;
+        var recentLines = new Queue<string>();
         var logTask = Task.Run(async () =>
         {
             while (await p.StandardOutput.ReadLineAsync(ct) is { } line)
             {
-                if (line.Length > 0)
-                {
-                    lastLine = line;
-                    Report(progress, line);
-                }
+                if (line.Length == 0) continue;
+                lastLine = line;
+                recentLines.Enqueue(line);
+                while (recentLines.Count > 8) recentLines.Dequeue();
+                if (line.Trim().Equals("true", StringComparison.OrdinalIgnoreCase)) successMarker = true;
+                Report(progress, DescribeInstallStage(line));
             }
         }, ct);
         await p.WaitForExitAsync(ct);
         try { await logTask; } catch (OperationCanceledException) { }
 
-        if (p.ExitCode != 0)
+        if (p.ExitCode != 0 || !successMarker)
         {
             var err = await stdErrTask;
+            // 失败清理：把半成品的版本目录删掉，别留一个坏版本在列表里
+            if (targetVersionDir is not null && Directory.Exists(targetVersionDir))
+            {
+                try { Directory.Delete(targetVersionDir, recursive: true); } catch { /* 清理失败不影响报错 */ }
+            }
+            var detail = err.Length > 0 ? err : lastLine;
             throw new InvalidOperationException(
-                $"安装器执行失败（exit {p.ExitCode}）：{(err.Length > 0 ? err : lastLine)}");
+                $"安装器执行失败（exit {p.ExitCode}）：{detail}");
         }
         Report(progress, $"安装器执行完成（{mcVersion}）");
         // 原版只在列表里隐藏、不删文件：Forge 版本启动仍可能引用它的 JSON 与 client jar。
         // 列表里只留 Forge 版本，用户不会再误选原版。
         VersionVisibility.MarkDependency(settings.DotMinecraft, mcVersion);
+    }
+
+    /// <summary>
+    /// 把安装器的原始输出翻译成阶段提示 + 百分比。
+    /// <para>参照 PCL 的 ForgelikeInjectorLine：官方安装器输出的是
+    /// 「Extracting json」「Building Processors」「Remapping jar... 50%」这类英文行，
+    /// 直接甩给用户看等于没有进度。这里映射成「正在合并映射（50%）」这种。</para>
+    /// </summary>
+    internal static string DescribeInstallStage(string line)
+    {
+        var text = line.Trim();
+        // 已经是百分比行（Remapping jar... 50%）：保留原样但换个说法
+        if (text.StartsWith("Remapping jar", StringComparison.OrdinalIgnoreCase))
+            return $"正在重映射最终 jar（{ExtractPercent(text)}）";
+        if (text.Contains("Extracting json", StringComparison.OrdinalIgnoreCase))
+            return "正在解压版本信息…";
+        if (text.Contains("Downloading libraries", StringComparison.OrdinalIgnoreCase))
+            return "正在下载依赖库…";
+        if (text.Contains("Building Processors", StringComparison.OrdinalIgnoreCase))
+            return "正在构建处理器…";
+        if (text.Contains("DOWNLOAD_MOJMAPS", StringComparison.OrdinalIgnoreCase))
+            return "正在下载官方映射…";
+        if (text.Contains("MERGE_MAPPING", StringComparison.OrdinalIgnoreCase))
+            return "正在合并映射…";
+        if (text.Contains("Splitting:", StringComparison.OrdinalIgnoreCase))
+            return "正在拆分映射…";
+        if (text.Contains("Parameter Annotations", StringComparison.OrdinalIgnoreCase))
+            return "正在处理参数注解…";
+        if (text.Contains("Processing Complete", StringComparison.OrdinalIgnoreCase))
+            return "处理完成，正在收尾…";
+        if (text.Contains("Sorting", StringComparison.OrdinalIgnoreCase))
+            return "正在排序库文件…";
+        if (text.Contains("Injecting profile", StringComparison.OrdinalIgnoreCase))
+            return "正在写入版本配置…";
+        if (text.Contains("File exists", StringComparison.OrdinalIgnoreCase))
+            return "校验已有文件…";
+        // 其它行原样透传（错误信息等）
+        return text;
+    }
+
+    /// <summary>从「Remapping jar... 50%」这类行里取出百分比。</summary>
+    private static string ExtractPercent(string text)
+    {
+        var idx = text.LastIndexOf('%');
+        if (idx <= 0) return "";
+        var start = idx;
+        while (start > 0 && char.IsDigit(text[start - 1])) start--;
+        return text[start..(idx + 1)];
+    }
+
+    /// <summary>
+    /// 猜安装器会写入的版本目录名（如 1.20.1-forge-47.2.0）。
+    /// 猜不到就返回空（失败时不清理，但不影响主流程）。
+    /// </summary>
+    private static string GuessForgeVersionId(string mcVersion, string installerUrl)
+    {
+        // 安装器文件名通常是 forge-1.20.1-47.2.0-installer.jar / neoforge-…-installer.jar
+        var file = Path.GetFileNameWithoutExtension(new Uri(installerUrl).LocalPath);
+        foreach (var marker in new[] { "-installer", "installer" })
+        {
+            var i = file.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (i <= 0) continue;
+            var stem = file[..i].Trim('-', '_');
+            // stem 形如 forge-1.20.1-47.2.0 → 去掉 loader 前缀
+            foreach (var prefix in new[] { "forge-", "neoforge-", "quilt-", "fabric-" })
+            {
+                if (stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    stem = stem[prefix.Length..];
+                    break;
+                }
+            }
+            if (stem.Length > 0) return $"{mcVersion}-{stem}";
+        }
+        return "";
     }
 
     /// <summary>

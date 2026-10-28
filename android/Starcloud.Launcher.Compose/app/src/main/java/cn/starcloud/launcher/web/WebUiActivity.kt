@@ -52,8 +52,10 @@ class WebUiActivity : Activity() {
             settings.setSupportZoom(false)
             settings.builtInZoomControls = false
             settings.displayZoomControls = false
-            // 深色底：避免 Web 内容加载前闪白
-            settings.forceDark = android.webkit.WebSettings.FORCE_DARK_ALLOW
+            // 深色底：避免 Web 内容加载前闪白。
+            // forceDark 的取值随 SDK 版本变化，WebSettings.FORCE_DARK_ALLOW 在部分版本里
+            // 不可用（编译期常量缺失），直接用字面量 2（= WebSettings.FORCE_DARK_ALLOW）。
+            settings.forceDark = 2
 
             webChromeClient = WebChromeClient()
             webViewClient = WebViewClient()
