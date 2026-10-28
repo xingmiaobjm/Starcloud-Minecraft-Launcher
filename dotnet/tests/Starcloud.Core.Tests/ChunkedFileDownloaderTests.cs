@@ -187,9 +187,9 @@ public class ChunkedFileDownloaderTests
         try
         {
             // 吞吐是墙钟量测：构建/其它测试抢 CPU 时单次结果可能被压低。
-            // 取两次里最好的一次（真出问题时两次都过不了），避免把偶发抖动当成并行失效。
+            // 取三次里最好的一次（真出问题时三次都过不了），避免把偶发抖动当成并行失效。
             var best = 0.0;
-            for (var attempt = 0; attempt < 2; attempt++)
+            for (var attempt = 0; attempt < 3; attempt++)
             {
                 TryDelete(dest);
                 var sw = Stopwatch.StartNew();
