@@ -1006,12 +1006,34 @@ public sealed partial class HomePage : Page
                 profile.Pinned, profile.Favorite);
         }).ToList();
 
+        // 版本卡显示哪组版本由设置决定：已安装 / 收藏 / 置顶。
+        // 收藏与置顶是版本右键菜单里的标记；空集合是合法状态（提示去标收藏/置顶）。
+        _rows = _s.Settings.HomeVersionCardMode switch
+        {
+            "favorites" => _rows.Where(r => r.Favorite).ToList(),
+            "pinned" => _rows.Where(r => r.Pinned).ToList(),
+            _ => _rows,
+        };
+
         FinishVersionLoad(store);
     }
 
     /// <summary>版本数据到齐后的收尾：填列表、羽化入场、刷新小卡片。</summary>
+    /// <summary>版本卡标题、空态文案与空态动作随显示模式走。
+    /// <para>收藏 / 置顶为空时引导「去右键标记」而不是「去下载页」—— 空的原因不一样。</para></summary>
+    private (string Title, string EmptyText, string? Action) VersionCardText() => _s.Settings.HomeVersionCardMode switch
+    {
+        "favorites" => (Loc.T("收藏的版本"), Loc.T("还没有收藏的版本：右键版本即可收藏"), null),
+        "pinned" => (Loc.T("置顶的版本"), Loc.T("还没有置顶的版本：右键版本即可置顶"), null),
+        _ => (Loc.T("已安装版本"), Loc.T("暂无已安装版本"), Loc.T("前往下载页安装")),
+    };
+
     private void FinishVersionLoad(InstanceSettingsStore? store)
     {
+        var (title, emptyText, action) = VersionCardText();
+        VersionTitleText.Text = title;
+        EmptyVersionHint.Title = emptyText;
+        EmptyVersionHint.ActionText = action;
         VersionCountText.Text = $"({_rows.Count})";
         // 行数变了，展开态的自然高也跟着变，缓存作废。
         _expandedMetricsValid = false;

@@ -222,6 +222,12 @@ public sealed class LauncherSettings
     [JsonPropertyName("account_walk_animation")]
     public bool AccountWalkAnimation { get; set; } = true;
 
+    // ── 主页版本卡显示哪组版本 ──
+    /// <summary>主页版本列表的内容：installed（已安装）/ favorites（收藏）/ pinned（置顶）。
+    /// 收藏与置顶的标记在版本右键菜单里设置（存版本档案，不在这里）。</summary>
+    [JsonPropertyName("home_version_card_mode")]
+    public string HomeVersionCardMode { get; set; } = "installed";
+
     // ── 主页两栏卡片的收起 / 展开状态 ──
     // 主页每次重新进入都是新实例（NavigationCacheMode=Disabled），状态必须落在设置里才不会还原；
     // 顺带也就跨重启保留了。false 即默认的展开态。
@@ -493,6 +499,7 @@ public sealed class LauncherSettings
     public void ClampBackgroundValues()
     {
         if (BackgroundMode is not ("none" or "builtin" or "file")) BackgroundMode = "none";
+        if (HomeVersionCardMode is not ("installed" or "favorites" or "pinned")) HomeVersionCardMode = "installed";
         BackgroundImageOpacity = Math.Clamp(BackgroundImageOpacity, 0.2, 1.0);
         BackgroundBlurRadius = Math.Clamp(BackgroundBlurRadius, 0, 64);
         if (BackgroundMaskOpacity is { } m) BackgroundMaskOpacity = Math.Clamp(m, 0, 1);

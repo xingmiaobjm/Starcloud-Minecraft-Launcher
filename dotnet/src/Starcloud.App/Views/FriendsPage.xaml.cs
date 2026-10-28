@@ -1,4 +1,4 @@
-// 好友页：严格按 QQ 的两栏交互 —— 左「会话列表」、右「聊天」。
+﻿// 好友页：严格按 QQ 的两栏交互 —— 左「会话列表」、右「聊天」。
 //   · 好友申请 / 联机邀请是列表顶部的系统会话，点击弹对应小窗
 //   · 添加好友走左上「+」菜单；邀请联机 / 删除好友在聊天头「⋯」菜单里
 //   · 消息按 QQ 习惯：自己的靠右、对方的靠左，头像在气泡外侧，超过 5 分钟插一条居中时间
@@ -627,11 +627,39 @@ public sealed partial class FriendsPage : Page
         }
     }
 
-    /// <summary>点附件气泡：弹保存框（默认下载目录），下载到用户选的位置。</summary>
+    /// <summary>点附件气泡：世界分享包弹「导入到存档库 / 另存为」，其余直接弹保存框。</summary>
     private async void MessageBubble_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not ChatMessageRowModel { HasFile: true } row ||
             row.File is null) return;
+
+        // 好友分享来的世界包（存档页「分享给好友」发出）：给一键导入，不用先存再手动导
+        if (row.File.Kind == "world")
+        {
+            var importDlg = new ThemedDialog
+            {
+                Title = Loc.T("好友分享的世界"),
+                Content = new TextBlock
+                {
+                    Text = Loc.T("{0}（{1}）。「导入到存档库」会把它放进共享存档，重名自动改名；也可以只另存为文件。",
+                        row.File.Name, FormatBytes(row.File.Size)),
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                PrimaryButtonText = Loc.T("导入到存档库"),
+                SecondaryButtonText = Loc.T("另存为…"),
+                CloseButtonText = Loc.T("取消"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot,
+            };
+            var result = await importDlg.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                await ImportWorldFromFriendAsync(row.File);
+                return;
+            }
+            if (result != ContentDialogResult.Secondary) return;
+            // 另存为：落到下面的通用下载流程
+        }
 
         var downloads = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -658,6 +686,53 @@ public sealed partial class FriendsPage : Page
             StatusBar.Severity = InfoBarSeverity.Error;
         }
     }
+
+    /// <summary>
+    /// 把好友发来的世界分享包下载到临时文件、校验后导入共享存档。
+    /// <para>导入走 <see cref="SaveService.ImportShared"/>：与存档页「导入分享包」完全同一入口，
+    /// 重名世界自动改名，不会覆盖对方或自己的进度。</para>
+    /// </summary>
+    private async Task ImportWorldFromFriendAsync(FileAttachment file)
+    {
+        var temp = Path.Combine(Path.GetTempPath(), $"starcloud-world-{Guid.NewGuid():N}.zip");
+        StatusBar.Message = Loc.T("正在下载 {0}…", file.Name);
+        StatusBar.Severity = InfoBarSeverity.Informational;
+        StatusBar.IsOpen = true;
+        try
+        {
+            await _s.Friends.DownloadFileAsync(file.Id, temp);
+            if (!SaveService.IsValidSharePackage(temp))
+            {
+                StatusBar.Message = Loc.T("这不是有效的世界分享包（zip 根目录缺少 level.dat）");
+                StatusBar.Severity = InfoBarSeverity.Error;
+                return;
+            }
+
+            StatusBar.Message = Loc.T("正在导入到存档库…");
+            var folder = await Task.Run(() => _s.Saves.ImportShared(temp, _s.Settings.DotMinecraft));
+            StatusBar.Message = Loc.T("已导入世界「{0}」到共享存档。", folder);
+            StatusBar.Severity = InfoBarSeverity.Success;
+            NotificationCenter.Instance.Info(Loc.T("已导入好友分享的世界「{0}」", folder));
+        }
+        catch (Exception ex)
+        {
+            StatusBar.Message = Loc.T("导入失败：{0}", ex.Message);
+            StatusBar.Severity = InfoBarSeverity.Error;
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch { /* 临时文件删不掉就留给系统清理 */ }
+        }
+    }
+
+    /// <summary>字节数的简短展示（聊天附件摘要用）。</summary>
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 * 1024 => $"{bytes / 1024.0 / 1024 / 1024:F1} GB",
+        >= 1024 * 1024 => $"{bytes / 1024.0 / 1024:F1} MB",
+        >= 1024 => $"{bytes / 1024.0:F0} KB",
+        _ => $"{bytes} B",
+    };
 
     private void FilterBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
 

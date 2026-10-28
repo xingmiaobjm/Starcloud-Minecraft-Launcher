@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Starcloud.App.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -610,6 +610,17 @@
                                                   SelectionChanged="Language_Changed">
                                             <ComboBoxItem loc:Loc.Text="简体中文" Tag="zh-CN" />
                                             <ComboBoxItem loc:Loc.Text="English" Tag="en-US" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <!-- 主页版本卡显示哪组版本：收藏 / 置顶的标记在版本右键菜单里 -->
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="主页版本列表" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="HomeVersionCardCombo" Width="160"
+                                                  loc:Loc.Name="主页版本列表"
+                                                  SelectionChanged="HomeVersionCard_Changed">
+                                            <ComboBoxItem loc:Loc.Text="已安装的版本" Tag="installed" />
+                                            <ComboBoxItem loc:Loc.Text="收藏的版本" Tag="favorites" />
+                                            <ComboBoxItem loc:Loc.Text="置顶的版本" Tag="pinned" />
                                         </ComboBox>
                                     </StackPanel>
                                 </StackPanel>

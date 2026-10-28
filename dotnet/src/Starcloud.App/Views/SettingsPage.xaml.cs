@@ -102,6 +102,12 @@ public sealed partial class SettingsPage : Page
                 "dark" => 2,
                 _ => 0,
             };
+            HomeVersionCardCombo.SelectedIndex = s.HomeVersionCardMode switch
+            {
+                "favorites" => 1,
+                "pinned" => 2,
+                _ => 0,
+            };
             MotionCombo.SelectedIndex = s.UiMotionLevel switch
             {
                 "minimal" => 0,
@@ -949,6 +955,16 @@ public sealed partial class SettingsPage : Page
     }
 
     // 界面语言：切换即时生效（词典热替换 + 已本地化的 XAML 文案重放）
+    /// <summary>主页版本卡显示哪组版本（已安装 / 收藏 / 置顶）；主页每次进入都重建，改完即生效。</summary>
+    private void HomeVersionCard_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        _s.Settings.HomeVersionCardMode =
+            (HomeVersionCardCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "installed";
+        try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
+        SavedBar.IsOpen = true;
+    }
+
     private void Language_Changed(object s, SelectionChangedEventArgs e)
     {
         if (!_loaded) return;

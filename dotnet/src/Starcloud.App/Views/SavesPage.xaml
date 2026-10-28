@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Starcloud.App.Views.SavesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -48,6 +48,7 @@
                         loc:Loc.Text="分享" IsEnabled="False" Padding="10,5">
                     <Button.Flyout>
                         <MenuFlyout>
+                            <MenuFlyoutItem loc:Loc.Text="分享给好友…" Click="ShareToFriend_Click" />
                             <MenuFlyoutItem loc:Loc.Text="导出分享文件…" Click="ExportShare_Click" />
                         </MenuFlyout>
                     </Button.Flyout>

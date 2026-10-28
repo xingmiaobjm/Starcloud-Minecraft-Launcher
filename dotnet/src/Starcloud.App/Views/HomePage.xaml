@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Starcloud.App.Views.HomePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -302,7 +302,8 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock loc:Loc.Text="已安装版本" FontWeight="Medium" FontSize="15"
+                        <!-- 文案按设置切换（已安装 / 收藏 / 置顶），由代码在列表就绪时写 -->
+                        <TextBlock x:Name="VersionTitleText" FontWeight="Medium" FontSize="15"
                                    VerticalAlignment="Center" />
                         <Border Grid.Column="1" CornerRadius="5" Padding="6,1" VerticalAlignment="Center"
                                 Background="{ThemeResource SubtleFillColorSecondaryBrush}">

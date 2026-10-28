@@ -387,6 +387,128 @@ public sealed partial class SavesPage : Page
     /// 分享给陌生人：把世界导出为分享包文件（zip），经由聊天工具等任意渠道发送；
     /// 对方在存档页「导入分享包」即可，无需登录任何账号（跨账号分享走文件，不经云端）。
     /// </summary>
+    /// <summary>世界名 → 安全文件名（去掉路径非法字符）；空则退回 fallback。</summary>
+    private static string VersionProfileSafeName(string name, string fallback = "world")
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        return clean.Length == 0 ? fallback : clean;
+    }
+
+    /// <summary>
+    /// 把存档分享给好友：打包 → 上传云端文件（≤200MB）→ 作为文件消息发进与该好友的聊天。
+    /// <para>接收方在好友聊天里点文件气泡选「导入到存档库」即落地。走云端而不是局域网
+    /// 设备链路：设备链路只认同一 Starcloud ID 的设备，好友是另一个账号。</para>
+    /// </summary>
+    private async void ShareToFriend_Click(object s, RoutedEventArgs e)
+    {
+        if (SaveList.SelectedItem is not SaveRow row || _busy) return;
+        if (!_s.StarcloudId.IsLoggedIn)
+        {
+            ErrorBar.Message = Loc.T("分享给好友需要先登录 Starcloud ID（设置 → 账户）");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+
+        IReadOnlyList<FriendProfile> friends;
+        try
+        {
+            friends = await _s.Friends.GetFriendsAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("拉取好友列表失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+            return;
+        }
+        if (friends.Count == 0)
+        {
+            ErrorBar.Message = Loc.T("还没有好友：先在「好友」页添加好友。");
+            ErrorBar.IsOpen = true;
+            return;
+        }
+
+        // 好友选择对话框（与「同步到设备」同构）
+        var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 220, Padding = new Thickness(0) };
+        foreach (var f in friends)
+            list.Items.Add(new ListViewItem
+            {
+                Content = f.DisplayName,
+                Tag = f,
+                Padding = new Thickness(8, 6, 8, 6),
+            });
+        list.SelectedIndex = 0;
+        var dlg = new ThemedDialog
+        {
+            Title = Loc.T("分享给好友"),
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = Loc.T("把世界「{0}」发给哪位好友？对方会在好友聊天里收到文件，点它即可导入存档。", row.Name),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    list,
+                },
+            },
+            PrimaryButtonText = Loc.T("发送"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary ||
+            list.SelectedItem is not ListViewItem item || item.Tag is not FriendProfile friend) return;
+
+        // 行里只有展示文本：回聚合列表拿原始 SaveInfo
+        var save = _s.SaveLibrary.ListAll(_s.Settings.DotMinecraft, _s.Settings)
+            .FirstOrDefault(v => v.FolderName == row.FolderName && v.VersionId == row.VersionId);
+        if (save is null) return;
+
+        var temp = Path.Combine(Path.GetTempPath(), $"starcloud-share-{Guid.NewGuid():N}.zip");
+        _busy = true;
+        BackupProgress.Visibility = Visibility.Visible;
+        UpdateRowActions();
+        try
+        {
+            OkBar.Message = Loc.T("正在打包「{0}」…", row.Name);
+            OkBar.IsOpen = true;
+            await Task.Run(() => _s.Saves.ExportForShare(save.GameRoot, save.FolderName, temp));
+            var size = new FileInfo(temp).Length;
+            if (size > FriendsService.MaxFileBytes)
+            {
+                ErrorBar.Message = Loc.T("这个世界打包后超过 200 MB，暂时发不了好友（可先用「导出分享文件」走别的途径）。");
+                ErrorBar.IsOpen = true;
+                return;
+            }
+
+            OkBar.Message = Loc.T("正在上传并发送给 {0}…", friend.DisplayName);
+            var (id, confirmed) = await _s.Friends.UploadFileAsync(temp);
+            // 文件名给对方看：优先世界名（去掉路径非法字符），退回目录名
+            var safeName = VersionProfileSafeName(
+                string.IsNullOrWhiteSpace(save.LevelName) ? save.FolderName : save.LevelName);
+            var fileName = $"{safeName}.zip";
+            await _s.Friends.SendMessageAsync(friend.UserId,
+                FriendsService.EncodeFileMessage(fileName, confirmed, "world", id));
+            OkBar.Message = Loc.T("已发给 {0}。对方在好友聊天里点文件即可导入存档。", friend.DisplayName);
+            NotificationCenter.Instance.Info(Loc.T("世界「{0}」已分享给 {1}", row.Name, friend.DisplayName));
+        }
+        catch (Exception ex)
+        {
+            ErrorBar.Message = Loc.T("分享失败：{0}", ex.Message);
+            ErrorBar.IsOpen = true;
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch { /* 临时文件删不掉就留给系统清理 */ }
+            _busy = false;
+            BackupProgress.Visibility = Visibility.Collapsed;
+            UpdateRowActions();
+        }
+    }
+
     private async void ExportShare_Click(object s, RoutedEventArgs e)
     {
         if (SaveList.SelectedItem is not SaveRow row || _busy) return;
