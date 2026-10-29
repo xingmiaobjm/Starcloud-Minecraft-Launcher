@@ -298,6 +298,8 @@ public sealed partial class ToolboxWindow : Window
                 if (AppWindow.Presenter is OverlappedPresenter presenter)
                 {
                     presenter.SetBorderAndTitleBar(true, false);
+                    // 置顶：工具箱是编辑主页时一直要用的浮窗，被主窗口盖住就得反复找
+                    presenter.IsAlwaysOnTop = true;
                     presenter.IsResizable = true;
                     presenter.PreferredMinimumWidth = MinW;
                     presenter.PreferredMinimumHeight = MinH;
@@ -351,7 +353,12 @@ public sealed partial class ToolboxWindow : Window
     {
         try
         {
-            _acrylic = new Services.AcrylicBackdropHost(this, Root);
+            _acrylic = new Services.AcrylicBackdropHost(this, Root)
+            {
+                // 浮窗没有壁纸层兜底：着色不透明度封底 0.5（透明度不超过 50%），
+                // 否则用户把毛玻璃强度调到最低时窗口几乎全透、内容看不清。
+                MinimumTintOpacity = 0.5,
+            };
             var settings = _s.Settings;
             _acrylic.SetGlassStrength(settings.BackgroundFollowTheme || settings.BackgroundMaskOpacity is null,
                                       settings.BackgroundMaskOpacity);
