@@ -187,6 +187,41 @@ public class PackCompatTests
     }
 
     [Fact]
+    public void 无扩展名的zip按魔数也能认出来()
+    {
+        var dir = NewDir();
+        try
+        {
+            // 下载站常见的形态：文件没有扩展名（或被浏览器改成了 .dat）
+            var path = Path.Combine(dir, "download");
+            WriteZip(path, new() { ["manifest.json"] = CfManifest });
+
+            Assert.False(ModPackDetector.IsArchive(path));
+            Assert.True(ModPackDetector.LooksLikeArchive(path));
+
+            var resolved = ModPackDetector.ResolveArchivePath(path);
+            Assert.NotNull(resolved);
+            Assert.EndsWith(".zip", resolved);
+            Assert.NotNull(ModPackDetector.Detect(resolved!));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void 普通文本文件不会被魔数误判为归档()
+    {
+        var dir = NewDir();
+        try
+        {
+            var path = Path.Combine(dir, "readme");
+            File.WriteAllText(path, "这不是压缩包，只是一段文字。");
+            Assert.False(ModPackDetector.LooksLikeArchive(path));
+            Assert.Null(ModPackDetector.ResolveArchivePath(path));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public async Task zip和mrpack归一化时原样返回()
     {
         var dir = NewDir();

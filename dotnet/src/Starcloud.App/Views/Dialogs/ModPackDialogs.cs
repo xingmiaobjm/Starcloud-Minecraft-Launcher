@@ -223,11 +223,17 @@ public static class ModPackDialogs
         string? normalizedWork = null;
         try
         {
+            // 扩展名不认识时按魔数补一个（无扩展名 / 改了名的包）：容器归一化按扩展名分发
+            packPath = ModPackDetector.ResolveArchivePath(packPath) ?? packPath;
             (packPath, normalizedWork) = await ModPackArchive.NormalizeAsync(packPath);
         }
         catch (Exception ex)
         {
-            await InfoAsync(root, Loc.T("无法导入整合包"), Loc.T("解压整合包失败：{0}", ex.Message));
+            // 下载中断的包（不完整的 zip/7z）与真损坏的包都会落到这里：
+            // 原文是框架的英文异常（"End of Central Directory record could not be found"），
+            // 对用户没有意义 —— 统一给「文件可能不完整，重新下载」。
+            await InfoAsync(root, Loc.T("无法导入整合包"),
+                Loc.T("这个文件读不出来，可能下载不完整或已损坏。请重新下载后再试。原始错误：{0}", ex.Message));
             return;
         }
 
@@ -254,7 +260,8 @@ public static class ModPackDialogs
         }
         catch (Exception ex)
         {
-            await InfoAsync(root, Loc.T("无法导入整合包"), ex.Message);
+            await InfoAsync(root, Loc.T("无法导入整合包"),
+                Loc.T("这个文件读不出来，可能下载不完整或已损坏。请重新下载后再试。原始错误：{0}", ex.Message));
             return;
         }
 

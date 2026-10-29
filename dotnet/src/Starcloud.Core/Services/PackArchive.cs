@@ -196,6 +196,68 @@ public static class ModPackDetector
             || ext.Equals(".gz", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 按文件头魔数判断是不是归档（不管扩展名）。
+    /// <para>为什么需要：下载站常给出没有扩展名、或被改成 .mcpack / .dat 的包，
+    /// 按扩展名过滤会让用户拖进来毫无反应。zip = PK / PK，
+    /// 7z = 37 7A BC AF 27 1C，rar = Rar!。</para>
+    /// </summary>
+    public static bool LooksLikeArchive(string path)
+    {
+        if (IsArchive(path)) return true;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[8];
+            var n = fs.Read(head);
+            if (n >= 4 && head[0] == (byte)'P' && head[1] == (byte)'K'
+                && (head[2] == 3 || head[2] == 5) && (head[3] == 4 || head[3] == 6))
+                return true;
+            if (n >= 6 && head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC
+                && head[3] == 0xAF && head[4] == 0x27 && head[5] == 0x1C)
+                return true;
+            if (n >= 7 && head[0] == (byte)'R' && head[1] == (byte)'a' && head[2] == (byte)'r'
+                && head[3] == (byte)'!' && head[4] == 0x1A && head[5] == 0x07)
+                return true;
+            // gzip（.tar.gz / .tgz 的容器）与裸 tar（offset 257 的 ustar 在 head 外，先按 gzip 认）
+            if (n >= 2 && head[0] == 0x1F && head[1] == 0x8B) return true;
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 按魔数/扩展名判断后给出可用的归档路径：扩展名不认识时补一个正确的后缀，
+    /// 因为后续的容器归一化按扩展名分发（.7z/.rar/.tgz）。
+    /// </summary>
+    public static string? ResolveArchivePath(string path)
+    {
+        if (IsArchive(path)) return path;
+        if (!LooksLikeArchive(path)) return null;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[8];
+            fs.Read(head);
+            var ext = head[0] == (byte)'P' && head[1] == (byte)'K' ? ".zip"
+                : head[0] == 0x1F && head[1] == 0x8B ? ".gz"
+                : head[0] == 0x37 ? ".7z"
+                : head[0] == (byte)'R' ? ".rar"
+                : null;
+            if (ext is null) return null;
+            var target = path + ext;
+            if (!File.Exists(target)) File.Copy(path, target, overwrite: false);
+            return File.Exists(target) ? target : path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static ModPackProbe? Detect(string archivePath)
     {
         if (!File.Exists(archivePath)) return null;

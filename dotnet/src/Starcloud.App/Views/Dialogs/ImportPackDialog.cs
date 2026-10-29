@@ -71,7 +71,10 @@ internal static class ImportPackDialog
             IReadOnlyList<IStorageItem> items;
             try { items = await e.DataView.GetStorageItemsAsync(); }
             catch { return; }
-            var file = items.OfType<StorageFile>().FirstOrDefault(f => ModPackDetector.IsArchive(f.Name));
+            // 优先按扩展名；没有/不认识时按文件头魔数认（下载站常给无扩展名或改名的包）
+            var candidates = items.OfType<StorageFile>().ToList();
+            var file = candidates.FirstOrDefault(f => ModPackDetector.IsArchive(f.Name))
+                       ?? candidates.FirstOrDefault(f => ModPackDetector.LooksLikeArchive(f.Path));
             if (file is null) return;
             dialog.Hide();
             await ModPackDialogs.ImportAsync(root, s, file.Path);
