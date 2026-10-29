@@ -1,4 +1,4 @@
-// 整合包归档识别与路径安全：Modrinth .mrpack / CurseForge .zip / MultiMC·Prism 实例包
+﻿// 整合包归档识别与路径安全：Modrinth .mrpack / CurseForge .zip / MultiMC·Prism 实例包
 //
 // 导入侧共用：先嗅探归档属于哪种格式（并容忍外层多套一层目录），再统一用 PackPathGuard
 // 校验包内相对路径，避免 JSON 或归档中的 ".." / 盘符把文件写到目标目录之外。
@@ -28,6 +28,13 @@ public enum ModPackFormat
 /// <summary>归档识别结果（EntryRoot 为包内根目录，根级包为 null）</summary>
 public sealed record ModPackProbe(ModPackFormat Format, string? EntryRoot)
 {
+    /// <summary>
+    /// 内层归档在外层 zip 里的完整名字（嵌套包才有：外层只是壳，真包在里面）。
+    /// <para>由 <see cref="ModPackDetector"/> 探测时标记；安装前
+    /// <see cref="ModPackArchive.FlattenIfNested"/> 据此抽出内层再拍平。</para>
+    /// </summary>
+    public string? NestedEntry { get; init; }
+
     public string FormatName => Format switch
     {
         ModPackFormat.Modrinth => "Modrinth",
@@ -181,7 +188,12 @@ public static class ModPackDetector
     {
         var ext = Path.GetExtension(path);
         return ext.Equals(".mrpack", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".zip", StringComparison.OrdinalIgnoreCase);
+            || ext.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".7z", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".rar", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".tar", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".tgz", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".gz", StringComparison.OrdinalIgnoreCase);
     }
 
     public static ModPackProbe? Detect(string archivePath)
@@ -216,7 +228,11 @@ public static class ModPackDetector
             {
                 candidates[0].ExtractToFile(nestedPath, overwrite: true);
                 using var inner = PackZip.Open(nestedPath);
-                return Detect(inner);
+                var probe = Detect(inner);
+                // 标记内层归档在包里的位置：安装前 FlattenIfNested 要把它抽出来拍平。
+                // 这里不能只返回内层探测结果而不留标记 —— 调用方手里还是外层 zip，
+                // 安装器在外层里找不到清单（实测：嵌套 .mrpack 识别成功、导入必失败）。
+                return probe is null ? null : probe with { NestedEntry = candidates[0].FullName };
             }
             finally
             {
@@ -436,11 +452,152 @@ public static class ModPackDetector
 public static class ModPackArchive
 {
     /// <summary>
+    /// 把 7z / tar.gz 整合包解开重压成 zip；zip / .mrpack 原样返回。
+    /// <para>
+    /// 为什么转成 zip：识别与安装全链路（嵌套拍平、overrides 解压、路径安全校验）
+    /// 都建立在 ZipArchive 上；7z / tar.gz 只是入口形态不同，内容与 zip 包一致。
+    /// 很多 CurseForge 服务器包、国内整合包发的是 7z —— 入口不认它们，
+    /// 用户看到的就是「选不了 / 识别不了」。</para>
+    /// <returns>zipPath = 归一化后的包路径（与入参相同时不复制）；workDir = 临时工作目录
+    /// （调用方导入结束后连目录一起删除；zipPath 为空串表示无需处理）。</returns>
+    /// </summary>
+    public static async Task<(string ZipPath, string WorkDir)> NormalizeAsync(string archivePath)
+    {
+        var ext = Path.GetExtension(archivePath).ToLowerInvariant();
+        if (ext is not (".7z" or ".rar" or ".tar" or ".tgz" or ".gz"))
+            return (archivePath, "");
+
+        var work = Path.Combine(Path.GetTempPath(), "starcloud-pack",
+            "norm-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        var dir = Path.Combine(work, "x");
+        Directory.CreateDirectory(dir);
+
+        await Task.Run(() => ExtractAny(archivePath, dir));
+
+        var zipPath = Path.Combine(work, "pack.zip");
+        ZipFile.CreateFromDirectory(dir, zipPath, CompressionLevel.Optimal, false);
+        return (zipPath, work);
+    }
+
+    /// <summary>7z / tar / tar.gz / 单文件 gz 的解开（条目路径逐条校验，拒绝穿越）。</summary>
+    private static void ExtractAny(string archivePath, string destDir)
+    {
+        var ext = Path.GetExtension(archivePath).ToLowerInvariant();
+        switch (ext)
+        {
+            case ".7z":
+                using (var fs = File.OpenRead(archivePath))
+                using (var archive = SharpCompress.Archives.SevenZip.SevenZipArchive.Open(fs))
+                    ExtractArchiveEntries(archive, destDir);
+                break;
+
+            case ".rar":
+                using (var fs = File.OpenRead(archivePath))
+                using (var archive = SharpCompress.Archives.Rar.RarArchive.Open(fs))
+                    ExtractArchiveEntries(archive, destDir);
+                break;
+
+            case ".tar":
+                using (var fs = File.OpenRead(archivePath))
+                using (var archive = SharpCompress.Archives.Tar.TarArchive.Open(fs))
+                    ExtractArchiveEntries(archive, destDir);
+                break;
+
+            case ".tgz":
+                // TarArchive 要可 Seek 的流：GZipStream 不可 Seek，先落成 tar 临时文件再开
+                var tarPath = Path.ChangeExtension(archivePath, ".tar.tmp");
+                try
+                {
+                    using (var fs = File.OpenRead(archivePath))
+                    using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress))
+                    using (var outp = File.Create(tarPath))
+                        gz.CopyTo(outp);
+                    // 流要自己持有并释放：TarArchive 不负责关闭传进去的流，
+                    // 漏掉会让临时 tar 文件一直占着、删不掉（实测导入后残留）。
+                    using (var tarStream = File.OpenRead(tarPath))
+                    using (var archive = SharpCompress.Archives.Tar.TarArchive.Open(tarStream))
+                        ExtractArchiveEntries(archive, destDir);
+                }
+                finally
+                {
+                    try { File.Delete(tarPath); } catch { }
+                }
+                break;
+
+            case ".gz":
+            {
+                // 单文件 gz：解出内容；若解出来是 tar（ustar 魔数）再解一层
+                var outPath = Path.Combine(destDir, Path.GetFileNameWithoutExtension(archivePath));
+                using (var fs = File.OpenRead(archivePath))
+                using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress))
+                using (var output = File.Create(outPath))
+                    gz.CopyTo(output);
+                if (IsTar(outPath))
+                {
+                    using var archive = SharpCompress.Archives.Tar.TarArchive.Open(File.OpenRead(outPath));
+                    ExtractArchiveEntries(archive, destDir);
+                    try { File.Delete(outPath); } catch { }
+                }
+                break;
+            }
+        }
+    }
+
+    private static void ExtractArchiveEntries(SharpCompress.Archives.IArchive archive, string destDir)
+    {
+        var fullDest = Path.GetFullPath(destDir);
+        foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
+        {
+            // 条目键是作者可写的路径：resolve 后必须仍在目标目录内（防 zip-slip 的同款校验）
+            var target = Path.GetFullPath(Path.Combine(destDir, entry.Key ?? ""));
+            if (!target.StartsWith(fullDest, StringComparison.OrdinalIgnoreCase)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            using var entryStream = entry.OpenEntryStream();
+            using var output = File.Create(target);
+            entryStream.CopyTo(output);
+        }
+    }
+
+    /// <summary>文件 offset 257 起是否为 ustar 魔数（tar 归档特征）。</summary>
+    private static bool IsTar(string path)
+    {
+        using var fs = File.OpenRead(path);
+        Span<byte> buf = stackalloc byte[262];
+        var n = 0;
+        while (n < buf.Length)
+        {
+            var read = fs.Read(buf[n..]);
+            if (read == 0) break;
+            n += read;
+        }
+        return n >= 262 && buf[257] == (byte)'u' && buf[258] == (byte)'s' && buf[259] == (byte)'t';
+    }
+
+    /// <summary>
     /// 外层多套了一层目录的包在安装前先重打成根级包——Modrinth / CurseForge 安装器只认根级入口文件。
     /// 根级包原样返回入参路径；否则返回临时包路径，由调用方负责删除。
     /// </summary>
+    /// <summary>把嵌套包的内层归档抽到稳定临时目录，返回临时文件路径。</summary>
+    private static string ExtractNestedEntry(string archivePath, string nestedEntry)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "starcloud-pack");
+        Directory.CreateDirectory(dir);
+        var target = Path.Combine(dir, $"{Guid.NewGuid():N}.zip");
+        using var src = PackZip.Open(archivePath);
+        var entry = src.Entries.FirstOrDefault(e =>
+            string.Equals(e.FullName.Replace('\\', '/'), nestedEntry, StringComparison.Ordinal))
+            ?? throw new FileNotFoundException("嵌套的内层归档不存在", nestedEntry);
+        entry.ExtractToFile(target, overwrite: true);
+        return target;
+    }
+
     public static string FlattenIfNested(string archivePath, ModPackProbe probe)
     {
+        // 外层只是壳、真包在里面的嵌套归档：先抽出内层（安装器读的是外层，找不到清单）
+        if (!string.IsNullOrEmpty(probe.NestedEntry))
+            archivePath = ExtractNestedEntry(archivePath, probe.NestedEntry);
+
         if (string.IsNullOrEmpty(probe.EntryRoot)) return archivePath;
 
         var dir = Path.Combine(Path.GetTempPath(), "starcloud-pack");

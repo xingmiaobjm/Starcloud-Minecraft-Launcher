@@ -219,6 +219,18 @@ public static class ModPackDialogs
     {
         // 识别 / 拍平 / 预览都要开 zip、遍历条目、读清单，大包会跑好几秒 ——
         // 全放后台，界面不卡（这段原来是同步的，用户看到的是「点了没反应」）。
+        // 7z / tar.gz 先归一化成 zip：识别与安装全链路都建立在 ZipArchive 上
+        string? normalizedWork = null;
+        try
+        {
+            (packPath, normalizedWork) = await ModPackArchive.NormalizeAsync(packPath);
+        }
+        catch (Exception ex)
+        {
+            await InfoAsync(root, Loc.T("无法导入整合包"), Loc.T("解压整合包失败：{0}", ex.Message));
+            return;
+        }
+
         ModPackProbe? probe;
         string effective;
         PackPreview? preview;
@@ -269,6 +281,11 @@ public static class ModPackDialogs
             if (!ReferenceEquals(effective, packPath))
             {
                 try { File.Delete(effective); } catch { /* 临时包清理失败可忽略 */ }
+            }
+            // 7z / tar.gz 归一化的临时工作目录（解包目录 + 重压的 zip）一起删
+            if (normalizedWork is not null)
+            {
+                try { Directory.Delete(normalizedWork, recursive: true); } catch { }
             }
         }
     }
