@@ -1,4 +1,4 @@
-// Nova Agent 执行循环：LLM 通过 OpenAI function calling 真正动手配置启动器。
+﻿// Nova Agent 执行循环：LLM 通过 OpenAI function calling 真正动手配置启动器。
 // 循环规则（信任递进，产品基石不变）：
 //   ≤6 轮：只读工具立即执行、结果以 role:"tool" 回喂续跑；
 //   写操作工具一律攒成 NovaPlan 确认清单（用户点头才执行），本轮到此为止——
@@ -115,7 +115,9 @@ public sealed class NovaAgentLoop
                     continue;
                 }
 
-                if (tool.ReadOnly)
+                // 只读工具、以及"自主模式"下允许直接执行的高危工具：立即执行
+                var autoRun = tool.ReadOnly || tool.CanAutoRun?.Invoke() == true;
+                if (autoRun)
                 {
                     yield return new AgentToolStarted(tool.Name,
                         NovaToolDescriber.Describe(tool.Name, call.Arguments));

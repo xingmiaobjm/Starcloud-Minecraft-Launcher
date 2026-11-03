@@ -8,7 +8,7 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled"
+    NavigationCacheMode="Enabled"
     AllowDrop="True" DragOver="Page_DragOver" Drop="Page_Drop">
 
     <Page.Resources>

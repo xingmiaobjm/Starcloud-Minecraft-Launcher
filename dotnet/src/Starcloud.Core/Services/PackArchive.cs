@@ -21,6 +21,13 @@ public enum ModPackFormat
     AtLauncher,
     /// <summary>HMCL 旧导出格式（modpack.json）：按裸内容铺入</summary>
     Hmcl,
+    /// <summary>Technic（bin/modpack.jar 声明自定义版本）：内容铺入 + 版本 JSON 从 jar 内提取</summary>
+    Technic,
+    /// <summary>
+    /// MCBBS（mcbbs.packmeta / 带 addons 的 manifest.json）：国内主流整合包格式。
+    /// addons 声明 game/forge/fabric 等组件版本，overrides 下的内容铺进实例。
+    /// </summary>
+    Mcbbs,
     /// <summary>没有清单文件的通用 zip：按 .minecraft / mods / config 结构直接铺进实例</summary>
     Raw,
 }
@@ -308,6 +315,29 @@ public static class ModPackDetector
         }
     }
 
+    /// <summary>
+    /// 诊断用：把包内前 N 个条目拼成一行，导入失败时写进日志 —
+    /// 一眼就能看出这个 zip 的目录结构（`Minecraft/versions/1.21/mods/…` 这类）。
+    /// </summary>
+    public static string DescribeLayout(string packPath, int maxEntries = 15)
+    {
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(packPath);
+            var names = zip.Entries
+                .Where(e => !e.FullName.EndsWith('/'))
+                .Take(maxEntries)
+                .Select(e => e.FullName)
+                .ToList();
+            var total = zip.Entries.Count;
+            return total == 0 ? "（空包）" : $"{total} 个条目，前 {names.Count} 个：{string.Join(" | ", names)}";
+        }
+        catch (Exception ex)
+        {
+            return $"（读取失败：{ex.Message}）";
+        }
+    }
+
     public static ModPackProbe? Detect(ZipArchive zip)
     {
         // 每种格式只保留深度最浅的候选目录（外层被多套一层时取最外层）
@@ -324,14 +354,29 @@ public static class ModPackDetector
             ModPackFormat? format = leaf.ToLowerInvariant() switch
             {
                 "modrinth.index.json" => ModPackFormat.Modrinth,
-                "manifest.json" => LooksLikeCurseForge(entry) ? ModPackFormat.CurseForge : null,
+                // manifest.json 有三种来源：CurseForge（minecraft 字段）、MCBBS（addons 字段）；
+                // 都不像就不认（避免把随便一个同名文件当整合包）
+                "manifest.json" => LooksLikeCurseForge(entry) ? ModPackFormat.CurseForge
+                    : LooksLikeMcbbs(entry) ? ModPackFormat.Mcbbs : null,
+                "mcbbs.packmeta" => ModPackFormat.Mcbbs,
                 "mmc-pack.json" or "instance.cfg" => ModPackFormat.MultiMc,
                 "pack.toml" => LooksLikePackwiz(entry) ? ModPackFormat.Packwiz : null,
                 "instance.json" => LooksLikeAtLauncher(entry) ? ModPackFormat.AtLauncher : null,
                 "modpack.json" => LooksLikeHmcl(entry) ? ModPackFormat.Hmcl : null,
+                // Technic 的标志物是 bin/modpack.jar（leaf 只留最后一段文件名，这里只认文件名，
+                // 内容根取 bin 的上一层；外层被套目录时即 <root>/bin/modpack.jar）
+                "modpack.jar" when dir is "bin" || dir.EndsWith("/bin") => ModPackFormat.Technic,
                 _ => null,
             };
             if (format is null) continue;
+
+            // Technic 的内容根剥掉 bin 这一层（mods / config 等在 bin 的上一级）
+            if (format == ModPackFormat.Technic)
+                dir = dir switch
+                {
+                    "bin" => "",
+                    _ => dir.EndsWith("/bin") ? dir[..^4] : dir,
+                };
 
             if (!best.TryGetValue(format.Value, out var cur) || depth < cur.Depth)
                 best[format.Value] = (dir, depth);
@@ -339,8 +384,10 @@ public static class ModPackDetector
 
         ModPackFormat[] priority =
         [
-            ModPackFormat.Modrinth, ModPackFormat.CurseForge, ModPackFormat.MultiMc,
+            ModPackFormat.Modrinth, ModPackFormat.CurseForge, ModPackFormat.Mcbbs,
+            ModPackFormat.MultiMc,
             ModPackFormat.Packwiz, ModPackFormat.AtLauncher, ModPackFormat.Hmcl,
+            ModPackFormat.Technic,
         ];
         foreach (var format in priority)
         {
@@ -350,6 +397,42 @@ public static class ModPackDetector
 
         // 没有任何清单：再看是不是“裸内容” zip（PCL/HMCL 的拖入安装、手工压的 .minecraft）
         return DetectRaw(zip);
+    }
+
+    /// <summary>
+    /// 提取 Technic 包 bin/modpack.jar 内的 version.json（Technic 的自定义版本声明：
+    /// mainClass / libraries / 启动参数都在里面）。非 Technic 包返回 null。
+    /// </summary>
+    public static (string Json, string? InheritsFrom)? ReadTechnicVersionJson(string packPath)
+    {
+        try
+        {
+            using var pack = ZipFile.OpenRead(packPath);
+            // 路径大小写不敏感 + 兼容外层套目录（<root>/bin/modpack.jar）
+            var entry = pack.Entries.FirstOrDefault(e =>
+                e.FullName.Replace('\\', '/').EndsWith("bin/modpack.jar", StringComparison.OrdinalIgnoreCase));
+            if (entry is null) return null;
+            using var inner = entry.Open();
+            using var modpackJar = new ZipArchive(inner, ZipArchiveMode.Read);
+            var versionEntry = modpackJar.GetEntry("version.json")
+                ?? modpackJar.Entries.FirstOrDefault(e =>
+                    e.FullName.Replace('\\', '/').Equals("version.json", StringComparison.OrdinalIgnoreCase));
+            if (versionEntry is null) return null;
+            using var reader = new StreamReader(versionEntry.Open());
+            var json = reader.ReadToEnd();
+            string? inherits = null;
+            using (var doc = System.Text.Json.JsonDocument.Parse(json))
+            {
+                if (doc.RootElement.TryGetProperty("inheritsFrom", out var inh) &&
+                    inh.ValueKind == System.Text.Json.JsonValueKind.String)
+                    inherits = inh.GetString();
+            }
+            return (json, inherits);
+        }
+        catch
+        {
+            return null;   // 不是 Technic 包或 jar 损坏：调用方按未知处理
+        }
     }
 
     /// <summary>裸内容候选根：优先 .minecraft / minecraft，其次 mods / config 等游戏目录</summary>
@@ -506,6 +589,86 @@ public static class ModPackDetector
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// MCBBS 整合包（国内主流格式）：清单里一定有 addons 数组（声明 game/forge/fabric 等组件），
+    /// 这也是它和 CurseForge 同名 manifest.json 的唯一区分点。
+    /// </summary>
+    private static bool LooksLikeMcbbs(ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var stream = entry.Open();
+            using var doc = JsonDocument.Parse(PackJson.ReadText(stream));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            if (!doc.RootElement.TryGetProperty("addons", out var addons)) return false;
+            if (addons.ValueKind != JsonValueKind.Array) return false;
+            // addons 必须至少声明 game 版本，否则这个包没法装
+            return addons.EnumerateArray().Any(a =>
+                a.ValueKind == JsonValueKind.Object &&
+                a.TryGetProperty("id", out var id) &&
+                string.Equals(id.GetString(), "game", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 读 MCBBS 清单：返回 (包名, MC 版本, 组件表)。组件表已归一成
+    /// 与 Modrinth 依赖同名（fabric-loader / quilt-loader / forge / neoforge）。
+    /// </summary>
+    public static (string Name, string GameVersion, Dictionary<string, string> Dependencies)?
+        ReadMcbbsMeta(string packPath)
+    {
+        try
+        {
+            using var zip = PackZip.Open(packPath);
+            var entry = zip.Entries.FirstOrDefault(e =>
+            {
+                var n = e.FullName.Replace('\\', '/');
+                return n.EndsWith("mcbbs.packmeta", StringComparison.OrdinalIgnoreCase)
+                    || n.EndsWith("manifest.json", StringComparison.OrdinalIgnoreCase);
+            });
+            if (entry is null) return null;
+
+            using var stream = entry.Open();
+            using var doc = JsonDocument.Parse(PackJson.ReadText(stream));
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var name = root.TryGetProperty("name", out var nEl) ? nEl.GetString() ?? "" : "";
+            var deps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var game = "";
+            if (root.TryGetProperty("addons", out var addons) &&
+                addons.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var addon in addons.EnumerateArray())
+                {
+                    if (addon.ValueKind != JsonValueKind.Object) continue;
+                    var id = addon.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                    var ver = addon.TryGetProperty("version", out var vEl) ? vEl.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    switch (id.ToLowerInvariant())
+                    {
+                        case "game": game = ver ?? ""; break;
+                        case "fabric": deps["fabric-loader"] = ver ?? ""; break;
+                        case "quilt": deps["quilt-loader"] = ver ?? ""; break;
+                        case "forge": deps["forge"] = ver ?? ""; break;
+                        case "neoforge": deps["neoforge"] = ver ?? ""; break;
+                        // optifine 不写进依赖表：需要专门的安装链，装了也未必匹配得上
+                    }
+                }
+            }
+            if (game.Length == 0 && !deps.ContainsKey("forge")) return null;
+            return (name, game, deps);
+        }
+        catch
+        {
+            return null;
         }
     }
 }

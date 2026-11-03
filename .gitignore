@@ -177,3 +177,12 @@ tools/installer-uninstall.nsh
 
 # 测试运行产物
 dotnet/tests/**/TestResults/
+
+# 视频制作脚手架（Remotion 工程 + 截图草稿，非启动器本体）
+tools/video-bg/
+tools/video-shot-15s/
+
+# 打包脚本生成的卸载清单
+tools/installer-obsolete.nsh
+tools/bench/obj/
+tools/bench/bin/

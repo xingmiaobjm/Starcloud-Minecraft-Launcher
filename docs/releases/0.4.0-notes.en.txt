@@ -29,6 +29,11 @@ Download engine
 - Concurrency is derived from the download source actually in use, avoiding repeated requests against a source that is already rate limited.
 - Large files are processed first in a batch so they receive the concurrency budget earlier.
 - Download sources are ranked by a health score combining measured throughput, failures and rate limits, so slow mirrors move back automatically (5-minute half-life follows the drift in mirror quality).
+- Multi-source racing now allocates by measured speed: only mirrors scoring close to the best source take a share of the files, chunks are distributed by weighted round-robin over each source's measured throughput, and the allocation is recomputed per file as real throughput comes in - slow sources and mirrors whose warm-up sample overshot them drop out on their own. With effective mirrors, aggregation is up to 47% faster (measured locally, 45 files).
+- Sources are probed for liveness, speed and chunk support before files are split: mirrors that are entirely down are dropped, sources without Range support no longer receive large files, and a mirror returning 404 counts as "not cached" instead of a failure that degrades the source.
+- Official-source downloads are faster: the per-file chunk count and connection cap for Mojang's CDN are now 2x and 4x the mirror limits (the official CDN throttles per connection), so single large files finish noticeably sooner.
+- Whole-file downloads try each source once and never wait out a rate-limit cooldown: previously one file could repeatedly run into a dead mirror and drag the whole batch.
+- The Starcloud accelerator is now a fallback source: regular downloads no longer touch our own object storage; it joins automatically only when every mirror and the official source are unavailable, or when all primary sources failed for a specific file. It can still be selected explicitly in settings.
 
 Launch arguments
 - The classpath is cached by library set fingerprint instead of stat-ing hundreds of library files on every launch.

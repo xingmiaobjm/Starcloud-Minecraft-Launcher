@@ -1,4 +1,4 @@
-// 版本行共用辅助（图标解析 / 类型推断 / 时间格式化）：版本页、首页与详情页共用。
+﻿// 版本行共用辅助（图标解析 / 类型推断 / 时间格式化）：版本页、首页与详情页共用。
 //
 // 性能取向：类型的三个问题时（"推断类型标签 / 选加载器图标 / 选版本类型图标"）都落在同一个
 // 版本 JSON 上。这里把"读文件 + 解析"收敛成一次 <see cref="Meta"/> 调用并缓存结果，
@@ -185,12 +185,22 @@ public static class VersionRowHelpers
     /// 本地图片路径 → ImageSource。x:Bind 绑定 Image.Source 时，本地绝对路径无法被隐式转换
     /// （XamlBindingHelper.ConvertValue 会抛 ArgumentException 导致整页崩溃），故显式构造。
     /// </summary>
-    public static ImageSource? ResolveIconSource(string? path)
+    /// <summary>
+    /// 加载图标并按需缩解码。<paramref name="decodePixelWidth"/>（逻辑像素）限制解码尺寸：
+    /// 用户自定义图标可能是任意大图（2048px 的 PNG 解码要 16MB 内存），列表行显示只有
+    /// 32-56px——不约束的话每个大图标都全尺寸解码，列表一滚内存和渲染都在白烧。
+    /// 需要更大显示的场景（版本详情页）传更大的值。
+    /// </summary>
+    public static ImageSource? ResolveIconSource(string? path, int decodePixelWidth = 128)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         try
         {
-            return new BitmapImage(new Uri(path));
+            return new BitmapImage(new Uri(path))
+            {
+                DecodePixelWidth = decodePixelWidth,
+                DecodePixelType = DecodePixelType.Logical,
+            };
         }
         catch
         {

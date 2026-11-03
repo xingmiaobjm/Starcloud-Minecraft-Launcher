@@ -29,10 +29,8 @@ public sealed partial class SavesPage : Page
     private bool _suppressFilter;
     private GameSession? _gameProcess;
 
-    // 选中竖条的落点（NaN = 还没落过）与滚动同步入口，用法同主页版本列表
-    private double _barY = double.NaN;
-    private bool _barShown;
-    private ScrollViewer? _savesScroll;
+    // 选中竖条的落点状态（Y=NaN 表示还没落过），用法同主页版本列表
+    private readonly ListSelectionFx.BarState _bar = new();
 
     public SavesPage()
     {
@@ -42,7 +40,7 @@ public sealed partial class SavesPage : Page
         {
             if (e.InRecycleQueue) return;
             ListSelectionFx.SyncInsetFor(SaveList, e.ItemIndex, e.ItemContainer, animate: false);
-            UpdateSelectionBar(animate: false);
+            ListSelectionFx.SyncRowBarFor(SaveList, e.ItemIndex, e.ItemContainer);
         };
         Loaded += async (_, _) =>
         {
@@ -131,10 +129,8 @@ public sealed partial class SavesPage : Page
         // 从左往右羽化：位移 + 淡入 + 从左展开的裁剪（MotionFx.FeatherIn）
         MotionFx.StaggerListItems(SaveList);
         // 列表已重建：竖条落点作废，等容器真正生成后直接给终态（不播位移动画）
-        _barY = double.NaN;
-        _barShown = false;
+        _bar.Reset();
         SaveList.UpdateLayout();
-        HookSaveScroll();
         SyncSelectionMark(animate: false);
 
         if (_rows.Count == 0)
@@ -249,17 +245,7 @@ public sealed partial class SavesPage : Page
     }
 
     private void UpdateSelectionBar(bool animate) =>
-        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, SaveList,
-            ref _barY, ref _barShown, animate);
-
-    /// <summary>滚动时竖条跟着行一起走（不播动画，直接同步位置）。</summary>
-    private void HookSaveScroll()
-    {
-        if (_savesScroll is not null) return;
-        _savesScroll = ListSelectionFx.FindDescendant<ScrollViewer>(SaveList);
-        if (_savesScroll is not null)
-            _savesScroll.ViewChanged += (_, _) => UpdateSelectionBar(animate: false);
-    }
+        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, SaveList, _bar, animate);
 
     private void Refresh_Click(object s, RoutedEventArgs e) => LoadSaves();
 
@@ -620,6 +606,7 @@ public sealed partial class SavesPage : Page
             UpdateRowActions();
         }
     }
+
 
     private async void Delete_Click(object s, RoutedEventArgs e)
     {

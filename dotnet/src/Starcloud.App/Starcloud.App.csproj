@@ -62,6 +62,10 @@
     <Content Include="Assets\Brand\friends-request.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\friends-invite.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\chat-empty.svg" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 界面小图标（HarmonyOS Symbol 字形转的 SVG，占位色 #FE01FE 运行时由 SvgIcon 染色） -->
+    <Content Include="Assets\Icons\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 联机房间卡默认封面：MC 官方宣传图（java / pc bundle / bedrock），按联机码轮换 -->
+    <Content Include="Assets\Rooms\*.jpg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Lab\projection-viewer.html" CopyToOutputDirectory="PreserveNewest" />
     <!-- 投影 3D 预览的渲染引擎：deepslate（MIT，第三方；自带模型继承/元素旋转/多部件/图集/剔除） -->
     <Content Include="Assets\Lab\vendor\deepslate.umd.js" CopyToOutputDirectory="PreserveNewest" />

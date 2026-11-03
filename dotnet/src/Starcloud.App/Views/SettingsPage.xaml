@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Starcloud.App.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -6,7 +6,7 @@
     xmlns:beh="using:Starcloud.App.Views.Behaviors"
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <Page.Resources>
         <!-- PCL 风格：白卡片 + 1px 描边 + 圆角 + 悬浮/按压反馈（继承全局 ScHoverCard） -->
@@ -354,8 +354,11 @@
                                         <ComboBox x:Name="SourceCombo" Width="200" loc:Loc.Name="下载源">
                                             <ComboBoxItem loc:Loc.Text="自动（多源聚合）" Tag="auto" />
                                             <ComboBoxItem loc:Loc.Text="仅官方" Tag="official" />
-                                            <ComboBoxItem loc:Loc.Text="BMCLAPI" Tag="bmclapi" />
                                             <ComboBoxItem loc:Loc.Text="FastMinecraftMirror" Tag="fastmirror" />
+                                            <ComboBoxItem loc:Loc.Text="上海交大镜像" Tag="sjtu" />
+                                            <ComboBoxItem loc:Loc.Text="Starcloud 加速" Tag="starcloud" />
+                                            <ComboBoxItem loc:Loc.Text="自定义镜像" Tag="custom" />
+                                            <ComboBoxItem loc:Loc.Text="BMCLAPI" Tag="bmclapi" />
                                             <ComboBoxItem loc:Loc.Text="RainYun" Tag="rainyun" />
                                         </ComboBox>
                                     </StackPanel>
@@ -364,6 +367,22 @@
                                         <TextBox x:Name="CustomMirrorBox" Width="320"
                                                  loc:Loc.Name="自定义镜像地址"
                                                  loc:Loc.Placeholder="自定义镜像地址" />
+                                    </StackPanel>
+                                    <!-- 下载代理：极端网络（TUN 劫持 / 公司代理 / 加速器）下多源竞速仍可能不稳，
+                                         给一个明确的出口，比让用户猜为什么不走代理有用 -->
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="下载代理" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="ProxyModeCombo" Width="200" loc:Loc.Name="下载代理">
+                                            <ComboBoxItem loc:Loc.Text="跟随系统代理" Tag="system" />
+                                            <ComboBoxItem loc:Loc.Text="直连（不用代理）" Tag="direct" />
+                                            <ComboBoxItem loc:Loc.Text="自定义代理" Tag="custom" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="代理地址" Style="{StaticResource PclLabel}" />
+                                        <TextBox x:Name="ProxyUrlBox" Width="320"
+                                                 loc:Loc.Name="代理地址"
+                                                 loc:Loc.Placeholder="http://127.0.0.1:7890" />
                                     </StackPanel>
                                     <!-- CurseForge 官方 API Key（可空）：留空走社区只读代理，填了直连官方 -->
                                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -578,6 +597,31 @@
                                 <StackPanel Spacing="12">
                                     <StackPanel Style="{StaticResource PclSectionHead}">
                                         <Border Style="{StaticResource PclSectionSpine}" />
+                                        <TextBlock loc:Loc.Text="日志" Style="{StaticResource PclSectionTitle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock loc:Loc.Text="日志强度" Style="{StaticResource PclLabel}" />
+                                        <ComboBox x:Name="LogIntensityBox" Width="180"
+                                                  loc:Loc.Name="日志强度"
+                                                  SelectionChanged="LogIntensity_Changed">
+                                            <ComboBoxItem Tag="0" loc:Loc.Text="普通" />
+                                            <ComboBoxItem Tag="1" loc:Loc.Text="详细" />
+                                            <ComboBoxItem Tag="2" loc:Loc.Text="调试（全部细节）" />
+                                        </ComboBox>
+                                        <TextBlock x:Name="LogIntensityHint" FontSize="12" Opacity="0.7"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <TextBlock loc:Loc.Text="详细=关键路径补充来源与耗时；调试=逐请求/逐分片全部细节。日志在 %APPDATA%\starcloud-launcher\logs。"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource PclCard}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Style="{StaticResource PclSectionHead}">
+                                        <Border Style="{StaticResource PclSectionSpine}" />
                                         <TextBlock loc:Loc.Text="主题外观" Style="{StaticResource PclSectionTitle}" />
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -744,25 +788,6 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Nova 游戏内浮窗（设计：nova-overlay-plan.md T6；默认关 = 显式授权） -->
-                            <Border Style="{StaticResource PclCard}">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                                        <TextBlock loc:Loc.Text="Nova 游戏内浮窗" FontWeight="Medium" />
-                                        <TextBlock loc:Loc.Text="游戏运行时在屏幕角落显示 Nova 浮窗，Ctrl+N 随时呼出对话；下局游戏启动时生效。"
-                                                   FontSize="12" TextWrapping="Wrap"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                    <ToggleSwitch x:Name="OverlaySwitch" Grid.Column="1" VerticalAlignment="Center"
-                                                  loc:Loc.Name="Nova 游戏内浮窗开关"
-                                                  Toggled="OverlaySwitch_Toggled" OnContent="" OffContent="" />
-                                </Grid>
-                            </Border>
-
                             <!-- 软件更新（设计：.trae/documents/auto-update-feature.md） -->
                             <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="12">
@@ -789,6 +814,9 @@
                                         <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
                                                 loc:Loc.Name="手动检查启动器更新"
                                                 Click="CheckUpdate_Click" />
+                                        <ctrl:GlowButton x:Name="FeedbackBtn" loc:Loc.Text="一键反馈"
+                                                loc:Loc.Name="一键反馈"
+                                                Click="Feedback_Click" />
                                         <TextBlock x:Name="UpdateStatusText" VerticalAlignment="Center" FontSize="12"
                                                    TextWrapping="Wrap"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

@@ -73,7 +73,10 @@
 
         <!-- 标题栏：品牌左 + 系统按钮右（ExtendsContentIntoTitleBar）；不透明实色，不透视背景 -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource AppPaneBackgroundBrush}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="10">
+            <StackPanel x:Name="BrandHotspot" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="16,0,0,0" Spacing="10" Background="Transparent"
+                        PointerPressed="BrandHotspot_Pressed"
+                        ToolTipService.ToolTip="双击复制诊断信息（日志 + 电脑信息），反馈问题时用">
                 <!-- 品牌标记：浅底/深底两份主标记按主题自动换源 -->
                 <ctrl:BrandMark Width="22" Height="22" VerticalAlignment="Center" />
                 <TextBlock Text="Starcloud" FontWeight="Medium" FontSize="14"
@@ -96,6 +99,7 @@
                      Background="Transparent" BorderThickness="0"
                     beh:HoverShadowBehavior.IsEnabled="True"
                     beh:HoverShadowBehavior.GlowRadius="16"
+                    beh:HoverShadowBehavior.SurfaceGlow="True"
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=NovaShadow}"
                      loc:Loc.Name="Nova 助手"
                     loc:Loc.Tip="Nova：待命"
@@ -138,6 +142,7 @@
                       Background="Transparent" BorderThickness="0"
                      beh:HoverShadowBehavior.IsEnabled="True"
                      beh:HoverShadowBehavior.GlowRadius="16"
+                     beh:HoverShadowBehavior.SurfaceGlow="True"
                      beh:HoverShadowBehavior.Carrier="{Binding ElementName=TaskCenterShadow}"
                       loc:Loc.Name="调度中心" loc:Loc.Tip="调度中心"
                      Click="TaskCenterBtn_Click">
@@ -180,6 +185,7 @@
                     Background="Transparent" BorderThickness="0"
                    beh:HoverShadowBehavior.IsEnabled="True"
                    beh:HoverShadowBehavior.GlowRadius="16"
+                   beh:HoverShadowBehavior.SurfaceGlow="True"
                    beh:HoverShadowBehavior.Carrier="{Binding ElementName=AccountShadow}"
                     loc:Loc.Name="个人中心"
                     loc:Loc.Tip="个人中心"
@@ -201,6 +207,11 @@
                             </RadialGradientBrush>
                         </Border.Background>
                     </Border>
+                    <!-- Starcloud ID 头像：登录响应下发 avatar_url；没有就回退首字母 / 人形图标 -->
+                    <Border x:Name="AccountAvatarImageClip" CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Image x:Name="AccountAvatarImage" Width="32" Height="32" />
+                    </Border>
                     <TextBlock x:Name="AccountAvatarText" FontSize="13" FontWeight="Medium"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                     <FontIcon FontFamily="{StaticResource ScIconFont}" x:Name="AccountAvatarGlyph" Glyph="&#xEB8F;" FontSize="15"
@@ -214,18 +225,18 @@
             <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}"
                     loc:Loc.Name="最小化" loc:Loc.Tip="最小化" Click="MinimizeButton_Click"
                     beh:HoverShadowBehavior.IsEnabled="True"
-                    beh:HoverShadowBehavior.GlowRadius="40"
-                    beh:HoverShadowBehavior.TriggerInset="6"
+                    beh:HoverShadowBehavior.GlowRadius="16"
+                    beh:HoverShadowBehavior.SurfaceGlow="True"
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=MinimizeShadow}">
-                <!-- 三层数字各管一件事：
+                <!-- 结构与 Nova 键一致：
                      ① 点击热区 = 按钮本体 46×48（CaptionButtonStyle 的 Width/Height）；
-                     ② 点亮范围 = 热区四边各内收 TriggerInset=6 → 34×36，光标进到中间才亮；
-                     ③ 亮起来的形状 = 40×40 的圆角方块（CornerRadius=8，同全站图标块的语言）。
-                        半径必须大于方形半对角线（28.3），否则渐变在四个角之前就淡到 0，
-                        视觉上只剩一个内切圆——GlowRadius=40 就是为了让四个角也被染到。 -->
-                <Grid>
-                    <Border x:Name="MinimizeShadow" Width="40" Height="40" CornerRadius="8"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                     ② 可见形状 = 32×32 圆角 8 的方块，底色与标题栏完全相同、无描边 —— 平时看不出来，
+                        只给跟手光斑一个卡片轮廓，光斑不会漫出按钮中间这一块；
+                     ③ 跟手光斑 = 内阴影层（Carrier），由 HoverShadowBehavior 跟随光标驱动，
+                        均衡及以上才接线（低于均衡档走框架原生悬停底色）。 -->
+                <Grid Width="32" Height="32">
+                    <Border CornerRadius="8" Background="{ThemeResource AppPaneBackgroundBrush}" />
+                    <Border x:Name="MinimizeShadow" CornerRadius="8"
                             Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
@@ -252,15 +263,16 @@
                 </Grid>
             </Button>
             <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButtonStyle}"
+                    Visibility="Collapsed"
                     loc:Loc.Name="最大化" loc:Loc.Tip="最大化" Click="MaximizeButton_Click"
                     beh:HoverShadowBehavior.IsEnabled="True"
-                    beh:HoverShadowBehavior.GlowRadius="40"
-                    beh:HoverShadowBehavior.TriggerInset="6"
+                    beh:HoverShadowBehavior.GlowRadius="16"
+                    beh:HoverShadowBehavior.SurfaceGlow="True"
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=MaximizeShadow}">
-                <!-- 同最小化键：热区 46×48 / 点亮区 34×36 / 光斑载体 40×40 圆角方块（圆角 8） -->
-                <Grid>
-                    <Border x:Name="MaximizeShadow" Width="40" Height="40" CornerRadius="8"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                <!-- 同最小化键：热区 46×48 / 同色框 32×32（圆角 8，无描边）/ 追手光斑在框内 -->
+                <Grid Width="32" Height="32">
+                    <Border CornerRadius="8" Background="{ThemeResource AppPaneBackgroundBrush}" />
+                    <Border x:Name="MaximizeShadow" CornerRadius="8"
                             Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
@@ -322,13 +334,13 @@
             <Button x:Name="CloseButton" Style="{StaticResource CaptionButtonStyle}"
                     loc:Loc.Name="关闭" loc:Loc.Tip="关闭" Click="CloseButton_Click"
                     beh:HoverShadowBehavior.IsEnabled="True"
-                    beh:HoverShadowBehavior.GlowRadius="40"
-                    beh:HoverShadowBehavior.TriggerInset="6"
+                    beh:HoverShadowBehavior.GlowRadius="16"
+                    beh:HoverShadowBehavior.SurfaceGlow="True"
                     beh:HoverShadowBehavior.Carrier="{Binding ElementName=CloseShadow}">
-                <Grid>
-                    <!-- 同最小化键：热区 46×48 / 点亮区 34×36 / 光斑载体 40×40 圆角方块（圆角 8） -->
-                    <Border x:Name="CloseShadow" Width="40" Height="40" CornerRadius="8"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                <Grid Width="32" Height="32">
+                    <!-- 同最小化键：热区 46×48 / 同色框 32×32（圆角 8，无描边）/ 追手光斑在框内 -->
+                    <Border CornerRadius="8" Background="{ThemeResource AppPaneBackgroundBrush}" />
+                    <Border x:Name="CloseShadow" CornerRadius="8"
                             Opacity="0" IsHitTestVisible="False">
                         <Border.Background>
                             <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
@@ -569,6 +581,20 @@
         <!-- 浮窗提醒：替代原状态栏 Nova 指示 -->
         <TeachingTip x:Name="NovaToastTip" Grid.Row="0" IsOpen="False"
                      PreferredPlacement="Bottom" IsLightDismissEnabled="True" Title="Nova" />
+
+        <!-- 每日签到：锚在账户按钮下方，只在「今天还没签」时弹出 -->
+        <TeachingTip x:Name="CheckinTip" Grid.Row="0" IsOpen="False"
+                     Target="{x:Bind AccountButton}" PreferredPlacement="Bottom"
+                     IsLightDismissEnabled="True" Title="每日签到领 token">
+            <StackPanel Spacing="10" MinWidth="220">
+                <TextBlock Text="签到即得云端 token 额度，连续签到可累积。"
+                           FontSize="12" TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Button x:Name="CheckinTipBtn" HorizontalAlignment="Stretch"
+                        Style="{StaticResource ScAccentButtonStyle}"
+                        Click="CheckinTipBtn_Click" />
+            </StackPanel>
+        </TeachingTip>
 
         <!-- 插件通知（launcher:notification）：右下角自动收起的信息条 -->
         <InfoBar x:Name="PluginNotifyTip" Grid.Row="0" IsOpen="False" IsClosable="True"

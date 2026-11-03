@@ -1,4 +1,4 @@
-// Nova 工具的运行环境：一次性把「启动器能做的事」交给工具层，避免注册表构造函数堆二十个参数。
+﻿// Nova 工具的运行环境：一次性把「启动器能做的事」交给工具层，避免注册表构造函数堆二十个参数。
 // 必需项 = 不管在哪种宿主里都有的服务；可选项 = 该宿主没提供时对应工具直接不注册
 // （宁可不给模型这个能力，也不给一个必然失败的工具）。
 
@@ -70,6 +70,9 @@ public sealed record NovaToolContext
     public JavaService? Java { get; init; }
     public GameLauncher? Launcher { get; init; }
     public LaunchAccountService? Accounts { get; init; }
+
+    /// <summary>许可层：操控电脑/接管游戏这类高危工具执行前必须查这里（App 传入同一实例）</summary>
+    public NovaPermissionStore? Permissions { get; init; }
 
     /// <summary>已保存账户表（App 传入运行中的同一实例，写操作才能和界面同步）</summary>
     public AccountStore? Store { get; init; }

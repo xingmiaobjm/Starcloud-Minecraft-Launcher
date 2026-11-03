@@ -12,6 +12,7 @@
 using Microsoft.UI.Xaml;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Controls;
+using Starcloud.App.Localization;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
@@ -118,6 +119,12 @@ public sealed class CardHost : Grid
     /// <summary>点了右下角的尺寸按钮：页面据此弹出固定尺寸档位菜单。</summary>
     public event EventHandler? SizeRequested;
 
+    /// <summary>编辑模式下右键菜单选了尺寸档位（宿主负责落位）。</summary>
+    public event Action<CardHost, int, int>? SizeChosen;
+
+    /// <summary>编辑模式下右键菜单选了「移除」。</summary>
+    public event Action<CardHost>? RemoveChosen;
+
     /// <summary>稳定标识（与 HomeCardLayout.Id 对应）。</summary>
     public string CardId { get; set; } = "";
 
@@ -142,6 +149,42 @@ public sealed class CardHost : Grid
         _dragLayer.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         _editFrame.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         _presenter.IsHitTestVisible = !editing;
+        // 编辑模式才挂右键菜单：平时卡片内容（版本列表等）自己用右键，
+        // 编辑时内容不吃指针，右键落到拖动面上 —— 正好给卡片级菜单。
+        _dragLayer.ContextFlyout = editing ? BuildEditMenu() : null;
+    }
+
+    /// <summary>
+    /// 编辑模式的右键菜单：尺寸档位（当前项打勾）+ 移除。
+    /// <para>为什么要有它：原来改尺寸只能「先点选卡片、再跑到右侧工具箱点档位」，
+    /// 两步跨半个屏幕；右键是 Windows 桌面的既有惯例，就地改完更顺。</para>
+    /// </summary>
+    private MenuFlyout BuildEditMenu()
+    {
+        var menu = new MenuFlyout();
+        var spec = HomeCardCatalog.Resolve(CardType);
+        var sizes = new MenuFlyoutSubItem { Text = Loc.T("尺寸") };
+        foreach (var size in spec.Presets)
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = size.Label,
+                // 当前档位打勾（FlyoutItem 的勾选态用 Icon 表达最稳）
+                Icon = size.ColumnSpan == ColumnSpan && size.RowSpan == RowSpan
+                    ? new FontIcon { Glyph = "", FontSize = 12 }
+                    : null,
+            };
+            var w = size.ColumnSpan;
+            var h = size.RowSpan;
+            item.Click += (_, _) => SizeChosen?.Invoke(this, w, h);
+            sizes.Items.Add(item);
+        }
+        menu.Items.Add(sizes);
+        menu.Items.Add(new MenuFlyoutSeparator());
+        var remove = new MenuFlyoutItem { Text = Loc.T("移除这张卡片") };
+        remove.Click += (_, _) => RemoveChosen?.Invoke(this);
+        menu.Items.Add(remove);
+        return menu;
     }
 }
 
@@ -435,7 +478,18 @@ public sealed class CardGridPanel : Panel
     {
         if (d is not CardGridPanel panel) return;
         var editing = (bool)e.NewValue;
-        foreach (var host in panel.Hosts()) host.SetEditing(editing);
+        foreach (var host in panel.Hosts())
+        {
+            host.SetEditing(editing);
+            // 先退订再订：SetEditing 每次都重建菜单，事件不能越挂越多
+            host.SizeChosen -= panel.OnHostSizeChosen;
+            host.RemoveChosen -= panel.OnHostRemoveChosen;
+            if (editing)
+            {
+                host.SizeChosen += panel.OnHostSizeChosen;
+                host.RemoveChosen += panel.OnHostRemoveChosen;
+            }
+        }
         if (editing) panel.AttachEditHandlers();
         else
         {
@@ -652,6 +706,51 @@ public sealed class CardGridPanel : Panel
         }
         host.EndDragVisual();
         e.Handled = true;
+    }
+
+    private void OnHostSizeChosen(CardHost host, int spanW, int spanH)
+    {
+        if (!IsEditing) return;
+        TryApplyCardSize(host, spanW, spanH);
+    }
+
+    private void OnHostRemoveChosen(CardHost host)
+    {
+        if (!IsEditing) return;
+        host.Visibility = Visibility.Collapsed;
+        if (ReferenceEquals(SelectedHost, host)) ClearSelection();
+        InvalidateMeasure();
+        NotifyLayoutChanged();
+    }
+
+    /// <summary>
+    /// 把卡片改成指定占格并落位（重叠时自动腾位）。
+    /// <para>工具箱参数区与卡片右键菜单都走这里 —— 落位规则只有一份。</para>
+    /// </summary>
+    /// <returns>落位结果；false = 主页空间不足，调用方负责提示。</returns>
+    public bool TryApplyCardSize(CardHost host, int columnSpan, int rowSpan)
+    {
+        var spec = HomeCardCatalog.Resolve(host.CardType);
+        var placement = HomeCardPlacer.Place(
+            Hosts().Where(h => !ReferenceEquals(h, host)).Select(ToLayout).ToList(),
+            Columns,
+            Rows,
+            spec,
+            host.Column,
+            host.Row,
+            host.CardId,
+            new CardSize(columnSpan, rowSpan));
+        if (!placement.Success) return false;
+
+        ApplyDisplaced(placement.Displaced);
+        host.Column = placement.Column;
+        host.Row = placement.Row;
+        host.ColumnSpan = placement.ColumnSpan;
+        host.RowSpan = placement.RowSpan;
+        NotifyCardSize(host);
+        InvalidateMeasure();
+        NotifyLayoutChanged();
+        return true;
     }
 
     /// <summary>编辑模式下当前选中的卡片（参数区随之显示它的档位）；null = 未选中。</summary>

@@ -5,7 +5,7 @@
 //   · 1 条连接 → 稳定但只有 1.2 MB/s。
 // 所以并行度不能写死成 8：得按主机试探、按主机记忆——被限流过的主机，下一个文件就不该再被 8 条并发打一遍。
 //
-// 规则：起始 4 条 → 连续 8 次成功后 +1（上限 MaxWorkersPerFile）→ 一旦 429/503 立刻减半并冷却
+// 规则：起始 4 条 → 连续 8 次成功后 +1（镜像上限 8、官方上限 16）→ 一旦 429/503 立刻减半并冷却
 // （30s/60s/120s…封顶 5 分钟），冷却期内同主机的请求先等冷却结束。
 
 using System.Collections.Concurrent;
@@ -16,13 +16,12 @@ internal static class ParallelGovernor
 {
     private const int MinLimit = 1;
     private const int StartLimit = 4;
-    private const int MaxLimit = ChunkedFileDownloader.MaxWorkersPerFile;
     private const int SuccessesPerStep = 8;
     private const int MaxCooldownSec = 300;
 
     private sealed class State
     {
-        public int Limit = StartLimit;
+        public int Limit;
         public int Successes;
         public int Throttles;
         public long CooldownUntilMs;
@@ -30,21 +29,43 @@ internal static class ParallelGovernor
 
     private static readonly ConcurrentDictionary<string, State> States = new(StringComparer.OrdinalIgnoreCase);
 
-    private static State Get(string? host) => States.GetOrAdd(host ?? "", _ => new State());
+    private static State Get(string? host) =>
+        States.GetOrAdd(host ?? "", _ => new State { Limit = StartFor(host) });
 
-    /// <summary>当前推荐的并发连接数（1..MaxWorkersPerFile）</summary>
-    public static int LimitFor(string? host) => Volatile.Read(ref Get(host).Limit);
+    /// <summary>
+    /// 起始并发：镜像 4 条（试探，怕 429），官方 8 条。
+    /// <para>官方 CDN 按连接限速，4 条要「连续成功 8 次 +1」爬到 16 要等好几轮，
+    /// 一个大文件下完都爬不到 —— 实测那样每个文件只用了 4 条连接，白丢一半带宽。</para>
+    /// </summary>
+    private static int StartFor(string? host) =>
+        host is not null && DownloadSourceRegistry.IsMojangHost(host)
+            ? Math.Min(8, ChunkedFileDownloader.MaxWorkersPerMojangFile)
+            : StartLimit;
 
-    /// <summary>一次成功：连续成功够多就逐步放开，直到上限</summary>
+    /// <summary>
+    /// 该主机允许放开到多少条：Mojang 官方 CDN 16 条（实测连接数就是它的主要提速手段，
+    /// 32 条也不限流），镜像仍是 8 条（网关按 IP 限流，8 条以上直接 429）。
+    /// </summary>
+    private static int MaxFor(string? host) =>
+        host is not null && DownloadSourceRegistry.IsMojangHost(host)
+            ? ChunkedFileDownloader.MaxWorkersPerMojangFile
+            : ChunkedFileDownloader.MaxWorkersPerFile;
+
+    /// <summary>当前推荐的并发连接数（1..该主机上限）</summary>
+    public static int LimitFor(string? host) =>
+        Math.Min(MaxFor(host), Volatile.Read(ref Get(host).Limit));
+
+    /// <summary>一次成功：连续成功够多就逐步放开，直到该主机上限</summary>
     public static void ReportSuccess(string? host)
     {
         var s = Get(host);
-        if (Volatile.Read(ref s.Limit) >= MaxLimit) return;
+        var max = MaxFor(host);
+        if (Volatile.Read(ref s.Limit) >= max) return;
         if (Interlocked.Increment(ref s.Successes) < SuccessesPerStep) return;
         lock (s)
         {
             s.Successes = 0;
-            if (s.Limit < MaxLimit) s.Limit++;
+            if (s.Limit < max) s.Limit++;
         }
     }
 

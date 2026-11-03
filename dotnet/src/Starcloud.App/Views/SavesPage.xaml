@@ -8,7 +8,7 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
-       NavigationCacheMode="Disabled">
+       NavigationCacheMode="Enabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch" RowSpacing="16">
         <Grid.RowDefinitions>
@@ -193,6 +193,11 @@
                                                    Style="{StaticResource ScMetaValue}" />
                                     </Grid>
                                 </Grid>
+                                    <!-- 选中竖条：动画落定后由 ListSelectionFx 交接过来，从此绑在这一行上，
+                                         滚动 / 回收 / 布局都由框架带着走（几何与共用条一致：左缘、上下各留 10） -->
+                                    <Border Tag="bar" Width="3" CornerRadius="2" Background="#FFD322"
+                                            HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                                            Margin="0,10" IsHitTestVisible="False" Visibility="Collapsed" />
                                 </Grid>
                             </Border>
                         </DataTemplate>

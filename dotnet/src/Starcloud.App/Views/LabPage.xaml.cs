@@ -1,4 +1,4 @@
-// SC 实验室：内置工具箱。四个分区共用一页，左侧子导航切换。
+﻿// SC 实验室：内置工具箱。四个分区共用一页，左侧子导航切换。
 //   投影工坊   —— 投影文件解析 / 元数据编辑 / 格式转换 / 方块统计（Core: ProjectionService）
 //   彩色文字   —— § 格式代码文本生成（Core: McText）
 //   世吞生成器 —— 分层 TNT 阵列投影生成（Core: WorldEater）
@@ -219,7 +219,7 @@ public sealed partial class LabPage : Page
     private void ExitPreviewSpaceMode()
     {
         SetPreviewSpaceLayout(false);
-        try { PreviewWeb.CoreWebView2?.PostWebMessageAsJson("""{"type":"exitSpace"}"""); }
+        try { PreviewWeb?.CoreWebView2?.PostWebMessageAsJson("""{"type":"exitSpace"}"""); }
         catch { /* 网页端已销毁 */ }
     }
 
@@ -405,6 +405,10 @@ public sealed partial class LabPage : Page
         if (_previewReady) return;
         try
         {
+            // x:Load 延迟创建：真正要用预览时才实例化 WebView2（FindName 触发加载）
+            if (PreviewWeb is null && FindName("PreviewWeb") is not Microsoft.UI.Xaml.Controls.WebView2)
+                return;
+            if (PreviewWeb is null) return;
             // 空间模式要连续出帧：隐藏/被遮挡的 WebView2 会被 Chromium 节流到几乎不出帧
             //（与皮肤预览 Skin3DView 同一个坑），这里关掉后台节流
             var options = new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions
@@ -498,7 +502,7 @@ public sealed partial class LabPage : Page
     {
         try
         {
-            PreviewWeb.CoreWebView2?.PostWebMessageAsJson(
+            PreviewWeb?.CoreWebView2?.PostWebMessageAsJson(
                 System.Text.Json.JsonSerializer.Serialize(new { type = "init", firstRun = !_spaceHintShown }));
         }
         catch
@@ -1115,7 +1119,12 @@ public sealed partial class LabPage : Page
         };
         if (!string.IsNullOrEmpty(item.ImageUrl))
         {
-            try { image.Source = new BitmapImage(new Uri(item.ImageUrl)); }
+            try
+            {
+                var bmp = new BitmapImage { DecodePixelWidth = 640, DecodePixelType = DecodePixelType.Logical };
+                bmp.UriSource = new Uri(item.ImageUrl);
+                image.Source = bmp;
+            }
             catch { imageHost.Visibility = Visibility.Collapsed; }
             image.ImageFailed += (_, _) => imageHost.Visibility = Visibility.Collapsed;
         }

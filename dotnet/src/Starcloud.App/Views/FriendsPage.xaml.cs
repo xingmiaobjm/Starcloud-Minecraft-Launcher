@@ -55,6 +55,13 @@ public sealed partial class FriendsPage : Page
     {
         InitializeComponent();
         SectionSelector.SelectionChanged += SectionSelector_SelectionChanged;
+        // Enter 发送 / Ctrl+Enter 换行：必须用 handledEventsToo 注册 ——
+        // XAML 特性挂的实例处理器收不到被 TextBox 类处理器标记 Handled 的 Enter，
+        // 表现就是「按回车只会换行，永远发不出去」（实际踩过）
+        MessageInput.AddHandler(UIElement.KeyDownEvent,
+            new KeyEventHandler(MessageInput_KeyDown), handledEventsToo: true);
+        MessageList.ItemsSource = _chatRows;   // 会话气泡：整局一份集合，增量追加
+        NoticeFx.Attach(StatusBar);            // 提示条：掉落回弹入场 / 三次方缓出收起
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -66,7 +73,14 @@ public sealed partial class FriendsPage : Page
         Loc.LanguageChanged += ApplyTabText;
         _s.FriendsRuntime.EventReceived += OnFriendEvent;
         _s.StarcloudId.SessionChanged += OnSessionChanged;
+        _s.Cloud.ConfigChanged += ApplyMultiplayerGate;   // 联机云控：配置晚到也能收回去
         UpdateChatHeader(); // 没选会话时也要有占位标题（否则头部只剩头像和「⋯」）
+        ApplyMultiplayerGate();
+        if (_openMultiplayerOnLoad)
+        {
+            _openMultiplayerOnLoad = false;
+            ShowMultiplayerTab();
+        }
         _ = RefreshAllAsync();
     }
 
@@ -75,6 +89,7 @@ public sealed partial class FriendsPage : Page
         Loc.LanguageChanged -= ApplyTabText;
         _s.FriendsRuntime.EventReceived -= OnFriendEvent;
         _s.StarcloudId.SessionChanged -= OnSessionChanged;
+        _s.Cloud.ConfigChanged -= ApplyMultiplayerGate;
     }
 
     // ── 板块切换：好友 / 联机（联机页整页嵌进来，不再单独占一项导航） ──
@@ -83,19 +98,41 @@ public sealed partial class FriendsPage : Page
     {
         FriendsTab.Text = Loc.T("好友");
         MultiplayerTab.Text = Loc.T("联机");
+        ApplyMultiplayerGate();
+    }
+
+    /// <summary>
+    /// 联机云控：服务端配置 multiplayer=false 时隐藏「联机」标签。
+    /// 配置在启动 6 秒后才到 —— 订阅 ConfigChanged 动态显隐，晚到也能收回去。
+    /// </summary>
+    private void ApplyMultiplayerGate()
+    {
+        var enabled = _s.Cloud.Config.Multiplayer;
+        MultiplayerTab.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        if (!enabled && ReferenceEquals(SectionSelector.SelectedItem, MultiplayerTab))
+            SectionSelector.SelectedItem = FriendsTab;   // 收回：切回好友板块
     }
 
     private void SectionSelector_SelectionChanged(
         SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         var showMultiplayer = ReferenceEquals(sender.SelectedItem, MultiplayerTab);
+        if (showMultiplayer && !_s.Cloud.Config.Multiplayer)
+        {
+            // 云控关闭：标签本来该被藏起来，这里再挡一层（配置晚到的窗口期）
+            ChatRoot.Visibility = Visibility.Visible;
+            MultiplayerSection.Visibility = Visibility.Collapsed;
+            return;
+        }
         ChatRoot.Visibility = showMultiplayer ? Visibility.Collapsed : Visibility.Visible;
         MultiplayerSection.Visibility = showMultiplayer ? Visibility.Visible : Visibility.Collapsed;
         if (showMultiplayer)
         {
             SignedOutCard.Visibility = Visibility.Collapsed;
+            // 联机标签承载新的房间系统页面（大厅/房间/我的）；
+            // 旧的联机设置页收在新页「我的」里，能力不丢。
             if (MultiplayerHost.Content is null)
-                MultiplayerHost.Navigate(typeof(MultiplayerPage));
+                MultiplayerHost.Navigate(typeof(RoomsPage));
         }
         else if (!_s.StarcloudId.IsLoggedIn)
         {
@@ -104,6 +141,26 @@ public sealed partial class FriendsPage : Page
     }
 
     private void ShowMultiplayerTab() => SectionSelector.SelectedItem = MultiplayerTab;
+
+    /// <summary>
+    /// 跳到好友页并选中联机标签（联机房间「开始游戏」自动跳回时用）。
+    /// 静态入口：调用时页面可能还没创建（首次进这个导航项）。
+    /// </summary>
+    public static void FocusMultiplayer()
+    {
+        if (App.MainWindow is not MainWindow win) return;
+        if (win.CurrentPage is FriendsPage page)
+        {
+            win.NavigateTo("friends");
+            page.ShowMultiplayerTab();
+            return;
+        }
+        _openMultiplayerOnLoad = true;
+        win.NavigateTo("friends");
+    }
+
+    /// <summary>FocusMultiplayer 在页面尚未创建时置位：页面加载完成后消费一次。</summary>
+    private static bool _openMultiplayerOnLoad;
 
     // ── 刷新 ──
 
@@ -217,41 +274,32 @@ public sealed partial class FriendsPage : Page
 
     private void RenderConversations()
     {
-        _allRows = new List<ConversationRowModel>
-        {
-            new("requests", "", Loc.T("好友申请"), "申",
-                _requestCount > 0 ? Loc.T("{0} 条待处理", _requestCount) : Loc.T("没有新的申请"),
-                "", "", Visibility.Collapsed, DateTime.MaxValue)
-            {
-                IconSource = RequestIcon,
-            },
-            new("invites", "", Loc.T("联机邀请"), "邀",
-                _inviteCount > 0 ? Loc.T("{0} 个待处理", _inviteCount) : Loc.T("没有新的邀请"),
-                "",
-                _inviteCount > 99 ? "99+" : _inviteCount.ToString(),
-                _inviteCount > 0 ? Visibility.Visible : Visibility.Collapsed, DateTime.MaxValue)
-            {
-                IconSource = InviteIcon,
-            },
-        };
+        // 行模型按 Kind:UserId 复用（INPC）：收消息只改 Preview/未读徽标的内容，
+        // 列表控件拿到的还是同一批实例 —— 容器不重建、页面不闪，只有文字在变
+        var requestsRow = ObtainRow("requests", "", Loc.T("好友申请"), "申",
+            _requestCount > 0 ? Loc.T("{0} 条待处理", _requestCount) : Loc.T("没有新的申请"),
+            "", "", Visibility.Collapsed, DateTime.MaxValue);
+        requestsRow.IconSource = RequestIcon;
+        var invitesRow = ObtainRow("invites", "", Loc.T("联机邀请"), "邀",
+            _inviteCount > 0 ? Loc.T("{0} 个待处理", _inviteCount) : Loc.T("没有新的邀请"),
+            "",
+            _inviteCount > 99 ? "99+" : _inviteCount.ToString(),
+            _inviteCount > 0 ? Visibility.Visible : Visibility.Collapsed, DateTime.MaxValue);
+        invitesRow.IconSource = InviteIcon;
+        _allRows = [requestsRow, invitesRow];
 
         var friends = _friends.Select(f =>
         {
             var last = _lastMessages.GetValueOrDefault(f.UserId);
             var unread = Math.Max(_unread.GetValueOrDefault(f.UserId), 0);
-            return new ConversationRowModel(
-                "friend",
-                f.UserId,
-                f.DisplayName,
-                InitialOf(f.DisplayName, f.Id),
+            var row = ObtainRow("friend", f.UserId, f.DisplayName, InitialOf(f.DisplayName, f.Id),
                 PreviewOf(last),
                 last is null ? "" : FormatStamp(last.CreatedAt),
                 unread > 99 ? "99+" : unread.ToString(),
                 unread > 0 ? Visibility.Visible : Visibility.Collapsed,
-                ParseTime(last?.CreatedAt) ?? DateTime.MinValue)
-            {
-                Id = f.Id,
-            };
+                ParseTime(last?.CreatedAt) ?? DateTime.MinValue);
+            row.Id = f.Id;
+            return row;
         })
         .OrderByDescending(r => r.SortTime)
         .ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase);
@@ -262,8 +310,7 @@ public sealed partial class FriendsPage : Page
         var groupRows = _groups.Select(g =>
         {
             var unread = Math.Max(g.Unread, 0);
-            return new ConversationRowModel(
-                "group", g.GroupId, g.Name, InitialOf(g.Name, g.GroupId),
+            return ObtainRow("group", g.GroupId, g.Name, InitialOf(g.Name, g.GroupId),
                 Loc.T("{0} 位成员", g.MemberCount), "",
                 unread > 99 ? "99+" : unread.ToString(),
                 unread > 0 ? Visibility.Visible : Visibility.Collapsed,
@@ -278,6 +325,36 @@ public sealed partial class FriendsPage : Page
             ? "" : Loc.T("{0} 位好友", _friends.Count);
     }
 
+    /// <summary>行缓存：按 Kind:UserId 复用模型实例（渲染时只改内容不换实例）。</summary>
+    private readonly Dictionary<string, ConversationRowModel> _rowCache = new(StringComparer.Ordinal);
+
+    private ConversationRowModel ObtainRow(string kind, string userId, string name, string initial,
+        string preview, string timeText, string unreadText, Visibility unreadVisibility, DateTime sortTime)
+    {
+        var key = kind + ":" + userId;
+        if (_rowCache.TryGetValue(key, out var row))
+        {
+            row.Preview = preview;
+            row.TimeText = timeText;
+            row.UnreadText = unreadText;
+            row.UnreadVisibility = unreadVisibility;
+            row.SortTime = sortTime;
+            return row;
+        }
+        row = new ConversationRowModel(kind, userId, name, initial, preview, timeText,
+            unreadText, unreadVisibility, sortTime);
+        _rowCache[key] = row;
+        return row;
+    }
+
+    /// <summary>
+    /// 会话列表的持久集合：ItemsSource 只设一次。收消息时的变化走两条轻路径 ——
+    /// 内容变化由行模型 INPC 直接刷文字；顺序变化（新消息置顶）用 ObservableCollection.Move
+    /// 最小移动。只有成员增删（加好友/退群/过滤）才真正增删容器。
+    /// </summary>
+    private readonly System.Collections.ObjectModel.ObservableCollection<ConversationRowModel>
+        _conversationRows = [];
+
     private void ApplyFilter()
     {
         var filter = FilterBox.Text.Trim();
@@ -287,14 +364,49 @@ public sealed partial class FriendsPage : Page
                 r.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
                 r.Id.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
 
+        // 集合语义变化（成员增删/过滤）才播入场动画：与版本/存档页同一套从左往右羽化。
+        // 收消息只改内容/顺序，永远不重播 —— 那是之前「整个界面闪一下」的另一半根源。
+        var keys = rows.Select(r => r.Kind + ":" + r.UserId).ToList();
+        var membershipChanged = !keys.SequenceEqual(_lastRowKeys);
+        _lastRowKeys = keys;
+
         _suppressSelection = true;
-        ConversationList.ItemsSource = rows;
-        // 与版本/存档页同一套入场：好友申请、联机邀请、会话行逐条从左往右羽化
-        Starcloud.App.Services.MotionFx.StaggerListItems(ConversationList);
+        if (ReferenceEquals(ConversationList.ItemsSource, _conversationRows))
+        {
+            SyncRows(rows);
+        }
+        else
+        {
+            ConversationList.ItemsSource = _conversationRows;   // 首次绑定
+            SyncRows(rows);
+        }
         if (_selectedUserId is { Length: > 0 } selected)
             ConversationList.SelectedItem = rows.FirstOrDefault(r => r.Kind == "friend" && r.UserId == selected);
         _suppressSelection = false;
+
+        if (membershipChanged)
+            Starcloud.App.Services.MotionFx.StaggerListItems(ConversationList);
     }
+
+    /// <summary>把持久集合同步成目标顺序：Remove 失效项 + Move 错位项，不整体重置。</summary>
+    private void SyncRows(IReadOnlyList<ConversationRowModel> desired)
+    {
+        var wanted = new HashSet<ConversationRowModel>(desired);
+        for (var i = _conversationRows.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Contains(_conversationRows[i])) _conversationRows.RemoveAt(i);
+        }
+        for (var i = 0; i < desired.Count; i++)
+        {
+            if (i < _conversationRows.Count && ReferenceEquals(_conversationRows[i], desired[i])) continue;
+            var idx = _conversationRows.IndexOf(desired[i]);
+            if (idx >= 0) _conversationRows.Move(idx, i);
+            else _conversationRows.Insert(i, desired[i]);
+        }
+    }
+
+    /// <summary>上一次 ApplyFilter 的行键集合（结构没变就不重放入场动画）。</summary>
+    private List<string> _lastRowKeys = [];
 
     // ── 会话与聊天 ──
 
@@ -326,6 +438,11 @@ public sealed partial class FriendsPage : Page
 
     private async Task OpenConversationAsync(string userId)
     {
+        // 切到私聊必须把「当前群」清掉：SendMessageAsync 里群 id 优先于好友 id，
+        // 留着上一个群的 id 会让私聊消息发进那个群（实际踩过的串台）。
+        _activeGroupId = null;
+        _activeGroup = null;
+        _groupMessages = [];
         _selectedUserId = userId;
         _selectedFriend = _friends.FirstOrDefault(f => f.UserId == userId);
         UpdateChatHeader();
@@ -410,9 +527,28 @@ public sealed partial class FriendsPage : Page
                 attachment is null ? m.Content : "",
                 "", InitialOf(m.FromUserId, m.FromUserId), false, attachment));
         }
-        MessageList.ItemsSource = rows;
-        if (scrollToEnd && rows.Count > 0)
-            _dq?.TryEnqueue(() => MessageList.ScrollIntoView(rows[^1]));
+        // 全量重建：进群 / 翻历史才走这里，不算「新消息」（不播入场动画）
+        ReplaceChatRows(rows);
+        if (scrollToEnd && _chatRows.Count > 0)
+            _dq?.TryEnqueue(() => MessageList.ScrollIntoView(_chatRows[^1]));
+    }
+
+    /// <summary>群聊实时追加：只把新消息拼进气泡集合（5 分钟分隔照插），不重建整个列表。</summary>
+    private void AppendGroupMessage(Starcloud.Core.Services.GroupMessage m)
+    {
+        var me = _s.StarcloudId.Current?.UserId;
+        var time = ParseTime(m.CreatedAt);
+        var previous = ParseTime(_groupMessages.Count >= 2 ? _groupMessages[^2].CreatedAt : null);
+        if (time is { } current && (previous is null || current - previous > TimeSpan.FromMinutes(5)))
+            _chatRows.Add(new ChatMessageRowModel(true, "", FormatSeparator(current), "", true));
+        var attachment = FriendsService.TryParseFileMessage(m.Content);
+        var mine = m.FromUserId == me;
+        var row = new ChatMessageRowModel(
+            mine, attachment is null ? m.Content : "",
+            "", InitialOf(m.FromUserId, m.FromUserId), false, attachment);
+        _chatRows.Add(row);
+        ScrollChatToEnd();
+        if (!mine) _ = AnimateMessageRowInAsync(row);
     }
 
     /// <summary>拉群列表并刷新会话（未读 / 成员数）。</summary>
@@ -496,21 +632,159 @@ public sealed partial class FriendsPage : Page
                 attachment));
         }
 
-        MessageList.ItemsSource = rows;
-        if (scrollToEnd && rows.Count > 0)
+        // 全量重建：进会话 / 翻历史才走这里，不算「新消息」（不播入场动画）
+        ReplaceChatRows(rows);
+        if (scrollToEnd && _chatRows.Count > 0)
         {
-            var last = rows[^1];
+            var last = _chatRows[^1];
             _dq?.TryEnqueue(() => MessageList.ScrollIntoView(last));
         }
+    }
+
+    /// <summary>
+    /// 私聊实时追加：只把新消息拼进气泡集合（5 分钟分隔照插），不重建整个列表。
+    /// 收到的消息单独羽化（与好友列表同一套从左往右动效）；自己发的即时上屏不动画。
+    /// </summary>
+    private void AppendFriendMessage(FriendMessage message)
+    {
+        var me = _s.StarcloudId.Current;
+        var meId = me?.UserId ?? "";
+        var myInitial = InitialOf(me?.DisplayName ?? "", meId);
+        var friendInitial = _selectedFriend is null
+            ? "?" : InitialOf(_selectedFriend.DisplayName, _selectedFriend.Id);
+
+        var time = ParseTime(message.CreatedAt);
+        var previous = ParseTime(_messages.Count >= 2 ? _messages[^2].CreatedAt : null);
+        if (time is { } current && (previous is null || current - previous > TimeSpan.FromMinutes(5)))
+            _chatRows.Add(new ChatMessageRowModel(true, "", FormatSeparator(current), "", true));
+
+        var mine = message.FromUserId == meId;
+        var attachment = FriendsService.TryParseFileMessage(message.Content);
+        var row = new ChatMessageRowModel(
+            mine, attachment is null ? message.Content : "",
+            "", mine ? myInitial : friendInitial, false, attachment);
+        _chatRows.Add(row);
+        ScrollChatToEnd();
+        if (!mine) _ = AnimateMessageRowInAsync(row);
+    }
+
+    /// <summary>
+    /// 右侧会话框的气泡集合：增量追加（收/发消息只 Add 一条），与左侧列表彻底分离 ——
+    /// 左边刷新不再牵动右边，右边也不整页重建。
+    /// </summary>
+    private readonly System.Collections.ObjectModel.ObservableCollection<ChatMessageRowModel> _chatRows = [];
+
+    /// <summary>整体替换气泡集合（进会话 / 翻历史等全量重建路径专用）。</summary>
+    private void ReplaceChatRows(IReadOnlyList<ChatMessageRowModel> rows)
+    {
+        _chatRows.Clear();
+        foreach (var r in rows) _chatRows.Add(r);
+        MessageList.ItemsSource = _chatRows;
+    }
+
+    /// <summary>给刚追加的气泡播从左往右入场；容器没实现（虚拟化）就静默放弃。</summary>
+    /// <summary>
+    /// 新消息入场：向上滑入（从下方 20px 浮起 + 淡入，合成层动画，无起始延迟）。
+    /// 不再用从左往右的 FeatherIn —— 它带 150ms 基础延迟且Opacity 先归零，
+    /// 新气泡会先消失半拍再冒出来，看起来就像整块闪了一下（实测踩过）。
+    /// </summary>
+    private async Task AnimateMessageRowInAsync(object item)
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            MessageList.UpdateLayout();
+            if (MessageList.ContainerFromItem(item) is Microsoft.UI.Xaml.Controls.ContentControl container &&
+                (container.ContentTemplateRoot as FrameworkElement ?? container) is { } target)
+            {
+                Starcloud.App.Services.MotionFx.FadeSlideIn(target, fromY: 20f, durationMs: 220);
+                return;
+            }
+            await Task.Delay(30);
+        }
+    }
+
+    /// <summary>
+    /// 会话追加后的滚动：本来就在底部附近 → 平滑滚到底（新消息「浮上来」的感觉）；
+    /// 用户翻着历史 → 直接跳到底（聊天软件惯例，不打断的位置也别装平滑）。
+    /// </summary>
+    private void ScrollChatToEnd()
+    {
+        if (_chatRows.Count == 0) return;
+        var last = _chatRows[^1];
+        _dq?.TryEnqueue(() =>
+        {
+            MessageList.UpdateLayout();
+            var scroller = FindDescendantScrollViewer(MessageList);
+            if (scroller is null || scroller.ScrollableHeight <= 0)
+            {
+                MessageList.ScrollIntoView(last);
+                return;
+            }
+            var distance = scroller.ScrollableHeight - scroller.VerticalOffset;
+            if (distance > scroller.ViewportHeight * 1.5)
+            {
+                MessageList.ScrollIntoView(last);
+                return;
+            }
+            SmoothScrollToEnd(scroller);
+        });
+    }
+
+    /// <summary>给 ScrollViewer 的垂直偏移做 ~150ms 缓动到顶（6 步定时器，够顺不晃眼）。</summary>
+    private async void SmoothScrollToEnd(Microsoft.UI.Xaml.Controls.ScrollViewer scroller)
+    {
+        try
+        {
+            var start = scroller.VerticalOffset;
+            var target = scroller.ScrollableHeight;
+            var steps = 6;
+            for (var i = 1; i <= steps; i++)
+            {
+                await Task.Delay(25);
+                var t = i / (double)steps;
+                var eased = 1 - (1 - t) * (1 - t);   // ease-out
+                scroller.ChangeView(null, start + (target - start) * eased, null, disableAnimation: true);
+            }
+        }
+        catch { /* 布局变化时 ChangeView 可能失败：忽略 */ }
+    }
+
+    private static Microsoft.UI.Xaml.Controls.ScrollViewer? FindDescendantScrollViewer(DependencyObject root)
+    {
+        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i) is not DependencyObject child) continue;
+            if (child is Microsoft.UI.Xaml.Controls.ScrollViewer sv) return sv;
+            if (FindDescendantScrollViewer(child) is { } found) return found;
+        }
+        return null;
     }
 
     private async void Send_Click(object sender, RoutedEventArgs e) => await SendMessageAsync();
 
     private async void MessageInput_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != VirtualKey.Enter || IsShiftDown()) return;
+        if (e.Key != VirtualKey.Enter) return;
         e.Handled = true;
+        if (IsCtrlDown())
+        {
+            InsertNewline(MessageInput);
+            return;
+        }
         await SendMessageAsync();
+    }
+
+    private static bool IsCtrlDown() =>
+        InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+            .HasFlag(CoreVirtualKeyStates.Down);
+
+    /// <summary>在光标处手动插一个换行（AcceptsReturn=False 时 Enter 不会自动插入）。</summary>
+    private static void InsertNewline(TextBox box)
+    {
+        var caret = box.SelectionStart;
+        box.Text = box.Text.Insert(Math.Min(caret, box.Text.Length), "\n");
+        box.SelectionStart = caret + 1;
     }
 
     private bool _sending;
@@ -534,7 +808,7 @@ public sealed partial class FriendsPage : Page
                 var groupMessage = await _s.Friends.SendGroupMessageAsync(groupId, text);
                 MessageInput.Text = "";
                 _groupMessages.Add(groupMessage);
-                RenderGroupMessages(scrollToEnd: true);
+                AppendGroupMessage(groupMessage);
                 return;
             }
 
@@ -543,7 +817,7 @@ public sealed partial class FriendsPage : Page
             MessageInput.Text = "";
             _messages.Add(message);
             _lastMessages[userId] = message;
-            RenderMessages(scrollToEnd: true);
+            AppendFriendMessage(message);
             RenderConversations();
         }
         catch (Exception ex)
@@ -557,10 +831,6 @@ public sealed partial class FriendsPage : Page
             MessageInput.Focus(FocusState.Programmatic);
         }
     }
-
-    private static bool IsShiftDown() =>
-        InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
-            .HasFlag(CoreVirtualKeyStates.Down);
 
     // ── 文件 / 图片 / 视频传输（接口：docs/api-files.md） ──
 
@@ -855,7 +1125,7 @@ public sealed partial class FriendsPage : Page
             if (message.GroupId == _activeGroupId)
             {
                 if (_groupMessages.All(m => m.Id != message.Id)) _groupMessages.Add(message);
-                RenderGroupMessages(scrollToEnd: true);
+                AppendGroupMessage(message);
                 if (message.FromUserId != _s.StarcloudId.Current?.UserId)
                 {
                     try { await _s.Friends.MarkGroupReadAsync(message.GroupId); } catch { }
@@ -876,7 +1146,7 @@ public sealed partial class FriendsPage : Page
             if (peer == _selectedUserId)
             {
                 if (_messages.All(m => m.Id != message.Id)) _messages.Add(message);
-                RenderMessages(scrollToEnd: true);
+                AppendFriendMessage(message);
                 if (message.FromUserId != me)
                 {
                     _unread[peer] = 0;
@@ -1023,15 +1293,56 @@ public sealed partial class FriendsPage : Page
 }
 
 /// <summary>会话行；Kind = requests / invites / friend</summary>
-internal sealed record ConversationRowModel(
-    string Kind, string UserId, string Name, string Initial,
-    string Preview, string TimeText, string UnreadText,
-    Visibility UnreadVisibility, DateTime SortTime)
+internal sealed class ConversationRowModel : System.ComponentModel.INotifyPropertyChanged
 {
-    public string Id { get; init; } = "";
-    public ImageSource? IconSource { get; init; }
+    public ConversationRowModel(string kind, string userId, string name, string initial,
+        string preview, string timeText, string unreadText,
+        Visibility unreadVisibility, DateTime sortTime)
+    {
+        Kind = kind;
+        UserId = userId;
+        Name = name;
+        Initial = initial;
+        _preview = preview;
+        _timeText = timeText;
+        _unreadText = unreadText;
+        _unreadVisibility = unreadVisibility;
+        SortTime = sortTime;
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    // 会话身份（不变）
+    public string Kind { get; }
+    public string UserId { get; }
+    public string Name { get; }
+    public string Initial { get; }
+    public string Id { get; set; } = "";
+    public ImageSource? IconSource { get; set; }
     public Visibility LetterVisibility => IconSource is null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IconVisibility => IconSource is null ? Visibility.Collapsed : Visibility.Visible;
+
+    // 收消息会变的内容：INPC 通知模板刷新，列表不用整表重绑（避免全页闪动）
+    private string _preview;
+    public string Preview { get => _preview; set => Set(ref _preview, value); }
+
+    private string _timeText;
+    public string TimeText { get => _timeText; set => Set(ref _timeText, value); }
+
+    private string _unreadText;
+    public string UnreadText { get => _unreadText; set => Set(ref _unreadText, value); }
+
+    private Visibility _unreadVisibility;
+    public Visibility UnreadVisibility { get => _unreadVisibility; set => Set(ref _unreadVisibility, value); }
+
+    public DateTime SortTime { get; set; }
+
+    private void Set<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        field = value;
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+    }
 }
 
 /// <summary>聊天区一行：普通气泡或居中的时间分隔；带附件时渲染成文件卡片（点击保存）</summary>

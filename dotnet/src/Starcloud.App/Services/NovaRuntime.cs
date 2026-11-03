@@ -13,7 +13,6 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
-using Starcloud.App.Views.Overlays;
 using Starcloud.Core.Services;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -326,15 +325,11 @@ public sealed class NovaRuntime
         SetCurrentInstance(versionId);
         _s.NovaMoments.StartSession(versionId);
 
-        // 游戏内浮窗（设计：nova-overlay-design.md §4；开关默认关 = 开启即显式授权）
-        if (_s.Settings.NovaOverlayEnabled)
+        // FPS 采样（战报/掉帧提醒的数据源）
+        if (gamePid > 0)
         {
-            ShowOverlay();
-            if (gamePid > 0)
-            {
-                EnsureWatcher();
-                _watcher!.Start(gamePid);
-            }
+            EnsureWatcher();
+            _watcher!.Start(gamePid);
         }
 
         if (!_s.NovaPermissions.IsOn(NovaPermissionStore.Recording))
@@ -364,9 +359,8 @@ public sealed class NovaRuntime
             catch { /* 补扫失败不影响战报 */ }
             var report = _s.NovaMoments.EndSession();
             AddAssistant(_s.NovaMoments.BuildReportText(report));
-            OverlayToast?.Invoke(new NovaOverlayToast(Loc.T("Nova：本局战报已生成，点浮窗查看")));
+            OverlayToast?.Invoke(new NovaOverlayToast(Loc.T("Nova：本局战报已生成")));
         }
-        HideOverlaySoon(); // 战报留 5s 阅读窗，随后收浮窗
         RefreshState();
     }
 
@@ -389,30 +383,9 @@ public sealed class NovaRuntime
     /// </summary>
     public void StopTimers() => StopObserving();
 
-    // ── 游戏内浮窗联动（设计：nova-overlay-plan.md T4；浮窗单例由 Runtime 懒创建持有） ──
+    // ── 游戏内联动的采样器（FPS 战报用；挂件已移除） ──
 
-    private NovaOverlayWindow? _overlay;
     private NovaFpsWatcher? _watcher;
-
-    private void ShowOverlay()
-    {
-        try
-        {
-            _overlay ??= new NovaOverlayWindow();
-            _overlay.ShowOverlay();
-        }
-        catch { /* 浮窗创建失败不影响主流程（克制降级） */ }
-    }
-
-    private void HideOverlaySoon()
-    {
-        if (_overlay is null) return;
-        var t = _dq?.CreateTimer();
-        if (t is null) { _overlay.HideOverlay(); return; }
-        t.Interval = TimeSpan.FromSeconds(5);
-        t.Tick += (_, _) => { t.Stop(); _overlay?.HideOverlay(); };
-        t.Start();
-    }
 
     private void EnsureWatcher()
     {

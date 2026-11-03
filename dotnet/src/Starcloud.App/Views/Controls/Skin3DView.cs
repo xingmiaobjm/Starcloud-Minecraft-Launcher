@@ -1,4 +1,4 @@
-// 账户页右侧悬浮的 Minecraft 玩家 3D 形象。
+﻿// 账户页右侧悬浮的 Minecraft 玩家 3D 形象。
 //
 // 架构（绕开 WinUI3 WebView2 无法透明的官方限制 #2992）：
 //   WebView2（隐藏，仅作 skinview3d 引擎宿主）
@@ -389,6 +389,16 @@ public sealed class Skin3DView : UserControl
                 _bitmap?.Dispose();
                 _bitmap = bitmap;
                 if (_dragging) _liveCaptures++;      // 拖拽实时帧已就绪，OnDraw 可切换出兜底帧
+                // 挂件需要像素数据算窗口区域（人偶轮廓）；失败不影响显示
+                if (FrameCaptured is { } sink)
+                {
+                    try
+                    {
+                        sink(bitmap.GetPixelBytes(), (int)bitmap.SizeInPixels.Width,
+                            (int)bitmap.SizeInPixels.Height);
+                    }
+                    catch { /* 取像素失败只是没有区域，不影响渲染 */ }
+                }
             }
             _canvas.Invalidate();                    // CanvasControl 按需重绘：新帧就绪，主动请求重画
         }
@@ -455,10 +465,40 @@ public sealed class Skin3DView : UserControl
 
     // ── 公共 API ──
 
+    /// <summary>
+    /// 帧回调：每次抓到新帧时给出 BGRA 像素（含 alpha）与尺寸。
+    /// 挂件窗口靠它按人偶轮廓生成窗口区域（区域外不存在 = 没有窗口底）。
+    /// </summary>
+    public event Action<byte[], int, int>? FrameCaptured;
+
+    /// <summary>设置姿态：idle（站立）/ sitting（坐，挂件用）。会先关掉走路动画。</summary>
+    public void SetPose(string pose)
+    {
+        if (!_webReady) return;
+        _ = PostAsync(new { type = "pose", name = pose });
+    }
+
     /// <summary>按账户切换皮肤（微软=UUID、第三方=认证服务器会话皮肤）；空账户渲染内置 Steve。</summary>
     public void SetAccount(string? type, string? uuid, string? username, string? externalBase = null,
         bool forceReload = false)
-        => _ = LoadSkinAsync(type, uuid, username, externalBase, forceReload);
+        => _ = SafeLoadSkinAsync(type, uuid, username, externalBase, forceReload);
+
+    /// <summary>
+    /// 皮肤加载是 fire-and-forget：未捕获异常会直接终止进程（后台线程不经过 XAML 的
+    /// UnhandledException）。这里统一兜住，失败只记日志、保持内置 Steve。
+    /// </summary>
+    private async Task SafeLoadSkinAsync(string? type, string? uuid, string? username,
+        string? externalBase, bool forceReload)
+    {
+        try
+        {
+            await LoadSkinAsync(type, uuid, username, externalBase, forceReload);
+        }
+        catch (Exception ex)
+        {
+            Starcloud.Core.Services.LauncherLog.Error("player3d", "皮肤加载异常（保持内置皮肤）", ex);
+        }
+    }
 
     // ── 皮肤：磁盘缓存 → 皮肤源（minotar / 认证服务器） → 内置 Steve ──
 

@@ -61,16 +61,34 @@ public sealed class InstallerService
         return count;
     }
 
-    /// <summary>加载版本 JSON（含一层 inheritsFrom 合并，如 Fabric 继承原版）</summary>
+    /// <summary>加载版本 JSON（含 inheritsFrom 链式合并，如 Fabric ← 原版）</summary>
     public async Task<MinecraftVersion> LoadVersionAsync(string dotMinecraft, string id,
         CancellationToken ct = default)
+        => await LoadVersionAsync(dotMinecraft, id, [], ct);
+
+    /// <param name="chain">已走过的版本 id：自引用（A→A）与循环（A→B→A）在这里拦下，
+    /// 否则递归到栈溢出（进程直接崩，看不出是版本 JSON 的问题）。</param>
+    private async Task<MinecraftVersion> LoadVersionAsync(string dotMinecraft, string id,
+        HashSet<string> chain, CancellationToken ct)
     {
+        if (!chain.Add(id))
+            throw new InvalidOperationException(
+                $"版本 {id} 的继承关系出现循环（{string.Join(" → ", chain)} → {id}）");
+
         var json = await File.ReadAllTextAsync(VersionJsonPath(dotMinecraft, id), ct);
         var version = JsonSerializer.Deserialize<MinecraftVersion>(json)
                       ?? throw new InvalidOperationException($"版本 {id} 解析失败");
-        if (!string.IsNullOrEmpty(version.InheritsFrom))
+        // 自引用（inheritsFrom 写成了自己）：JObject.Merge 那套会静默忽略，
+        // 但循环检查已经在上面拦住了 A→A，这里再兜一次是为了给出更贴切的文案
+        if (!string.IsNullOrEmpty(version.InheritsFrom) &&
+            !string.Equals(version.InheritsFrom, id, StringComparison.OrdinalIgnoreCase))
         {
-            var parent = await LoadVersionAsync(dotMinecraft, version.InheritsFrom, ct);
+            // 链太深说明有人在拼奇怪的东西（比如整包导出时把父链也串进来），
+            // 8 层足够覆盖 GTNH 那种 lwjgl3ify → forge → vanilla 的真实结构
+            if (chain.Count >= 8)
+                throw new InvalidOperationException(
+                    $"版本 {id} 的继承链过深（{string.Join(" → ", chain)}），疑似版本 JSON 异常");
+            var parent = await LoadVersionAsync(dotMinecraft, version.InheritsFrom, chain, ct);
             return MergeVersions(parent, version);
         }
         return version;
@@ -80,7 +98,13 @@ public sealed class InstallerService
     public static MinecraftVersion MergeVersions(MinecraftVersion parent, MinecraftVersion child)
     {
         parent.MainClass = string.IsNullOrEmpty(child.MainClass) ? parent.MainClass : child.MainClass;
-        parent.Libraries.AddRange(child.Libraries);
+        // **子版本的库排在父版本前面**：Java 8 及更早版本按 -cp 顺序取第一个同名类，
+        // 加载器（Forge / OptiFine / Cleanroom / lwjgl3ify）正是靠"自己的 jar 覆盖原版类"
+        // 生效的 —— 反过来排会让游戏加载到原版类，表现为找不到主类或 tweak 不生效。
+        parent.Libraries.InsertRange(0, child.Libraries);
+        // Java 要求以子版本声明为准：lwjgl3ify / Cleanroom 这类特殊启动链在子层声明 Java 21+，
+        // 不合并的话会沿用父版本（老原版无声明→默认 8），直接起不来
+        if (child.JavaVersion is not null) parent.JavaVersion = child.JavaVersion;
         if (child.Arguments is not null)
         {
             parent.Arguments ??= new VersionArguments();

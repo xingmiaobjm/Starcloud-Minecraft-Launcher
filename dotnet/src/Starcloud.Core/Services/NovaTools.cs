@@ -1,4 +1,4 @@
-// Nova Agent 工具注册表：LLM 通过 function calling 真正动手配置启动器。
+﻿// Nova Agent 工具注册表：LLM 通过 function calling 真正动手配置启动器。
 //
 // 信任边界（不可跳过）：
 //   · 只读工具（ReadOnly=true）查询类立即执行；
@@ -21,7 +21,13 @@ public sealed record NovaTool(
     string Description,
     string ParametersJson,
     bool ReadOnly,
-    Func<JsonElement, CancellationToken, Task<string>> ExecuteAsync);
+    Func<JsonElement, CancellationToken, Task<string>> ExecuteAsync,
+    /// <summary>
+    /// 自主模式判定：返回 true 表示该工具**不必**进确认清单，可直接执行
+    /// （由权限档位决定：computer/game 档 ≥ 自主模式时返回 true）。
+    /// ReadOnly=true 的工具不看这个（本来就直接执行）。
+    /// </summary>
+    Func<bool>? CanAutoRun = null);
 
 public sealed partial class NovaToolRegistry
 {
@@ -42,7 +48,7 @@ public sealed partial class NovaToolRegistry
         _c = context;
         Tools = readOnlyOnly
             ? [.. BuildReadTools()]
-            : [.. BuildReadTools(), .. BuildWriteTools()];
+            : [.. BuildReadTools(), .. BuildWriteTools(), .. BuildSystemTools()];
     }
 
     public NovaTool? Find(string name) =>

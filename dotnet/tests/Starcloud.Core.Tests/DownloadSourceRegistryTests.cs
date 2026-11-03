@@ -1,4 +1,4 @@
-// DownloadSourceRegistry 单元测试：域名改写 / 源 ID 解析 / 健康度与竞速池排序
+﻿// DownloadSourceRegistry 单元测试：域名改写 / 源 ID 解析 / 健康度与竞速池排序
 
 using Starcloud.Core.Services;
 using Xunit;
@@ -146,8 +146,10 @@ public class DownloadSourceRegistryTests
     {
         var pool = Registry().RacingPool();
 
+        // Starcloud（S3）是兜底源，默认不参赛 —— 见 DownloadSourcePriorityTests.兜底源默认不参与竞速
         Assert.Equal(
-            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Official],
+            [SourceKind.Fastmirror, SourceKind.Sjtu,
+             SourceKind.Bmclapi, SourceKind.Official],
             pool);
     }
 
@@ -157,8 +159,8 @@ public class DownloadSourceRegistryTests
         var pool = Registry(customMirror: "https://mirror.example.com").RacingPool();
 
         Assert.Equal(
-            [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Custom,
-             SourceKind.Official],
+            [SourceKind.Fastmirror, SourceKind.Sjtu,
+             SourceKind.Custom, SourceKind.Bmclapi, SourceKind.Official],
             pool);
     }
 
@@ -166,12 +168,13 @@ public class DownloadSourceRegistryTests
     public void RacingPool_降级源排在健康源之后且官方仍最后()
     {
         var reg = Registry();
-        Assert.Equal(SourceKind.Bmclapi, reg.Preferred());
+        Assert.Equal(SourceKind.Fastmirror, reg.Preferred());
 
-        for (var i = 0; i < DegradeAfterFailures; i++) reg.RecordFailure(SourceKind.Bmclapi);
+        for (var i = 0; i < DegradeAfterFailures; i++) reg.RecordFailure(SourceKind.Fastmirror);
 
         Assert.Equal(
-            [SourceKind.Fastmirror, SourceKind.Bmclapi, SourceKind.Official],
+            [SourceKind.Sjtu, SourceKind.Bmclapi,
+             SourceKind.Fastmirror, SourceKind.Official],
             reg.RacingPool());
     }
 
@@ -181,30 +184,32 @@ public class DownloadSourceRegistryTests
         var reg = Registry();
         for (var i = 0; i < DegradeAfterFailures - 1; i++) reg.RecordFailure(SourceKind.Bmclapi);
 
-        Assert.Equal(SourceKind.Bmclapi, reg.RacingPool()[0]);
+        // 未达阈值：没降级，还在镜像池里自己的位置（官方之前一位）
+        Assert.False(reg.IsDegraded(SourceKind.Bmclapi));
+        Assert.Equal(SourceKind.Bmclapi, reg.RacingPool()[^2]);
     }
 
     [Fact]
     public void RecordSuccess_重置失败计数并恢复降级()
     {
         var reg = Registry();
-        for (var i = 0; i < DegradeAfterFailures; i++) reg.RecordFailure(SourceKind.Bmclapi);
-        Assert.NotEqual(SourceKind.Bmclapi, reg.RacingPool()[0]);
+        for (var i = 0; i < DegradeAfterFailures; i++) reg.RecordFailure(SourceKind.Fastmirror);
+        Assert.NotEqual(SourceKind.Fastmirror, reg.RacingPool()[0]);
 
-        reg.RecordSuccess(SourceKind.Bmclapi);
+        reg.RecordSuccess(SourceKind.Fastmirror);
 
-        Assert.Equal(SourceKind.Bmclapi, reg.RacingPool()[0]);
+        Assert.Equal(SourceKind.Fastmirror, reg.RacingPool()[0]);
     }
 
     [Fact]
     public void RecordSuccess_重置计数后需重新累计失败才降级()
     {
         var reg = Registry();
-        for (var i = 0; i < DegradeAfterFailures - 1; i++) reg.RecordFailure(SourceKind.Bmclapi);
-        reg.RecordSuccess(SourceKind.Bmclapi);
-        for (var i = 0; i < DegradeAfterFailures - 1; i++) reg.RecordFailure(SourceKind.Bmclapi);
+        for (var i = 0; i < DegradeAfterFailures - 1; i++) reg.RecordFailure(SourceKind.Fastmirror);
+        reg.RecordSuccess(SourceKind.Fastmirror);
+        for (var i = 0; i < DegradeAfterFailures - 1; i++) reg.RecordFailure(SourceKind.Fastmirror);
 
-        Assert.Equal(SourceKind.Bmclapi, reg.RacingPool()[0]);
+        Assert.Equal(SourceKind.Fastmirror, reg.RacingPool()[0]);
     }
 
     [Fact]
@@ -241,7 +246,7 @@ public class DownloadSourceRegistryTests
 
         reg.ResetHealth();
 
-        Assert.Equal(SourceKind.Bmclapi, reg.RacingPool()[0]);
+        Assert.Equal(SourceKind.Fastmirror, reg.RacingPool()[0]);
     }
 
     // ── 8. 指定单一源 ──────────────────────────────────────────
@@ -272,7 +277,7 @@ public class DownloadSourceRegistryTests
     [InlineData("auto")]
     [InlineData("unknown-mirror")]
     public void 自动或未知ID时回落多源竞速(string? id) =>
-        Assert.Equal(SourceKind.Bmclapi, Registry(id!).RacingPool()[0]);
+        Assert.Equal(SourceKind.Fastmirror, Registry(id!).RacingPool()[0]);
 
     // ── 9. 出口改写（RewritePreferred） ────────────────────────
 
@@ -282,7 +287,7 @@ public class DownloadSourceRegistryTests
         const string url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
         Assert.Equal(
-            "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json",
+            "https://launchermeta.fastmcmirror.org/mc/game/version_manifest_v2.json",
             Registry().RewritePreferred(url));
     }
 
@@ -381,6 +386,24 @@ public class DownloadSourceRegistryTests
         for (var i = 0; i < 64; i++) ParallelGovernor.ReportSuccess(host);
 
         Assert.Equal(ChunkedFileDownloader.MaxWorkersPerFile, ParallelGovernor.LimitFor(host));
+    }
+
+    [Fact]
+    public void ParallelGovernor_官方主机可以放开到更高并发()
+    {
+        ParallelGovernor.ResetForTests();
+        const string official = "piston-data.mojang.com";
+        const string mirror = "starcloud.cn-nb1.rains3.com";
+
+        for (var i = 0; i < 200; i++)
+        {
+            ParallelGovernor.ReportSuccess(official);
+            ParallelGovernor.ReportSuccess(mirror);
+        }
+
+        // 官方 CDN 实测按连接限速、32 条也不限流；镜像网关按 IP 限流，仍是 8 条
+        Assert.Equal(ChunkedFileDownloader.MaxWorkersPerMojangFile, ParallelGovernor.LimitFor(official));
+        Assert.Equal(ChunkedFileDownloader.MaxWorkersPerFile, ParallelGovernor.LimitFor(mirror));
     }
 
     [Fact]

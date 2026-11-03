@@ -159,6 +159,13 @@ Var DoneBytes
   !error "installer-uninstall.nsh 未生成：请用 tools\build-installer.ps1 打包"
 !endif
 
+; 废弃文件清单（旧版本有、本版本没有的文件）：升级不再清目录，靠它在安装前清掉。
+!if /FileExists "${__FILEDIR__}\installer-obsolete.nsh"
+  !define SC_OBSOLETE_NSH "${__FILEDIR__}\installer-obsolete.nsh"
+!else
+  !error "installer-obsolete.nsh 未生成：请用 tools\build-installer.ps1 打包"
+!endif
+
 Page custom UiPage UiPageLeave
 Page instfiles
 
@@ -447,6 +454,11 @@ FunctionEnd
 
 ; 卸载清单：与载荷同一份文件列表生成，只含本版本安装的文件与目录。
 !include "${SC_UNINSTALL_NSH}"
+
+; 废弃文件清单：旧版本装过、本版本不再发布的文件（卫星语言 .mui、本地 ML 栈等）。
+; 升级时不再整目录清空（那会删掉用户放在安装目录里的 .minecraft），所以这些
+; 只能在安装前显式删掉，否则会永久堆积在用户盘上。
+!include "${SC_OBSOLETE_NSH}"
 
 Function CreateChrome
   ; 背景（最底层）
@@ -824,18 +836,17 @@ Function OnPrimary
     ${If} ${FileExists} "$INSTDIR\uninstall.exe"
     ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
     ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
-      ClearErrors
-      RMDir /r "$INSTDIR"
-      IfErrors 0 sc_rm_done
-        Sleep 800
-        RMDir /r "$INSTDIR"
-      sc_rm_done:
+      ; 升级不再整目录清空：用户可能把 .minecraft 放在安装目录里，
+      ; RMDir /r 会连游戏存档/版本一起删（数据丢失级，实测踩过）。
+      ; 覆盖安装本身按清单重写全部载荷文件，旧文件残留由卸载清单兜底。
     ${EndIf}
   ${EndIf}
   CreateDirectory "$INSTDIR"
+  ; 清掉旧版本遗留、本版本不再发布的文件（升级不清目录的代价，靠这份清单兜住）
+  Call ScRemoveObsolete
 
   StrCpy $DoneBytes 0
-  SendMessage $hProgress 0x402 0 0
+  SendMessage $hProgress 0x0408 0 0
   Call ExtractPayload
 
   Call RegisterInstall
@@ -875,7 +886,7 @@ Function ProgressStep
   IntOp $1 ${SC_TOTAL_BYTES} / 1024
   IntOp $0 $0 * 100
   IntOp $0 $0 / $1
-  SendMessage $hProgress 0x402 $0 0
+  SendMessage $hProgress 0x0408 $0 0
   System::Call 'user32::UpdateWindow(i $hProgress)'
 FunctionEnd
 
@@ -931,15 +942,11 @@ Section "Starcloud" SecInstall
       ${If} ${FileExists} "$INSTDIR\uninstall.exe"
       ${OrIf} ${FileExists} "$INSTDIR\${MAIN_EXE}"
       ${OrIf} ${FileExists} "$INSTDIR\starcloud-launcher.exe"
-        ClearErrors
-        RMDir /r "$INSTDIR"
-        IfErrors 0 sc_rm2_done
-          Sleep 800
-          RMDir /r "$INSTDIR"
-        sc_rm2_done:
+; 同上：静默升级也不整目录清空，避免误删安装目录内的 .minecraft
       ${EndIf}
     ${EndIf}
     CreateDirectory "$INSTDIR"
+    Call ScRemoveObsolete
     StrCpy $DoneBytes 0
     Call ExtractPayload
     Call RegisterInstall
@@ -1123,25 +1130,19 @@ Function un.DoUninstall
   Delete "$INSTDIR\uninstall.exe"
 
   ; 盘根 / 共享根绝不能 RMDir /r（issue #1：会把整个分区删空）。
-  ; 这类目录只按本版本的安装清单逐项删除，目录删空后才 RMDir，磁盘上的其它内容一律不动。
+  ; 这里只做提示；实际的删除统一走下面「按本版安装清单逐项删除」，
+  ; 对盘根与非盘根都安全（目录删空后才 RMDir，磁盘上的其它内容一律不动）。
   Call un.IsDriveRoot
   ${If} $R7 == 1
-    Call un.RemoveInstalledFiles
-    Call un.RemoveInstalledDirs
     ${IfNot} ${Silent}
       MessageBox MB_OK|MB_ICONINFORMATION "检测到旧版本直接安装在盘符根目录或共享根目录。为免误删其它文件，本次卸载只删除 Starcloud 自己的文件，目录中的其它内容保持不变。"
     ${EndIf}
-  ${Else}
-    ; 大目录删除偶发被占用（杀毒扫描 / 资源管理器缩略图）：失败就稍等重试一次，
-    ; 不再无限卡在删除阶段
-    ClearErrors
-    RMDir /r "$INSTDIR"
-    IfErrors 0 un_rm_ok
-      Sleep 800
-      RMDir /r "$INSTDIR"
-    un_rm_ok:
-    RMDir "$INSTDIR"
   ${EndIf}
+  ; 不走 RMDir /r：在 .minecraft（assets 数十万个文件）里表现为卸载假死，
+  ; 且会删掉用户放在安装目录里的游戏数据。
+  Call un.RemoveInstalledFiles
+  Call un.RemoveInstalledDirs
+
 
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\卸载 ${PRODUCT_NAME}.lnk"
@@ -1152,7 +1153,20 @@ Function un.DoUninstall
   DeleteRegKey HKCU "${APP_KEY}"
 
   ${If} $DelData == 1
-    RMDir /r "${DATA_DIR}"
+    ; 数据区里可能有用户自选的 .minecraft（游戏目录可自选到任何位置）：
+    ; 先把它挪回标准位置（若标准位置为空），挪不动就整个保留并告知，绝不静默删除
+    ${If} ${FileExists} "${DATA_DIR}\.minecraft\*.*"
+      ${IfNot} ${FileExists} "$APPDATA\.minecraft"
+        Rename "${DATA_DIR}\.minecraft" "$APPDATA\.minecraft"
+      ${EndIf}
+    ${EndIf}
+    ${If} ${FileExists} "${DATA_DIR}\.minecraft\*.*"
+      ${IfNot} ${Silent}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "检测到游戏目录位于数据文件夹内，为免误删存档与版本，本次卸载未删除该目录，路径：${DATA_DIR}\.minecraft"
+      ${EndIf}
+    ${Else}
+      RMDir /r "${DATA_DIR}"
+    ${EndIf}
     RMDir /r "${LOG_DIR}"
   ${EndIf}
 FunctionEnd

@@ -70,11 +70,20 @@ public sealed class MultiMcPackService
             bytes);
     }
 
-    /// <summary>安装实例包（installRoot 为空时落 .minecraft 根；支持装进隔离实例目录）</summary>
-    public async Task<MrPackInstallResult> InstallAsync(
+    /// <summary>安装实例包（installRoot 为空时落 .minecraft 根；支持装进隔离目录）</summary>
+    public Task<MrPackInstallResult> InstallAsync(
         string archivePath, LauncherSettings settings, string? installRoot = null,
         IProgress<string>? status = null, IProgress<BatchProgress>? progress = null,
         CancellationToken ct = default)
+        // 打开 zip、格式探测、遍历全部条目、统计字节数都是**同步 IO**：
+        // GTNH 这类几万条目的实例包在调用线程（UI 线程）做完这几步就要卡住数秒，
+        // 表现为「导大型 MultiMC 整合包时主程序未响应」（issue #6）。整体挪到后台。
+        => Task.Run(async () =>
+            await InstallCoreAsync(archivePath, settings, installRoot, status, progress, ct), ct);
+
+    private async Task<MrPackInstallResult> InstallCoreAsync(
+        string archivePath, LauncherSettings settings, string? installRoot,
+        IProgress<string>? status, IProgress<BatchProgress>? progress, CancellationToken ct)
     {
         using var zip = PackZip.Open(archivePath);
         var probe = RequireMultiMc(zip);

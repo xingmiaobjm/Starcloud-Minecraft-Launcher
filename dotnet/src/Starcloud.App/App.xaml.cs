@@ -23,6 +23,13 @@ public partial class App : Application
     // 跨页启动请求：版本列表页详情页"启动"后导航回主页消费
     public static string? PendingLaunchVersionId;
 
+    // 跨页启动附带的「自动连接服务器」：联机房间的「开始游戏」在启动时带房主地址
+    // （走 --quickPlayMultiplayer），消费一次即清空
+    public static string? PendingLaunchServer;
+
+    // 本次启动来自联机房间：游戏窗口出现后自动跳回好友页联机标签（消费一次即清）
+    public static bool PendingReturnToFriends;
+
     // 跨页日志跳转：运行状态页点「打开日志」时置 "game"，日志页进入后消费一次
     public static string? PendingLogSource;
 
@@ -32,6 +39,38 @@ public partial class App : Application
         Loc.Initialize(AppServices.Instance.Settings.UiLanguage);
         InitializeComponent();
         // 全局异常日志：WinUI stowed exception（0xc000027b）默认不留托管堆栈，落地到文件便于诊断
+        // 诊断：首破异常记录 NRE 的真实抛出点（无堆栈的 NRE 靠这个定位）
+        AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
+        {
+            if (e.Exception is not NullReferenceException nre) return;
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Starcloud");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "nre.log"),
+                    $"[{DateTime.Now:HH:mm:ss.fff}] {nre.Message}" + "\n" + (nre.StackTrace ?? "(无堆栈)") + "\n\n");
+            }
+            catch { }
+        };
+
+        // 后台线程的未捕获异常不会走 UnhandledException（XAML 线程专用）——它们直接杀进程，
+        // 且 stderr 只有一行 "Unhandled exception"。这里补上，保证有堆栈可查。
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Starcloud");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "crash.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [background] {e.ExceptionObject}" + "\n\n");
+            }
+            catch { }
+        };
+
         UnhandledException += (_, e) =>
         {
             try

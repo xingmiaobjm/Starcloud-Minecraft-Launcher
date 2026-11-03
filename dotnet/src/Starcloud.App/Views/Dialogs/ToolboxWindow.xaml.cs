@@ -145,9 +145,9 @@ public sealed partial class ToolboxWindow : Window
             {
                 var (w, h) = spec.Clamp(host.ColumnSpan, host.RowSpan);
                 if (w != spec.DefaultColumnSpan || h != spec.DefaultRowSpan)
-                    ShowToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"));
+                    ShowToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"), ToastKind.Warning);
                 else
-                    ShowToast(Loc.T("已添加卡片"));
+                    ShowToast(Loc.T("已添加卡片"), ToastKind.Success);
             }
             RefreshParams();
         });
@@ -187,46 +187,12 @@ public sealed partial class ToolboxWindow : Window
         {
             var host = grid.FindHost(cardId);
             if (host is null) return;
-            var spec = HomeCardCatalog.Resolve(host.CardType);
-            var placement = HomeCardPlacer.Place(
-                grid.Hosts().Select(h => new HomeCardLayout
-                {
-                    Id = h.CardId,
-                    Type = h.CardType,
-                    Column = h.Column,
-                    Row = h.Row,
-                    ColumnSpan = h.ColumnSpan,
-                    RowSpan = h.RowSpan,
-                    Visible = h.Visibility == Visibility.Visible,
-                }).ToList(),
-                grid.Columns, grid.Rows, spec, host.Column, host.Row, host.CardId);
-
-            if (!placement.Success)
+            // 落位规则只有一份：与卡片右键菜单共用网格层的 TryApplyCardSize
+            if (!grid.TryApplyCardSize(host, spanW, spanH))
             {
                 ShowToast(Loc.T("主页空间不足：先把其它卡片换成更小的尺寸，或移除不用的卡片"));
                 return;
             }
-
-            if (placement.Displaced is { Count: > 0 })
-            {
-                foreach (var shift in placement.Displaced)
-                {
-                    var victim = grid.FindHost(shift.Id);
-                    if (victim is null) continue;
-                    victim.Column = shift.Column;
-                    victim.Row = shift.Row;
-                    victim.ColumnSpan = shift.ColumnSpan;
-                    victim.RowSpan = shift.RowSpan;
-                }
-            }
-
-            host.Column = placement.Column;
-            host.Row = placement.Row;
-            host.ColumnSpan = placement.ColumnSpan;
-            host.RowSpan = placement.RowSpan;
-            (host.CardContent as ICardSizeAware)?.ApplyCardSize(placement.ColumnSpan, placement.RowSpan);
-            grid.InvalidateMeasure();
-            grid.NotifyLayoutChanged();
             RefreshParams();
         });
     }
@@ -475,12 +441,21 @@ public sealed partial class ToolboxWindow : Window
         catch { /* 语言切换失败不影响使用 */ }
     }
 
-    private void ShowToast(string message)
+    private enum ToastKind { Success, Warning, Error }
+
+    private void ShowToast(string message, ToastKind kind = ToastKind.Error)
     {
-        // 提示走主页（那里有现成的 InfoBar），工具箱自己不弹窗
+        // 提示走主页（那里有现成的 InfoBar），工具箱自己不弹窗。
+        // 三态必须分开：成功操作显示红色错误条（默认 Error）会让人以为失败了。
         _main?.DispatcherQueue.TryEnqueue(() =>
         {
-            if (_main?.CurrentPage is Views.HomePage page) page.ShowLayoutToast(message);
+            if (_main?.CurrentPage is not Views.HomePage page) return;
+            switch (kind)
+            {
+                case ToastKind.Success: page.ShowLayoutToast(message, ok: true); break;
+                case ToastKind.Warning: page.ShowLayoutWarning(message); break;
+                default: page.ShowLayoutToast(message); break;
+            }
         });
     }
 

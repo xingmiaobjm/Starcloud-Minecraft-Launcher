@@ -10,6 +10,7 @@ using Starcloud.App.Services;
 using Starcloud.App.Views.Controls;
 using Starcloud.App.Views.Rows;
 using Starcloud.App.Views.Shared;
+using Starcloud.Core.Models;
 using Starcloud.Core.Services;
 using System.Diagnostics;
 using System.IO;
@@ -193,7 +194,8 @@ public static class ModPackDialogs
 
     /// <summary>没有逐文件清单、需要按内容铺入的格式（含用户自填 MC 版本）</summary>
     private static bool IsLooseContent(ModPackFormat format) =>
-        format is ModPackFormat.Raw or ModPackFormat.Packwiz or ModPackFormat.AtLauncher or ModPackFormat.Hmcl;
+        format is ModPackFormat.Raw or ModPackFormat.Packwiz or ModPackFormat.AtLauncher
+            or ModPackFormat.Hmcl or ModPackFormat.Technic;
 
     private static string FormatLabel(ModPackFormat format) => format switch
     {
@@ -201,6 +203,8 @@ public static class ModPackDialogs
         ModPackFormat.MultiMc => Loc.T("MultiMC / Prism 实例包"),
         ModPackFormat.Packwiz => Loc.T("packwiz 整合包"),
         ModPackFormat.AtLauncher => Loc.T("ATLauncher 实例包"),
+        ModPackFormat.Technic => Loc.T("Technic 整合包"),
+        ModPackFormat.Mcbbs => Loc.T("MCBBS 整合包"),
         ModPackFormat.Hmcl => Loc.T("HMCL 整合包"),
         ModPackFormat.Raw => Loc.T("通用压缩包"),
         _ => Loc.T("Modrinth 整合包"),
@@ -215,7 +219,11 @@ public static class ModPackDialogs
         string ContentRoot = "", string VersionSource = "");
 
     /// <summary>导入对话框：自动识别格式 → 预览 → 选版本名与隔离 → 安装 + 联动装原版/加载器</summary>
-    public static async Task ImportAsync(XamlRoot root, AppServices s, string packPath)
+    /// <param name="autoInstall">
+    /// true = 直接安装（下载页「安装整合包」用）：跳过确认框，装完只给结果提示。
+    /// </param>
+    public static async Task ImportAsync(XamlRoot root, AppServices s, string packPath,
+        bool autoInstall = false)
     {
         // 识别 / 拍平 / 预览都要开 zip、遍历条目、读清单，大包会跑好几秒 ——
         // 全放后台，界面不卡（这段原来是同步的，用户看到的是「点了没反应」）。
@@ -226,12 +234,14 @@ public static class ModPackDialogs
             // 扩展名不认识时按魔数补一个（无扩展名 / 改了名的包）：容器归一化按扩展名分发
             packPath = ModPackDetector.ResolveArchivePath(packPath) ?? packPath;
             (packPath, normalizedWork) = await ModPackArchive.NormalizeAsync(packPath);
+            LauncherLog.Debug("import", $"归一化完成：{Path.GetFileName(packPath)}（工作目录 {normalizedWork ?? "无"}）");
         }
         catch (Exception ex)
         {
             // 下载中断的包（不完整的 zip/7z）与真损坏的包都会落到这里：
             // 原文是框架的英文异常（"End of Central Directory record could not be found"），
             // 对用户没有意义 —— 统一给「文件可能不完整，重新下载」。
+            LauncherLog.Write("import", $"导入失败（归一化）：{Path.GetFileName(packPath)} -> {ex.GetType().Name}: {ex.Message}");
             await InfoAsync(root, Loc.T("无法导入整合包"),
                 Loc.T("这个文件读不出来，可能下载不完整或已损坏。请重新下载后再试。原始错误：{0}", ex.Message));
             return;
@@ -245,6 +255,9 @@ public static class ModPackDialogs
             (probe, effective, preview) = await Task.Run<(ModPackProbe?, string, PackPreview?)>(() =>
             {
                 var p = ModPackDetector.Detect(packPath);
+                LauncherLog.Debug("import", p is null
+                    ? $"识别失败：{Path.GetFileName(packPath)}"
+                    : $"识别为 {p.Format}，根={p.Root ?? "(包根)"}");
                 if (p is null) return (null, packPath, null);
                 // 外层多套了一层目录的包先重打成根级包（裸内容包不重打：它按内容根直接铺）
                 var eff = IsLooseContent(p.Format) ? packPath : ModPackArchive.FlattenIfNested(packPath, p);
@@ -260,6 +273,7 @@ public static class ModPackDialogs
         }
         catch (Exception ex)
         {
+            LauncherLog.Write("import", $"导入失败（识别）：{Path.GetFileName(packPath)} -> {ex.GetType().Name}: {ex.Message}");
             await InfoAsync(root, Loc.T("无法导入整合包"),
                 Loc.T("这个文件读不出来，可能下载不完整或已损坏。请重新下载后再试。原始错误：{0}", ex.Message));
             return;
@@ -267,6 +281,9 @@ public static class ModPackDialogs
 
         if (probe is null)
         {
+            // 记下包内结构：下次有人说「这个包导不进来」，日志里直接有线索
+            LauncherLog.Write("import",
+                $"未能识别格式：{Path.GetFileName(packPath)} — {ModPackDetector.DescribeLayout(packPath)}");
             await InfoAsync(root, Loc.T("无法导入整合包"),
                 Loc.T("未能识别整合包格式。支持 Modrinth（.mrpack / 内含 modrinth.index.json）、" +
                        "CurseForge（内含 manifest.json）与 MultiMC / Prism 实例包（内含 mmc-pack.json 或 instance.cfg）。"));
@@ -274,6 +291,8 @@ public static class ModPackDialogs
         }
         if (preview is null)
         {
+            LauncherLog.Write("import",
+                $"识别为 {probe.Format}（根 {probe.Root ?? "包根"}）但读不出预览：{Path.GetFileName(packPath)}");
             await InfoAsync(root, Loc.T("无法导入整合包"),
                 Loc.T("读取整合包内容失败：文件可能已损坏，或不是受支持的整合包格式。"));
             return;
@@ -281,7 +300,7 @@ public static class ModPackDialogs
 
         try
         {
-            await RunImportAsync(root, s, effective, preview);
+            await RunImportAsync(root, s, effective, preview, autoInstall);
         }
         finally
         {
@@ -318,9 +337,21 @@ public static class ModPackDialogs
                 return new PackPreview(probe.Format, info.Name, info.GameVersion, info.Dependencies,
                     info.FileCount, info.TotalBytes, probe.Root);
             }
+            case ModPackFormat.Mcbbs:
+            {
+                // MCBBS：清单里直接写了 game + 加载器版本，不需要嗅探
+                var (count, bytes) = MeasurePrefix(packPath, probe.Root);
+                var meta = ModPackDetector.ReadMcbbsMeta(packPath);
+                var mcbbsName = meta?.Name is { Length: > 0 } n ? n : Path.GetFileNameWithoutExtension(packPath);
+                var mcbbsDeps = meta?.Dependencies ?? new Dictionary<string, string>();
+                if (meta?.GameVersion is { Length: > 0 } gv) mcbbsDeps["minecraft"] = gv;
+                return new PackPreview(probe.Format, mcbbsName, meta?.GameVersion ?? "", mcbbsDeps,
+                    count, bytes, probe.Root, "MCBBS 清单");
+            }
             case ModPackFormat.Packwiz:
             case ModPackFormat.AtLauncher:
             case ModPackFormat.Hmcl:
+            case ModPackFormat.Technic:
             case ModPackFormat.Raw:
             {
                 var (count, bytes) = MeasurePrefix(packPath, probe.Root);
@@ -330,8 +361,13 @@ public static class ModPackDialogs
                     ModPackFormat.AtLauncher => ReadAtLauncherName(packPath, probe.Root),
                     _ => Path.GetFileNameWithoutExtension(packPath),
                 };
-                // 这类包没有清单里的游戏版本：从 pack.toml / mod 元数据推断，供对话框预填
-                var sniffed = PackVersionSniffer.Sniff(packPath, probe.Root);
+                // 这类包没有清单里的游戏版本：从 pack.toml / mod 元数据推断，供对话框预填；
+                // Technic 从 bin/modpack.jar 内 version.json 的 inheritsFrom 推断
+                var sniffed = probe.Format == ModPackFormat.Technic
+                    ? new PackVersionInfo(
+                        ModPackDetector.ReadTechnicVersionJson(packPath)?.InheritsFrom, null, null,
+                        "Technic version.json")
+                    : PackVersionSniffer.Sniff(packPath, probe.Root);
                 var deps = new Dictionary<string, string>();
                 if (sniffed.Minecraft is { Length: > 0 } mc) deps["minecraft"] = mc;
                 if (sniffed.Loader is { Length: > 0 } loader)
@@ -480,6 +516,33 @@ public static class ModPackDialogs
         });
     }
 
+    /// <summary>
+    /// MCBBS（国内主流）：内容在 <c>overrides/</c> 下，只把那部分铺进实例
+    /// （清单文件 mcbbs.packmeta / manifest.json 不该出现在玩家的游戏目录里）。
+    /// 个别工具打的包没有 overrides 前缀，那就整包铺（与裸内容包同一套）。
+    /// </summary>
+    private static async Task<MrPackInstallResult> InstallMcbbsAsync(
+        string packPath, string? contentRoot, string installRoot, string mcVersion,
+        IProgress<BatchProgress>? progress)
+    {
+        var prefix = string.IsNullOrEmpty(contentRoot) ? "overrides" : contentRoot + "/overrides";
+        bool hasOverrides;
+        try
+        {
+            using var zip = PackZip.Open(packPath);
+            hasOverrides = zip.Entries.Any(e =>
+                e.FullName.Replace('\\', '/')
+                    .StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("pack", $"MCBBS：检查 overrides 失败，按整包铺入：{ex.Message}");
+            hasOverrides = false;
+        }
+        return await InstallRawAsync(packPath, hasOverrides ? prefix : (contentRoot ?? ""),
+            installRoot, mcVersion, progress);
+    }
+
     /// <summary>packwiz：先按裸内容铺配置，再按 index 把 mod 从元数据里的 URL 拉下来</summary>
     private static async Task<MrPackInstallResult> InstallPackwizAsync(
         string packPath, string contentRoot, string installRoot, string mcVersion,
@@ -496,8 +559,69 @@ public static class ModPackDialogs
         return raw with { DownloadedFiles = raw.DownloadedFiles + mods.Downloaded };
     }
 
+    /// <summary>
+    /// Technic 收尾：bin/modpack.jar 内的 version.json 才是真正的版本声明
+    /// （自带 mainClass / libraries / 启动参数），把它覆盖骨架写成正式版本 JSON；
+    /// modpack.jar 本体复制进共享 libraries 并注册为库条目——随 inheritsFrom 链一起进 classpath。
+    /// 返回追加到导入完成摘要的说明；识别失败返回 null（保底用骨架，能玩只是少了 tweak）。
+    /// </summary>
+    private static string? ApplyTechnicVersion(
+        string dotMc, string installRoot, string targetId, string? gameVersion, string packPath)
+    {
+        try
+        {
+            var sniffed = ModPackDetector.ReadTechnicVersionJson(packPath);
+            if (sniffed is null)
+            {
+                LauncherLog.Write("pack", "Technic：bin/modpack.jar 内没有 version.json，使用默认版本骨架");
+                return null;
+            }
+            var version = JsonSerializer.Deserialize<MinecraftVersion>(sniffed.Value.Json, JsonOpts);
+            if (version is null) return null;
+            // id 必须换成用户命名的目标版本，父版本指向实际游戏版本（安装联动装好的那个）
+            version.Id = targetId;
+            version.InheritsFrom = string.IsNullOrEmpty(version.InheritsFrom) ? gameVersion : version.InheritsFrom;
+            if (string.IsNullOrEmpty(version.InheritsFrom))
+            {
+                LauncherLog.Write("pack", "Technic：version.json 缺 inheritsFrom 且无法推断游戏版本，使用默认骨架");
+                return null;
+            }
+
+            // modpack.jar 进共享库（隔离实例的库也永远解析自共享根），坐标按 Maven 规则：
+            // modpack:technic:<id> → libraries/modpack/technic/<id>/technic-<id>.jar
+            var libDir = Path.Combine(dotMc, "libraries", "modpack", "technic", targetId);
+            Directory.CreateDirectory(libDir);
+            var libPath = Path.Combine(libDir, $"technic-{targetId}.jar");
+            using (var pack = PackZip.Open(packPath))
+            {
+                var entry = pack.Entries.FirstOrDefault(e =>
+                    e.FullName.Replace('\\', '/').EndsWith("bin/modpack.jar", StringComparison.OrdinalIgnoreCase));
+                if (entry is null) return null;
+                entry.ExtractToFile(libPath, overwrite: true);
+            }
+            version.Libraries.Add(new Library { Name = $"modpack:technic:{targetId}" });
+
+            Directory.CreateDirectory(installRoot);
+            File.WriteAllText(Path.Combine(installRoot, $"{targetId}.json"),
+                JsonSerializer.Serialize(version, JsonOpts));
+            LauncherLog.Write("pack",
+                $"Technic：已应用 bin/modpack.jar 的 version.json（mainClass={version.MainClass}，库 {version.Libraries.Count} 个）");
+            return Loc.T("已应用 Technic 自定义版本声明（bin/modpack.jar）。");
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("pack", $"Technic version.json 应用失败，回退默认骨架：{ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>导入对话框主体：预览 → 选版本名与隔离 → 按格式安装 → 联动装原版/加载器</summary>
-    private static async Task RunImportAsync(XamlRoot root, AppServices s, string packPath, PackPreview preview)
+    /// <param name="autoInstall">
+    /// true = 直接安装（下载页点「安装整合包」走这条）：不再弹「填名字 / 选隔离」确认框，
+    /// 用包名建隔离实例，重复安装自动改名。仍然有进度框与结果展示。
+    /// </param>
+    private static async Task RunImportAsync(XamlRoot root, AppServices s, string packPath,
+        PackPreview preview, bool autoInstall = false)
     {
         var dotMc = s.Settings.DotMinecraft;
 
@@ -616,44 +740,68 @@ public static class ModPackDialogs
         }
 
         string targetId;
-        while (true)
+        var isolated = true;
+        if (autoInstall)
         {
-            var dlg = new ThemedDialog
-            {
-                Title = Loc.T("导入整合包"),
-                Content = BuildPanel(),
-                PrimaryButtonText = Loc.T("导入"),
-                CloseButtonText = Loc.T("取消"),
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = root,
-            };
-            if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
-            var typed = nameBox.Text.Trim();
-            if (!InstanceLayout.IsValidVersionId(typed))
-            {
-                hint.Text = Loc.T("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
-                continue;
-            }
+            // 直接安装：名称取包名，固定隔离实例；裸内容包必须有可推断的 MC 版本才走得通
+            targetId = InstanceLayout.SafeFileName(preview.Name);
+            if (!InstanceLayout.IsValidVersionId(targetId)) targetId = "整合包";
             if (IsLooseContent(preview.Format))
             {
-                var mc = mcBox?.Text.Trim() ?? "";
-                if (mc.Length == 0)
+                if (string.IsNullOrWhiteSpace(typedMc))
                 {
-                    hint.Text = Loc.T("请填写 Minecraft 版本，例如 1.20.1");
-                    continue;
+                    await InfoAsync(root, Loc.T("无法直接安装"),
+                        Loc.T("这个包没有清单，需要手动指定 Minecraft 版本。请改用「导入整合包」。"));
+                    return;
                 }
-                if (knownVersions is { Count: > 0 } && !knownVersions.Contains(mc))
+                if (knownVersions is { Count: > 0 } && !knownVersions.Contains(typedMc))
                 {
-                    hint.Text = Loc.T("官方清单里没有 {0} 这个版本，请检查后再填。", mc);
-                    continue;
+                    await InfoAsync(root, Loc.T("无法直接安装"),
+                        Loc.T("官方清单里没有 {0} 这个版本，请改用「导入整合包」手动指定。", typedMc));
+                    return;
                 }
-                typedMc = mc;
             }
-            targetId = typed;
-            break;
         }
-
-        var isolated = isoBox.IsChecked == true;
+        else
+        {
+            while (true)
+            {
+                var dlg = new ThemedDialog
+                {
+                    Title = Loc.T("导入整合包"),
+                    Content = BuildPanel(),
+                    PrimaryButtonText = Loc.T("导入"),
+                    CloseButtonText = Loc.T("取消"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = root,
+                };
+                if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+                var typed = nameBox.Text.Trim();
+                if (!InstanceLayout.IsValidVersionId(typed))
+                {
+                    hint.Text = Loc.T("版本名不能为空，且不能包含 < > : \" / \\ | ? *");
+                    continue;
+                }
+                if (IsLooseContent(preview.Format))
+                {
+                    var mc = mcBox?.Text.Trim() ?? "";
+                    if (mc.Length == 0)
+                    {
+                        hint.Text = Loc.T("请填写 Minecraft 版本，例如 1.20.1");
+                        continue;
+                    }
+                    if (knownVersions is { Count: > 0 } && !knownVersions.Contains(mc))
+                    {
+                        hint.Text = Loc.T("官方清单里没有 {0} 这个版本，请检查后再填。", mc);
+                        continue;
+                    }
+                    typedMc = mc;
+                }
+                targetId = typed;
+                break;
+            }
+            isolated = isoBox.IsChecked == true;
+        }
         var renamed = false;
         if (isolated && Directory.Exists(Path.Combine(dotMc, "versions", targetId)))
         {
@@ -664,7 +812,7 @@ public static class ModPackDialogs
 
         var progressDlg = new ThemedDialog
         {
-            Title = Loc.T("导入整合包"),
+            Title = Loc.T(autoInstall ? "安装整合包" : "导入整合包"),
             Content = CreateProgressPanel(out var statusText, out var bar),
             CloseButtonText = Loc.T("后台导入"),
             XamlRoot = root,
@@ -700,18 +848,47 @@ public static class ModPackDialogs
                 ModPackFormat.AtLauncher or ModPackFormat.Hmcl or ModPackFormat.Raw
                     => await InstallRawAsync(packPath, preview.ContentRoot, installRoot,
                     typedMc, progress),
+                ModPackFormat.Technic
+                    => await InstallRawAsync(packPath, preview.ContentRoot, installRoot,
+                    typedMc, progress),
+                ModPackFormat.Mcbbs
+                    => await InstallMcbbsAsync(packPath, preview.ContentRoot, installRoot,
+                    typedMc, progress),
                 _ => await s.MrPack.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
             };
             summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, s, progress);
             if (isolated)
             {
-                // 版本骨架：父版本优先指向联动装好的加载器，否则退回首层原版
-                var parent = LoaderVersionId(dotMc, result.GameVersion, result.Dependencies) ?? result.GameVersion;
+                // 版本骨架：父版本优先指向联动装好的加载器，否则退回首层原版。
+                // **必须写**：ListInstalled 只认 versions/<id>/<id>.json，缺了文件这个实例
+                // 就"装了但列表里没有"，启动时还会报「版本不存在」（实测踩过）。
+                // 包没声明 MC 版本时（部分 MultiMC/HMCL 包），用预览里嗅出来的版本兜底。
+                var parent = LoaderVersionId(dotMc, result.GameVersion, result.Dependencies)
+                    ?? (string.IsNullOrEmpty(result.GameVersion) ? preview.GameVersion : result.GameVersion);
                 var jsonPath = Path.Combine(installRoot, $"{targetId}.json");
-                if (!File.Exists(jsonPath) && !string.IsNullOrEmpty(parent))
+                if (!File.Exists(jsonPath))
                 {
-                    var skeleton = new { id = targetId, inheritsFrom = parent, type = "release" };
-                    File.WriteAllText(jsonPath, JsonSerializer.Serialize(skeleton, JsonOpts));
+                    if (string.IsNullOrWhiteSpace(parent))
+                    {
+                        // 连预览都推不出 MC 版本：至少写一个能扫到的最小 JSON，
+                        // 否则实例在列表里彻底隐身（比"能看见但缺父版本"更难排查）
+                        LauncherLog.Write("modpack",
+                            $"整合包 {Path.GetFileName(packPath)} 推不出 MC 版本，仍写入最小版本 JSON 保证可被识别");
+                        File.WriteAllText(jsonPath,
+                            JsonSerializer.Serialize(new { id = targetId, type = "release" }, JsonOpts));
+                    }
+                    else
+                    {
+                        var skeleton = new { id = targetId, inheritsFrom = parent, type = "release" };
+                        File.WriteAllText(jsonPath, JsonSerializer.Serialize(skeleton, JsonOpts));
+                    }
+                }
+                // Technic 收尾：bin/modpack.jar 内的 version.json 才是真正的版本声明
+                // （自带 mainClass / libraries / 启动参数），骨架之上覆盖成正式版本 JSON
+                if (preview.Format == ModPackFormat.Technic)
+                {
+                    var techNote = ApplyTechnicVersion(dotMc, installRoot, targetId, result.GameVersion, packPath);
+                    if (techNote is not null) summary += "\n" + techNote;
                 }
                 var store = new InstanceSettingsStore(dotMc);
                 store.Set(targetId, new VersionProfile { Isolation = "isolated" });
@@ -905,7 +1082,7 @@ public static class ModPackDialogs
             .ToList();
     }
 
-    private static string? LoaderVersionId(string dotMc, string mc, IReadOnlyDictionary<string, string> deps)
+    internal static string? LoaderVersionId(string dotMc, string mc, IReadOnlyDictionary<string, string> deps)
     {
         string? id = null;
         if (deps.TryGetValue("fabric-loader", out var fab) && fab.Length > 0) id = $"fabric-loader-{fab}-{mc}";
@@ -931,7 +1108,7 @@ public static class ModPackDialogs
         while (true)
         {
             var state = new BackupPanelState();
-            ContentDialog? dlg = null;
+            Views.Dialogs.ThemedDialog? dlg = null;
             var panel = BuildBackupPanel(s, dotMc, row.Id, isolated, state, () => dlg?.Hide(), out var gather);
             dlg = new ThemedDialog
             {

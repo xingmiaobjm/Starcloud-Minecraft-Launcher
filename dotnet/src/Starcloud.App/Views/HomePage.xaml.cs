@@ -28,6 +28,8 @@ public sealed partial class HomePage : Page
     private List<LocalVersionRow> _rows = [];
     private GameSession? _gameProcess;          // 当前启动页 / 收尾流程对应的那一局（多开时=最近一次启动的）
     private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
+    /// <summary>跨页启动附带的自动连接地址（联机房间的「开始游戏」），一次性。</summary>
+    private string? _pendingServer;
     private int _modeIndex;           // 账户模式分段的当前段（0 正版 / 1 外置 / 2 离线），供尺寸变化时复位指示器
 
     // ── 启动可靠性（设计：docs/designs/2026-09-11-launch-reliability-design.md） ──
@@ -106,6 +108,8 @@ public sealed partial class HomePage : Page
             bar.IsOpen = true;
         };
 
+        ApplyVersionRowHoverFallback();
+
         // 卡片网格：把上次保存的格位套到两张卡上；拖动/缩放提交后立即落盘
         _homeLayout = _homeLayoutStore.Load();
         HomeGrid.ApplyLayout(_homeLayout);
@@ -176,7 +180,11 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>把提示交给主页显示（独立工具箱窗口在另一个进程内的窗口里，提示走主页更合适）。</summary>
+    /// <summary>成功 / 失败两态提示（工具箱跨窗口调用用）。</summary>
     public void ShowLayoutToast(string message, bool ok = false) => ShowHomeToast(message, ok);
+
+    /// <summary>警告态提示：操作成功但有调整（例如卡片被换成更小的尺寸）。</summary>
+    public void ShowLayoutWarning(string message) => ShowHomeToast(message, severity: InfoBarSeverity.Warning);
 
     /// <summary>
     /// 打开布局编辑工具箱（版本卡卡头的「布局」按钮）。
@@ -406,7 +414,7 @@ public sealed partial class HomePage : Page
             {
                 var (w, h) = spec.Clamp(host.ColumnSpan, host.RowSpan);
                 if (w != spec.DefaultColumnSpan || h != spec.DefaultRowSpan)
-                    ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"));
+                    ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"), severity: InfoBarSeverity.Warning);
                 else
                     ShowHomeToast(Loc.T("已添加卡片"), ok: true);
             }
@@ -511,6 +519,37 @@ public sealed partial class HomePage : Page
         PickerHintText.Visibility = spanH >= 4 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// 低动效档位（极少 / 较少）时，版本行的悬停反馈交回框架默认底色。
+    /// <para>行模板把 ListViewItemBackgroundPointerOver 置空是给「均衡及以上」服务的：
+    /// 那时悬停由跟手光斑表达（透明底才不会与光斑叠出硬边灰块）。低档位光斑不接线，
+    /// 底色又空着的话整行没有任何悬停反馈 —— 这里按档位把框架底色补回来。</para>
+    /// </summary>
+    private void ApplyVersionRowHoverFallback()
+    {
+        if (_s.Motion.LightFx) return;   // 均衡及以上：光斑负责，保持透明
+        try
+        {
+            var hover = ThemedBrush("SubtleFillColorSecondaryBrush");
+            if (hover is not null) VersionList.Resources["ListViewItemBackgroundPointerOver"] = hover;
+            var pressed = ThemedBrush("SubtleFillColorTertiaryBrush") ?? hover;
+            if (pressed is not null) VersionList.Resources["ListViewItemBackgroundPressed"] = pressed;
+        }
+        catch { /* 主题画刷取不到就维持透明，不影响功能 */ }
+    }
+
+    /// <summary>沿当前主题查主题画刷（代码里取 ResourceDictionary 索引器会拿错主题，故显式查）。</summary>
+    private Brush? ThemedBrush(string key)
+    {
+        var want = ActualTheme.ToString();
+        foreach (var d in Application.Current.Resources.MergedDictionaries)
+            if (d.ThemeDictionaries.TryGetValue(want, out var v) &&
+                v is ResourceDictionary rd && rd.TryGetValue(key, out var b) && b is Brush brush)
+                return brush;
+        return Application.Current.Resources.TryGetValue(key, out var fallback) &&
+            fallback is Brush fb ? fb : null;
+    }
+
     /// <summary>主页不滚动：固定行数里放不下时只提示，不偷偷拉高页面。</summary>
     private void WarnNoHomeSpace()
     {
@@ -518,9 +557,10 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>页面级悬浮提示（卡片操作结果）：默认是错误态，成功时传 ok=true 走提示态。</summary>
-    private void ShowHomeToast(string message, bool ok = false)
+    private void ShowHomeToast(string message, bool ok = false,
+        InfoBarSeverity? severity = null)
     {
-        HomeToast.Severity = ok ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+        HomeToast.Severity = severity ?? (ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
         HomeToast.Message = message;
         HomeToast.IsOpen = true;
         _toastTimer.Stop();
@@ -534,53 +574,27 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>套用固定尺寸档位：放不下就腾位（换小档位或挪到空位），然后落盘。</summary>
+    /// <summary>
+    /// 改卡片尺寸档位（工具箱参数区用）。落位统一走 <see cref="CardGridPanel.TryApplyCardSize"/>
+    /// —— 右键菜单与工具箱共用同一套规则，只有落盘与提示留在页面侧。
+    /// </summary>
     private void ApplyCardSize(CardHost host, int columnSpan, int rowSpan)
     {
-        var spec = HomeCardCatalog.Resolve(host.CardType);
-        var placement = HomeCardPlacer.Place(
-            HomeGrid.Hosts().Select(ToCardLayout).ToList(),
-            HomeGrid.Columns,
-            HomeGrid.Rows,
-            spec,
-            host.Column,
-            host.Row,
-            host.CardId);
-
-        if (!placement.Success)
+        var beforeColumn = host.Column;
+        var beforeRow = host.Row;
+        if (!HomeGrid.TryApplyCardSize(host, columnSpan, rowSpan))
         {
             WarnNoHomeSpace();
             return;
         }
 
-        // 腾位时可能有别的卡片被缩小/挪开 —— 一并落实
-        if (placement.Displaced is { Count: > 0 })
-        {
-            foreach (var shift in placement.Displaced)
-            {
-                var victim = HomeGrid.FindHost(shift.Id);
-                if (victim is null) continue;
-                victim.Column = shift.Column;
-                victim.Row = shift.Row;
-                victim.ColumnSpan = shift.ColumnSpan;
-                victim.RowSpan = shift.RowSpan;
-                (victim.CardContent as ICardSizeAware)?.ApplyCardSize(shift.ColumnSpan, shift.RowSpan);
-            }
-        }
-
-        // 用户点的是某个档位；腾位后可能被换成别的档位/挪到别处 —— 如实说明
-        var changed = placement.ColumnSpan != columnSpan || placement.RowSpan != rowSpan;
-        var moved = placement.Column != host.Column || placement.Row != host.Row;
-
-        host.Column = placement.Column;
-        host.Row = placement.Row;
-        host.ColumnSpan = placement.ColumnSpan;
-        host.RowSpan = placement.RowSpan;
-        (host.CardContent as ICardSizeAware)?.ApplyCardSize(placement.ColumnSpan, placement.RowSpan);
-        HomeGrid.InvalidateMeasure();
         PersistCardLayout();
 
+        // 用户点的是某个档位；腾位后可能被换成别的档位/挪到别处 —— 如实说明
+        var changed = host.ColumnSpan != columnSpan || host.RowSpan != rowSpan;
+        var moved = host.Column != beforeColumn || host.Row != beforeRow;
         if (changed)
-            ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"));
+            ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"), severity: InfoBarSeverity.Warning);
         else if (moved)
             ShowHomeToast(Loc.T("目标位置放不下，这张卡片已挪到空位"));
     }
@@ -852,6 +866,8 @@ public sealed partial class HomePage : Page
         base.OnNavigatedTo(e);
         _pendingLaunchId = App.PendingLaunchVersionId;
         App.PendingLaunchVersionId = null;
+        _pendingServer = App.PendingLaunchServer;
+        App.PendingLaunchServer = null;
         if (_rows.Count > 0) ConsumePendingLaunch(); // 缓存实例回到主页立即消费；新实例等 Loaded
         UpdateVersionMeta(); // 按钮态依赖实时运行集合（多开：可能在别的页启停了实例）
     }
@@ -865,12 +881,36 @@ public sealed partial class HomePage : Page
         var row = _rows.FirstOrDefault(r => r.Id == id);
         if (row is null)
         {
-            LocalErrorBar.Message = Loc.T("版本 {0} 不存在，可能已被删除", id);
-            LocalErrorBar.IsOpen = true;
+            // 刚装完整合包就跳过来时，列表可能还是装之前的快照（安装发生在下载页弹窗里）：
+            // 重扫一次再匹配，实在没有才报错（否则用户看到「版本不存在」但版本明明在磁盘上）
+            _ = RetryConsumeAfterRescanAsync(id);
             return;
         }
         VersionList.SelectedItem = row;
         _ = StartLaunchAsync(id); // 多开：不再拦截「已有游戏在运行」
+    }
+
+    /// <summary>找不到目标版本时重扫一次再消费；仍缺失才提示。</summary>
+    private async Task RetryConsumeAfterRescanAsync(string id)
+    {
+        try
+        {
+            await LoadVersionsAsync();
+            var row = _rows.FirstOrDefault(r => r.Id == id);
+            if (row is not null)
+            {
+                VersionList.SelectedItem = row;
+                _ = StartLaunchAsync(id);
+                return;
+            }
+            LauncherLog.Write("launch", $"启动请求的版本 {id} 重扫后仍不在列表中（已装 {_rows.Count} 个）");
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("launch", $"重扫版本列表失败：{ex.Message}");
+        }
+        LocalErrorBar.Message = Loc.T("版本 {0} 不存在，可能已被删除", id);
+        LocalErrorBar.IsOpen = true;
     }
 
     private void SetMode(string mode)
@@ -1047,10 +1087,8 @@ public sealed partial class HomePage : Page
         SyncCompactRow();
         RefreshVersionCollapseAvailability();
         // 容器这一拍才真正生成：先走一次布局再给选中行补标记（列表重建，竖条落点作废）
-        _barY = double.NaN;
-        _barShown = false;
+        _bar.Reset();
         VersionList.UpdateLayout();
-        HookVersionScroll();
         SyncSelectedInset(animate: false);
         // 版本列表就绪后才消费跨页启动请求（它要选中某个版本）
         ConsumePendingLaunch();
@@ -1082,37 +1120,24 @@ public sealed partial class HomePage : Page
         UpdateSelectionBar(animate);
     }
 
-    // ── 选中竖条：整块列表共用一条，按行位置真实位移（惯性滑行 + 移动中拉伸 + 过冲回弹） ──
+    // ── 选中竖条：共用条播位移动画，落定后交接给行内静态条（跟随元素而非同步坐标） ──
 
-    /// <summary>竖条当前的纵向位置（第几次落点），NaN = 还没落过</summary>
-    private double _barY = double.NaN;
-    private bool _barShown;
-
-    private ScrollViewer? _versionScroll;
+    /// <summary>竖条的落点状态（Y=NaN 表示还没落过）；动画播完会交接给行内静态条。</summary>
+    private readonly ListSelectionFx.BarState _bar = new();
 
     /// <summary>
     /// 把竖条移到当前选中行：从上一行的位置滑过去，移动中纵向拉伸，
-    /// 落点前整体越过目标再弹回（曲线细节见 ListSelectionFx.UpdateBar）。
+    /// 落点前整体越过目标再弹回；播完交接给行内静态条（见 ListSelectionFx.UpdateBar）。
     /// </summary>
     private void UpdateSelectionBar(bool animate) =>
-        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, VersionList,
-            ref _barY, ref _barShown, animate);
-
-    /// <summary>滚动时竖条跟着行一起走（不播动画，直接同步位置）。</summary>
-    private void HookVersionScroll()
-    {
-        if (_versionScroll is not null) return;
-        _versionScroll = ListSelectionFx.FindDescendant<ScrollViewer>(VersionList);
-        if (_versionScroll is not null)
-            _versionScroll.ViewChanged += (_, _) => UpdateSelectionBar(animate: false);
-    }
+        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, VersionList, _bar, animate);
 
     private void VersionList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         if (args.InRecycleQueue) return;
         // 容器复用时上一行的动画状态会残留：只按这一格重刷（整表遍历在长列表里是平方级开销）
         ListSelectionFx.SyncInsetFor(sender, args.ItemIndex, args.ItemContainer, animate: false);
-        UpdateSelectionBar(animate: false);
+        ListSelectionFx.SyncRowBarFor(sender, args.ItemIndex, args.ItemContainer);
     }
 
     private void UpdateVersionMeta()
@@ -1586,6 +1611,7 @@ public sealed partial class HomePage : Page
             ModeBar.Height = expanded ? double.NaN : 0;
             CardBody.Clip = null;
             RestoreStatusText();
+            SyncCollapsedVersionBar();
             return;
         }
 
@@ -1642,6 +1668,7 @@ public sealed partial class HomePage : Page
 
         // 曲线与合成层动画共用 MotionFx.CreateEnterSpline()，两条腿的节奏才一致。
         var spline = MotionFx.CreateEnterSpline();
+        double lastAppliedMs = -100;   // 60fps 上限（与版本补间同一套：逐帧全量重排是卡顿主因）
 
         void OnFrame(object? sender, object args)
         {
@@ -1649,6 +1676,9 @@ public sealed partial class HomePage : Page
             if (!ReferenceEquals(_cardClock, clock)) return;
 
             double p = Math.Clamp(clock.Elapsed.TotalMilliseconds / ms, 0d, 1d);
+            var nowMs = clock.Elapsed.TotalMilliseconds;
+            if (p < 1d && nowMs - lastAppliedMs < 14) return;
+            lastAppliedMs = nowMs;
             double t = MotionFx.EaseProgress(spline, p);
             AccountCard.Height = cardFrom + (cardTo - cardFrom) * t;
             AccountCard.Width = widthFrom + (widthTo - widthFrom) * t;
@@ -1708,9 +1738,26 @@ public sealed partial class HomePage : Page
     /// 网格化之后窄条不再跨列搬家：它可能根本不在账户卡旁边，位置完全由所在格决定，
     /// 因此这里不再逐帧对位（保留入口是为了两处调用点语义不变）。
     /// </summary>
+    /// <summary>
+    /// 收起态窄条的右移：右移量 = 账号卡让出来的空档 = 账号列宽 − 启动卡当前宽。
+    /// <paramref name="cardWidth"/> 传具体值 = 按补间这一帧的卡宽算（两卡一起动）；
+    /// 传 NaN = 按稳态算（账号卡展开 → 空档 0；收起 → 空档 = 列宽 − 280）。
+    /// 版本补间进行中不动（它自己每帧都在算这个位置）。
+    /// </summary>
     private void SyncCollapsedVersionBar(double cardWidth = double.NaN)
     {
-        _ = cardWidth;
+        if (!_versionsCollapsed || _versionFrame is not null) return;
+        double colW = AccountHost.ActualWidth;
+        if (colW < 1) return;
+
+        double card = double.IsNaN(cardWidth)
+            ? (_cardExpanded ? colW : CardCompactWidth)
+            : cardWidth;
+        double shift = colW - card;
+        if (shift < 0) shift = 0;
+
+        VersionCard.Margin = new Thickness(0, 0, -shift, 0);
+        VersionCardShadow.Margin = VersionCard.Margin;
     }
 
     /// <summary>两段高度的当前值：显式值优先（含动画停在中途的那一帧），展开态交还 Auto 时才退回实测。</summary>
@@ -1984,10 +2031,19 @@ public sealed partial class HomePage : Page
             : double.NaN;
 
     /// <summary>
-    /// 收起态版本窄条的额外右移量。网格化之后窄条只在自己那一格里靠右站，
-    /// 不再跨列贴近启动卡（启动卡可能已经被拖到别处），因此恒为 0。
+    /// 收起态版本窄条的额外右移量 = 账号列宽 − 启动卡当前宽（展开态让出的空档）。
+    /// 账号卡展开时空档为 0；收起后 = 列宽 − 280，窄条右移贴到启动卡左边。
     /// </summary>
-    private double VersionCollapsedShift => 0;
+    private double VersionCollapsedShift
+    {
+        get
+        {
+            double colW = AccountHost.ActualWidth;
+            if (colW < 1) return 0;   // 布局未就绪：宁可不挪，也别算出一个歪位置
+            double slack = colW - (_cardExpanded ? colW : CardCompactWidth);
+            return slack > 1 ? slack : 0;
+        }
+    }
 
     /// <summary>
     /// 量出展开态的「撑满高」与卡头自然高（会把两块放回布局，调用方随即用补间把它们压回起点）。
@@ -2031,6 +2087,8 @@ public sealed partial class HomePage : Page
 
         // 曲线与合成层动画共用 MotionFx.CreateEnterSpline()，两条腿的节奏才一致。
         var spline = MotionFx.CreateEnterSpline();
+        double lastAppliedMs = -100;   // 上次实际落布局属性的帧时间（60fps 上限用）
+        int applied = 0;               // 已落帧计数（投影环带隔帧跟随用）
 
         void OnFrame(object? sender, object args)
         {
@@ -2038,7 +2096,16 @@ public sealed partial class HomePage : Page
             if (!ReferenceEquals(_versionClock, clock)) return;
 
             double p = Math.Clamp(clock.Elapsed.TotalMilliseconds / ms, 0d, 1d);
+
+            // 60fps 上限：高刷屏上 CompositionTarget 按 120/144Hz 回调，而这一帧要写 9 个
+            // 布局属性并把整页卡片网格拖进全量重排 —— 布局动画 60fps 与 144fps 视觉无差，
+            // 跳过中间帧能省下大半布局开销（卡顿的主因就是逐帧全量重排）。
+            var nowMs = clock.Elapsed.TotalMilliseconds;
+            if (p < 1d && nowMs - lastAppliedMs < 14) return;
+            lastAppliedMs = nowMs;
+            applied++;
             double t = MotionFx.EaseProgress(spline, p);
+
             VersionCard.Height = cardFrom + (cardTo - cardFrom) * t;
             VersionCard.Width = widthFrom + (widthTo - widthFrom) * t;
             // 右移量也走同一条曲线：它不在尺寸里，跟不上末帧会跳一下（与右栏 StartCardTween 同理）。
@@ -2047,9 +2114,13 @@ public sealed partial class HomePage : Page
             VersionHeader.Height = headerFrom + (headerTo - headerFrom) * t;
             VersionHeader.Margin = new Thickness(0, 0, 0, gapFrom + (gapTo - gapFrom) * t);
             VersionCompactRow.Height = compactFrom + (compactTo - compactFrom) * t;
-            VersionCardShadow.Width = VersionCard.Width;
-            VersionCardShadow.Height = VersionCard.Height;
-            VersionCardShadow.Margin = VersionCard.Margin;
+            // 投影环带是纯装饰：隔帧跟随（末帧精确落位），省下一半的环带重渲染
+            if ((applied & 1) == 0 || p >= 1d)
+            {
+                VersionCardShadow.Width = VersionCard.Width;
+                VersionCardShadow.Height = VersionCard.Height;
+                VersionCardShadow.Margin = VersionCard.Margin;
+            }
             // 裁剪框与各段高度同一帧落值，紧凑行溢出的部分当帧就被切掉（等 SizeChanged 会晚一拍）。
             if (_versionClip is not null)
                 _versionClip.Rect = new Rect(0, 0,
@@ -2261,6 +2332,12 @@ public sealed partial class HomePage : Page
                 LaunchStageStepText.Text = Loc.T("游戏运行中");
                 LaunchProgress.IsIndeterminate = false;
                 LaunchProgress.Value = 100;
+                if (App.PendingReturnToFriends)
+                {
+                    // 来自联机房间的启动：让用户看到一眼「已启动」，随后自动跳回联机页等玩家进房
+                    App.PendingReturnToFriends = false;
+                    _ = AutoReturnToFriendsAsync();
+                }
                 break;
             case LaunchStage.Exited:
                 _windowTimer.Stop();
@@ -2463,9 +2540,24 @@ public sealed partial class HomePage : Page
         }
     }
 
-    /// <summary>Nova 生成一条动态贴士入队尾（下一次启动显示；8 秒超时，失败静默，spec §3.5）。</summary>
-    private async Task FetchNovaTipAsync(string versionId)
+    /// <summary>
+    /// 联机房间启动的游戏窗口出现后：稍停一拍让用户看到「已启动」，随后收层并跳回好友页
+    /// 联机标签（玩家在那边等「已连上房主的世界」）。跳页不影响游戏进程。
+    /// </summary>
+    private async Task AutoReturnToFriendsAsync()
     {
+        try
+        {
+            await Task.Delay(1500);
+            if (_stage != LaunchStage.Running) return;   // 期间游戏退出/取消就别乱跳
+            HideOverlay(Loc.T("游戏运行中"));
+            FriendsPage.FocusMultiplayer();
+        }
+        catch { /* 跳页失败不影响游戏运行 */ }
+    }
+
+    /// <summary>Nova 生成一条动态贴士入队尾（下一次启动显示；8 秒超时，失败静默，spec §3.5）。</summary>
+    private async Task FetchNovaTipAsync(string versionId)    {
         try
         {
             using var cts = new CancellationTokenSource(8_000);
@@ -2547,7 +2639,13 @@ public sealed partial class HomePage : Page
         try
         {
             // 共享就地登录流程：会话内无凭证（token 不落盘）时弹登录框，登录后自动重试
-            var player = await AuthDialogs.EnsurePlayableAccountAsync(XamlRoot, _s);
+            var player = await AuthDialogs.EnsurePlayableAccountAsync(XamlRoot, _s,
+                onNotice: note =>
+                {
+                    // 回退到别的登录方式时明确告知，避免用户以为"用错了身份"却说不清
+                    WarnBar.Message = note;
+                    WarnBar.IsOpen = true;
+                });
             if (player is null) { HideOverlay(null); return; } // 用户取消登录
             if (_cancelRequested) { HideOverlay(null); return; }
 
@@ -2569,11 +2667,16 @@ public sealed partial class HomePage : Page
                         "authlib-injector 组件缺失，无法启动第三方账户，请重新安装启动器");
             }
 
+            // 联机房间的「开始游戏」优先：把房主地址带进 --quickPlayMultiplayer，
+            // 没有就退回版本设置里的自动连接地址。地址是一次性的，用掉即清。
+            var quickPlayServer = _pendingServer ?? eff.ServerAddress;
+            _pendingServer = null;
+
             var options = new LaunchOptions(
                 versionId, player.Name, eff.GameRoot, dotMc,
                 eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs,
                 _s.Settings.UseBuiltinJvmArgs, player.Credentials,
-                eff.ServerAddress, eff.Language, eff.LanguageOverride,
+                quickPlayServer, eff.Language, eff.LanguageOverride,
                 eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars,
                 eff.PreCmd, eff.PostCmd,
                 AgentJarPath: agentJar, AgentBase: player.ExternalBase,
@@ -2635,6 +2738,28 @@ public sealed partial class HomePage : Page
         ApplyStage(LaunchStage.CheckingFiles);
         var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
         if (_cancelRequested) { HideOverlay(null); return; }
+
+        // 继承链上缺父版本（整合包实例最常见的"版本不存在"）：**自动装上**再继续，
+        // 不让用户自己去下载页找那个加载器/原版。父链可能不止一层，最多补 4 轮。
+        for (var round = 0; round < 4 && preflight.MissingParentVersion is { Length: > 0 } parent; round++)
+        {
+            if (_cancelRequested) { HideOverlay(null); return; }
+            ApplyStage(LaunchStage.RepairingFiles);
+            LaunchStageStepText.Text = Loc.T("正在自动安装缺失的 {0}…", parent);
+            LauncherLog.Write("launch", $"启动前置：自动安装缺失的继承版本 {parent}");
+            if (!await TryInstallVersionByIdAsync(dotMc, parent))
+            {
+                HideOverlay(null);
+                LocalErrorBar.Message = Loc.T(
+                    "这个版本继承的「{0}」没有安装，且无法自动安装（不是官方原版或可识别的加载器），请手动安装",
+                    parent);
+                LocalErrorBar.IsOpen = true;
+                return;
+            }
+            preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
+            if (_cancelRequested) { HideOverlay(null); return; }
+        }
+
         if (preflight.NeedsRepair)
         {
             if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
@@ -2748,6 +2873,119 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>体检项一键修复（spec §6）：写版本内存档位；返回是否修复成功。</summary>
+    /// <summary>
+    /// 从版本 id 里抠出 Cleanroom 版本号：形如 `1.12.2-cleanroom-0.4.1-alpha` 或
+    /// 只写 `cleanroom-0.4.1-alpha`。取 "cleanroom-" 之后的整段（版本号本身可能带 -alpha）。
+    /// </summary>
+    private static string? ExtractCleanroomVersion(string versionId)
+    {
+        var at = versionId.IndexOf("cleanroom-", StringComparison.OrdinalIgnoreCase);
+        if (at < 0) return null;
+        var ver = versionId[(at + "cleanroom-".Length)..].Trim('-', '_');
+        return ver.Length > 0 ? ver : null;
+    }
+
+    /// <summary>
+    /// 按版本 id 自动安装一个版本（启动前置用）：官方原版 / Fabric / Quilt / Forge / NeoForge / Cleanroom。
+    /// 无法识别的自定义 id 返回 false（由调用方提示用户手动处理）。
+    /// </summary>
+    private async Task<bool> TryInstallVersionByIdAsync(string dotMc, string versionId)
+    {
+        var progress = new Progress<BatchProgress>(p => DispatcherQueue.TryEnqueue(() =>
+        {
+            LaunchProgress.IsIndeterminate = false;
+            LaunchProgress.Value = Math.Clamp(25 + p.Percentage * 0.5, 25, 75);
+            if (!string.IsNullOrEmpty(p.Stage))
+                LaunchStageStepText.Text = Loc.T("安装 {0}：{1}", versionId, p.Stage);
+        }));
+        try
+        {
+            // ① 官方原版：清单里有就用官方 URL 装
+            try
+            {
+                var manifest = await _s.Manifest.GetManifestAsync(forceRefresh: false);
+                if (manifest.Versions.FirstOrDefault(v => v.Id == versionId) is { Url.Length: > 0 } entry)
+                {
+                    await _s.Installer.InstallVanillaAsync(versionId, entry.Url, _s.Settings, progress);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("launch", $"查询官方清单失败（继续尝试加载器）：{ex.Message}");
+            }
+
+            // ② 加载器：id 里带加载器与版本号，按同样的 id 装回去
+            var (loader, mc) = LoaderDetector.Detect(dotMc, versionId);
+            var byPrefix = ContentLibraryService.ResolveLoader(versionId, out var loaderVersion);
+            if (byPrefix != "vanilla") loader = byPrefix;
+            var mcVersion = ContentLibraryService.ResolveMc(versionId);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(mcVersion, @"^\d+(\.\d+)+$"))
+                mcVersion = mc ?? "";
+
+            if (loaderVersion is { Length: > 0 } && mcVersion.Length > 0)
+            {
+                switch (loader)
+                {
+                    case "fabric":
+                        await _s.Installer.InstallFabricAsync(mcVersion, loaderVersion, _s.Settings,
+                            progress, targetId: versionId);
+                        return true;
+                    case "quilt":
+                        await _s.Installer.InstallQuiltAsync(mcVersion, loaderVersion, _s.Settings,
+                            progress, targetId: versionId);
+                        return true;
+                }
+            }
+
+            // ③ Cleanroom（GTO 等用的 1.12.2 特殊启动链）：先补 1.12.2 原版，再跑官方 installer
+            if (versionId.Contains("cleanroom", StringComparison.OrdinalIgnoreCase))
+            {
+                var cleanroomVersion = ExtractCleanroomVersion(versionId);
+                if (cleanroomVersion is { Length: > 0 })
+                {
+                    var baseMc = mcVersion.Length > 0 ? mcVersion : "1.12.2";
+                    // Cleanroom 的安装器要求原版 JSON 在位（读 client jar 与版本信息）
+                    if (!_s.Installer.IsInstalled(dotMc, baseMc))
+                    {
+                        var manifest2 = await _s.Manifest.GetManifestAsync(forceRefresh: false);
+                        if (manifest2.Versions.FirstOrDefault(v => v.Id == baseMc) is { Url.Length: > 0 } baseEntry)
+                            await _s.Installer.InstallVanillaAsync(baseMc, baseEntry.Url, _s.Settings, progress);
+                    }
+                    var installed = await _s.Forge.InstallViaInstallerAsync(
+                        ForgeInstallerService.CleanroomInstallerUrl(cleanroomVersion), baseMc,
+                        JavaRequirement.FromVersionId(baseMc) is var j && j < 21 ? 21 : j,
+                        _s.Settings, progress);
+                    LauncherLog.Write("launch", $"Cleanroom {cleanroomVersion} 安装完成，版本目录 {installed}");
+                    return true;
+                }
+            }
+
+            // ④ Forge / NeoForge：走官方安装器（需要 Java 与网络）
+            if (loader is "forge" or "neoforge" && mcVersion.Length > 0)
+            {
+                // id 形如 1.20.1-forge-47.2.0 / 1.20.1-neoforge-21.1.0：取最后一个 '-' 之后
+                var forgeVersion = versionId.Split('-').LastOrDefault();
+                if (forgeVersion is { Length: > 0 } && forgeVersion != mcVersion)
+                {
+                    var javaMajor = JavaRequirement.FromVersionId(mcVersion);
+                    var url = loader == "forge"
+                        ? ForgeInstallerService.ForgeInstallerUrl(mcVersion, forgeVersion)
+                        : ForgeInstallerService.NeoForgeInstallerUrl(mcVersion, forgeVersion);
+                    await _s.Forge.InstallViaInstallerAsync(url, mcVersion, javaMajor, _s.Settings, progress);
+                    return true;
+                }
+            }
+            LauncherLog.Write("launch", $"无法自动安装版本 {versionId}（loader={loader} mc={mcVersion}）");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("launch", $"自动安装 {versionId} 失败：{ex.Message}");
+            return false;
+        }
+    }
+
     private Task<bool> FixEnvIssueAsync(EnvIssue issue, string versionId, LaunchOptions options)
     {
         try

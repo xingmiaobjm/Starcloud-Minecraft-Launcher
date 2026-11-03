@@ -1,4 +1,4 @@
-// 启动器日志：按日滚动落盘 + 内存尾部缓冲 + 变更事件（对应旧 Rust logging.rs）
+﻿// 启动器日志：按日滚动落盘 + 内存尾部缓冲 + 变更事件（对应旧 Rust logging.rs）
 // 设计：docs/designs/2026-09-11-launch-reliability-design.md §4.1
 
 using System.Collections.Concurrent;
@@ -29,6 +29,39 @@ public static class LauncherLog
 
     private static int _writesSinceSizeCheck;
 
+    /// <summary>
+    /// 日志强度：普通（现状密度）/ 详细（关键路径补充：来源、耗时、重试）/ 调试（全部细节）。
+    /// 设置页可调；**非正式版（开发构建）由 App 侧 SetFloor 锁定为调试**，用户改不动。
+    /// </summary>
+    public enum LogIntensity { Normal = 0, Verbose = 1, Debug = 2 }
+
+    private static int _intensity = (int)LogIntensity.Normal;
+    private static int _floor = (int)LogIntensity.Normal;
+
+    /// <summary>当前生效强度（设置值与下限取大；下限由非正式版锁定）。</summary>
+    public static LogIntensity Intensity =>
+        (LogIntensity)Math.Max(Volatile.Read(ref _intensity), Volatile.Read(ref _floor));
+
+    /// <summary>应用用户设置的强度。</summary>
+    public static void ApplyIntensity(LogIntensity level)
+    {
+        if (Interlocked.Exchange(ref _intensity, (int)level) == (int)level) return;
+        Write("log", $"日志强度 -> {LevelText(Intensity)}");
+    }
+
+    /// <summary>
+    /// 强度下限（非正式版锁调试档用）：设置低于下限时按下限生效，用户改不下来。
+    /// </summary>
+    public static void SetFloor(LogIntensity level) =>
+        Interlocked.Exchange(ref _floor, (int)level);
+
+    public static string LevelText(LogIntensity level) => level switch
+    {
+        LogIntensity.Verbose => "详细",
+        LogIntensity.Debug => "调试（全部细节）",
+        _ => "普通",
+    };
+
     /// <summary>追加一行时触发（可能在后台线程；订阅方自行切 UI 线程）</summary>
     public static event Action<string>? Appended;
 
@@ -38,9 +71,22 @@ public static class LauncherLog
             ? Path.Combine(LauncherPaths.LogsDir, "launcher.log")
             : Path.Combine(LauncherPaths.LogsDir, $"launcher-{DateTime.Today:yyyy-MM-dd}.log");
 
-    /// <summary>写一行（自动加时间戳）</summary>
-    public static void Write(string category, string message)
+    /// <summary>写一行普通日志（自动加时间戳；任何强度都记录）。</summary>
+    public static void Write(string category, string message) =>
+        WriteAt(LogIntensity.Normal, category, message);
+
+    /// <summary>详细日志：关键路径的补充细节（来源、耗时、重试）。强度 ≥ 详细 才记录。</summary>
+    public static void Debug(string category, string message) =>
+        WriteAt(LogIntensity.Verbose, category, message);
+
+    /// <summary>跟踪日志：最细粒度（逐请求 / 逐分片）。仅 调试 强度记录。</summary>
+    public static void Trace(string category, string message) =>
+        WriteAt(LogIntensity.Debug, category, message);
+
+    private static void WriteAt(LogIntensity level, string category, string message)
     {
+        // 低于当前强度的行整个丢弃（缓冲 / 文件 / 事件都不进）——强度就是密度开关
+        if (level > Intensity) return;
         var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{category}] {message}";
         lock (Gate)
         {

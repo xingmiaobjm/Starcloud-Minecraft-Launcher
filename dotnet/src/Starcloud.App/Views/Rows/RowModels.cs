@@ -106,7 +106,22 @@ public sealed class ModRow : INotifyPropertyChanged
     public string LoadersText { get; init; } = "";
     public string DownloadsText { get; init; } = "";
     public string UpdatedText { get; init; } = "";
-    public ImageSource? Icon { get; init; }
+
+    private ImageSource? _icon;
+
+    /// <summary>
+    /// 图标（可后置填充）：列表先出文字与占位字形，图标由后台下载完本地缓存后再补上。
+    /// 直接绑远端 URL 的话每个图标都要现连 CDN，国内网络下整列图标会「一个一个慢慢冒出来」。
+    /// </summary>
+    public ImageSource? Icon
+    {
+        get => _icon;
+        set
+        {
+            _icon = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Icon)));
+        }
+    }
 
     private string _description = "";
 

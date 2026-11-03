@@ -1,4 +1,4 @@
-// 硬件录屏：Windows.Graphics.Capture 取帧 + Media Foundation 硬件 H.264 编码。
+﻿// 硬件录屏：Windows.Graphics.Capture 取帧 + Media Foundation 硬件 H.264 编码。
 //
 // 为什么这么选（而不是 GDI 抓屏）：
 //   WGC 的帧是 DWM 直接共享给本进程的 D3D11 纹理——画面从未离开显卡缓冲区，
@@ -66,6 +66,7 @@ public sealed class ScreenRecorder : IDisposable
     private GraphicsCaptureSession? _session;
     private CanvasDevice? _device;
     private IMFSinkWriter? _writer;
+    private RecordingRequest? _request;
 
     private byte[]? _latest;           // 最新一帧的 BGRA 像素（FrameArrived 写、编码线程读）
     private byte[]? _spare;            // 复用缓冲，避免每帧分配
@@ -134,10 +135,11 @@ public sealed class ScreenRecorder : IDisposable
 
             EnsureMfStarted();
             _device = new CanvasDevice(forceSoftwareRenderer: false);
-            _writer = CreateWriter(request, _width, _height);
-            _encoderName = HardwareEncoders.Count > 0
-                ? $"硬件编码（{string.Join(" / ", HardwareEncoders)}）"
-                : "软件编码（未检测到硬件编码器）";
+            // Sink Writer 必须与使用它的线程同 apartment：Start 在 UI 线程（STA）跑，
+            // 而写帧在 Task.Run 的线程池线程（MTA）—— 跨 apartment 访问 IMFSinkWriter
+            // 会在 WriteSample 时抛 E_NOINTERFACE（输出 0 字节）。所以创建挪到编码线程，
+            // 收尾（FinishWriting）也由编码线程自己做。
+            _request = request;
 
             _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(
                 _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2,
@@ -178,7 +180,6 @@ public sealed class ScreenRecorder : IDisposable
         {
             try { _session?.Dispose(); } catch { }
             try { _pool?.Dispose(); } catch { }
-            try { _writer?.FinishWriting(); } catch { }
             try { _device?.Dispose(); } catch { }
             _session = null;
             _pool = null;
@@ -208,6 +209,21 @@ public sealed class ScreenRecorder : IDisposable
     // 拿不到新帧就重复上一帧，时间轴与真实时长始终一致。
     private async Task PumpAsync(CancellationToken ct)
     {
+        // 在这个线程（MTA）里创建 Sink Writer 并使用它：与 COM apartment 一致
+        try
+        {
+            var request = _request ?? throw new InvalidOperationException("缺少录制参数");
+            _writer = CreateWriter(request, _width, _height);
+            // MF 的硬件 transforms 在这台机器上不可用（会让 sink writer 失效），固定软件编码
+            _encoderName = "软件编码 H.264";
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            LauncherLog.Write("record", $"编码器初始化失败：{ex}");
+            return;
+        }
+
         var clock = Stopwatch.StartNew();
         var next = 0L;
         while (!ct.IsCancellationRequested)
@@ -236,6 +252,10 @@ public sealed class ScreenRecorder : IDisposable
                 break;
             }
         }
+
+        // 封盘（写 moov 索引）必须在创建 writer 的同一 apartment 里做
+        try { _writer?.FinishWriting(); }
+        catch (Exception ex) { LauncherLog.Write("record", $"封盘失败：{ex.Message}"); }
     }
 
     /// <summary>取这一拍的最新画面（同一拍内只做一次 GPU→CPU 拷贝；缓冲轮换复用）</summary>
@@ -287,7 +307,9 @@ public sealed class ScreenRecorder : IDisposable
     private IMFSinkWriter CreateWriter(RecordingRequest request, int width, int height)
     {
         MediaFoundation.Check(MediaFoundation.MFCreateAttributes(out var attrs, 3), "创建属性");
-        MediaFoundation.SetUInt32(attrs, MfGuids.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
+        // 硬件 transforms 在这台机器上会让 sink writer 返回的对象 QI 不到 IMFSinkWriter
+        // （WriteSample 抛 E_NOINTERFACE、输出 0 字节）——稳定优先，固定用软件编码 H.264。
+        MediaFoundation.SetUInt32(attrs, MfGuids.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 0);
         MediaFoundation.SetUInt32(attrs, MfGuids.MF_SINK_WRITER_DISABLE_THROTTLING, 1);
         MediaFoundation.SetUInt32(attrs, MfGuids.MF_LOW_LATENCY, 1);
 

@@ -8,7 +8,7 @@
     xmlns:beh="using:Starcloud.App.Views.Behaviors"
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">

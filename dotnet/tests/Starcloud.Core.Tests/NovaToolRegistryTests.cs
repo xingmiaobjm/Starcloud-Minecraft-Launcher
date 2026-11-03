@@ -1,4 +1,4 @@
-// Nova 工具表守卫：
+﻿// Nova 工具表守卫：
 //   · 工具名唯一、可被 OpenAI function calling 接受（snake_case）；
 //   · 每个工具的 parameters 是合法 JSON Schema（object + properties）；
 //   · 读 / 写标记不能标反 —— 写操作必须是 ReadOnly=false，才会走 NovaPlan 确认清单；
@@ -22,6 +22,8 @@ public class NovaToolRegistryTests
         "cancel_", "clear_",
         "multiplayer_host", "multiplayer_join", "multiplayer_stop",
         "start_", "stop_", "set_",
+        // 操控电脑 / 接管游戏：鼠标键盘是对外产生后果的动作，统一按写操作走确认清单
+        "computer_", "game_",
     ];
 
     private static NovaToolContext Context(
@@ -104,6 +106,8 @@ public class NovaToolRegistryTests
                      "get_settings", "list_versions", "read_version_detail", "get_instance_settings",
                      "list_java", "advise_memory", "read_game_log",
                      "search_modrinth", "search_curseforge", "translate_query",
+                     "computer_mouse", "computer_type", "computer_key", "computer_open", "computer_window",
+                     "game_focus", "game_key", "game_click",
                      "list_content_library", "list_saves", "list_backups", "list_accounts",
                      "list_tasks", "list_notifications", "diagnose_instance", "analyze_crash",
                      "check_mod_conflicts", "check_environment", "check_updates",

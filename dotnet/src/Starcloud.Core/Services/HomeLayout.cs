@@ -1,4 +1,4 @@
-// 主页卡片网格：布局模型 + 落盘 + 纯几何换算。
+﻿// 主页卡片网格：布局模型 + 落盘 + 纯几何换算。
 //
 // 为什么放在 Core：拖拽与缩放最终都归结为「像素 → 格」的换算、越界钳制和空位查找，
 // 这些都是纯函数，可以在没有 UI 的单元测试里覆盖；页面只负责把结果画出来。
@@ -249,6 +249,11 @@ public static class HomeCardPlacer
     /// <param name="desiredColumn">用户拖到的列（-1 表示不指定，由系统找位）。</param>
     /// <param name="desiredRow">用户拖到的行。</param>
     /// <param name="ignoreId">要移动的卡片自身 id（把它从占位表里排除）。</param>
+    /// <param name="desiredSize">
+    /// 用户想要的档位（改尺寸时传；不传 = 用该类型的出厂占格）。
+    /// <para>不传时本方法自己从出厂档位起挑——加卡场景够用，但「用户点了 6×4」
+    /// 这种明确意图必须尊重，否则会被出厂档位（8×6）顶掉。</para>
+    /// </param>
     public static HomeCardPlacement Place(
         IReadOnlyList<HomeCardLayout> occupied,
         int columns,
@@ -256,15 +261,19 @@ public static class HomeCardPlacer
         HomeCardSpec spec,
         int desiredColumn,
         int desiredRow,
-        string? ignoreId = null)
+        string? ignoreId = null,
+        CardSize? desiredSize = null)
     {
         var cols = Math.Max(1, columns);
         var rowLimit = Math.Max(1, rows);
 
-        // 候选档位：先试出厂占格（用户加卡时的期望大小），再从大到小试其余档位。
-        // 不能直接拿「最大的档位」当首选 —— 收藏卡出厂 3×2，档位表里却有 3×3，
-        // 拿 3×3 当首选会让新卡白占一格空间。
-        var preferred = new CardSize(spec.DefaultColumnSpan, spec.DefaultRowSpan);
+        // 候选档位：先试用户指定的档位（改尺寸场景），没指定就试出厂占格（加卡场景），
+        // 再从大到小试其余档位。不能直接拿「最大的档位」当首选 —— 收藏卡出厂 3×2，
+        // 档位表里却有 3×3，拿 3×3 当首选会让新卡白占一格空间。
+        var preferred = desiredSize is { } wanted
+            ? new CardSize(spec.Clamp(wanted.ColumnSpan, wanted.RowSpan).ColumnSpan,
+                           spec.Clamp(wanted.ColumnSpan, wanted.RowSpan).RowSpan)
+            : new CardSize(spec.DefaultColumnSpan, spec.DefaultRowSpan);
         var sizes = new List<CardSize> { preferred };
         foreach (var size in spec.Presets)
         {

@@ -268,11 +268,14 @@ public sealed partial class OnboardingWindow
     {
         var source = new ComboBox { Width = 320 };
         source.Items.Add(new ComboBoxItem { Content = Loc.T("自动（推荐）"), Tag = "auto" });
+        source.Items.Add(new ComboBoxItem { Content = "FastMinecraftMirror", Tag = "fastmirror" });
+        source.Items.Add(new ComboBoxItem { Content = "上海交大镜像", Tag = "sjtu" });
+        source.Items.Add(new ComboBoxItem { Content = "Starcloud 加速", Tag = "starcloud" });
         source.Items.Add(new ComboBoxItem { Content = "BMCLAPI", Tag = "bmclapi" });
         source.Items.Add(new ComboBoxItem { Content = "FastMirror", Tag = "fastmirror" });
         source.Items.Add(new ComboBoxItem { Content = "Rainyun", Tag = "rainyun" });
         source.Items.Add(new ComboBoxItem { Content = Loc.T("官方源"), Tag = "official" });
-        var ids = new[] { "auto", "bmclapi", "fastmirror", "rainyun", "official" };
+        var ids = new[] { "auto", "bmclapi", "fastmirror", "sjtu", "starcloud", "rainyun", "official", "custom" };
         source.SelectedIndex = Math.Max(0, Array.IndexOf(ids, (_s.Settings.DownloadSource ?? "auto").ToLowerInvariant()));
         source.SelectionChanged += (_, _) =>
         {

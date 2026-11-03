@@ -114,24 +114,80 @@ public static class ListSelectionFx
         story.Begin();
     }
 
-    // ── 选中竖条 ──
+    // ── 选中竖条（两段式：共用条播动画 → 交接给行内静态条）──
+    //
+    // 为什么分两段：换行时需要「一根条被拉过去」的连续感（共用条 + 位移/拉伸/过冲），
+    // 但滚动时靠代码同步共用条位置永远晚一帧 —— 滚到极限松手后竖条会停在旧位置、
+    // 选中行滚出视口后条还浮在列表边缘。所以动画一落定就把条交给行模板里的静态条
+    // （Tag="bar"）：从此它属于那一行，滚动、虚拟化回收、窗口缩放都由框架带着走，
+    // 不再有任何需要手动同步的坐标。
+
+    /// <summary>刷新所有已生成容器的行内条：只让选中行亮。</summary>
+    public static void SyncRowBars(ListViewBase list) => SyncRowBarsCore(list, showSelected: true);
+
+    /// <summary>只刷新一个容器的行内条（容器回收时用，避免整表遍历）。</summary>
+    public static void SyncRowBarFor(ListViewBase list, int index, DependencyObject container)
+    {
+        if (container is not ListViewItem item) return;
+        if (FindTagged(item, "bar") is not { } rowBar) return;
+        rowBar.Visibility = index == list.SelectedIndex ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void SyncRowBarsCore(ListViewBase list, bool showSelected)
+    {
+        for (var i = 0; i < list.Items.Count; i++)
+        {
+            if (list.ContainerFromIndex(i) is not ListViewItem container) continue;
+            if (FindTagged(container, "bar") is not { } rowBar) continue;
+            rowBar.Visibility = showSelected && i == list.SelectedIndex
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>
+    /// 竖条的跨调用状态（调用页持有）。用对象而不是 ref 参数：动画完成回调是延迟执行的，
+    /// 那时 ref 参数早已失效；列表重建时调 <see cref="Reset"/>，下一次就直接交接不播动画。
+    /// </summary>
+    public sealed class BarState
+    {
+        /// <summary>上一次落点的纵向位置（NaN = 还没落过）。注意这是视口坐标，滚动后会过期。</summary>
+        public double Y { get; set; } = double.NaN;
+
+        /// <summary>是否已经有一根可见的条（交接给行内条后仍为 true）。</summary>
+        public bool Shown { get; set; }
+
+        /// <summary>
+        /// 上一次落点所在的行（-1 = 无）。滚动会让这一行在视口里移动，
+        /// 动画起点必须从它**现在**的位置重新取 —— 只信 <see cref="Y"/> 会从
+        /// 「滚动后恰好落在旧坐标上的那一行」出发（实际踩到过）。
+        /// </summary>
+        public int Index { get; set; } = -1;
+
+        public void Reset()
+        {
+            Y = double.NaN;
+            Shown = false;
+            Index = -1;
+        }
+    }
 
     /// <summary>
     /// 把竖条移到当前选中行：从上一行的位置滑过去，移动中纵向拉伸，
     /// 落点前整体越过目标再弹回（过冲量随移动距离增大），落定后收回原长。
-    /// <para>barY / barShown 由调用页持有：列表重建时把 barY 置 NaN、barShown 置 false，
-    /// 下一次调用就会直接落位而不播位移动画。</para>
+    /// <para>动画由列表上方那根共用条播放，播完立即交接给目标行模板里的静态条
+    /// （Tag="bar"）—— 之后竖条跟着行走，滚动/回收/缩放全由框架负责。</para>
     /// </summary>
     public static void UpdateBar(Canvas layer, Border bar, ListViewBase list,
-        ref double barY, ref bool barShown, bool animate)
+        BarState state, bool animate)
     {
         var index = list.SelectedIndex;
-        if (index < 0 || list.ContainerFromIndex(index) is not ListViewItem container)
+        var container = index >= 0 ? list.ContainerFromIndex(index) as ListViewItem : null;
+        if (index < 0 || container is null)
         {
-            bar.Opacity = 0;
+            bar.Visibility = Visibility.Collapsed;
             layer.Visibility = Visibility.Collapsed;
-            barShown = false;
-            barY = double.NaN;
+            state.Reset();
             return;
         }
 
@@ -141,30 +197,66 @@ public static class ListSelectionFx
         var height = Math.Max(12, container.ActualHeight - 20);
         var y = origin.Y + 10;
 
-        // 贴着行左缘画（不再内缩 4），两页的竖条都更靠卡片左边
+        // 贴着行左缘画（不再内缩 4），两页的竖条都更靠卡片左边。
+        // 行内静态条用同一几何（左缘、上下各留 10），交接瞬间位置重合、看不出切换。
         Canvas.SetLeft(bar, Math.Max(0, origin.X));
         bar.Height = height;
         layer.Visibility = Visibility.Visible;
 
-        var motion = AppServices.Instance.Motion.Enabled;
-        if (!animate || !motion || !barShown || double.IsNaN(barY))
+        // 交接：共用条退场，行内条就位（选中行亮、其余灭）
+        void Handoff()
         {
-            // 首次出现 / 初始化 / 滚动同步：直接落位，不播位移动画
             transform.TranslateY = y;
             transform.ScaleY = 1;
-            bar.Opacity = 1;
-            barY = y;
-            barShown = true;
+            bar.Visibility = Visibility.Collapsed;
+            SyncRowBars(list);
+            state.Y = y;
+            state.Shown = true;
+            state.Index = index;
+        }
+
+        var motion = AppServices.Instance.Motion.Enabled;
+        if (!animate || !motion || !state.Shown || double.IsNaN(state.Y))
+        {
+            // 首次出现 / 初始化 / 列表重建：直接交接到行内条，不播位移动画
+            Handoff();
             return;
         }
 
-        var from = barY;
-        var movingDown = y > from;
-        barY = y;
+        // 动画起点：上一根条**现在**在视口里的位置。必须重新取，不能用 state.Y ——
+        // 那是落点当时的坐标，中间滚动过的话它对应的是别的行（实际踩到过：
+        // 选中 C 后把列表滚动，再点 A，动画却从 B 身上出发）。
+        var from = state.Y;
+        var canAnimate = true;
+        var oldRowTop = double.NaN;
+        if (state.Index >= 0 && state.Index != index)
+        {
+            if (list.ContainerFromIndex(state.Index) is ListViewItem oldContainer)
+            {
+                oldRowTop = oldContainer.TransformToVisual(layer).TransformPoint(new Point(0, 0)).Y;
+                from = oldRowTop + 10;
+            }
+            else
+            {
+                // 旧选中行已滚出视口（容器被回收）：没有可见的起点，直接交接不播动画，
+                // 比从屏幕外飞进来干净
+                canAnimate = false;
+            }
+        }
+        if (!canAnimate)
+        {
+            Handoff();
+            return;
+        }
 
-        // 上端固定为变换原点：条的上沿 = TranslateY，下沿 = TranslateY + ScaleY × 高度。
+        // 动画期间把行内条全部收起：旧行的条与共用条起点重合，留着会看成两条并排。
+        SyncRowBarsCore(list, showSelected: false);
+        bar.Visibility = Visibility.Visible;
         bar.RenderTransformOrigin = new Point(0.5, 0);
 
+        var movingDown = y > from;
+
+        // 上端固定为变换原点：条的上沿 = TranslateY，下沿 = TranslateY + ScaleY × 高度。
         const int steps = 96;
         const int durationMs = 320;
 
@@ -235,6 +327,7 @@ public static class ListSelectionFx
         var story = new Storyboard();
         story.Children.Add(topKeys);
         story.Children.Add(scaleKeys);
+        story.Completed += (_, _) => Handoff();
         story.Begin();
     }
 

@@ -14,8 +14,9 @@ namespace Starcloud.App.Views.Shared;
 /// </summary>
 public static class ModTitleHelper
 {
-    /// <summary>英文名 → 中文名；null = 已查过但无翻译（占位防重复请求）。</summary>
-    private static readonly Dictionary<string, string?> Cache = [];
+    /// <summary>英文名 → 中文名；null = 已查过但无翻译（占位防重复请求）。
+    /// 并发词典：后台预热与构建行数据的线程会同时读写。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> Cache = [];
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static bool _loaded;
@@ -46,6 +47,12 @@ public static class ModTitleHelper
         Cache[title] = null;   // 占位，避免同名重复请求
         return await ResolveAsync(title);
     }
+
+    /// <summary>
+    /// 启动时后台预热：mod_title_cache.json 可能几 MB，读盘 + 反序列化不该发生在
+    /// 用户点开下载页的那一帧。在 App 初始化时调用一次即可，之后 Display 纯内存。
+    /// </summary>
+    public static void Warmup() => Task.Run(EnsureLoaded);
 
     private static void EnsureLoaded()
     {

@@ -508,6 +508,91 @@ public class ModPackTests
 
     private static string RandomContent() => "random-" + Guid.NewGuid().ToString("N");
 
+    // ── Technic ──────────────────────────────────────────────────────────
+
+    /// <summary>构造最小 Technic 包：根级 mods/config + bin/modpack.jar（内嵌 version.json）</summary>
+    private static string WriteTechnicPack(string root, string name, string versionJson, string prefix = "")
+    {
+        var path = Path.Combine(root, name);
+        WriteZip(path, new()
+        {
+            [prefix + "mods/a.jar"] = "x",
+            [prefix + "config/x.cfg"] = "k=1",
+        });
+        using var outer = ZipFile.Open(path, ZipArchiveMode.Update);
+        var jarEntry = outer.CreateEntry(prefix + "bin/modpack.jar");
+        using (var inner = new ZipArchive(jarEntry.Open(), ZipArchiveMode.Create))
+        {
+            var vj = inner.CreateEntry("version.json");
+            using var w = new StreamWriter(vj.Open());
+            w.Write(versionJson);
+        }
+        return path;
+    }
+
+    [Fact]
+    public void 识别_Technic包_bin_modpack_jar()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = WriteTechnicPack(root, "technic.zip",
+                """{ "id": "Technic", "inheritsFrom": "1.7.10", "mainClass": "net.minecraft.launchwrapper.Launch" }""");
+            var probe = ModPackDetector.Detect(path)!;
+            Assert.Equal(ModPackFormat.Technic, probe.Format);
+            Assert.Null(probe.EntryRoot);   // 内容根在 bin 的上一层 = 包根
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void 识别_Technic包_外层套目录时取bin上一层()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = WriteTechnicPack(root, "nested.zip",
+                """{ "id": "Technic", "inheritsFrom": "1.7.10" }""", prefix: "MyPack/");
+            var probe = ModPackDetector.Detect(path)!;
+            Assert.Equal(ModPackFormat.Technic, probe.Format);
+            Assert.Equal("MyPack", probe.EntryRoot);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void 提取_Technic版本声明_含inheritsFrom()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = WriteTechnicPack(root, "technic.zip",
+                """{ "id": "Technic", "inheritsFrom": "1.7.10", "mainClass": "net.minecraft.launchwrapper.Launch" }""");
+            var sniffed = ModPackDetector.ReadTechnicVersionJson(path)
+                ?? throw new InvalidOperationException("应能从 bin/modpack.jar 读到 version.json");
+            Assert.Contains("launchwrapper", sniffed.Json);
+            Assert.Equal("1.7.10", sniffed.InheritsFrom);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void 提取_非Technic包返回null()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var path = Path.Combine(root, "plain.zip");
+            WriteZip(path, new()
+            {
+                ["modrinth.index.json"] = """{ "formatVersion": 1, "files": [] }""",
+                ["overrides/x.txt"] = "y",
+            });
+            Assert.Null(ModPackDetector.ReadTechnicVersionJson(path));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static string NewTempDir()
     {
         var dir = Path.Combine(Path.GetTempPath(), "starcloud-pack-" + Guid.NewGuid().ToString("N"));

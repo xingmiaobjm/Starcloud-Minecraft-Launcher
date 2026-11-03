@@ -44,19 +44,8 @@
                 </ctrl:GlowButton>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <!-- 资源来源切换：Modrinth / CurseForge（两个源的数据模型已统一，切完直接重搜） -->
-                <ctrl:GlowButton x:Name="SourceModrinthBtn" Content="Modrinth" FontSize="12" Padding="10,4"
-                        Click="SourceModrinth_Click" loc:Loc.Name="资源来源 Modrinth" />
-                <ctrl:GlowButton x:Name="SourceCurseForgeBtn" Content="CurseForge" FontSize="12" Padding="10,4"
-                        Click="SourceCurseForge_Click" loc:Loc.Name="资源来源 CurseForge" />
-                <TextBox x:Name="SearchBox" loc:Loc.Placeholder="搜索 Modrinth…"
-                         Width="260" KeyDown="DownloadSearch_KeyDown" loc:Loc.Name="搜索资源" />
-                <ctrl:GlowButton Click="DownloadSearch_Click" loc:Loc.Name="搜索资源">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6F;" FontSize="14" />
-                        <TextBlock loc:Loc.Text="搜索" />
-                    </StackPanel>
-                </ctrl:GlowButton>
+                <!-- 本弹窗只做「按版本筛选 + 安装」：来源由入口决定，搜索框已移除，
+                     打开即展示该来源的默认列表（缓存优先），不再让用户手动触发 -->
             </StackPanel>
         </Grid>
         <InfoBar Grid.Row="1" x:Name="DlInfoBar" IsOpen="False" IsClosable="True" />

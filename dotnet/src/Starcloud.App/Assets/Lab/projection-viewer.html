@@ -391,17 +391,34 @@
     return Promise.all(entries.map(([id, url]) => new Promise(resolve => {
       const img = new Image();
       img.onload = () => {
+        // 动画纹理：MC 的动画 PNG 是「边长相同的正方形帧纵向堆叠」的竖条
+        // （例：createpropulsion 的 coral_flow.png = 32×1024 = 32 帧、coral_still.png = 16×512）。
+        // 整条当一张贴图用，会把所有帧挤进一个面——珊瑚这类动态方块花屏的根因。
+        // 预览是看形状，只取第一帧（顶部 w×w）。
+        const iw = img.naturalWidth || 16;
+        const ih = img.naturalHeight || 16;
+        const framed = iw > 0 && ih > iw && ih % iw === 0;
+        let src = img;
+        if (framed) {
+          const c0 = document.createElement("canvas");
+          c0.width = iw;
+          c0.height = iw;
+          const g0 = c0.getContext("2d");
+          g0.imageSmoothingEnabled = false;
+          g0.drawImage(img, 0, 0, iw, iw, 0, 0, iw, iw);
+          src = c0;
+        }
         let opaque = true;
         try {
           const c = document.createElement("canvas");
-          c.width = img.naturalWidth || 16;
-          c.height = img.naturalHeight || 16;
+          c.width = iw;
+          c.height = framed ? iw : ih;
           const g = c.getContext("2d");
-          g.drawImage(img, 0, 0);
+          g.drawImage(src, 0, 0);
           const px = g.getImageData(0, 0, c.width, c.height).data;
           for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { opaque = false; break; }
         } catch { opaque = false; }
-        const tex = new T.Texture(img);
+        const tex = new T.Texture(src);
         tex.magFilter = T.NearestFilter;
         // 远处不做 mipmap 会出严重摩尔纹：缩小过滤走 mipmap，放大仍保持像素风
         tex.minFilter = T.NearestMipmapLinearFilter;

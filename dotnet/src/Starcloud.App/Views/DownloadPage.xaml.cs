@@ -22,7 +22,11 @@ namespace Starcloud.App.Views;
 
 public sealed partial class DownloadPage : Page
 {
-    private const int PageSize = 20;
+    /// <summary>首屏一页大小（先拉这么多，立刻可见）</summary>
+    private const int PageSize = 50;
+
+    /// <summary>本地预取上限：首屏 50 + 后台续拉，最多存这么多条，滚动不再等网络</summary>
+    private const int PrefetchCap = 400;
 
     private static readonly Brush InstalledBrush = new SolidColorBrush(Microsoft.UI.Colors.MediumSeaGreen);
 
@@ -102,6 +106,15 @@ public sealed partial class DownloadPage : Page
     private CancellationTokenSource? _cts;
     private IReadOnlyList<ModrinthCategory>? _categories;
     private List<ModrinthHit> _lastHits = [];   // 当前搜索结果原始数据（行点击时按 ProjectId 找回，传入下载窗直达详情）
+    /// <summary>本地命中池：首屏 50 条 + 后台预取（最多 <see cref="PrefetchCap"/> 条），滚动只做揭示</summary>
+    private List<ModrinthHit> _hits = [];
+
+    /// <summary>列表数据源（追加式）：续页只 Add，不重建 —— 重建 ItemsSource 会把滚动位置打回顶部。</summary>
+    private readonly System.Collections.ObjectModel.ObservableCollection<ModRow> _rows = [];
+    private bool _loadingMore;
+    private bool _revealing;
+    private bool _prefetching;
+    private readonly HashSet<int> _feathered = [];   // 已播过入场动画的行索引（滚动回来不重播）
 
     // 中文搜索词翻译：记住「输入原文 → 实际搜索词」，翻页时不重复联网翻译
     private string? _queryOriginal;
@@ -110,6 +123,7 @@ public sealed partial class DownloadPage : Page
     public DownloadPage()
     {
         InitializeComponent();
+        ModList.ItemsSource = _rows;   // 一次性绑定，之后只追加（滚动位置不会被打回顶部）
         _dq = DispatcherQueue.GetForCurrentThread();
         _okTimer = _dq.CreateTimer();
         _okTimer.IsRepeating = false;   // 只在"下载完成"后亮 6 秒就收起，循环下去会一直重复收起
@@ -853,6 +867,10 @@ public sealed partial class DownloadPage : Page
         if (_communityInit) return;
         _communityInit = true;
 
+        // 先把缓存里的推荐列表放上屏（不联网、不依赖分类与清单），
+        // 筛选控件随后补齐 —— 用户不用盯着空白等网络。
+        await SearchAsync(reset: true);
+
         try { _categories = await _s.Mods.GetCategoriesAsync(); }
         catch { /* 分类获取失败时仅显示“全部” */ }
 
@@ -871,9 +889,6 @@ public sealed partial class DownloadPage : Page
             VersionCombo.Text = Loc.T("全部");
         }
         finally { _suppress = false; }
-
-        // 首次进入不自动搜：把筛选条件留给你，填完点「搜索」再出结果
-        EmptyHint.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>按当前分区重建分类/加载器行与标题（需在 _suppress 期间调用）</summary>
@@ -1002,7 +1017,11 @@ public sealed partial class DownloadPage : Page
     }
 
     // ── 社区搜索 ──
-    private async Task SearchAsync(bool reset, bool forceRefresh = false)
+    /// <summary>
+    /// 拉取社区列表。<paramref name="reset"/> = 新搜索（清空列表、偏移归零）；
+    /// <paramref name="append"/> = 无限滚动续页（结果接在末尾，不清空、不重播整表动画）。
+    /// </summary>
+    private async Task SearchAsync(bool reset, bool forceRefresh = false, bool append = false)
     {
         if (!_communityInit) return;
         if (reset) _offset = 0;
@@ -1026,6 +1045,29 @@ public sealed partial class DownloadPage : Page
 
         SetBusy(true);
         if (!forceRefresh) CacheBadge.Visibility = Visibility.Collapsed;
+
+        // 空关键词 + 非强制刷新（进页 / 切分区）→ 只读缓存直接出推荐列表，**不联网、不刷缓存**。
+        // 精确筛选键没有时退到同类资源的通用推荐键（换版本/换加载器时精确键必然未命中）。
+        // 缓存读取（读盘 + 反序列化）在后台线程做，不让开页那一帧等 IO。
+        if (!forceRefresh && query.Length == 0 && _offset == 0)
+        {
+            var cf = CurrentSource == ContentSourceIds.CurseForge;
+            var (hit, cached) = await Task.Run(() => cf
+                ? _s.CurseForge.TryReadCachedSearch(section, loader, gameVersion, out var c)
+                    ? (true, c) : (false, c)
+                : _s.Mods.TryReadCachedSearch(section, loader, gameVersion, out var m)
+                    ? (true, m) : (false, m));
+            if (hit && cached is not null)
+            {
+                _queryOriginal = "";
+                _queryEffective = "";   // 预取续页要用空关键词
+                await ApplyResultsAsync(cached, cf);
+                CacheBadge.Visibility = Visibility.Visible;
+                SetBusy(false);
+                return;
+            }
+        }
+
         try
         {
             // 中文搜索词先翻成英文：Modrinth / CurseForge 的项目名都是英文，直接搜中文基本搜不到东西。
@@ -1046,37 +1088,14 @@ public sealed partial class DownloadPage : Page
                     _offset, PageSize, index, ct)
                 : await _s.Mods.SearchAsync(searchQuery, section, loader, gameVersion,
                     _offset, PageSize, index, category, ct, forceRefresh);
-            _total = result.TotalHits;
-            _lastHits = result.Hits.ToList();
-            var rows = result.Hits.Select(h => new ModRow
-            {
-                ProjectId = h.ProjectId,
-                Title = ModTitleHelper.Display(h.Title),   // 中文名（MC 百科，缓存优先；未命中显示原名）
-                Description = h.Description,
-                IconUrl = h.IconUrl ?? "",
-                Author = h.Author,
-                Tags = h.DisplayCategories.Take(3).Select(ChineseCategory).ToList(),
-                LoadersText = string.Join(" / ", h.Loaders.Select(DisplayLoader)),
-                DownloadsText = $"\u2193 {FormatCount(h.Downloads)}",
-                UpdatedText = $"\u2191 {FormatRelative(h.DateModified)}",
-                Icon = RemoteIconHelper.Resolve(h.IconUrl),
-            }).ToList();
-            ModList.ItemsSource = rows;
-            // 缓存命中时会立刻再跑一次网络刷新：第二次只换数据，不重播入场动画
-            if (!forceRefresh) MotionFx.StaggerListItems(ModList);
-            // 英文简介先上屏，MCIM 的中文译文异步补上（仅中文界面；失败保留英文）
-            _ = FillSummariesAsync(
-                rows, fromCurseForge ? ContentSourceIds.CurseForge : ContentSourceIds.Modrinth, ct);
-            EmptyHint.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            ResultCountText.Text = _total > 0 ? Loc.T("共 {0} 个结果", FormatCount(_total)) : "";
-            PrevBtn.IsEnabled = _offset > 0 && rows.Count > 0;
-            NextBtn.IsEnabled = _offset + rows.Count < _total && rows.Count > 0;
+            await ApplyResultsAsync(result, fromCurseForge, append);
 
             var fromCache = !fromCurseForge && _s.Mods.LastSearchFromCache;
             CacheBadge.Visibility = fromCache ? Visibility.Visible : Visibility.Collapsed;
 
-            // 命中缓存 → 后台直连网络拉新内容并替换；失败保留缓存内容、不弹错
-            if (fromCache && !forceRefresh)
+            // 命中缓存 → 后台直连网络拉新内容并替换；失败保留缓存内容、不弹错。
+            // 空关键词的推荐列表不走这条（进页只读缓存、不刷缓存，见上方分支）。
+            if (fromCache && !forceRefresh && query.Length > 0)
             {
                 SetBusy(false);
                 await SearchAsync(reset: false, forceRefresh: true);
@@ -1098,12 +1117,211 @@ public sealed partial class DownloadPage : Page
         }
     }
 
+    /// <summary>把一次搜索结果灌进列表（缓存直出 / 联网返回 / 续页共用同一条渲染路径）。</summary>
+    private async Task ApplyResultsAsync(ModrinthSearchResult result, bool fromCurseForge, bool append = false)
+    {
+        _total = result.TotalHits;
+        _hits = append ? [.. _hits, .. result.Hits] : result.Hits.ToList();
+        _lastHits = [.. _hits];
+        // 行构建放后台线程：标题词典读盘、每行的图标路径探测（File.Exists）、
+        // 标签/计数格式化在 50 行的量级下就是几十毫秒的 UI 卡顿 —— 都是纯数据活
+        var rows = await Task.Run(() => BuildRows(result.Hits));
+
+        if (!append)
+        {
+            _rows.Clear();
+            _feathered.Clear();
+        }
+        foreach (var row in rows) _rows.Add(row);   // 追加式：不重建 ItemsSource，滚动位置保持
+
+        // 图标交给后台队列补齐（本地缓存命中会立刻显示）
+        QueueIcons(rows);
+
+        // 只有「新的一次搜索」才播整表羽化；续页 / 揭示直接接上
+        if (!append) MotionFx.StaggerListItems(ModList, maxItems: 12);
+
+        // 英文简介先上屏，MCIM 的中文译文异步补上（仅中文界面；失败保留英文）
+        _ = FillSummariesAsync(
+            rows, fromCurseForge ? ContentSourceIds.CurseForge : ContentSourceIds.Modrinth,
+            _cts?.Token ?? CancellationToken.None);
+        EmptyHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ResultCountText.Text = _total > 0 ? Loc.T("共 {0} 个结果", FormatCount(_total)) : "";
+
+        // 首屏放上后立刻在后台把后续若干页预取到本地：滚动时只做揭示，不再等网络
+        if (!append) _ = PrefetchRemainingAsync();
+    }
+
+    /// <summary>
+    /// 后台预取：首屏 50 条之后，连续把后面的页拉进本地列表（默认最多 400 条）。
+    /// <para>为什么不「预取全部」：默认列表总量是几万条，全拉既慢又占内存；
+    /// 400 条 ≈ 连续翻 8 屏不联网，正常浏览足够，超出部分回落到按需请求。</para>
+    /// <para>为什么不在 UI 线程：这里只做网络 + 数据合并，UI 只在滚动揭示时才创建行。</para>
+    /// </summary>
+    private async Task PrefetchRemainingAsync()
+    {
+        if (_prefetching) return;
+        _prefetching = true;
+        var ct = _cts?.Token ?? CancellationToken.None;
+        try
+        {
+            var section = CurrentCategory;
+            var loader = ResolveLoader();
+            var gameVersion = ResolveGameVersion();
+            var category = ResolveCategory();
+            var index = (SortCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "relevance";
+            var fromCurseForge = CurrentSource == ContentSourceIds.CurseForge;
+            var query = _queryEffective;
+
+            while (!ct.IsCancellationRequested && _hits.Count < PrefetchCap && _hits.Count < _total)
+            {
+                var result = fromCurseForge
+                    ? await _s.CurseForge.SearchAsync(query, section, loader, gameVersion,
+                        _hits.Count, PageSize, index, ct)
+                    : await _s.Mods.SearchAsync(query, section, loader, gameVersion,
+                        _hits.Count, PageSize, index, category, ct);
+                if (result.Hits.Count == 0) break;
+                _hits.AddRange(result.Hits);
+                _lastHits = [.. _hits];
+                _total = result.TotalHits;
+                // 首屏已经占满时不必急着并入 UI：等滚动揭示取用
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch { /* 预取失败不影响已展示内容，滚动时再按需拉 */ }
+        finally { _prefetching = false; }
+    }
+
+    /// <summary>
+    /// 容器进场：只负责触发「继续揭示/拉取」。
+    /// <para>**不给容器加动画**：ListView 的容器会被回收复用，给它挂 TranslateTransform/Opacity
+    /// 会在复用后残留（行整体偏移 −90px、透明看不见），实测就是「滚动快时错位 + 加载不出来」。</para>
+    /// </summary>
+    private void ModList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue) return;
+        if (args.ItemIndex >= _rows.Count - 10) _ = RevealMoreAsync();
+    }
+
+    /// <summary>
+    /// 滚动到接近末尾时揭示更多内容：
+    /// 优先从**已预取到本地**的命中里接着放（不联网、不动画），没有再回落到分页请求。
+    /// </summary>
+    private async Task RevealMoreAsync()
+    {
+        if (_revealing || _rows.Count == 0 || _rows.Count >= _total) return;
+        if (_hits.Count > _rows.Count)
+        {
+            _revealing = true;
+            try
+            {
+                // 每次接 30 条，分片让出 UI 线程，滚动不会卡顿
+                var slice = _hits.Skip(_rows.Count).Take(30).ToList();
+                await AppendRowsAsync(slice);
+            }
+            finally { _revealing = false; }
+            return;
+        }
+        _offset = _rows.Count;
+        await LoadMoreAsync();
+    }
+
+    /// <summary>把一批命中转成行并接到列表末尾（**不播入场动画**，滚到哪接到哪）</summary>
+    private async Task AppendRowsAsync(List<ModrinthHit> hits)
+    {
+        if (hits.Count == 0) return;
+        var rows = await Task.Run(() => BuildRows(hits));   // 行构建放后台（同 ApplyResultsAsync）
+        for (var i = 0; i < rows.Count; i++)
+        {
+            _rows.Add(rows[i]);
+            // 每 10 条让出一次 UI 线程：大批量追加时界面保持可滚动
+            if (i % 10 == 9) await Task.Yield();
+        }
+        QueueIcons(rows);
+        _ = FillSummariesAsync(rows, CurrentSource == ContentSourceIds.CurseForge
+            ? ContentSourceIds.CurseForge : ContentSourceIds.Modrinth,
+            _cts?.Token ?? CancellationToken.None);
+        EmptyHint.Visibility = Visibility.Collapsed;
+        ResultCountText.Text = _total > 0 ? Loc.T("共 {0} 个结果", FormatCount(_total)) : "";
+    }
+
+    private static List<ModRow> BuildRows(IEnumerable<ModrinthHit> hits) =>
+        hits.Select(h => new ModRow
+        {
+            ProjectId = h.ProjectId,
+            Title = ModTitleHelper.Display(h.Title),   // 中文名（词典在启动时已后台预热，此处纯内存）
+            Description = h.Description,
+            IconUrl = h.IconUrl ?? "",
+            Author = h.Author,
+            Tags = h.DisplayCategories.Take(3).Select(ChineseCategory).ToList(),
+            LoadersText = string.Join(" / ", h.Loaders.Select(DisplayLoader)),
+            DownloadsText = $"\u2193 {FormatCount(h.Downloads)}",
+            UpdatedText = $"\u2191 {FormatRelative(h.DateModified)}",
+            // 图标一律走 QueueIcons：本方法可能运行在后台线程，BitmapImage 只能在 UI 线程创建
+            Icon = null,
+        }).ToList();
+
+    /// <summary>同一时刻最多并行下载的图标数（太多会互相抢带宽，反而更慢）</summary>
+    private static readonly SemaphoreSlim IconGate = new(6, 6);
+
+    /// <summary>续页：偏移取当前已加载条数，结果直接接在列表末尾（不再分页）。</summary>
+    private async Task LoadMoreAsync()
+    {
+        if (_loadingMore || _rows.Count == 0 || _rows.Count >= _total) return;
+        _loadingMore = true;
+        try
+        {
+            _offset = _rows.Count;
+            await SearchAsync(reset: false, append: true);
+        }
+        finally { _loadingMore = false; }
+    }
+
+    /// <summary>
+    /// 后台补齐一批行的图标：先查本地缓存（同步，命中即显示），未命中按 6 路并发下载，
+    /// 落盘后在 UI 线程把图片挂到行上（ModRow.Icon 是可通知属性，模板 OneWay 绑定）。
+    /// <para>为什么不直接绑远端 URL：每个图标都是一次独立 TLS 连接，国内访问 CDN 很慢，
+    /// 整列图标会「一个一个慢慢冒出来」；先落盘再显示可以把下载放进后台并复用缓存。</para>
+    /// </summary>
+    private void QueueIcons(IReadOnlyList<ModRow> rows)
+    {
+        var cache = _s.IconCache;
+        if (!cache.Enabled)
+        {
+            // 关缓存 = 旧行为直连 URL：但 BitmapImage 只能在 UI 线程创建，派发过去做
+            foreach (var row in rows)
+            {
+                if (string.IsNullOrWhiteSpace(row.IconUrl)) continue;
+                var u = row.IconUrl;
+                var t = row;
+                _dq.TryEnqueue(() => t.Icon = RemoteIconHelper.Resolve(u));
+            }
+            return;
+        }
+        foreach (var row in rows)
+        {
+            if (row.Icon is not null || string.IsNullOrWhiteSpace(row.IconUrl)) continue;
+            var url = row.IconUrl;
+            var target = row;
+            _ = Task.Run(async () =>
+            {
+                await IconGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var local = cache.TryGetCachedPath(url)
+                                ?? await cache.EnsureCachedAsync(url).ConfigureAwait(false);
+                    if (string.IsNullOrEmpty(local)) return;
+                    _dq.TryEnqueue(() => target.Icon = VersionRowHelpers.ResolveIconSource(local));
+                }
+                catch { /* 单个图标失败不影响列表 */ }
+                finally { IconGate.Release(); }
+            });
+        }
+    }
+
     private void SetBusy(bool busy)
     {
         InstallProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         SearchBtn.IsEnabled = !busy;
-        PrevBtn.IsEnabled = !busy && PrevBtn.IsEnabled;
-        NextBtn.IsEnabled = !busy && NextBtn.IsEnabled;
     }
 
     /// <summary>把「实际拿去搜索的英文词」与来源贴到结果计数旁边；没翻译就收起</summary>
@@ -1113,18 +1331,7 @@ public sealed partial class DownloadPage : Page
         TranslatedHint.Visibility = hint.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    // ── 社区分页 ──
-    private void PrevBtn_Click(object sender, RoutedEventArgs e)
-    {
-        _offset = Math.Max(0, _offset - PageSize);
-        _ = SearchAsync(reset: false);
-    }
-
-    private void NextBtn_Click(object sender, RoutedEventArgs e)
-    {
-        _offset += PageSize;
-        _ = SearchAsync(reset: false);
-    }
+    // 分页按钮已移除：滚到距末尾 10 项自动续页（见 LoadMoreAsync）
 
     /// <summary>
     /// 把搜索结果的英文简介换成 MCIM 的中文译文（仅中文界面启用，见 ModSummaryTranslationService）。
@@ -1190,7 +1397,8 @@ public sealed partial class DownloadPage : Page
     /// </summary>
     private async Task InstallMrPackFromDialogAsync(string libPath)
     {
-        await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, libPath);
+        // autoInstall：跳过「填名字 / 选隔离」确认，直接用包名建隔离实例并出进度框
+        await ModPackDialogs.ImportAsync(Content.XamlRoot, _s, libPath, autoInstall: true);
     }
 
     private void ShowOk(string message)

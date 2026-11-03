@@ -1,4 +1,4 @@
-// 版本详情子页：概览 / 内容 / 操作卡片（设置卡片由 T6 填充）
+﻿// 版本详情子页：概览 / 内容 / 操作卡片（设置卡片由 T6 填充）
 // 计划：docs/plans/2026-09-09-version-management-plan.md T5
 
 using Microsoft.UI.Xaml;
@@ -745,7 +745,7 @@ public sealed partial class VersionDetailPage : Page
             VerticalAlignment = VerticalAlignment.Center,
         });
         if (!string.IsNullOrWhiteSpace(row.IconPath) &&
-            VersionRowHelpers.ResolveIconSource(row.IconPath) is { } iconSource)
+            VersionRowHelpers.ResolveIconSource(row.IconPath, 256) is { } iconSource)
             iconGrid.Children.Add(new Image
             {
                 Width = 36,
@@ -991,21 +991,9 @@ public sealed partial class VersionDetailPage : Page
     /// <summary>光影依赖光影加载器（Iris / OptiFine）：没装就明确提示，别让用户以为挂了光影就生效。</summary>
     private void CheckShaderLoader()
     {
-        try
-        {
-            var modsDir = Path.Combine(_contentGameRoot, "mods");
-            var hasLoader = Directory.Exists(modsDir) && Directory.EnumerateFiles(modsDir)
-                .Any(f =>
-                {
-                    var n = Path.GetFileName(f).ToLowerInvariant();
-                    return n.Contains("iris") || n.Contains("optifine");
-                });
-            ShaderLoaderTip.Visibility = hasLoader ? Visibility.Collapsed : Visibility.Visible;
-        }
-        catch
-        {
-            ShaderLoaderTip.Visibility = Visibility.Collapsed;
-        }
+        // 判定收口在内容库（下载页装光影时也用同一份），两处口径不会再漂
+        ShaderLoaderTip.Visibility = _s.ContentLibrary.HasShaderLoader(_versionId)
+            ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>「下载 Mod」按钮：与 Mod 芯片同一条链路 —— 自动按本版本 MC 版本 + 加载器筛选，
@@ -1322,7 +1310,7 @@ public sealed partial class VersionDetailPage : Page
     private void ApplyIcon(string? iconPath)
     {
         // iconPath 已由 DisplayIconPath 解析好（自定义 > 加载器 > 版本类型），这里只负责加载
-        var source = iconPath is not null ? VersionRowHelpers.ResolveIconSource(iconPath) : null;
+        var source = iconPath is not null ? VersionRowHelpers.ResolveIconSource(iconPath, 256) : null;
         if (source is null)
         {
             IconImage.Source = null;

@@ -9,7 +9,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <Page.Resources>
         <!-- 会话行：头像 + 名字/最后一条消息 + 时间/未读 -->
@@ -133,20 +133,16 @@
     <Grid MaxWidth="1500" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <InfoBar x:Name="StatusBar" Grid.Row="0" Margin="0,0,0,12"
-                 Severity="Informational" IsOpen="False" IsClosable="True" />
-
         <!-- 好友 / 联机 两个板块同页：联机页整页嵌在第二个标签里，导航栏不再单列「联机」 -->
-        <SelectorBar x:Name="SectionSelector" Grid.Row="1" Margin="0,0,0,12">
+        <SelectorBar x:Name="SectionSelector" Grid.Row="0" Margin="0,0,0,12">
             <SelectorBarItem x:Name="FriendsTab" IsSelected="True" />
             <SelectorBarItem x:Name="MultiplayerTab" />
         </SelectorBar>
 
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="1">
             <!-- 未登录 -->
             <Border x:Name="SignedOutCard" Style="{StaticResource ScCard}" Visibility="Collapsed"
                     VerticalAlignment="Top" HorizontalAlignment="Stretch">
@@ -318,10 +314,9 @@
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </StackPanel>
                             <TextBox Grid.Row="1" x:Name="MessageInput" Margin="12,6,12,0"
-                                     MinHeight="64" MaxHeight="130" AcceptsReturn="True" TextWrapping="Wrap"
+                                     MinHeight="64" MaxHeight="130" AcceptsReturn="False" TextWrapping="Wrap"
                                      Background="Transparent" BorderThickness="0"
-                                     loc:Loc.Placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-                                     KeyDown="MessageInput_KeyDown">
+                                     loc:Loc.Placeholder="输入消息，Enter 发送，Ctrl+Enter 换行">
                                 <TextBox.Resources>
                                     <!-- 隐形输入框：边框/聚焦下划线/聚焦背景全部透明（QQ 式融入卡片）。
                                          TextBox 模板读的是这些资源键，只设 BorderThickness=0 压不住聚焦态。 -->
@@ -342,11 +337,16 @@
                 </Border>
             </Grid>
 
-            <!-- 联机板块：整页托管 MultiplayerPage（建房 / 进房 / 状态 / 日志全都在原页面里），
+            <!-- 联机板块：整页托管 RoomsPage（大厅 / 房间 / 我的），
                  切走时保留页面实例，切回来不重开会话；页面自身的轮询随 OnUnloaded 停止。 -->
             <Grid x:Name="MultiplayerSection" Visibility="Collapsed">
                 <Frame x:Name="MultiplayerHost" />
             </Grid>
         </Grid>
+
+        <!-- 悬浮提示条：占位会让整页内容往下跳一截（实测踩过），挂在内容之上 -->
+        <InfoBar x:Name="StatusBar" HorizontalAlignment="Center" VerticalAlignment="Top"
+                 Canvas.ZIndex="10" Margin="0,8,0,0"
+                 Severity="Informational" IsOpen="False" IsClosable="True" />
     </Grid>
 </Page>

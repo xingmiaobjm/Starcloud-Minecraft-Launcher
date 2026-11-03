@@ -374,6 +374,13 @@ public sealed class GameLauncher
             gameArgs.AddRange(pluginGame);
         }
 
+        // 多层继承（原版 ← Forge ← lwjgl3ify/Cleanroom）加上自定义参数、插件参数之后，
+        // 同一个键可能出现多次（两份 --width、两份 --uuid…）。重复的启动参数不是"后者生效"
+        // 而是**两个一起失效**，日志里还看不出来。这里按语义整理一遍：
+        // 游戏参数后值覆盖前值（子层想覆盖父层），JVM 参数只在键值全同时去重。
+        jvmArgs = LaunchArgumentSanitizer.Normalize(jvmArgs, isJvm: true);
+        gameArgs = LaunchArgumentSanitizer.Normalize(gameArgs, isJvm: false);
+
         return (jvmArgs, gameArgs);
     }
 
@@ -800,6 +807,23 @@ public sealed class GameLauncher
         // 先做引号感知切分，再交给 ArgumentList 逐项转义。
         var parts = SplitCommandLine(commandLine);
         if (parts.Count == 0) throw new InvalidOperationException("启动命令行为空");
+
+        // Windows 的 CreateProcess 命令行硬上限 32767 字符；超了报的是
+        // 「文件名或扩展名太长」（Win32 206）这种完全指不到地方的系统错误。
+        // 大型整合包（几百个库 + mod）的 -cp 拼接是真能撞上去的，提前拦下来并说清原因。
+        if (OperatingSystem.IsWindows())
+        {
+            var estimate = parts.Sum(p => p.Length + 3);   // +2 引号 +1 空格
+            if (estimate > 32000)
+            {
+                LauncherLog.Write("launch",
+                    $"启动命令行估算 {estimate} 字符，超过 Windows 上限：{versionId}");
+                throw new InvalidOperationException(
+                    $"启动命令太长（约 {estimate} 字符，Windows 上限 32767）："
+                    + "通常是因为库数量太多（大型整合包）。可在版本设置里改用「分离库目录」，"
+                    + "或减少同时加载的库");
+            }
+        }
         var psi = new ProcessStartInfo
         {
             FileName = parts[0],
@@ -831,6 +855,15 @@ public sealed class GameLauncher
     {
         var version = await _installer.LoadVersionAsync(dotMinecraft, versionId, ct);
         var cmd = await BuildCommandLineAsync(version, options, ct);
+        // 详细档：启动命令概要。**accessToken 一律脱敏**（泄漏到日志 = 账号被盗），
+        // 只留参数形状，够核对「内存 / Java / 版本 id / 是否 quickPlay」即可。
+        var cmdBrief = System.Text.RegularExpressions.Regex.Replace(
+            cmd, @"(--accessToken\s+)\S+", "$1***");
+        LauncherLog.Debug("launch",
+            $"命令行就绪 {versionId}：{cmdBrief.Length} 字符，Java={(options.JavaExecutable ?? "(默认解析)")}"
+            + $"，内存 {options.MinMemoryMb}-{options.MaxMemoryMb} MB"
+            + $"，GameDir={options.GameDir}"
+            + (options.QuickPlayMultiplayer is { } qp ? $"，quickPlay={qp}" : ""));
         Directory.CreateDirectory(options.GameDir);
         var lang = options.LanguageOverride ?? options.Language;
         EnsureFirstRunLanguage(options.GameDir, lang);

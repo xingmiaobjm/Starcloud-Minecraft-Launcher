@@ -87,12 +87,32 @@ public sealed partial class SettingsPage : Page
             SourceCombo.SelectedIndex = s.DownloadSource?.Trim().ToLowerInvariant() switch
             {
                 "official" => 1,
-                "bmclapi" => 2,
-                "fastmirror" => 3,
-                "rainyun" => 4,
+                "fastmirror" => 2,
+                "sjtu" => 3,
+                "starcloud" => 4,
+                "custom" => 5,
+                "bmclapi" => 6,
+                "rainyun" => 7,
                 _ => 0,
             };
             CustomMirrorBox.Text = s.DownloadCustomMirrorUrl ?? "";
+            ProxyModeCombo.SelectedIndex = s.DownloadProxyMode?.Trim().ToLowerInvariant() switch
+            {
+                "direct" => 1,
+                "custom" => 2,
+                _ => 0,
+            };
+            ProxyUrlBox.Text = s.DownloadProxyUrl ?? "";
+            // 日志强度：非正式版锁调试档（下拉禁用），正式版随用户设置
+            var devLog = LauncherLog.Intensity >= LauncherLog.LogIntensity.Debug
+                && LauncherLog.Intensity != (LauncherLog.LogIntensity)s.LogIntensity;
+            LogIntensityBox.SelectedIndex = Math.Clamp((int)LauncherLog.Intensity, 0, 2);
+            LogIntensityBox.IsEnabled = !devLog;
+            LogIntensityHint.Text = devLog
+                ? "开发版固定为调试强度"
+                : LauncherLog.Intensity >= LauncherLog.LogIntensity.Debug
+                    ? "调试强度会显著增加日志体积"
+                    : "";
             CurseForgeKeyBox.Text = s.CurseForgeApiKey ?? "";
 
             // 通用
@@ -118,7 +138,6 @@ public sealed partial class SettingsPage : Page
             UpdateMotionHint();
             LanguageCombo.SelectedIndex =
                 string.Equals(s.UiLanguage, "en-US", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-            OverlaySwitch.IsOn = s.NovaOverlayEnabled;
             AutoUpdateSwitch.IsOn = s.AutoUpdateEnabled;
             WalkAnimSwitch.IsOn = s.AccountWalkAnimation;
             EmbeddedLoginSwitch.IsOn = s.MicrosoftLoginEmbedded;
@@ -975,13 +994,56 @@ public sealed partial class SettingsPage : Page
         SavedBar.IsOpen = true;
     }
 
-    // Nova 游戏内浮窗：切换即落盘（下局游戏启动生效，不追溯当前会话——克制）
-    private void OverlaySwitch_Toggled(object sender, RoutedEventArgs e)
+    // ── 日志强度：即改即生效即落盘；开发版锁定调试 ──
+    private void LogIntensity_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!_loaded) return;
-        _s.Settings.NovaOverlayEnabled = OverlaySwitch.IsOn;
+        if (!_loaded || sender is not ComboBox { Tag: null } cb) return;
+        var level = (LauncherLog.LogIntensity)Math.Clamp(cb.SelectedIndex, 0, 2);
+        _s.Settings.LogIntensity = (int)level;
         try { _s.Settings.Save(); } catch { /* 落盘失败不阻断 */ }
-        SavedBar.IsOpen = true;
+        LauncherLog.ApplyIntensity(level);
+        LogIntensityHint.Text = level >= LauncherLog.LogIntensity.Debug
+            ? "调试强度会显著增加日志体积"
+            : "";
+    }
+
+    // ── 一键反馈：描述 + 诊断包一起提交；未登录/失败落盘到数据目录 ──
+    private async void Feedback_Click(object sender, RoutedEventArgs e)
+    {
+        var box = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 120,
+            PlaceholderText = "遇到了什么问题？（会附上启动器版本、系统信息和最近日志）",
+        };
+        var dlg = new ThemedDialog
+        {
+            Title = "一键反馈",
+            Content = box,
+            PrimaryButtonText = "提交",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        FeedbackBtn.IsEnabled = false;
+        UpdateStatusText.Text = "正在提交反馈…";
+        try
+        {
+            var diagnostics = _s.Cloud.BuildDiagnostics(60);
+            var (ok, message) = await _s.Cloud.SubmitFeedbackAsync(box.Text, diagnostics);
+            UpdateStatusText.Text = message;
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = "反馈失败：" + ex.Message;
+        }
+        finally
+        {
+            FeedbackBtn.IsEnabled = true;
+        }
     }
 
     // 账户页玩家走路动画：切换即落盘（下次进入账户页生效）
@@ -1057,7 +1119,10 @@ public sealed partial class SettingsPage : Page
                 Width = 128,
                 Height = 72,
                 Stretch = Stretch.UniformToFill,
-                Source = File.Exists(path) ? new BitmapImage(new Uri(path)) : null,
+                // 预览只有 128×72：4K 壁纸全尺寸解码一张就是 33MB，一排预览卡直接上几百 MB
+                Source = File.Exists(path)
+                    ? new BitmapImage(new Uri(path)) { DecodePixelWidth = 256 }
+                    : null,
             };
             var caption = new TextBlock
             {
@@ -1268,7 +1333,13 @@ public sealed partial class SettingsPage : Page
         s0.AutoInstallModDependencies = AutoModDepsSwitch.IsOn;
         s0.DownloadSource = (SourceCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
         s0.DownloadCustomMirrorUrl = CustomMirrorBox.Text.Trim();
+        s0.DownloadProxyMode = (ProxyModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        s0.DownloadProxyUrl = ProxyUrlBox.Text.Trim();
         s0.CurseForgeApiKey = CurseForgeKeyBox.Text.Trim();
+
+        // 代理是 handler 级配置：存完立刻重建连接池，不然要重启启动器才生效
+        try { _s.Download.ApplyProxySettings(); }
+        catch (Exception ex) { LauncherLog.Write("settings", $"应用代理设置失败：{ex.Message}"); }
 
         // 全局环境变量
         s0.GlobalEnvVars = ReadGlobalEnv();

@@ -171,8 +171,17 @@ public sealed class ForgeInstallerService
 
     // ── 安装器直链 ──
 
-    public static string ForgeInstallerUrl(string mcVersion, string build) =>
-        $"https://maven.minecraftforge.net/net/minecraftforge/forge/{mcVersion}-{build}/forge-{mcVersion}-{build}-installer.jar";
+    /// <summary>
+    /// Forge 安装器直链。build 可能是纯版本号（14.23.5.2860），也可能已经带了 MC 前缀
+    /// （1.7.10-10.13.4.1614 —— 整合包/手填最常见的形式）。不剥离就会拼成
+    /// .../{mc}-{mc}-{build}/... 直接 404（GTNH / lwjgl3ify 实例实测踩过，见 issue #6）。
+    /// </summary>
+    public static string ForgeInstallerUrl(string mcVersion, string build)
+    {
+        var ver = build.StartsWith($"{mcVersion}-", StringComparison.Ordinal)
+            ? build[(mcVersion.Length + 1)..] : build;
+        return $"https://maven.minecraftforge.net/net/minecraftforge/forge/{mcVersion}-{ver}/forge-{mcVersion}-{ver}-installer.jar";
+    }
 
     /// <summary>
     /// NeoForge 安装器直链。1.20.1 产物在 legacy 的 forge 构件下（版本号形如 1.20.1-47.1.106），
@@ -187,27 +196,98 @@ public sealed class ForgeInstallerService
             : $"https://maven.neoforged.net/releases/net/neoforged/neoforge/{ver}/neoforge-{ver}-installer.jar";
     }
 
+    /// <summary>
+    /// Cleanroom 安装器直链（GTO 等整合包用的特殊启动链，1.12.2 上的 Forge 替代）。
+    /// Cleanroom 也提供 Forge 风格的 installer.jar，可用 --installClient 静默安装；
+    /// 版本号形如 0.4.1-alpha，全部版本见其 maven 的 maven-metadata.xml。
+    /// </summary>
+    public static string CleanroomInstallerUrl(string cleanroomVersion) =>
+        "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/"
+        + $"{cleanroomVersion}/cleanroom-{cleanroomVersion}-installer.jar";
+
     // ── 静默安装 ──
+
+    /// <summary>
+    /// Forge 安装器的候选坐标：先用常规两段式，再用旧版的三段式（末尾重复 MC 版本）。
+    /// <para>Forge 的 maven 坐标在不同年代有两种命名，且**同一大版本内也不统一**
+    /// （实测 1.8.9 只认三段、1.8 只认两段、1.7.10 只认三段）——猜不可靠，必须按序探测。</para>
+    /// <para>传入的 url 若已是 NeoForge 或非 forge 构件的地址，原样返回不追加候选。</para>
+    /// </summary>
+    public static List<string> ForgeInstallerUrlCandidates(string installerUrl, string mcVersion)
+    {
+        var result = new List<string> { installerUrl };
+        // 只在 forge 构件路径上追加三段式候选（NeoForge 有自己的命名规则）
+        const string marker = "/net/minecraftforge/forge/";
+        var at = installerUrl.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (at < 0) return result;
+
+        var head = installerUrl[..(at + marker.Length)];
+        var tail = installerUrl[(at + marker.Length)..];       // {coord}/forge-{coord}-installer.jar
+        var slash = tail.IndexOf('/');
+        if (slash <= 0) return result;
+        var coord = tail[..slash];
+        if (coord.EndsWith($"-{mcVersion}", StringComparison.OrdinalIgnoreCase)) return result;  // 已是三段
+
+        var legacyCoord = $"{coord}-{mcVersion}";
+        result.Add($"{head}{legacyCoord}/forge-{legacyCoord}-installer.jar");
+        return result;
+    }
 
     /// <summary>
     /// 下载官方安装器并以 --installClient 静默安装。
     /// 前置：原版版本 JSON 已存在于游戏目录；requiredJavaMajor 来自版本 JSON 的 javaVersion。
     /// </summary>
-    public async Task InstallViaInstallerAsync(
+    /// <summary>
+    /// 下载官方安装器并以 --installClient 静默安装；返回安装出的版本目录名（推断不出时 null）。
+    /// <para>前置：原版版本 JSON 已存在于游戏目录；requiredJavaMajor 来自版本 JSON 的 javaVersion。</para>
+    /// <para>返回值很关键：Cleanroom 这类安装器的版本目录命名无法从 URL 推断，
+    /// 只能靠"安装前后对比 versions 目录"确定，调用方要用它接后续的启动/骨架写入。</para>
+    /// </summary>
+    public async Task<string?> InstallViaInstallerAsync(
         string installerUrl, string mcVersion, int requiredJavaMajor,
         LauncherSettings settings, IProgress<BatchProgress>? progress, CancellationToken ct = default)
     {
+        // 安装前的版本目录快照：装完对比出新增的那个，就能拿到真实 id
+        var versionsDir = Path.Combine(settings.DotMinecraft, "versions");
+        var before = SnapshotVersions(versionsDir);
         // 1. 确定可用的 Java（不满足则自动下载 Adoptium 运行时）
         var javaExe = await EnsureJavaAsync(requiredJavaMajor, progress, ct);
 
-        // 2. 下载安装器
+        // 2. 下载安装器。旧版 Forge 的 maven 坐标有两种写法（两段 / 三段且末尾重复 MC 版本），
+        // 具体用哪种取决于该构建发布时的命名，没有可靠规律可循（实测 1.8.9 要三段、1.8 要两段），
+        // 所以按候选顺序试，第一个能下到的就用。
         var tempDir = Path.Combine(Path.GetTempPath(), "starcloud-installer");
         Directory.CreateDirectory(tempDir);
         var name = Path.GetFileName(new Uri(installerUrl).LocalPath);
         var installerPath = Path.Combine(tempDir, name);
         Report(progress, $"下载 {name}…");
-        await _downloader.DownloadFileAsync(installerUrl, installerPath, null,
-            settings.DownloadMaxRetries, ct);
+
+        var candidates = ForgeInstallerUrlCandidates(installerUrl, mcVersion);
+        Exception? lastDownloadError = null;
+        var downloaded = false;
+        foreach (var url in candidates)
+        {
+            try
+            {
+                await _downloader.DownloadFileAsync(url, installerPath, null,
+                    settings.DownloadMaxRetries, ct);
+                downloaded = true;
+                if (!string.Equals(url, installerUrl, StringComparison.OrdinalIgnoreCase))
+                    LauncherLog.Write("forge", $"安装器改用备选坐标下载成功：{url}");
+                break;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                lastDownloadError = ex;
+                LauncherLog.Write("forge", $"安装器下载失败（换下一种坐标）：{url} → {ex.Message}");
+                try { if (File.Exists(installerPath)) File.Delete(installerPath); } catch { }
+            }
+        }
+        if (!downloaded)
+            throw new InvalidOperationException(
+                $"下载 Forge 安装器失败：{lastDownloadError?.Message ?? "所有候选地址都不可用"}"
+                + $"（已尝试 {candidates.Count} 种坐标）", lastDownloadError);
 
         // Forge 官方安装器会先读游戏目录里的 launcher_profiles.json，缺了就直接报
         // “There is no minecraft launcher profile...” 并退出码 1。PCL/HMCL 都在跑安装器前
@@ -275,6 +355,34 @@ public sealed class ForgeInstallerService
         // 原版只在列表里隐藏、不删文件：Forge 版本启动仍可能引用它的 JSON 与 client jar。
         // 列表里只留 Forge 版本，用户不会再误选原版。
         VersionVisibility.MarkDependency(settings.DotMinecraft, mcVersion);
+
+        // 以"安装后新增的版本目录"为准；推断值只作为兜底
+        var after = SnapshotVersions(versionsDir);
+        var created = after.FirstOrDefault(id => !before.Contains(id));
+        if (!string.IsNullOrEmpty(created))
+        {
+            LauncherLog.Write("forge", $"安装器生成了版本目录：{created}");
+            return created;
+        }
+        return string.IsNullOrEmpty(targetVersionId) ? null : targetVersionId;
+    }
+
+    private static HashSet<string> SnapshotVersions(string versionsDir)
+    {
+        try
+        {
+            return Directory.Exists(versionsDir)
+                ? Directory.EnumerateDirectories(versionsDir)
+                    .Select(Path.GetFileName)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Select(n => n!)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -338,6 +446,9 @@ public sealed class ForgeInstallerService
             var i = file.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
             if (i <= 0) continue;
             var stem = file[..i].Trim('-', '_');
+            // Cleanroom：cleanroom-0.4.1-alpha → 版本目录名与 Forge 不同（不含 MC 版本前缀），
+            // 交给安装后扫目录确定，这里不猜，避免猜错导致误删别人的版本目录
+            if (stem.StartsWith("cleanroom-", StringComparison.OrdinalIgnoreCase)) return "";
             // stem 形如 forge-1.20.1-47.2.0 → 去掉 loader 前缀
             foreach (var prefix in new[] { "forge-", "neoforge-", "quilt-", "fabric-" })
             {

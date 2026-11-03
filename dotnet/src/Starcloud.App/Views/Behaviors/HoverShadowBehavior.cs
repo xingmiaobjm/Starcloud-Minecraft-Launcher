@@ -1,4 +1,4 @@
-// 悬浮阴影附加属性：鼠标移入时元素「浮起」、背后的阴影层渐显，移出归零。
+﻿// 悬浮阴影附加属性：鼠标移入时元素「浮起」、背后的阴影层渐显，移出归零。
 //
 // 实现取向（在 ThemeShadow / CompositionProjectedShadow / DropShadow 三种合成阴影都试过、
 // 本机要么不渲染要么图层不对之后定的）：**阴影本身就是 XAML 元素**。
@@ -206,13 +206,13 @@ public static class HoverShadowBehavior
     }
 
     /// <summary>
-    /// 动效档位变化后的全量重接线：遍历各窗口在场元素，把低于较少档时接线的光斑<b>当场</b>摘掉、
-    /// 切回较少及以上时当场接回，不等下一次进页。
+    /// 动效档位变化后的全量重接线：遍历各窗口在场元素，把低于均衡档时接线的光斑<b>当场</b>摘掉、
+    /// 切回均衡及以上时当场接回，不等下一次进页。
     /// <para>与 <see cref="PointerLightBehavior.RefreshAll"/> 成对调用（设置页切档时）。</para>
     /// </summary>
     internal static void RefreshAll()
     {
-        var enable = AppServices.Instance.Motion.Enabled;
+        var enable = AppServices.Instance.Motion.LightFx;
         foreach (var root in CollectRoots())
             Walk(root);
 
@@ -253,9 +253,10 @@ public static class HoverShadowBehavior
         var state = States.GetOrCreateValue(element);
         if (state.Wired) return;
 
-        // 动效等级门控：极少档连光斑整族都不接线（零开销）。已在场的元素不追溯——
-        // 等级切换后下次进页重新走 Wire/Unwire 生效，与悬浮反馈的既有约定一致。
-        if (!AppServices.Instance.Motion.Enabled) return;
+        // 动效等级门控：跟手阴影/表面光斑属于「均衡及以上」的效果（Motion.LightFx），
+        // 较少档不接线 —— 低于均衡时悬停反馈交给框架原生底色（WinUI3 原版悬停），
+        // 不再用一块静态灰斑顶替（少档曾出现硬边灰块的观感问题）。
+        if (!AppServices.Instance.Motion.LightFx) return;
 
         try
         {

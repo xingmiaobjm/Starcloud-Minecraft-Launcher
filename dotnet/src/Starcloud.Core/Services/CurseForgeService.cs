@@ -97,13 +97,16 @@ public sealed class CurseForgeService
 
     private readonly DownloadService _downloader;
     private readonly Func<LauncherSettings> _settings;
+    private readonly ResourceCacheService? _cache;
     private readonly Dictionary<string, ModrinthVersion> _fileCache = new(StringComparer.Ordinal);
     private readonly object _gate = new();
 
-    public CurseForgeService(DownloadService downloader, Func<LauncherSettings> settings)
+    public CurseForgeService(DownloadService downloader, Func<LauncherSettings> settings,
+        ResourceCacheService? cache = null)
     {
         _downloader = downloader;
         _settings = settings;
+        _cache = cache;
     }
 
     /// <summary>MCIM 镜像（免 key；国内 CDN 加速，官方不可达/过慢时自动接管）</summary>
@@ -241,8 +244,24 @@ public sealed class CurseForgeService
     /// </summary>
     public async Task<ModrinthSearchResult> SearchAsync(
         string query, string kind, string? loader, string? gameVersion,
-        int offset = 0, int limit = 20, string index = "relevance", CancellationToken ct = default)
+        int offset = 0, int limit = 20, string index = "relevance", CancellationToken ct = default,
+        bool forceRefresh = false)
     {
+        // 与 Modrinth 同口径：只缓存「默认列表」（首屏 / 无关键词 / 按相关度 / offset=0）。
+        // 弹窗打开时走缓存秒出，用户点「搜索」才 forceRefresh 取最新的。
+        var cacheable = _cache is not null && offset == 0 && string.IsNullOrEmpty(query)
+                        && index == "relevance";
+        var cacheKey = cacheable
+            ? $"curseforge.search.{kind}.{loader ?? "any"}.{gameVersion ?? "any"}"
+            : null;
+        if (!forceRefresh && cacheKey is not null
+            && _cache!.TryRead<ModrinthSearchResult>(cacheKey, out var cached)
+            && cached is not null && cached.Hits.Count > 0)
+        {
+            LastSearchFromCache = true;
+            return cached;
+        }
+
         var classId = ClassIds.GetValueOrDefault(kind, 6);
         var pageSize = Math.Clamp(limit, 1, 50);
         var url = $"/mods/search?gameId={MinecraftGameId}&classId={classId}" +
@@ -256,7 +275,37 @@ public sealed class CurseForgeService
             url += $"&modLoaderType={loaderType}";
         url += $"&sortField={SortFields.GetValueOrDefault(index, 1)}&sortOrder=desc";
 
-        return MapSearchResponse(await GetAsync(url, ct));
+        var result = MapSearchResponse(await GetAsync(url, ct));
+        LastSearchFromCache = false;
+        if (cacheKey is not null && result.Hits.Count > 0) _cache!.Write(cacheKey, result);
+        return result;
+    }
+
+    /// <summary>上次搜索是否命中缓存（与 <see cref="ModrinthService.LastSearchFromCache"/> 同义）</summary>
+    public bool LastSearchFromCache { get; private set; }
+
+    /// <summary>只读缓存（绝不联网）：本筛选条件的默认列表 → 同类资源的通用默认列表。</summary>
+    public bool TryReadCachedSearch(string kind, string? loader, string? gameVersion,
+        out ModrinthSearchResult? result)
+    {
+        result = null;
+        if (_cache is null) return false;
+        string[] keys =
+        [
+            $"curseforge.search.{kind}.{loader ?? "any"}.{gameVersion ?? "any"}",
+            $"curseforge.search.{kind}.any.any",
+        ];
+        foreach (var key in keys)
+        {
+            if (_cache.TryRead<ModrinthSearchResult>(key, out var cached)
+                && cached is not null && cached.Hits.Count > 0)
+            {
+                LastSearchFromCache = true;
+                result = cached;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>把 `/mods/search` 响应映射成统一资源模型（公开以便单独测试与插件复用）</summary>

@@ -8,7 +8,7 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
@@ -1014,7 +1014,8 @@
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" CornerRadius="16" Padding="4">
                         <Grid>
-                            <ListView x:Name="ModList" SelectionMode="None">
+                            <ListView x:Name="ModList" SelectionMode="None"
+                                      ContainerContentChanging="ModList_ContainerContentChanging">
                                 <ListView.Resources>
                                     <!-- 与版本页一致：悬停反馈只由行内的跟手光斑表达。
                                          框架给的整行底色是硬边矩形，和光斑的圆角、羽化对不齐，
@@ -1068,7 +1069,7 @@
                                             <Grid Width="48" Height="48" VerticalAlignment="Center" CornerRadius="8">
                                                 <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA93;" FontSize="20"
                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                <Image Source="{x:Bind Icon}" Stretch="UniformToFill" />
+                                                <Image Source="{x:Bind Icon, Mode=OneWay}" Stretch="UniformToFill" />
                                             </Grid>
 
                                             <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
@@ -1141,8 +1142,7 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                            <ctrl:GlowButton x:Name="PrevBtn" loc:Loc.Text="上一页" Click="PrevBtn_Click" />
-                            <ctrl:GlowButton x:Name="NextBtn" loc:Loc.Text="下一页" Click="NextBtn_Click" />
+                            <!-- 无限滚动：滚到距末尾 10 项时自动续页，不再有「上一页 / 下一页」 -->
                         </StackPanel>
                     </Grid>
                 </Grid>

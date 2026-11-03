@@ -124,6 +124,8 @@
             <Style x:Key="ScShadowButtonStyle" TargetType="Button"
                    BasedOn="{StaticResource ScLightButtonStyle}" />
 
+<!-- 弹窗 16:9 由 ThemedDialog（自绘 Popup 壳）实现；ContentDialog 保持默认尺寸 -->
+
             <!-- 隐式滑块样式：跟手柔光（滑轨像玻璃管被光标点亮，淡档不染脏轨道）
                  + 均衡档引力形变。 -->
             <Style TargetType="Slider" BasedOn="{StaticResource DefaultSliderStyle}">

@@ -422,6 +422,31 @@ public sealed class ContentLibraryService
             file.Filename, file.Url, file.Sha1);
     }
 
+    /// <summary>
+    /// 该版本实例是否装了光影加载器（Iris / OptiFine）。
+    /// 光影包只有配加载器才生效——下载页装光影、版本详情页光影分区共用同一口径。
+    /// </summary>
+    public bool HasShaderLoader(string versionId)
+    {
+        try
+        {
+            var dotMc = _settings().DotMinecraft;
+            var store = new InstanceSettingsStore(dotMc);
+            var isolated = InstanceLayout.IsIsolated(store.Get(versionId), _settings());
+            var gameRoot = InstanceLayout.GameRoot(dotMc, versionId, isolated);
+            var modsDir = Path.Combine(gameRoot, "mods");
+            return Directory.Exists(modsDir) && Directory.EnumerateFiles(modsDir).Any(f =>
+            {
+                var n = Path.GetFileName(f).ToLowerInvariant();
+                return n.Contains("iris") || n.Contains("optifine");
+            });
+        }
+        catch
+        {
+            return true;   // 判不出来不误报（少弹一个提示好过多吓用户一次）
+        }
+    }
+
     /// <summary>检查某个 Modrinth 版本在当前版本实例中的依赖满足情况</summary>
     public async Task<DependencyReport> CheckDependenciesAsync(
         ModrinthVersion version, string versionId, CancellationToken ct = default)

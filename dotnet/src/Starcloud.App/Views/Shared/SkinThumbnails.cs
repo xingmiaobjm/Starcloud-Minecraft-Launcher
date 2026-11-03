@@ -1,4 +1,4 @@
-// 皮肤卡片缩略图：把 64×64 的纹理渲染成一张小的"正面立绘"，供账户详情页的卡片使用。
+﻿// 皮肤卡片缩略图：把 64×64 的纹理渲染成一张小的"正面立绘"，供账户详情页的卡片使用。
 //
 // 为什么不用 BitmapImage 直接显示纹理：64×64 的贴图在卡片里就是一堆看不懂的色块，
 // 玩家认的是"这个角色长什么样"。所以走 Core 的软件光栅化器（与账户页 3D 预览同一个渲染器、
@@ -132,12 +132,12 @@ internal static class SkinThumbnails
     /// 本地图片路径 → ImageSource。**只能在 UI 线程调用**：BitmapImage 是 DependencyObject，
     /// 在后台线程 new 会直接崩。
     /// </summary>
-    public static ImageSource? SourceFromFile(string? path)
+    public static ImageSource? SourceFromFile(string? path, int decodePixelWidth = 256)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
         try
         {
-            return new BitmapImage(new Uri(path));
+            return new BitmapImage(new Uri(path)) { DecodePixelWidth = decodePixelWidth };
         }
         catch (Exception ex)
         {

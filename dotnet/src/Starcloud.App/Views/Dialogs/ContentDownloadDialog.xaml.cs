@@ -68,7 +68,7 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         {
             "resourcepack" => "下载 资源包",
             "shader" => "下载 光影包",
-            "modpack" => "下载 整合包",
+            "modpack" => "安装 整合包",
             "datapack" => "下载数据包",
             _ => "下载 Mod",
         });
@@ -86,12 +86,10 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             else await RunDlSearchAsync();
         };
 
-        // 安装目标常显：所见即所得（主页选中的版本直接装入；整合包新建版本）
+        // 安装目标常显：所见即所得（版本 → 具体内容子目录；整合包新建版本）
         if (_kind == "modpack")
         {
-            DlTarget.Text = _source == ContentSourceIds.CurseForge
-                ? Loc.T("安装方式：下载整合包后新建游戏版本")
-                : Loc.T("安装方式：下载 .mrpack 后新建游戏版本");
+            DlTarget.Text = Loc.T("安装方式：直接创建新游戏版本（会自动拉取包内容）");
         }
         else if (string.IsNullOrEmpty(_versionId))
         {
@@ -100,52 +98,23 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         }
         else
         {
-            DlTarget.Text = Loc.T("安装目标：{0}", _versionId);
+            // 分类落到哪个子目录要写出来：不然用户会以为资源包/光影/数据包都塞进 mods
+            var folder = InstanceLayout.ContentDirFor(_kind);
+            DlTarget.Text = _kind == "datapack"
+                ? Loc.T("安装目标：{0} → saves/<存档>/datapacks", _versionId)
+                : Loc.T("安装目标：{0} → {1}/", _versionId, folder);
         }
-        StyleSourceButtons();
     }
 
     // ── 搜索 ──
 
-    // ── 资源来源切换 ──
-
-    private void SourceModrinth_Click(object sender, RoutedEventArgs e) => SwitchSource(ContentSourceIds.Modrinth);
-
-    private void SourceCurseForge_Click(object sender, RoutedEventArgs e) => SwitchSource(ContentSourceIds.CurseForge);
-
-    /// <summary>
-    /// 换来源：清空当前结果与详情，按同一关键词重新搜一次。
-    /// 两个源的 DTO 已经统一（<see cref="ModrinthHit"/> / <see cref="ModrinthVersion"/>），
-    /// 所以下面所有渲染与安装代码都不需要分叉。
-    /// </summary>
-    private void SwitchSource(string source)
-    {
-        if (_source == source) return;
-        _source = source;
-        StyleSourceButtons();
-        _selected = null;
-        _versions = [];
-        DownloadDetail.Visibility = Visibility.Collapsed;
-        DownloadBack.Visibility = Visibility.Collapsed;
-        _ = RunDlSearchAsync();
-    }
-
-    private void StyleSourceButtons()
-    {
-        StyleSelected(SourceModrinthBtn, _source == ContentSourceIds.Modrinth);
-        StyleSelected(SourceCurseForgeBtn, _source == ContentSourceIds.CurseForge);
-        SearchBox.PlaceholderText = Loc.T(_source == ContentSourceIds.CurseForge
-            ? "搜索 CurseForge…"
-            : "搜索 Modrinth…");
-    }
-
     /// <summary>按来源分发搜索（两个服务的方法同形，返回同一套 DTO）</summary>
-    private Task<ModrinthSearchResult> SearchSourceAsync(string query)
+    private Task<ModrinthSearchResult> SearchSourceAsync(string query, bool forceRefresh = false)
     {
         if (_source == ContentSourceIds.CurseForge)
             return _s.CurseForge.SearchAsync(query, _kind, _kind == "mod" ? _loader : null, _mc,
-                limit: 24);
-        return _s.Mods.SearchAsync(query, _kind, _loader, _mc, limit: 24);
+                limit: 24, forceRefresh: forceRefresh);
+        return _s.Mods.SearchAsync(query, _kind, _loader, _mc, limit: 24, forceRefresh: forceRefresh);
     }
 
     /// <summary>按项目的兼容范围拉版本：**不按 MC 版本在服务端筛掉其它版本**——
@@ -159,13 +128,12 @@ public sealed partial class ContentDownloadDialog : ContentDialog
     private static string? NormalizeMcFilter(string? mc) =>
         System.Text.RegularExpressions.Regex.IsMatch(mc ?? "", @"^\d+\.\d+(\.\d+)?$") ? mc : null;
 
-    private void DownloadSearch_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == Windows.System.VirtualKey.Enter) _ = RunDlSearchAsync();
-    }
-
-    private void DownloadSearch_Click(object sender, RoutedEventArgs e) => _ = RunDlSearchAsync();
-
+    /// <summary>
+    /// 打开弹窗即展示默认（推荐）列表。
+    /// <para>**缓存优先、命中就完全不联网**：精确筛选键没有时退到同类资源的通用推荐键
+    /// （换新版本/新加载器时精确键必然未命中，不能让用户对着空列表等）。</para>
+    /// <para>只有一条缓存都没有（首次安装 / 清了缓存）才发请求。</para>
+    /// </summary>
     private async Task RunDlSearchAsync()
     {
         if (_busy) return;
@@ -176,25 +144,47 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         _selected = null;
         try
         {
-            Info(Loc.T("正在搜索…"), InfoBarSeverity.Informational);
-            // 中文搜索词先翻成英文（内置词典 → MC 百科 → 机器翻译）：搜索框里保留用户原话
-            var translated = await _s.SearchTranslation.TranslateAsync(SearchBox.Text.Trim());
-            var res = await SearchSourceAsync(translated.Effective);
+            var kindFilter = _kind == "mod" ? _loader : null;
+            if (TryReadCached(kindFilter, out var cached) && cached is not null)
+            {
+                RenderResults(cached);
+                return;
+            }
+
+            Info(Loc.T("正在加载…"), InfoBarSeverity.Informational);
+            var res = await SearchSourceAsync("");
             DlInfoBar.IsOpen = false;
-            // 搜索框保留用户输入的中文，这里告诉用户实际拿去搜的英文词
-            var hint = SearchTranslationHint.Describe(translated);
-            if (hint.Length > 0) Info(hint, InfoBarSeverity.Informational);
-            DownloadResults.Children.Clear();
-            DownloadResults.Visibility = Visibility.Visible;
-            DlEmpty.Visibility = res.Hits.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            foreach (var hit in res.Hits)
-                DownloadResults.Children.Add(BuildResultRow(hit));
+            RenderResults(res);
         }
         catch (Exception ex)
         {
-            Info(Loc.T("搜索失败：{0}", ex.Message), InfoBarSeverity.Error);
+            Info(Loc.T("加载失败：{0}", ex.Message), InfoBarSeverity.Error);
         }
         finally { _busy = false; }
+    }
+
+    /// <summary>只读缓存，绝不联网</summary>
+    private bool TryReadCached(string? loader, out ModrinthSearchResult? result)
+    {
+        if (_source == ContentSourceIds.CurseForge)
+            return _s.CurseForge.TryReadCachedSearch(_kind, loader, _mc, out result);
+        return _s.Mods.TryReadCachedSearch(_kind, loader, _mc, out result);
+    }
+
+    /// <summary>渲染结果列表：逐条添加 + 从左往右羽化入场</summary>
+    private void RenderResults(ModrinthSearchResult res)
+    {
+        DownloadResults.Children.Clear();
+        DownloadResults.Visibility = Visibility.Visible;
+        DlEmpty.Visibility = res.Hits.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var index = 0;
+        foreach (var hit in res.Hits)
+        {
+            var row = BuildResultRow(hit);
+            DownloadResults.Children.Add(row);
+            // 与好友列表 / 版本列表同一条「从左往右羽化」入场
+            MotionFx.FeatherIn(row, index++);
+        }
     }
 
     /// <summary>搜索结果行：图标 + 名称 + 简介 + 下载量/更新时间（点击进详情）。</summary>
@@ -665,14 +655,43 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         Grid.SetColumn(info, 0);
         grid.Children.Add(info);
 
+        // 行内状态文本：安装/保存进行中就地把结果写在这行，不弹额外对话框
+        var stateText = new TextBlock
+        {
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
+            Visibility = Visibility.Collapsed,
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(stateText, 1);
+        grid.Children.Add(stateText);
+
         var host = WrapHoverRow(grid);
         host.Tapped += (_, e) =>
         {
             e.Handled = true;
             if (_busy || primary is null) return;
-            // 点击整行 = 另存为：先弹系统保存框确认位置（默认落在当前版本的 mods），再下载
+            // 点击整行 = 直接下载安装到目标版本（不进保存对话框：那是「另存为」，走右键菜单）
+            void SetState(string text, bool interactive)
+            {
+                stateText.Text = text;
+                stateText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+                host.Opacity = interactive ? 1 : 0.6;
+            }
+            _ = InstallAsync(_selected!, version, primary, SetState);
+        };
+
+        // 另存为：右键菜单（需要把文件落到自己指定位置时才用）
+        var saveAs = new MenuFlyoutItem { Text = Loc.T("另存为…") };
+        saveAs.Click += (_, _) =>
+        {
+            if (_busy || primary is null) return;
             _ = SaveAsAsync(primary, (_, _) => { }, version);
         };
+        var menu = new MenuFlyout();
+        menu.Items.Add(saveAs);
+        host.ContextFlyout = menu;
         return host;
     }
 
@@ -683,7 +702,7 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         Action<string, bool> setState)
     {
         // 目标版本校验（整合包 .mrpack 走新建版本流程，无需选中版本）
-        var verb = Loc.T(_kind == "modpack" ? "下载" : "下载安装");
+        var verb = Loc.T(_kind == "modpack" ? "安装" : "下载安装");
         if (_kind != "modpack" &&
             (string.IsNullOrEmpty(_versionId) || !_s.Installer.IsInstalled(_s.Settings.DotMinecraft, _versionId)))
         {
@@ -701,8 +720,8 @@ public sealed partial class ContentDownloadDialog : ContentDialog
                 version.VersionNumber, version.GameVersions, version.Loaders, file.Url, _source);
             var entry = await _s.ContentLibrary.DownloadAndAdoptAsync(_kind, file.Url, file.Filename, file.Sha1, info);
 
-            // 整合包（.mrpack / CurseForge .zip）：下载入库后关闭本窗，转宿主页新建版本流程
-            // （两种格式由宿主页按扩展名分派：mrpack 走 Modrinth 安装器，zip 走 CurseForge 安装器）
+            // 整合包（.mrpack / CurseForge .zip）：点「安装」直接建版本，不再让用户在
+            // 导入对话框里再确认一次（下载入库只是安装的输入，对用户是「安装」一个动作）
             if (_kind == "modpack" &&
                 (file.Filename.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase) ||
                  file.Filename.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
@@ -730,6 +749,14 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             }
 
             var msg = Loc.T("{0} 已安装到 {1}。", file.Filename, _versionId);
+
+            // 光影需要光影加载器（Iris / OptiFine）：目标版本没有就明确提示，
+            // 否则用户挂了光影、进游戏发现没效果（版本详情页早就有这个提示，下载页补齐口径）
+            if (_kind == "shader" && !_s.ContentLibrary.HasShaderLoader(_versionId))
+            {
+                msg += " " + Loc.T("⚠ 该版本未检测到光影加载器（Iris / OptiFine），"
+                    + "光影包不会生效——请先给这个版本安装 Iris 或 OptiFine。");
+            }
             if (_kind == "mod")
             {
                 // 自动补前置：开关打开时把缺的必需依赖按「最新兼容版本」逐个装好
