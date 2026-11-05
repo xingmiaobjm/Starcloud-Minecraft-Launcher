@@ -47,6 +47,7 @@ public static class Program
     private static ProjectionLibrary _projections = null!;
     private static StarcloudIdService _starcloudId = null!;
     private static FriendsService _friends = null!;
+    private static CancellationTokenSource? FriendsEventsCts;
     private static CurseForgeService _curseForge = null!;
     private static ForgeInstallerService _forge = null!;
     private static ModPackExportService _modPackExport = null!;
@@ -196,6 +197,10 @@ public static class Program
             dotMinecraft = _settings.DotMinecraft,
             downloadSource = _settings.DownloadSource,
         });
+
+        // 好友实时通道：登录状态下桥接启动即拉起 SSE 循环（断线指数退避重连），
+        // 事件以 friends.event 转发给壳端（Win 端等价物是 FriendsRuntime）。
+        if (_starcloudId.IsLoggedIn) StartFriendsEvents(stdout);
 
         while (await stdin.ReadLineAsync() is { } line)
         {
@@ -1998,6 +2003,7 @@ public static class Program
                 var session = await _starcloudId.LoginAsync(
                     p.GetProperty("id").GetString() ?? "",
                     p.GetProperty("password").GetString() ?? "");
+                StartFriendsEvents(stdout);
                 return new
                 {
                     loggedIn = true,
@@ -2027,6 +2033,7 @@ public static class Program
 
             case "starcloud.logout":
                 _starcloudId.Logout();
+                StopFriendsEvents();
                 return new { ok = true };
 
             case "friends.list":
@@ -2128,6 +2135,98 @@ public static class Program
             {
                 var updated = await _friends.MarkReadAsync(p.GetProperty("userId").GetString()!);
                 return new { updated };
+            }
+
+            // ── 群聊（Win 0.4.0 同口径；附件协议与好友消息一致） ──
+
+            case "friends.groups":
+                return new
+                {
+                    signedIn = _friends.IsSignedIn,
+                    groups = await _friends.GetGroupsAsync(),
+                };
+
+            case "friends.groupDetail":
+                return new
+                {
+                    group = await _friends.GetGroupDetailAsync(
+                        p.GetProperty("groupId").GetString()!),
+                };
+
+            case "friends.groupMessages":
+            {
+                long? beforeId = p.TryGetProperty("beforeId", out var gmBefore) &&
+                                gmBefore.ValueKind == JsonValueKind.Number
+                    ? gmBefore.GetInt64()
+                    : null;
+                var items = await _friends.GetGroupMessagesAsync(
+                    p.GetProperty("groupId").GetString()!, beforeId);
+                return new { items };
+            }
+
+            case "friends.groupSend":
+            {
+                var message = await _friends.SendGroupMessageAsync(
+                    p.GetProperty("groupId").GetString()!,
+                    p.GetProperty("content").GetString() ?? "");
+                return new { message };
+            }
+
+            case "friends.groupMarkRead":
+            {
+                await _friends.MarkGroupReadAsync(p.GetProperty("groupId").GetString()!);
+                return new { ok = true };
+            }
+
+            case "friends.groupCreate":
+            {
+                var members = p.GetProperty("members").EnumerateArray()
+                    .Select(m => m.GetString() ?? "").Where(m => m.Length > 0).ToList();
+                var group = await _friends.CreateGroupAsync(
+                    p.GetProperty("name").GetString() ?? "", members);
+                return new { group };
+            }
+
+            case "friends.groupAddMembers":
+            {
+                var members = p.GetProperty("members").EnumerateArray()
+                    .Select(m => m.GetString() ?? "").Where(m => m.Length > 0).ToList();
+                await _friends.AddGroupMembersAsync(p.GetProperty("groupId").GetString()!, members);
+                return new { ok = true };
+            }
+
+            case "friends.groupDissolve":
+            {
+                await _friends.DissolveGroupAsync(p.GetProperty("groupId").GetString()!);
+                return new { ok = true };
+            }
+
+            // ── 文件传输（图片 ≤30MB / 视频·文件 ≤200MB；消息 = 前缀 + JSON，后端只管存取） ──
+
+            case "friends.uploadFile":
+            {
+                var filePath = p.GetProperty("path").GetString()!;
+                // kind 可选：不给按扩展名判定（与 Win 端 FriendsPage 同口径）
+                var kind = p.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String
+                    ? k.GetString()!
+                    : KindOfFile(filePath);
+                var (id, size) = await _friends.UploadFileAsync(filePath);
+                return new
+                {
+                    id,
+                    size,
+                    kind,
+                    content = FriendsService.EncodeFileMessage(
+                        Path.GetFileName(filePath), size, kind, id),
+                };
+            }
+
+            case "friends.downloadFile":
+            {
+                await _friends.DownloadFileAsync(
+                    p.GetProperty("fileId").GetString()!,
+                    p.GetProperty("destPath").GetString()!);
+                return new { ok = true };
             }
             case "versions.rename":
             {
@@ -3971,6 +4070,70 @@ public static class Program
             @event = eventName,
             @params = parameters,
         }, JsonOpts));
+    }
+
+    /// <summary>拉起好友 SSE 实时事件循环（转发为 friends.event 桥接事件）。</summary>
+    private static void StartFriendsEvents(TextWriter writer)
+    {
+        StopFriendsEvents();
+        var cts = new CancellationTokenSource();
+        FriendsEventsCts = cts;
+        _ = Task.Run(() => FriendsEventsLoopAsync(writer, cts.Token));
+    }
+
+    private static void StopFriendsEvents()
+    {
+        var old = Interlocked.Exchange(ref FriendsEventsCts, null);
+        old?.Cancel();
+        old?.Dispose();
+    }
+
+    /// <summary>SSE 长连接循环：断线指数退避（3s 起步，封顶 60s），与 Win FriendsRuntime 同策略。</summary>
+    private static async Task FriendsEventsLoopAsync(TextWriter writer, CancellationToken ct)
+    {
+        var delay = TimeSpan.FromSeconds(3);
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await _friends.StreamEventsAsync(ev =>
+                {
+                    Emit(writer, "friends.event", new { type = ev.Type, data = ev.Data });
+                    return Task.CompletedTask;
+                }, ct);
+                delay = TimeSpan.FromSeconds(3);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("friends", $"事件连接断开：{ex.GetType().Name}: {ex.Message}");
+            }
+
+            try
+            {
+                await Task.Delay(delay, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 60));
+        }
+    }
+
+    /// <summary>按扩展名判定附件类型（与 Win 端 FriendsPage 同口径）。</summary>
+    private static string KindOfFile(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => "image",
+            ".mp4" or ".mkv" or ".mov" or ".avi" or ".webm" or ".flv" => "video",
+            _ => "file",
+        };
     }
 
     private static void WriteLine(TextWriter writer, string line)
