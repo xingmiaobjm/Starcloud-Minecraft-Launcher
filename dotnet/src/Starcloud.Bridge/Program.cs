@@ -315,6 +315,7 @@ public static class Program
             or "content.search" or "content.install"
             or "version.checkUpdates" or "version.updateMod" or "version.checkDependencies"
             or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
+            or "skins.bs6.authorize" or "skins.bs6.closet" or "skins.bs6.apply"
             or "nova.plan.execute"
             or "lab.load" or "lab.worldEater" or "lab.assets"
             or "projections.scan" or "projections.copy" or "projections.move"
@@ -1600,6 +1601,80 @@ public static class Program
                 var message = await _skinStation.ApplyAsync(
                     account.ServerBase, token, skin);
                 return new { message };
+            }
+
+            // ── Blessing Skin 6 衣柜（Win 0.4.0：OAuth2 + PKCE，LittleSkin 一键授权） ──
+            // serverBase 由壳端传入（账户的认证服务器），uuid 只是令牌存档键。
+
+            case "skins.bs6.status":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var major = await new BlessingSkin6Service().ProbeMajorAsync(root);
+                var tokens = Bs6TokenStore.Get(_settings.DotMinecraft, uuid);
+                return new { root, major, hasTokens = tokens is not null };
+            }
+
+            case "skins.bs6.authorize":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var tokens = await new BlessingSkin6Service().AuthorizeAsync(root,
+                    BlessingSkin6Service.LittleSkinClientId,
+                    BlessingSkin6Service.LittleSkinClientSecret,
+                    uri => Process.Start(new ProcessStartInfo(uri.ToString())
+                    {
+                        UseShellExecute = true,
+                    }));
+                Bs6TokenStore.Set(_settings.DotMinecraft, uuid, tokens);
+                return new { ok = true };
+            }
+
+            case "skins.bs6.closet":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var category = p.TryGetProperty("category", out var bcat) &&
+                               bcat.ValueKind == JsonValueKind.String
+                    ? bcat.GetString()!
+                    : "skin";
+                var tokens = await EnsureBs6TokensAsync(uuid, root);
+                var items = await new BlessingSkin6Service().ListClosetAsync(
+                    root, tokens.AccessToken, category);
+                return new
+                {
+                    items = items.Select(s => new { s.Id, s.Name, s.Model, s.Url, s.Kind }),
+                };
+            }
+
+            case "skins.bs6.apply":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var tid = p.GetProperty("tid").GetString()!;
+                var kind = p.TryGetProperty("kind", out var bkind) &&
+                           bkind.ValueKind == JsonValueKind.String
+                    ? bkind.GetString()!
+                    : "skin";
+                var tokens = await EnsureBs6TokensAsync(uuid, root);
+                var bs6 = new BlessingSkin6Service();
+                var players = await bs6.ListPlayersAsync(root, tokens.AccessToken);
+                var picked = players.FirstOrDefault();
+                if (picked.Name is null || picked.Pid is null)
+                    throw new Exception("该账号在皮肤站上还没有角色（player）");
+                if (kind == "cape")
+                    await bs6.SetCapeAsync(root, tokens.AccessToken, picked.Pid!, tid);
+                else
+                    await bs6.SetSkinAsync(root, tokens.AccessToken, picked.Pid!, tid);
+                return new { player = picked.Name };
             }
 
             case "auth.microsoft.start":
@@ -4070,6 +4145,35 @@ public static class Program
             @event = eventName,
             @params = parameters,
         }, JsonOpts));
+    }
+
+    /// <summary>
+    /// 取 BS6 令牌：本地有未过期令牌直接用；有刷新令牌就续期；都没有抛可读错误
+    /// （与 Win AccountDetailPage.EnsureBs6TokensAsync 同策略）。
+    /// </summary>
+    private static async Task<Bs6Tokens> EnsureBs6TokensAsync(string uuid, string root)
+    {
+        var bs6 = new BlessingSkin6Service();
+        var tokens = Bs6TokenStore.Get(_settings.DotMinecraft, uuid);
+        if (tokens is not null && tokens.ExpiresAt > DateTime.UtcNow.AddMinutes(1)) return tokens;
+
+        if (!string.IsNullOrEmpty(tokens?.RefreshToken))
+        {
+            try
+            {
+                tokens = await bs6.RefreshAsync(root,
+                    BlessingSkin6Service.LittleSkinClientId,
+                    BlessingSkin6Service.LittleSkinClientSecret, tokens.RefreshToken);
+                Bs6TokenStore.Set(_settings.DotMinecraft, uuid, tokens);
+                return tokens;
+            }
+            catch
+            {
+                // 刷新令牌失效：走重新授权
+            }
+        }
+
+        throw new InvalidOperationException("还没有连接皮肤站：请先在皮肤站卡片点「连接皮肤站」完成授权");
     }
 
     /// <summary>拉起好友 SSE 实时事件循环（转发为 friends.event 桥接事件）。</summary>
