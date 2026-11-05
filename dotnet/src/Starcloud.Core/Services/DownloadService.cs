@@ -1,5 +1,6 @@
 ﻿// 并发下载引擎：多文件批量下载 + 多源分片竞速 + 重试 + 进度/速度/ETA 回调（对应旧 Rust download 模块）
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Buffers;
 using System.Net;
@@ -163,7 +164,34 @@ public sealed class DownloadService
     /// 又强制要求密钥，失败面比过去大。文件字节仍以官方为准——这里只是通道兜底，
     /// 且不给镜像发密钥（见 <see cref="CurseForgeCdn"/>）。
     /// </summary>
+    /// <summary>
+    /// 按目标文件的去重闸门：同一个 dest 同时只允许一个下载在跑。
+    /// <para>为什么需要：用户连点两下「下载安装」时，第二个请求会去写同一个 .sc-tmp，
+    /// 直接抛「file is being used by another process」，最终显示成「全部下载源均不可用」——
+    /// 看起来像网络问题，其实只是自己撞自己（实测日志里连撞两次）。</para>
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> DestGates =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private async Task DownloadOneAsync(
+        string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
+        long size, Action<long>? onBytes, SourceKind? preferred = null)
+    {
+        var gateKey = Path.GetFullPath(destFile);
+        var gate = DestGates.GetOrAdd(gateKey, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await DownloadOneCoreAsync(url, destFile, sha1, maxRetries, ct, size, onBytes, preferred)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task DownloadOneCoreAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
         long size, Action<long>? onBytes, SourceKind? preferred = null)
     {
@@ -492,15 +520,27 @@ public sealed class DownloadService
         // 被误判成「主源全部失败」，白白烧了兜底源的带宽。
         var tried = new HashSet<SourceKind>();
         var attempt = 0;
+        Exception? lastError = null;   // 最后一次失败的原始异常，用于最终报错
+        // 断点续传的 .sc-tmp 可能是上一次中断留下的残片（内容与这次的远端不一致）：
+        // 续传后 SHA1 必然对不上，然后每个源都"成功"却校验失败。校验失败一次就丢掉残片重下。
+        var tmpDropped = false;
         while (true)
         {
             attempt++;
             var untouched = pool.Where(k => !tried.Contains(k)).ToList();
             if (untouched.Count == 0)
             {
-                // 真·极端情况：主源（含官方）在这份文件上全试过仍失败 → 请兜底源
-                if (ct.IsCancellationRequested || !AppendAuxiliary(pool))
-                    throw new IOException($"全部下载源均不可用: {Path.GetFileName(destFile)}");
+                // 真·极端情况：主源（含官方）在这份文件上全试过仍失败 → 请兜底源。
+                // 兜底源只会改写 Mojang 域名；非 Mojang URL（Modrinth / CurseForge 直链）
+                // 换源等于同一个地址再试一遍，纯浪费一轮，直接收尾。
+                var canFallback = DownloadSourceRegistry.IsMojangUrl(url) && AppendAuxiliary(pool);
+                if (ct.IsCancellationRequested || !canFallback)
+                {
+                    // 把最后一次的真实原因带出去：否则用户只看到「全部下载源均不可用」，
+                    // 排查时完全不知道是 404、TLS 还是超时
+                    var reason = lastError is null ? "" : $"（{lastError.Message}）";
+                    throw new IOException($"下载失败：{Path.GetFileName(destFile)}{reason}", lastError);
+                }
                 continue;   // untouched 现在只剩刚追加的兜底源
             }
 
@@ -558,12 +598,22 @@ public sealed class DownloadService
                 // Exception 的子类，放到后面就永远是死代码（实测过：整文件路径遇到镜像 404
                 // 直接抛错，5 个库文件整批失败）。
                 _sources.RecordNotFound(kind);
+                lastError = new IOException($"{DownloadSourceRegistry.Name(kind)} 返回 404/410（文件不存在）");
                 Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 返回 404/410，换下一个源");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // 失败也留痕（含来源与已耗时）：排查「这个文件为什么下不下来」全靠它
                 sw.Stop();
+                lastError = ex;
+                if (!tmpDropped && ex.Message.Contains("SHA1", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 残片不可信：删掉它，下一次从零开始（否则会一直撞同一个校验失败）
+                    tmpDropped = true;
+                    try { File.Delete(destFile + ".sc-tmp"); } catch { }
+                    LauncherLog.Write("download",
+                        $"{Path.GetFileName(destFile)} 校验失败，已丢弃续传残片重下");
+                }
                 LauncherLog.Debug("download",
                     $"失败 {Path.GetFileName(destFile)} ← {DownloadSourceRegistry.Name(kind)}"
                     + $"，第 {attempt} 次尝试，{sw.ElapsedMilliseconds} ms：{ex.Message}");

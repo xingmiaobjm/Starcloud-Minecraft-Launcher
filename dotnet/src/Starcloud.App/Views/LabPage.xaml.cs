@@ -67,6 +67,10 @@ public sealed partial class LabPage : Page
     {
         if (_devNoticeShown || XamlRoot is null) return;
         _devNoticeShown = true;
+        // 只弹第一次：看过就写进设置，之后进实验室不再打扰
+        if (AppServices.Instance.Settings.LabWelcomeShown) return;
+        AppServices.Instance.Settings.LabWelcomeShown = true;
+        try { AppServices.Instance.Settings.Save(); } catch { /* 落盘失败下次再弹一次 */ }
         try
         {
             var dialog = new ThemedDialog
@@ -74,7 +78,7 @@ public sealed partial class LabPage : Page
                 // 定位是「功能先行区」而不是「半成品警告」：最前沿能力先在这里开放，
                 // 社区提出的功能设想也在这里做成演示。半成品风险放在末句一句带过。
                 Title = Loc.T("欢迎来到 Starcloud 实验室"),
-                Content = Loc.T("Starcloud 实验室是星云最前沿功能的先行区——新能力在这里首先开放体验，用户提出的功能设想也在这里做成演示。功能仍在持续演进，欢迎试用并反馈。"),
+                Content = Loc.T("Starcloud实验室是SCML最前沿功能的先行区——新能力在这里首先开放体验，用户提出的功能设想也在这里做成演示。功能仍在持续演进，欢迎试用并反馈（双击左上角标题反馈）。"),
                 CloseButtonText = Loc.T("知道了"),
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = XamlRoot,

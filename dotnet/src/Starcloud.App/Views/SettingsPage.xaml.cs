@@ -139,6 +139,15 @@ public sealed partial class SettingsPage : Page
             LanguageCombo.SelectedIndex =
                 string.Equals(s.UiLanguage, "en-US", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             AutoUpdateSwitch.IsOn = s.AutoUpdateEnabled;
+            // 发布渠道回显（默认正式版）
+            ChannelCombo.SelectedIndex = s.ReleaseChannel switch
+            {
+                "public-beta" => 1,
+                "beta" => 2,
+                "alpha" => 3,
+                "pre-alpha" => 4,
+                _ => 0,
+            };
             WalkAnimSwitch.IsOn = s.AccountWalkAnimation;
             EmbeddedLoginSwitch.IsOn = s.MicrosoftLoginEmbedded;
             IsolationDefaultRadio.SelectedIndex = s.VersionIsolated ? 0 : 1;
@@ -188,6 +197,10 @@ public sealed partial class SettingsPage : Page
             }
             UpdateBackgroundPanels();
 
+            // 回填完成 → 挂自动保存（切换即落盘，无提示），再放开写盘
+            HookAutoSave(this);
+            _autoSaveReady = true;
+
             _loaded = true;
             await ScanJavaAsync();
         };
@@ -198,7 +211,7 @@ public sealed partial class SettingsPage : Page
         // XAML 中首个条目 IsSelected="True" 会在 InitializeComponent 解析期间同步触发本事件，
         // 此时右侧 SectionGame 等控件尚未创建，直接跳过（XAML 已自带正确的初始可见性）
         if (SectionGame is null) return;
-        var tag = (CategoryList.SelectedItem as FrameworkElement)?.Tag as string ?? "game";
+        var tag = (CategoryList.SelectedItem as FrameworkElement)?.Tag as string ?? "general";
 
         // 选中态落到各行控件自己的 IsActive 上：选中底、跟手光斑、圆角都由 CategoryNavItem
         // 的模板提供，三者同源同形，不再出现「阴影框与按钮框错位」
@@ -1007,45 +1020,6 @@ public sealed partial class SettingsPage : Page
             : "";
     }
 
-    // ── 一键反馈：描述 + 诊断包一起提交；未登录/失败落盘到数据目录 ──
-    private async void Feedback_Click(object sender, RoutedEventArgs e)
-    {
-        var box = new TextBox
-        {
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            MaxHeight = 120,
-            PlaceholderText = "遇到了什么问题？（会附上启动器版本、系统信息和最近日志）",
-        };
-        var dlg = new ThemedDialog
-        {
-            Title = "一键反馈",
-            Content = box,
-            PrimaryButtonText = "提交",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Content.XamlRoot,
-        };
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
-
-        FeedbackBtn.IsEnabled = false;
-        UpdateStatusText.Text = "正在提交反馈…";
-        try
-        {
-            var diagnostics = _s.Cloud.BuildDiagnostics(60);
-            var (ok, message) = await _s.Cloud.SubmitFeedbackAsync(box.Text, diagnostics);
-            UpdateStatusText.Text = message;
-        }
-        catch (Exception ex)
-        {
-            UpdateStatusText.Text = "反馈失败：" + ex.Message;
-        }
-        finally
-        {
-            FeedbackBtn.IsEnabled = true;
-        }
-    }
-
     // 账户页玩家走路动画：切换即落盘（下次进入账户页生效）
     private void WalkAnimSwitch_Toggled(object sender, RoutedEventArgs e)
     {
@@ -1067,6 +1041,88 @@ public sealed partial class SettingsPage : Page
     // ── 通用：软件更新（设计：.trae/documents/auto-update-feature.md） ──
 
     // 自动检查更新：切换即落盘（下次启动生效）
+    /// <summary>
+    /// 发布渠道切换：正式版/公测版直接生效；Beta 及更前面的渠道要先确认
+    /// （那些渠道可能有 Bug、数据也可能要重装，误触代价大）。
+    /// </summary>
+    private async void ChannelCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_restoringChannel) return;
+        if (ChannelCombo.SelectedItem is not ComboBoxItem { Tag: string tag } item) return;
+        var s = _s.Settings;
+        if (string.Equals(s.ReleaseChannel, tag, StringComparison.Ordinal)) return;
+
+        if (tag is "beta" or "alpha" or "pre-alpha")
+        {
+            var label = (item.Content as string) ?? tag;
+            // 每个渠道写清四件事：是什么 / 适合谁 / 风险 / 能不能回来
+            var detail = tag switch
+            {
+                "beta" =>
+                    "新功能基本可用，正在打磨细节的版本。比公测版更早一些，功能可能还在调整。\n\n"
+                    + "适合：愿意尝鲜、并且发现问题愿意反馈的玩家。日常玩原版或小型整合包一般不受影响。\n\n"
+                    + "可能遇到：个别界面错位、某个功能偶发失效、小概率启动失败。遇到后切回正式版即可。\n\n"
+                    + "随时可以切回正式版，存档与已安装版本不会因为换渠道而丢失。",
+                "alpha" =>
+                    "功能还在开发中的版本，可能只做了一半，也可能随时被改写。\n\n"
+                    + "适合：想提前体验新功能、并且能接受“用不了”的玩家。不建议作为日常主力。\n\n"
+                    + "可能遇到：功能缺失、崩溃闪退、配置项改名导致旧设置失效，个别情况下需要重装某个版本才能恢复。\n\n"
+                    + "随时可以切回正式版；但这条线产生的问题，回退后可能需要手工修复（例如重新安装出问题的版本）。",
+                _ =>
+                    "最前沿的构建，给内部测试和深度尝鲜用。功能随时可能推倒重来。\n\n"
+                    + "不推荐任何用户使用：随时会推倒重来，甚至可能导致系统崩溃，仅供开发人员使用。\n\n"
+                    + "可能遇到：启动器无法启动、游戏版本装不上、整合包导入失败、数据需要重装。请勿在这条线上使用重要存档。\n\n"
+                    + "随时可以切回正式版；回退后如果启动异常，建议使用官网安装包重新安装启动器，或重建出问题的版本。",
+            };
+            var dialog = new ThemedDialog
+            {
+                Title = Loc.T("切换到{0}？", label),
+                Content = new TextBlock
+                {
+                    Text = detail,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 13,
+                    LineHeight = 21,
+                    MaxWidth = 520,
+                },
+                PrimaryButtonText = Loc.T("确认切换"),
+                CloseButtonText = Loc.T("保持当前渠道"),
+                DefaultButton = ContentDialogButton.Close,   // 默认停在「不切」，防误触
+                XamlRoot = Content.XamlRoot,
+            };
+            // 配色：取消=白色（常规按钮），确认=红色（危险动作）
+            if (Application.Current.Resources["ScDangerButtonStyle"] is Style danger)
+                dialog.PrimaryButtonStyle = danger;
+            if (Application.Current.Resources["ScShadowButtonStyle"] is Style light)
+                dialog.CloseButtonStyle = light;
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                // 用户取消：把下拉框摆回原渠道（期间不触发再确认）
+                var index = s.ReleaseChannel switch
+                {
+                    "public-beta" => 1,
+                    "beta" => 2,
+                    "alpha" => 3,
+                    "pre-alpha" => 4,
+                    _ => 0,
+                };
+                _restoringChannel = true;
+                try { ChannelCombo.SelectedIndex = index; }
+                finally { _restoringChannel = false; }
+                return;
+            }
+        }
+
+        s.ReleaseChannel = tag;
+        try { s.Save(); } catch { /* 落盘失败下次再说 */ }
+        if (UpdateStatusText is not null)
+            UpdateStatusText.Text = Loc.T("已切换渠道，可点「检查更新」查看该渠道的最新版本。");
+    }
+
+    /// <summary>程序化回填下拉框时抑制「切换确认」（否则取消会再次弹窗）</summary>
+    private bool _restoringChannel;
+
     private void AutoUpdateSwitch_Toggled(object sender, RoutedEventArgs e)
     {
         if (!_loaded) return;
@@ -1085,7 +1141,11 @@ public sealed partial class SettingsPage : Page
             var m = await _s.SelfUpdate.FetchManifestAsync();
             if (!SelfUpdateService.IsNewerVersion(m.Version, SelfUpdateService.CurrentVersion()))
             {
-                UpdateStatusText.Text = Loc.T("已是最新版本（{0}）", SelfUpdateService.CurrentVersion());
+                var note = _s.SelfUpdate.LastManifestFellBackToRelease
+                    ? Loc.T("（该渠道暂未发布，已按正式版检查）")
+                    : "";
+                UpdateStatusText.Text = Loc.T("已是最新版本（{0}）{1}",
+                    SelfUpdateService.CurrentVersion(), note);
                 return;
             }
             UpdateStatusText.Text = "";
@@ -1302,8 +1362,13 @@ public sealed partial class SettingsPage : Page
         ErrorBar.IsOpen = false;
     }
 
-    private void Save_Click(object s, RoutedEventArgs e)
+    /// <summary>
+    /// 把界面上所有控件的值写回设置并落盘。
+    /// <para>不再有「保存设置」按钮：任何控件一改就调这里（切换即保存），也不再弹「已保存」提示条。</para>
+    /// </summary>
+    private void PersistSettings()
     {
+        if (!_autoSaveReady) return;   // 回填初始值期间不写盘
         var s0 = _s.Settings;
         // 游戏目录已移到版本页顶部的下拉管理，这里不再写 DotMinecraft
 
@@ -1359,7 +1424,44 @@ public sealed partial class SettingsPage : Page
 
         s0.Save();
         MainWindow.RefreshAppearance();
-        SavedBar.Title = Loc.T("已保存");
-        SavedBar.IsOpen = true;
+        // 不弹任何提示：切换即保存，用户不需要确认
+    }
+
+    /// <summary>回填完成前不触发自动保存（否则会把默认值写盘）</summary>
+    private bool _autoSaveReady;
+
+    /// <summary>
+    /// 给页面上所有输入控件挂「改了就保存」：开关 / 下拉 / 滑块即时生效，
+    /// 文本框在**失焦**时保存（避免每敲一个字都写盘）。
+    /// </summary>
+    private void HookAutoSave(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            switch (child)
+            {
+                case ToggleSwitch toggle:
+                    toggle.Toggled += (_, _) => PersistSettings();
+                    break;
+                case ComboBox combo:
+                    combo.SelectionChanged += (_, _) => PersistSettings();
+                    break;
+                case Slider slider:
+                    // 拖动过程中 ValueChanged 会连发：只在松手时落盘
+                    slider.AddHandler(UIElement.PointerReleasedEvent,
+                        new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => PersistSettings()),
+                        handledEventsToo: true);
+                    break;
+                case TextBox box:
+                    box.LostFocus += (_, _) => PersistSettings();
+                    break;
+                case PasswordBox pwd:
+                    pwd.LostFocus += (_, _) => PersistSettings();
+                    break;
+            }
+            HookAutoSave(child);
+        }
     }
 }

@@ -33,6 +33,18 @@ public partial class App : Application
     // 跨页日志跳转：运行状态页点「打开日志」时置 "game"，日志页进入后消费一次
     public static string? PendingLogSource;
 
+    /// <summary>跨页进房请求：好友聊天里的房卡点「加入房间」时置房间码，联机页进入后消费一次</summary>
+    public static string? PendingRoomCode;
+
+    /// <summary>nre.log 追加锁：FirstChance 可能任意线程并发触发</summary>
+    private static readonly object NreLogGate = new();
+
+    /// <summary>启动分段计时的零点：显式静态构造保证在 AppServices 构造（实例 ctor 第一行触发）之前开始
+    /// （无显式 cctor 的类型是 beforefieldinit，初始化时机不保证落在实例构造之前）</summary>
+    private static readonly System.Diagnostics.Stopwatch PerfSinceStart;
+
+    static App() => PerfSinceStart = System.Diagnostics.Stopwatch.StartNew();
+
     public App()
     {
         // 界面语言必须在任何 XAML 解析之前确定（D3 多语言）
@@ -43,16 +55,26 @@ public partial class App : Application
         AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
         {
             if (e.Exception is not NullReferenceException nre) return;
-            try
+            // 落盘放后台：FirstChance 在异常抛出点同步触发，若在 UI 线程高频路径上
+            // 直接 AppendAllText，一次抖动就是一帧卡顿
+            var message = nre.Message;
+            var stack = nre.StackTrace ?? "(无堆栈)";
+            Task.Run(() =>
             {
-                var dir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Starcloud");
-                Directory.CreateDirectory(dir);
-                File.AppendAllText(Path.Combine(dir, "nre.log"),
-                    $"[{DateTime.Now:HH:mm:ss.fff}] {nre.Message}" + "\n" + (nre.StackTrace ?? "(无堆栈)") + "\n\n");
-            }
-            catch { }
+                try
+                {
+                    lock (NreLogGate)
+                    {
+                        var dir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "Starcloud");
+                        Directory.CreateDirectory(dir);
+                        File.AppendAllText(Path.Combine(dir, "nre.log"),
+                            $"[{DateTime.Now:HH:mm:ss.fff}] {message}" + "\n" + stack + "\n\n");
+                    }
+                }
+                catch { }
+            });
         };
 
         // 后台线程的未捕获异常不会走 UnhandledException（XAML 线程专用）——它们直接杀进程，
@@ -92,6 +114,10 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // 启动分段计时：进程内第一条 [perf] 从这里打，AppServices ctor / 主窗口 ctor / 首页导航各一段，
+        // 优化只对着最大的那段下手（见 MainWindow root.Loaded 里的收尾一条）
+        Starcloud.Core.Services.LauncherLog.Write("perf",
+            $"OnLaunched（进程内已过 {PerfSinceStart.ElapsedMilliseconds}ms）");
         _launchArgs = args;
         // 首次使用：先只开使用引导，主窗口等引导关闭后再创建（用户设完才进启动器）。
         // 老用户 / 已完成后正常启动，不弹任何东西。

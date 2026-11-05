@@ -334,28 +334,42 @@
 
             <StackPanel x:Name="SecContent" Spacing="16" Visibility="Collapsed">
 
-            <!-- 分类芯片行（参考 PCL2 版本筛选）：Mod / 资源包 / 光影包 / 存档 四个独立界面 -->
+            <!-- 分类芯片行（参考 PCL2 版本筛选）：Mod / 资源包 / 光影包 / 存档 四个独立界面。
+                 选中态改为品牌色药丸指示器（合成动画平移，与主页「正版 / 外置 / 离线」同一套语汇），
+                 按钮自己不再刷底色 —— 两层同时着色会看出两块东西在动。 -->
             <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="12" Padding="6,4" HorizontalAlignment="Left">
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Button x:Name="CatMods" Tag="0" Click="Cat_Click" Style="{StaticResource ChipStyle}"
+                <Grid x:Name="CatChipGrid" SizeChanged="CatChipGrid_SizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <!-- 药丸：宽高与点中的那段一致，位置由代码按实测段宽平移 -->
+                    <Border x:Name="CatIndicator" Grid.ColumnSpan="4"
+                            HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                            CornerRadius="8" Margin="0,1"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                            IsHitTestVisible="False" />
+                    <Button x:Name="CatMods" Tag="0" Grid.Column="0" Click="Cat_Click" Style="{StaticResource ChipStyle}"
                             loc:Loc.Name="Mod 模组分类">
                         <TextBlock loc:Loc.Text="Mod 模组" />
                     </Button>
-                    <Button x:Name="CatPacks" Tag="1" Click="Cat_Click" Style="{StaticResource ChipStyle}"
+                    <Button x:Name="CatPacks" Tag="1" Grid.Column="1" Click="Cat_Click" Style="{StaticResource ChipStyle}"
                             loc:Loc.Name="资源包分类">
                         <TextBlock loc:Loc.Text="资源包" />
                     </Button>
-                    <Button x:Name="CatShaders" Tag="2" Click="Cat_Click" Style="{StaticResource ChipStyle}"
+                    <Button x:Name="CatShaders" Tag="2" Grid.Column="2" Click="Cat_Click" Style="{StaticResource ChipStyle}"
                             loc:Loc.Name="光影包分类">
                         <TextBlock loc:Loc.Text="光影包" />
                     </Button>
-                    <Button x:Name="CatSaves" Tag="3" Click="Cat_Click" Style="{StaticResource ChipStyle}"
+                    <Button x:Name="CatSaves" Tag="3" Grid.Column="3" Click="Cat_Click" Style="{StaticResource ChipStyle}"
                             loc:Loc.Name="存档分类">
                         <TextBlock loc:Loc.Text="存档" />
                     </Button>
-                </StackPanel>
+                </Grid>
             </Border>
 
             <!-- 当前分类卡片（含启停 / 检查更新 / 冲突扫描 / 拖拽安装）。
@@ -387,7 +401,8 @@
                              IsClosable="False" Visibility="Collapsed"
                              loc:Loc.Title="未检测到光影加载器"
                              loc:Loc.Message="光影需要 Iris / OptiFine 才会生效。可在「下载 Mod」里搜索安装 Iris 后再挂光影。" />
-                    <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" />
+                    <InfoBar x:Name="ContentInfoBar" IsOpen="False" IsClosable="True" Visibility="Collapsed"
+                             Closed="ContentInfoBar_Closed" />
                     <StackPanel x:Name="ModSection" Spacing="4" />
                     <StackPanel x:Name="PackSection" Spacing="4" Visibility="Collapsed" />
                     <StackPanel x:Name="ShaderSection" Spacing="4" Visibility="Collapsed" />

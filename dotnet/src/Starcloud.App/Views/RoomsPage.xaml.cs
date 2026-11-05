@@ -31,7 +31,6 @@ public sealed partial class RoomsPage : Page
     private bool _loaded;
     private bool _busy;
     private string _tab = "lobby";
-    private DispatcherQueueTimer? _noticeTimer;
     /// <summary>搜索命中的房间（非空时大厅只显示这一张卡；刷新/清空搜索回到全量）。</summary>
     private RoomSummary? _searchResult;
 
@@ -70,6 +69,13 @@ public sealed partial class RoomsPage : Page
 
         MockBadge.Visibility = Rooms.IsMock ? Visibility.Visible : Visibility.Collapsed;
 
+        // 从好友聊天的房卡点「加入房间」过来：进入页面后自动带码进房（含密码询问）
+        if (App.PendingRoomCode is { Length: > 0 } pendingCode)
+        {
+            App.PendingRoomCode = null;
+            DispatcherQueue.TryEnqueue(async () => await EnterByCodeAsync(pendingCode));
+        }
+
         RenderRoom();
         _ = RefreshLobbyAsync();
         _ = RefreshMineAsync();
@@ -84,7 +90,6 @@ public sealed partial class RoomsPage : Page
         // 房间内的轮询归 RoomRuntime：不能在这里停（否则进房后切页会断掉 HostReady 感知）
         if (!Runtime.InRoom) _s.Multiplayer.StopPolling();
         _s.Cloud.ConfigChanged -= OnCloudConfigChanged;
-        _noticeTimer?.Stop();
         _loaded = false;
     }
 
@@ -722,6 +727,64 @@ public sealed partial class RoomsPage : Page
         catch (Exception ex)
         {
             ShowNotice(Loc.T("解散失败：{0}", ex.Message), warning: true);
+        }
+    }
+
+    /// <summary>
+    /// 房间右上「邀请好友」：选一位好友，在私聊里发一张房卡（房间码 + 版本），
+    /// 对方点卡片上的「加入房间」即可进来 —— 不再走单独的一套邀请系统。
+    /// </summary>
+    private async void InviteFriend_Click(object sender, RoutedEventArgs e)
+    {
+        if (Runtime.Current is not { } room) return;
+        var friends = await _s.Friends.GetFriendsAsync();
+        if (friends.Count == 0)
+        {
+            ShowNotice(Loc.T("还没有好友，先在好友页添加对方。"), warning: true);
+            return;
+        }
+
+        var picker = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var f in friends)
+            picker.Items.Add(new ComboBoxItem { Content = $"{f.DisplayName}（{f.Id}）", Tag = f.UserId });
+        picker.SelectedIndex = 0;
+
+        var dialog = new ThemedDialog
+        {
+            Title = Loc.T("邀请好友联机"),
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = Loc.T("把这张房卡发到与对方的聊天里，对方点一下就能进房。"),
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 13,
+                    },
+                    picker,
+                },
+            },
+            PrimaryButtonText = Loc.T("发送邀请"),
+            CloseButtonText = Loc.T("取消"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (picker.SelectedItem is not ComboBoxItem { Tag: string userId }) return;
+
+        try
+        {
+            var payload = Starcloud.Core.Services.FriendsService.EncodeRoomInviteMessage(
+                room.Room.Code, room.Room.Name, room.Room.McVersion, room.Room.Loader,
+                _s.StarcloudId.Current?.UserId);
+            await _s.Friends.SendMessageAsync(userId, payload);
+            ShowNotice(Loc.T("邀请已发出，等对方进房。"));
+        }
+        catch (Exception ex)
+        {
+            ShowNotice(Loc.T("邀请发送失败：{0}", ex.Message), warning: true);
         }
     }
 
@@ -1419,42 +1482,28 @@ public sealed partial class RoomsPage : Page
     /// <summary>持续显示的进度提示（不自动收起）：打包/上传这类多秒操作期间用。</summary>
     private void ShowProgress(string message)
     {
-        // 同文案已在显示中：只续期，不重开 —— 重开会重播掉落动画，视觉上就是闪
+        // 同文案已在显示中：什么都不做 —— 重开会重播掉落动画，视觉上就是闪
         if (NoticeBar.IsOpen && NoticeBar.Severity == InfoBarSeverity.Informational
             && NoticeBar.Message == message)
-        {
-            _noticeTimer?.Stop();
             return;
-        }
-        _noticeTimer?.Stop();
         NoticeBar.Severity = InfoBarSeverity.Informational;
         NoticeBar.Message = message;
         NoticeBar.IsOpen = true;
     }
 
-    /// <summary>悬浮提示：盖在所有控件上（不占布局），5 秒自动收起；手动关闭会取消计时。</summary>
+    /// <summary>
+    /// 悬浮提示：常驻到被下一条替换或手动关闭。
+    /// <para>原来 5 秒自动收起，结果房间状态每几秒刷新一次又把同一句打开 ——
+    /// 关了再开就是掉落动画重播，用户看到的是「提示一直在闪」。</para>
+    /// </summary>
     private void ShowNotice(string message, bool warning = false)
     {
         var severity = warning ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
         if (NoticeBar.IsOpen && NoticeBar.Severity == severity && NoticeBar.Message == message)
-        {
-            _noticeTimer?.Stop();   // 同样的提示已在显示：只续 5 秒，不重开（防闪）
-            if (!warning) _noticeTimer?.Start();
-            return;
-        }
+            return;   // 同一句已在显示：什么都不做（不重开、不重播动画）
+
         NoticeBar.Severity = severity;
         NoticeBar.Message = message;
         NoticeBar.IsOpen = true;
-
-        if (_noticeTimer is null)
-        {
-            _noticeTimer = DispatcherQueue.CreateTimer();
-            _noticeTimer.IsRepeating = false;
-            _noticeTimer.Tick += (_, _) => NoticeBar.IsOpen = false;
-            NoticeBar.CloseButtonClick += (_, _) => _noticeTimer.Stop();
-        }
-        _noticeTimer.Stop();
-        _noticeTimer.Interval = TimeSpan.FromSeconds(5);
-        _noticeTimer.Start();
     }
 }

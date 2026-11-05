@@ -278,7 +278,7 @@ $setupPath = Join-Path $outDir "$base-setup-$stamp.exe"
 Write-Host "[3/5] makensis -> $(Split-Path -Leaf $setupPath)"
 & $makensis /V2 /INPUTCHARSET UTF8 `
     "/DPRODUCT_VERSION=$version" `
-    "/DPRODUCT_VERSION4=$($version).0" `
+    "/DPRODUCT_VERSION4=$($version -replace '[^0-9.]', '').0" `
     "/DSRCDIR=$($staging.TrimEnd('\'))" `
     "/DOUTFILE=$setupPath" `
     "/DAPPICON=$icon" `

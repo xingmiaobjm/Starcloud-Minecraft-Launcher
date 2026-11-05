@@ -17,7 +17,7 @@
         </Style>
     </ContentDialog.Resources>
 
-    <Grid RowSpacing="12" Width="1060">
+    <Grid RowSpacing="12" Width="1240">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -49,7 +49,7 @@
             </StackPanel>
         </Grid>
         <InfoBar Grid.Row="1" x:Name="DlInfoBar" IsOpen="False" IsClosable="True" />
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="720"
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="760"
                       HorizontalScrollMode="Disabled">
             <StackPanel Spacing="12">
 
@@ -137,5 +137,42 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
         </ScrollViewer>
+
+        <!-- 缺少前置的确认层（版式对齐参考稿：标题 + 说明 + 逐项依赖行 + 三个操作按钮）。
+             同一个 XamlRoot 不能再开第二个 ContentDialog，所以做成同窗浮层。 -->
+        <Grid x:Name="DepPrompt" Grid.RowSpan="3" Visibility="Collapsed"
+              Background="{ThemeResource SmokeFillColorDefaultBrush}" Canvas.ZIndex="10">
+            <Border Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    CornerRadius="16" Padding="28,24" Width="620" MaxHeight="640"
+                    Translation="0,0,40"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border.Shadow>
+                    <ThemeShadow />
+                </Border.Shadow>
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock loc:Loc.Text="缺少前置模组" FontSize="22" FontWeight="SemiBold" />
+                        <TextBlock loc:Loc.Text="当前的模组需要前置模组" FontSize="13"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="380">
+                        <StackPanel x:Name="DepPromptList" Spacing="4" />
+                    </ScrollViewer>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                        <ctrl:GlowButton Click="DepPromptCancel_Click" loc:Loc.Text="取消"
+                                         MinWidth="96" Height="36" HorizontalContentAlignment="Center" />
+                        <ctrl:GlowButton Click="DepPromptSkip_Click" loc:Loc.Text="不安装前置模组"
+                                         MinWidth="148" Height="36" HorizontalContentAlignment="Center" />
+                        <ctrl:GlowButton Click="DepPromptAuto_Click" loc:Loc.Text="自动安装前置模组"
+                                         MinWidth="164" Height="36" HorizontalContentAlignment="Center"
+                                         Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                         Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </ContentDialog>

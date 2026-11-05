@@ -92,6 +92,9 @@ public sealed partial class HomePage : Page
             Initialize();
         };
         Unloaded += (_, _) => AvatarHelper.AvatarUpdated -= OnAvatarUpdated;
+        // 页面已缓存（NavigationCacheMode=Enabled）：版本页里切换游戏目录后本页不会重建，
+        // 必须订阅目录变更事件重扫，否则缓存页里的列表指向旧目录
+        AppServices.Instance.GameDirChanged += OnGameDirChanged;
         SizeChanged += OnPageSizeChanged;
         // 三张通知条的开关与自检卡的显隐都汇到一处（左列通知区整块收起 / 展开，版本卡才能与右栏卡上边缘齐平）。
         // 用属性回调而不是在每个赋值点插一句：通知条自己那颗关闭按钮也会改 IsOpen，这样一并覆盖到。
@@ -859,6 +862,16 @@ public sealed partial class HomePage : Page
         _ = LoadVersionsAsync();
         SetCardExpanded(_cardExpanded, animate: false); // 落存下来的终态（含 tooltip / 刻度朝向），不播动画
         SetVersionsCollapsed(_versionsCollapsed, animate: false); // 版本卡同理，顺带把两颗刻度的提示语对齐
+    }
+
+    /// <summary>游戏目录变更（版本页切换）：缓存页重扫版本列表</summary>
+    private void OnGameDirChanged()
+    {
+        // 目录变了收起态的「没版本就摊开」兜底要重新判定：按正常扫描路径走
+        _ = LoadVersionsAsync();
+        // 账户卡与启动卡上的版本名也引用了旧目录下的选中版本：清掉待选，等扫描结果对齐
+        if (_rows.Count > 0 && _rows.All(r => r.Id != _s.Settings.LastVersion))
+            UpdateVersionMeta();
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

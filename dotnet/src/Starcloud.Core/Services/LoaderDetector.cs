@@ -50,6 +50,15 @@ public static class LoaderDetector
                     cv.ValueKind == JsonValueKind.String)
                     mc = cv.GetString();
 
+                // 副本实例（版本名 26.3-2）：JSON 里的 id 仍是原版号 26.3，且没有 inheritsFrom，
+                // 之前这里认不出 MC 版本 → 依赖筛选整段失效（前置一个都装不上、还没有提示）。
+                if (mc is null &&
+                    root.TryGetProperty("id", out var idProp) &&
+                    idProp.ValueKind == JsonValueKind.String &&
+                    idProp.GetString() is { } jsonId &&
+                    Regex.IsMatch(jsonId, @"^\d+(\.\d+)+$"))
+                    mc = jsonId;
+
                 if (root.TryGetProperty("libraries", out var libs) &&
                     libs.ValueKind == JsonValueKind.Array)
                 {

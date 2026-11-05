@@ -14,6 +14,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views.Dialogs;
+using Starcloud.App.Views.Shared;
 using Starcloud.Core.Services;
 using Windows.System;
 using Windows.UI.Core;
@@ -280,13 +281,7 @@ public sealed partial class FriendsPage : Page
             _requestCount > 0 ? Loc.T("{0} 条待处理", _requestCount) : Loc.T("没有新的申请"),
             "", "", Visibility.Collapsed, DateTime.MaxValue);
         requestsRow.IconSource = RequestIcon;
-        var invitesRow = ObtainRow("invites", "", Loc.T("联机邀请"), "邀",
-            _inviteCount > 0 ? Loc.T("{0} 个待处理", _inviteCount) : Loc.T("没有新的邀请"),
-            "",
-            _inviteCount > 99 ? "99+" : _inviteCount.ToString(),
-            _inviteCount > 0 ? Visibility.Visible : Visibility.Collapsed, DateTime.MaxValue);
-        invitesRow.IconSource = InviteIcon;
-        _allRows = [requestsRow, invitesRow];
+        _allRows = [requestsRow];
 
         var friends = _friends.Select(f =>
         {
@@ -420,7 +415,6 @@ public sealed partial class FriendsPage : Page
             RestoreFriendSelection();
             if (row.Kind == "group") await OpenGroupAsync(row.UserId);
             else if (row.Kind == "requests") await OpenRequestsDialogAsync();
-            else await OpenInvitesDialogAsync();
             return;
         }
 
@@ -486,7 +480,7 @@ public sealed partial class FriendsPage : Page
             var detail = await _s.Friends.GetGroupDetailAsync(groupId);
             if (_activeGroupId != groupId) return;
             _activeGroup = detail;
-            ChatAvatarText.Text = InitialOf(detail.Name, detail.GroupId);
+            UpdateChatHeaderAvatar(null, InitialOf(detail.Name, detail.GroupId));
             ChatNameText.Text = detail.Name;
             ChatIdText.Text = Loc.T("{0} 位成员", detail.Members.Count);
             InviteSelectedItem.IsEnabled = false;
@@ -507,6 +501,26 @@ public sealed partial class FriendsPage : Page
         {
             ShowError(ex.Message);
         }
+    }
+
+    /// <summary>房卡点「加入房间」：按房间码进房，成功后跳到联机页看房间</summary>
+    private async void JoinFromInvite_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ChatMessageRowModel { Invite: { } invite })
+            return;
+        try
+        {
+            // 房间可能设了密码：走联机页的统一入口（那里有密码弹窗与错误提示）
+            if (App.MainWindow is not MainWindow main) return;
+            App.PendingRoomCode = invite.Code;
+            main.NavigateTo("rooms");
+            // 由联机页在进入时消费 PendingRoomCode（含密码询问）
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+        await Task.CompletedTask;
     }
 
     /// <summary>群消息渲染：头像首字用发送者 ID 首字区分成员。</summary>
@@ -562,10 +576,22 @@ public sealed partial class FriendsPage : Page
         catch { /* 群列表是尽力而为 */ }
     }
 
+    /// <summary>聊天头头像：有真实头像（服务端下发）就显示图，否则回退首字母</summary>
+    private void UpdateChatHeaderAvatar(string? avatarUrl, string fallbackInitial)
+    {
+        var avatar = string.IsNullOrWhiteSpace(avatarUrl) ? null : RemoteIconHelper.Resolve(avatarUrl);
+        ChatAvatarImage.Source = avatar;
+        ChatAvatarImage.Visibility = avatar is null ? Visibility.Collapsed : Visibility.Visible;
+        ChatAvatarText.Visibility = avatar is null ? Visibility.Visible : Visibility.Collapsed;
+        if (avatar is null) ChatAvatarText.Text = fallbackInitial;
+    }
+
     private void UpdateChatHeader()
     {
         var hasFriend = _selectedFriend is not null;
-        ChatAvatarText.Text = hasFriend ? InitialOf(_selectedFriend!.DisplayName, _selectedFriend.Id) : "?";
+        UpdateChatHeaderAvatar(
+            hasFriend ? _selectedFriend!.AvatarUrl : null,
+            hasFriend ? InitialOf(_selectedFriend!.DisplayName, _selectedFriend.Id) : "?");
         ChatNameText.Text = hasFriend ? _selectedFriend!.DisplayName : Loc.T("选择一个好友");
         ChatIdText.Text = hasFriend ? _selectedFriend!.Id : "";
         InviteSelectedItem.IsEnabled = hasFriend;
@@ -612,6 +638,8 @@ public sealed partial class FriendsPage : Page
         var myInitial = InitialOf(me?.DisplayName ?? "", meId);
         var friendInitial = _selectedFriend is null
             ? "?" : InitialOf(_selectedFriend.DisplayName, _selectedFriend.Id);
+        var myAvatar = RemoteIconHelper.Resolve(me?.AvatarUrl);
+        var friendAvatar = RemoteIconHelper.Resolve(_selectedFriend?.AvatarUrl);
 
         var rows = new List<ChatMessageRowModel>();
         DateTime? previous = null;
@@ -625,11 +653,13 @@ public sealed partial class FriendsPage : Page
 
             var mine = message.FromUserId == meId;
             var attachment = FriendsService.TryParseFileMessage(message.Content);
+            var invite = FriendsService.TryParseRoomInviteMessage(message.Content);
             rows.Add(new ChatMessageRowModel(
                 mine,
-                attachment is null ? message.Content : "",
+                attachment is null && invite is null ? message.Content : "",
                 "", mine ? myInitial : friendInitial, false,
-                attachment));
+                attachment, invite,
+                mine ? myAvatar : friendAvatar));
         }
 
         // 全量重建：进会话 / 翻历史才走这里，不算「新消息」（不播入场动画）
@@ -652,6 +682,8 @@ public sealed partial class FriendsPage : Page
         var myInitial = InitialOf(me?.DisplayName ?? "", meId);
         var friendInitial = _selectedFriend is null
             ? "?" : InitialOf(_selectedFriend.DisplayName, _selectedFriend.Id);
+        var myAvatar = RemoteIconHelper.Resolve(me?.AvatarUrl);
+        var friendAvatar = RemoteIconHelper.Resolve(_selectedFriend?.AvatarUrl);
 
         var time = ParseTime(message.CreatedAt);
         var previous = ParseTime(_messages.Count >= 2 ? _messages[^2].CreatedAt : null);
@@ -660,9 +692,11 @@ public sealed partial class FriendsPage : Page
 
         var mine = message.FromUserId == meId;
         var attachment = FriendsService.TryParseFileMessage(message.Content);
+        var invite = FriendsService.TryParseRoomInviteMessage(message.Content);
         var row = new ChatMessageRowModel(
-            mine, attachment is null ? message.Content : "",
-            "", mine ? myInitial : friendInitial, false, attachment);
+            mine, attachment is null && invite is null ? message.Content : "",
+            "", mine ? myInitial : friendInitial, false, attachment, invite,
+            mine ? myAvatar : friendAvatar);
         _chatRows.Add(row);
         ScrollChatToEnd();
         if (!mine) _ = AnimateMessageRowInAsync(row);
@@ -1023,34 +1057,31 @@ public sealed partial class FriendsPage : Page
         }
     }
 
-    private async Task OpenInvitesDialogAsync()
-    {
-        var accepted = await FriendsDialogs.InvitesAsync(Content.XamlRoot, _s.Friends);
-        await RefreshCountsAsync();
-        if (accepted is not null) await JoinAcceptedInviteAsync(accepted);
-    }
-
     private async void RequestsMenu_Click(object sender, RoutedEventArgs e) => await OpenRequestsDialogAsync();
 
-    private async void InvitesMenu_Click(object sender, RoutedEventArgs e) => await OpenInvitesDialogAsync();
 
     // ── 聊天头「⋯」菜单 ──
 
+    /// <summary>
+    /// 聊天头「邀请联机」：不再走单独邀请系统，直接在会话里发一张房卡。
+    /// 对方在聊天里就能看到房间码并一键进房（房卡消息见 FriendsService.RoomInviteMessagePrefix）。
+    /// </summary>
     private async void InviteSelected_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedUserId is not { Length: > 0 } userId) return;
-        if (_friends.Count == 0) await RefreshFriendsAsync();
-        await _s.Multiplayer.RefreshAsync(); // 拿最新的陶瓦邀请码（不必先去联机页）
-        var room = _s.Multiplayer.Snapshot?.State.Room;
-        var draft = await InviteFriendDialog.ShowAsync(Content.XamlRoot, _friends, room, userId);
-        if (draft is null) return;
-
+        var room = _s.RoomRuntime.Current;
+        if (room is null)
+        {
+            ShowStatus(Loc.T("先开一个联机房间，才能在聊天里发邀请。"));
+            return;
+        }
         try
         {
-            await _s.Friends.CreateInviteAsync(
-                draft.UserId, draft.Address, draft.Port, draft.RoomCode, draft.Message);
-            ShowStatus(Loc.T("联机邀请已发送，对方接受后即可加入。"));
-            await RefreshCountsAsync();
+            var payload = FriendsService.EncodeRoomInviteMessage(
+                room.Room.Code, room.Room.Name, room.Room.McVersion, room.Room.Loader,
+                _s.StarcloudId.Current?.UserId);
+            await _s.Friends.SendMessageAsync(userId, payload);
+            ShowStatus(Loc.T("已发出联机邀请卡片。"));
         }
         catch (Exception ex)
         {
@@ -1348,15 +1379,43 @@ internal sealed class ConversationRowModel : System.ComponentModel.INotifyProper
 /// <summary>聊天区一行：普通气泡或居中的时间分隔；带附件时渲染成文件卡片（点击保存）</summary>
 internal sealed record ChatMessageRowModel(
     bool IsMine, string Content, string TimeText, string SenderInitial, bool IsSeparator,
-    Starcloud.Core.Services.FileAttachment? File = null)
+    Starcloud.Core.Services.FileAttachment? File = null,
+    Starcloud.Core.Services.RoomInvitePayload? Invite = null,
+    Microsoft.UI.Xaml.Media.ImageSource? Avatar = null)
 {
     public bool HasFile => File is not null;
+    public bool HasInvite => Invite is not null;
+
+    /// <summary>有真实头像（Modrinth / 皮肤站下发）就显示图，否则回退首字母色块</summary>
+    public Visibility AvatarVisibility => Avatar is null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility InitialVisibility => Avatar is null ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>气泡正文：附件显示「文件名 (大小)」，普通消息原样</summary>
     public string Display => HasFile ? $"{File!.Name} ({FormatBytes(File.Size)})" : Content;
 
-    public Visibility TextVisibility => HasFile ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility TextVisibility =>
+        HasFile || HasInvite ? Visibility.Collapsed : Visibility.Visible;
     public Visibility FileVisibility => HasFile ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility InviteVisibility => HasInvite ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>房卡标题：房间名，没有就用通用文案</summary>
+    public string InviteTitle => Invite?.Name is { Length: > 0 } name ? name : "联机邀请";
+
+    /// <summary>房卡上的按钮文案</summary>
+    public string InviteJoinText => "加入房间";
+
+    /// <summary>房卡副行：房间码 + 版本信息</summary>
+    public string InviteMeta
+    {
+        get
+        {
+            if (Invite is null) return "";
+            var parts = new List<string> { $"联机码 {Invite.Code}" };
+            if (Invite.McVersion is { Length: > 0 } mc) parts.Add(mc);
+            if (Invite.Loader is { Length: > 0 } loader) parts.Add(loader);
+            return string.Join(" · ", parts);
+        }
+    }
 
     public string FileGlyph => File?.Kind switch
     {

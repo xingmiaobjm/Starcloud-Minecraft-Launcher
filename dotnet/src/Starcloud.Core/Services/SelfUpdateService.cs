@@ -59,9 +59,32 @@ public sealed class SelfUpdateService
     public static UpdateCapability Capability =>
         OperatingSystem.IsWindows() ? UpdateCapability.SilentInstall : UpdateCapability.ManualDownload;
 
-    /// <summary>内置清单地址（发布前确认服务器已部署该文件）</summary>
-    public const string DefaultManifestUrl =
-        "https://starcloudfur.cn/downloads/latest.json";
+    /// <summary>
+    /// 内置清单目录。文件名按渠道区分：
+    /// <list type="bullet">
+    /// <item><c>latest.json</c> —— 正式版（**旧客户端固定请求这个名字，必须永远保留**）</item>
+    /// <item><c>latest-public-beta.json</c> / <c>latest-beta.json</c> / <c>latest-alpha.json</c> / <c>latest-pre-alpha.json</c></item>
+    /// </list>
+    /// <para>兼容约定：老版本启动器不认识渠道，只会拉 <c>latest.json</c>；所以正式版清单名不能改，
+    /// 新渠道全部新增文件。服务端未部署某渠道清单时，客户端回落到正式版清单（见 <see cref="ManifestUrl"/>）。</para>
+    /// </summary>
+    public const string ManifestBaseUrl = "https://starcloudfur.cn/downloads/";
+
+    /// <summary>兼容旧代码：正式版清单完整地址</summary>
+    public const string DefaultManifestUrl = ManifestBaseUrl + "latest.json";
+
+    /// <summary>渠道 → 清单文件名（release 保持 latest.json 不变，向后兼容）</summary>
+    public static string ManifestFileName(string? channel) => channel?.Trim().ToLowerInvariant() switch
+    {
+        "public-beta" => "latest-public-beta.json",
+        "beta" => "latest-beta.json",
+        "alpha" => "latest-alpha.json",
+        "pre-alpha" => "latest-pre-alpha.json",
+        _ => "latest.json",
+    };
+
+    /// <summary>清单是否按渠道分发（自定义地址时恒为 false：测试一律用用户给的单一清单）</summary>
+    public bool UsesChannelManifest => string.IsNullOrWhiteSpace(_settings().UpdateManifestUrl);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -84,13 +107,18 @@ public sealed class SelfUpdateService
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Starcloud-Launcher");
     }
 
-    /// <summary>设置覆盖优先（便于测试指向本地服务器），否则内置常量</summary>
+    /// <summary>
+    /// 当前渠道的清单地址：
+    /// ① 设置里手填了 <c>UpdateManifestUrl</c> → 用它（测试/内网，不分渠道）；
+    /// ② 否则按 <c>ReleaseChannel</c> 拼文件名，正式版仍是 <c>latest.json</c>（旧客户端一致）。
+    /// </summary>
     public string ManifestUrl
     {
         get
         {
             var s = _settings().UpdateManifestUrl?.Trim();
-            return string.IsNullOrWhiteSpace(s) ? DefaultManifestUrl : s!;
+            if (!string.IsNullOrWhiteSpace(s)) return s!;
+            return ManifestBaseUrl + ManifestFileName(_settings().ReleaseChannel);
         }
     }
 
@@ -172,14 +200,39 @@ public sealed class SelfUpdateService
 
     // ── 检查与下载 ──
 
-    /// <summary>拉取并解析更新清单；网络/解析异常向上抛（启动路径静默，手动路径提示）</summary>
+    /// <summary>
+    /// 拉取并解析更新清单；网络/解析异常向上抛（启动路径静默，手动路径提示）。
+    /// <para>渠道回退：非正式版清单若还没部署（404），回落到正式版 latest.json，
+    /// 保证「服务端只发正式版」时所有渠道都能更新；回退事实会写日志。</para>
+    /// </summary>
     public async Task<UpdateManifest> FetchManifestAsync(CancellationToken ct = default)
+    {
+        var url = ManifestUrl;
+        try
+        {
+            return await FetchManifestFromAsync(url, ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound
+                                             && UsesChannelManifest
+                                             && !url.EndsWith("latest.json", StringComparison.Ordinal))
+        {
+            LauncherLog.Write("update",
+                $"渠道清单 {Path.GetFileName(url)} 未部署（404），回落到正式版 latest.json");
+            LastManifestFellBackToRelease = true;
+            return await FetchManifestFromAsync(ManifestBaseUrl + "latest.json", ct);
+        }
+    }
+
+    /// <summary>本次检查是否因为渠道清单缺失而回落到了正式版（UI 可提示）</summary>
+    public bool LastManifestFellBackToRelease { get; private set; }
+
+    private async Task<UpdateManifest> FetchManifestFromAsync(string url, CancellationToken ct)
     {
         // 去掉可能的 UTF-8 BOM：清单是打包脚本生成的（Windows PowerShell 的
         // Set-Content -Encoding UTF8 会带 BOM），而 System.Text.Json 的字符串重载
         // 遇到开头 U+FEFF 会直接判为非法 JSON。生成端已经改成无 BOM 写出，
         // 这里再兜一层，免得手工传的清单把自动更新整条路堵死。
-        var json = (await _http.GetStringAsync(ManifestUrl, ct)).TrimStart('\uFEFF');
+        var json = (await _http.GetStringAsync(url, ct)).TrimStart('\uFEFF');
         await VerifyManifestSignatureAsync(json, ct);
         var m = JsonSerializer.Deserialize<UpdateManifest>(json, JsonOptions)
                 ?? throw new InvalidDataException("清单为空");

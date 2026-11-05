@@ -110,7 +110,11 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        var perf = System.Diagnostics.Stopwatch.StartNew();
+        void Mark(string phase) =>
+            LauncherLog.Write("perf", $"MainWindow.{phase} {perf.ElapsedMilliseconds}ms");
         InitializeComponent();
+        Mark("xaml");
 
         // 任务历史只保留本次会话：启动时清空调度中心（任务列表纯内存，无跨启动持久化）
         Starcloud.Core.Services.TaskCenterService.Instance.ClearAll();
@@ -164,6 +168,7 @@ public sealed partial class MainWindow : Window
             if (++_themePollTick % 8 == 0) UpdateTaskbarIcon();
         };
         _taskRefresh.Start();
+        Mark("timers");
 
         // 图标按 AppContext.BaseDirectory 解析：相对路径会跟随快捷方式的「起始位置」，从开始菜单启动时可能落空。
         // 任务栏底色跟随【系统】主题（与应用内主题设置无关）：深色任务栏用浅色底板图标，否则墨线直接隐形。
@@ -193,6 +198,26 @@ public sealed partial class MainWindow : Window
 
         rt.OverlayToast += OnOverlayToast; // 浮窗一句话提醒 → TeachingTip（nova-overlay-plan.md T7）
 
+        // 游戏结束问一句「是否关闭联机房间」：全局弹窗（与更新提示同级），
+        // 不依赖联机页是否打开 —— 玩家常常游戏结束后停在主页。
+        AppServices.Instance.RoomRuntime.AskGameExit = () =>
+        {
+            var tcs = new TaskCompletionSource<Services.RoomRuntime.GameExitChoice>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    tcs.TrySetResult(await Views.Dialogs.GameExitDialog.AskAsync(Content.XamlRoot));
+                }
+                catch
+                {
+                    tcs.TrySetResult(Services.RoomRuntime.GameExitChoice.After120);
+                }
+            });
+            return tcs.Task;
+        };
+
         // 每日签到：登录且今天没签 → 账户头像下弹签到卡（只弹一次）
         // 二分试验：禁用签到弹窗
         // _ = ShowCheckinTipIfUnsignedAsync();
@@ -205,6 +230,7 @@ public sealed partial class MainWindow : Window
         };
         NovaToastTip.Target = NovaOrb;
         ApplyNovaState(rt.State);
+        Mark("nova-state");
         RefreshAccountButton();
         Activated += (_, _) => RefreshAccountButton();
 
@@ -263,6 +289,7 @@ public sealed partial class MainWindow : Window
             UpdateTaskbarIcon(); // 应用跟随系统主题时，这里能第一时间响应；轮询只兜「应用固定主题」的情况
         };
         _background.Apply(AppServices.Instance.Settings, root.ActualTheme);
+        Mark("wallpaper");
         ApplyGlassStrength(AppServices.Instance.Settings);
         MotionMaterials.Apply(AppServices.Instance.Settings); // 极少档收起卡片毛玻璃，其余档恢复原配方
         root.SizeChanged += (_, _) => _background.Resize(root.ActualWidth, root.ActualHeight);
@@ -281,6 +308,7 @@ public sealed partial class MainWindow : Window
             RebuildPluginNavGroup();
 
             // 首屏导航放在这里：窗口已经可见，首页的构建与版本扫描不会再挡住窗口出现
+            Mark("root-loaded");
             if (!_homeNavigated)
             {
                 _homeNavigated = true;
@@ -1410,20 +1438,25 @@ public sealed partial class MainWindow : Window
     /// 双击左上角品牌区：把诊断信息（版本 / 系统 / 配置 / 最近日志）复制到剪贴板。
     /// 处理 PointerPressed 且标记 Handled，抑制系统的双击最大化。
     /// </summary>
-    private long _lastBrandPress;
 
+    /// <summary>
+    /// 标题栏点击计数：**累计点 2 下就触发反馈**，不再要求「500ms 内双击」。
+    /// <para>为什么改：双击时间窗对手速慢/触控板用户很苛刻，点两下间隔稍长就没反应，
+    /// 用户以为坏了。改成累计计数后，随时点两下都能叫出反馈，触发一次后清零。</para>
+    /// </summary>
     private void BrandHotspot_Pressed(object sender, PointerRoutedEventArgs e)
     {
         var point = e.GetCurrentPoint(BrandHotspot);
         if (point.Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed) return;
-        // WinUI 没有 ClickCount：自己用时间窗判定双击（500ms 内两次按下）
-        var now = Environment.TickCount64;
-        var isDouble = now - _lastBrandPress <= 500 && _lastBrandPress > 0;
-        _lastBrandPress = isDouble ? 0 : now;   // 双击后清零，三连击不算两对
-        if (!isDouble) return;
+        _titleTapCount++;
+        if (_titleTapCount < 2) return;
+        _titleTapCount = 0;
         e.Handled = true;
         _ = UploadDiagnosticsAsync();
     }
+
+    /// <summary>标题栏累计点击次数（触发反馈后清零）</summary>
+    private int _titleTapCount;
 
     private bool _diagBusy;
 

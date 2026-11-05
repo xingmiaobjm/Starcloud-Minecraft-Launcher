@@ -50,11 +50,36 @@ public sealed class RoomRuntime
     /// <summary>进房后是否见过存活的游戏进程（见过才有资格判定「游戏退出了」）。</summary>
     private bool _sawGameWhileInRoom;
 
+    /// <summary>
+    /// 游戏结束后的处理方式（由界面询问玩家后回传）。
+    /// </summary>
+    public enum GameExitChoice
+    {
+        /// <summary>立即退出 / 解散房间</summary>
+        Now,
+        /// <summary>给 120 秒缓冲再退出（默认；玩家可能只是想重开游戏）</summary>
+        After120,
+        /// <summary>什么都不做（保留房间）</summary>
+        Keep,
+    }
+
+    /// <summary>界面注入：弹「游戏已结束，是否关闭联机房间？」。null（页面不在）= 按 120 秒后退出处理。</summary>
+    public Func<Task<GameExitChoice>>? AskGameExit { get; set; }
+
+    /// <summary>怀疑游戏退出时先等这么久再问：启动/退出瞬间进程列表会短暂空一下，立刻弹窗会误伤。</summary>
+    private static readonly TimeSpan GameExitConfirm = TimeSpan.FromSeconds(3);
+
+    /// <summary>用户选「120 秒后退出」时的缓冲时长</summary>
+    private static readonly TimeSpan GameExitDelay = TimeSpan.FromSeconds(120);
+
+    private int _gameExitGeneration;
+
     private void OnGameMonitorChanged(GameRunInfo? _current)
     {
         if (Current is null)
         {
             _sawGameWhileInRoom = false;
+            _gameExitGeneration++;   // 已在房间外：作废任何待执行的关房
             return;
         }
 
@@ -62,21 +87,60 @@ public sealed class RoomRuntime
         if (hasLiveGame)
         {
             _sawGameWhileInRoom = true;
+            _gameExitGeneration++;   // 游戏又起来了：撤销待执行的关房
             return;
         }
         // 没有活进程：只有「进房后确实见过游戏在跑」才算游戏退出
         if (!_sawGameWhileInRoom) return;
-        _sawGameWhileInRoom = false;
 
-        if (Current.IsOwner)
+        var generation = ++_gameExitGeneration;
+        _ = HandleGameExitAsync(generation);
+    }
+
+    /// <summary>
+    /// 游戏结束流程：确认 → 立即弹窗问 → 立即关 / 120 秒后关。
+    /// 每一步都校验代号：期间只要看到游戏又活了、或房间变了，整条流程作废。
+    /// </summary>
+    private async Task HandleGameExitAsync(int generation)
+    {
+        bool StillValid() => generation == Volatile.Read(ref _gameExitGeneration)
+                             && Current is not null
+                             && GameRuntimeMonitor.Instance.Instances.Count == 0;
+
+        try { await Task.Delay(GameExitConfirm).ConfigureAwait(false); }
+        catch { return; }
+        if (!StillValid()) return;
+
+        var choice = GameExitChoice.After120;
+        if (AskGameExit is { } ask)
         {
-            LauncherLog.Write("rooms", $"游戏进程结束，自动解散房间 {Current.Room.Code}");
+            try { choice = await ask().ConfigureAwait(false); }
+            catch { choice = GameExitChoice.After120; }
+        }
+        if (!StillValid()) return;
+        if (choice == GameExitChoice.Keep)
+        {
+            _sawGameWhileInRoom = true;   // 用户要留着：下次仍按「见过游戏」继续判定
+            return;
+        }
+
+        if (choice == GameExitChoice.After120)
+        {
+            try { await Task.Delay(GameExitDelay).ConfigureAwait(false); }
+            catch { return; }
+            if (!StillValid()) return;    // 120 秒内又开游戏了：不关
+        }
+
+        _sawGameWhileInRoom = false;
+        if (Current?.IsOwner == true)
+        {
+            LauncherLog.Write("rooms", $"游戏进程结束，解散房间 {Current.Room.Code}");
             Notify?.Invoke(Loc.T("游戏已退出，房间已自动关闭"));
             _ = DissolveAsync();
         }
         else
         {
-            LauncherLog.Write("rooms", $"游戏进程结束，自动退出房间 {Current.Room.Code}");
+            LauncherLog.Write("rooms", $"游戏进程结束，退出房间 {Current?.Room.Code}");
             Notify?.Invoke(Loc.T("游戏已退出，已退出房间"));
             _ = LeaveAsync();
         }

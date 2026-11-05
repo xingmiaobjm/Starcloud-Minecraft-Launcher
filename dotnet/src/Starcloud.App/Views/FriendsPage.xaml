@@ -56,9 +56,14 @@
             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
                 <Border Width="32" Height="32" CornerRadius="16" VerticalAlignment="Top"
                         Background="{ThemeResource AccentFillColorDefaultBrush}">
-                    <TextBlock Text="{Binding SenderInitial}" FontSize="14"
-                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Grid>
+                        <Image Source="{Binding Avatar, Mode=OneWay}" Stretch="UniformToFill"
+                               Visibility="{Binding AvatarVisibility, Mode=OneWay}" />
+                        <TextBlock Text="{Binding SenderInitial}" FontSize="14"
+                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding InitialVisibility, Mode=OneWay}" />
+                    </Grid>
                 </Border>
                 <Border MaxWidth="520" CornerRadius="10" Padding="10,7"
                         Background="{ThemeResource ControlFillColorSecondaryBrush}"
@@ -67,6 +72,28 @@
                         <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13"
                                    IsTextSelectionEnabled="True"
                                    Visibility="{Binding TextVisibility}" />
+                        <!-- 房卡（联机邀请）：点「加入房间」直接进房 -->
+                        <Border Visibility="{Binding InviteVisibility}" CornerRadius="10" Padding="12,10"
+                                MinWidth="280" MaxWidth="360"
+                                Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon Glyph="&#xE8F2;" FontSize="20" VerticalAlignment="Center"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding InviteTitle}" FontSize="13" FontWeight="Medium"
+                                                   TextTrimming="CharacterEllipsis" MaxWidth="240" />
+                                        <TextBlock Text="{Binding InviteMeta}" FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <Button Content="{Binding InviteJoinText}" Click="JoinFromInvite_Click"
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Style="{StaticResource ScAccentButtonStyle}" />
+                            </StackPanel>
+                        </Border>
                         <!-- 附件卡片：点击保存到本地 -->
                         <StackPanel Orientation="Horizontal" Spacing="10"
                                     Visibility="{Binding FileVisibility}">
@@ -111,8 +138,13 @@
                 </Border>
                 <Border Width="32" Height="32" CornerRadius="16" VerticalAlignment="Top"
                         Background="{ThemeResource ControlFillColorSecondaryBrush}">
-                    <TextBlock Text="{Binding SenderInitial}" FontSize="14"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Grid>
+                        <Image Source="{Binding Avatar, Mode=OneWay}" Stretch="UniformToFill"
+                               Visibility="{Binding AvatarVisibility, Mode=OneWay}" />
+                        <TextBlock Text="{Binding SenderInitial}" FontSize="14"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding InitialVisibility, Mode=OneWay}" />
+                    </Grid>
                 </Border>
             </StackPanel>
         </DataTemplate>
@@ -191,8 +223,6 @@
                                                         Click="AddFriendMenu_Click" />
                                         <MenuFlyoutItem x:Name="RequestsMenuItem" loc:Loc.Text="好友申请"
                                                         Click="RequestsMenu_Click" />
-                                        <MenuFlyoutItem x:Name="InvitesMenuItem" loc:Loc.Text="联机邀请"
-                                                        Click="InvitesMenu_Click" />
                                     </MenuFlyout>
                                 </Button.Flyout>
                                 <FontIcon Glyph="&#xE710;" FontSize="14" />
@@ -239,9 +269,12 @@
                             </Grid.ColumnDefinitions>
                             <Border x:Name="ChatAvatar" Width="38" Height="38" CornerRadius="19"
                                     Background="{ThemeResource AccentFillColorDefaultBrush}">
-                                <TextBlock x:Name="ChatAvatarText" FontSize="16" FontWeight="Medium"
-                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <Grid>
+                                    <Image x:Name="ChatAvatarImage" Stretch="UniformToFill" Visibility="Collapsed" />
+                                    <TextBlock x:Name="ChatAvatarText" FontSize="16" FontWeight="Medium"
+                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                 <TextBlock x:Name="ChatNameText" FontSize="15" FontWeight="Medium" />

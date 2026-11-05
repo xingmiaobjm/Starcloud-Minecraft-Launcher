@@ -168,8 +168,13 @@ public sealed class InstallerService
         var id = targetId ?? UniqueVersionId(dotMc, profile.Id);
         Directory.CreateDirectory(VersionDir(dotMc, id));
 
-        // 读取原版版本 JSON 并合并
-        var baseJson = await File.ReadAllTextAsync(VersionJsonPath(dotMc, mcVersion), ct);
+        // 读取原版版本 JSON 并合并。
+        // 副本安装（targetId ≠ mcVersion）时原版 JSON 理应还在；万一被清理过，
+        // 回落到目标实例自己的 JSON（刚装好的那份原版副本），别在这里直接抛错。
+        var basePath = VersionJsonPath(dotMc, mcVersion);
+        if (!File.Exists(basePath) && targetId is { Length: > 0 })
+            basePath = VersionJsonPath(dotMc, targetId);
+        var baseJson = await File.ReadAllTextAsync(basePath, ct);
         var baseVersion = JsonSerializer.Deserialize<MinecraftVersion>(baseJson)
                           ?? throw new InvalidOperationException($"原版 {mcVersion} 解析失败");
         var merged = MergeVersions(baseVersion, profile.ToVersion(id));

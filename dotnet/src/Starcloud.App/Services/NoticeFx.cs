@@ -13,9 +13,21 @@ namespace Starcloud.App.Services;
 
 internal static class NoticeFx
 {
-    /// <summary>给 InfoBar 挂上掉落/收起动效（页面构造时调一次）。</summary>
+    /// <summary>
+    /// 已挂过的 InfoBar（引用相等）：页面是缓存页，每次重新进入 Loaded 都会调 Attach，
+    /// 不加这道闸就会在同一个 InfoBar 上叠加 N 个 IsOpen 回调 ——
+    /// 一次打开触发 N 次掉落动画，看起来就是「通知一直在播入场动画」。
+    /// </summary>
+    private static readonly HashSet<InfoBar> Attached = [];
+
+    /// <summary>给 InfoBar 挂上掉落/收起动效（同一个实例只挂一次）。</summary>
     public static void Attach(InfoBar bar)
     {
+        lock (Attached)
+        {
+            if (!Attached.Add(bar)) return;
+        }
+
         // InfoBar 没有 Opening 事件：挂 IsOpen 属性回调当入场时机
         bar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) =>
         {

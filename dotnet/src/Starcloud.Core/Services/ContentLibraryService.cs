@@ -447,9 +447,14 @@ public sealed class ContentLibraryService
         }
     }
 
-    /// <summary>检查某个 Modrinth 版本在当前版本实例中的依赖满足情况</summary>
+    /// <summary>
+    /// 检查某个 Modrinth 版本在当前版本实例中的依赖满足情况。
+    /// <para><paramref name="extraRequired"/>：上游数据漏登记时的补充必需项目 id
+    /// （个别版本把 dependencies 写成空数组，只按它判会「明明缺前置却说装好了」）。</para>
+    /// </summary>
     public async Task<DependencyReport> CheckDependenciesAsync(
-        ModrinthVersion version, string versionId, CancellationToken ct = default)
+        ModrinthVersion version, string versionId, CancellationToken ct = default,
+        IReadOnlyCollection<string>? extraRequired = null)
     {
         var required = new List<MissingDependency>();
         var optional = new List<ModrinthDependency>();
@@ -475,6 +480,21 @@ public sealed class ContentLibraryService
             var identities = await ResolveIdentitiesAsync(hashes, ct);
             foreach (var identity in identities.Values)
                 projectIds.Add(identity.ProjectId);
+        }
+
+        // 上游漏登记的必需前置（同项目其它版本声明过、这个版本没写）
+        if (extraRequired is { Count: > 0 })
+        {
+            foreach (var projectId in extraRequired)
+            {
+                if (string.IsNullOrEmpty(projectId)) continue;
+                if (string.Equals(projectId, version.ProjectId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (projectIds.Contains(projectId)) continue;
+                if (required.Any(r => string.Equals(r.ProjectId, projectId, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                var title = await _mods.GetProjectTitleAsync(projectId, ct) ?? projectId;
+                required.Add(new MissingDependency(projectId, null, title, null));
+            }
         }
 
         foreach (var dep in version.Dependencies)

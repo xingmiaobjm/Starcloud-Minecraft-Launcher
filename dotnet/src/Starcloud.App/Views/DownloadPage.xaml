@@ -431,7 +431,11 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="Forge" FontWeight="Medium" VerticalAlignment="Center" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Image Source="Assets/MC-Icons/forge.png" Width="20" Height="20"
+                                                       Stretch="Uniform" VerticalAlignment="Center" />
+                                                <TextBlock Text="Forge" FontWeight="Medium" VerticalAlignment="Center" />
+                                            </StackPanel>
                                             <TextBlock x:Name="ForgeStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -465,8 +469,9 @@
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="ForgeBuildList" SelectionMode="None"
                                                   IsItemClickEnabled="True" ItemClick="ForgeBuild_Click"
-                                                  ScrollViewer.VerticalScrollMode="Disabled"
-                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                                  MaxHeight="360"
+                                                  ScrollViewer.VerticalScrollMode="Enabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                                             <ListView.Resources>
                                                 <!-- 悬停反馈只由行内的高亮层与跟手光斑表达：框架给的整行底色是硬边矩形，
                                                      与光斑的圆角对不齐，叠在一起会看成两层框（与版本页同一约定）。 -->
@@ -543,7 +548,11 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="NeoForge" FontWeight="Medium" VerticalAlignment="Center" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Image Source="Assets/MC-Icons/neoforge.png" Width="20" Height="20"
+                                                       Stretch="Uniform" VerticalAlignment="Center" />
+                                                <TextBlock Text="NeoForge" FontWeight="Medium" VerticalAlignment="Center" />
+                                            </StackPanel>
                                             <TextBlock x:Name="NeoForgeStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -577,8 +586,9 @@
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="NeoForgeBuildList" SelectionMode="None"
                                                   IsItemClickEnabled="True" ItemClick="NeoForgeBuild_Click"
-                                                  ScrollViewer.VerticalScrollMode="Disabled"
-                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                                  MaxHeight="360"
+                                                  ScrollViewer.VerticalScrollMode="Enabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                                             <ListView.Resources>
                                                 <!-- 悬停反馈只由行内的高亮层与跟手光斑表达：框架给的整行底色是硬边矩形，
                                                      与光斑的圆角对不齐，叠在一起会看成两层框（与版本页同一约定）。 -->
@@ -655,7 +665,11 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="Fabric" FontWeight="Medium" VerticalAlignment="Center" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Image Source="Assets/MC-Icons/fabric.png" Width="20" Height="20"
+                                                       Stretch="Uniform" VerticalAlignment="Center" />
+                                                <TextBlock Text="Fabric" FontWeight="Medium" VerticalAlignment="Center" />
+                                            </StackPanel>
                                             <TextBlock x:Name="FabricStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -689,8 +703,9 @@
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="FabricBuildList" SelectionMode="None"
                                                   IsItemClickEnabled="True" ItemClick="FabricBuild_Click"
-                                                  ScrollViewer.VerticalScrollMode="Disabled"
-                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                                  MaxHeight="360"
+                                                  ScrollViewer.VerticalScrollMode="Enabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                                             <ListView.Resources>
                                                 <!-- 悬停反馈只由行内的高亮层与跟手光斑表达：框架给的整行底色是硬边矩形，
                                                      与光斑的圆角对不齐，叠在一起会看成两层框（与版本页同一约定）。 -->
@@ -767,7 +782,11 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="Quilt" FontWeight="Medium" VerticalAlignment="Center" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Image Source="Assets/MC-Icons/quilt.png" Width="20" Height="20"
+                                                       Stretch="Uniform" VerticalAlignment="Center" />
+                                                <TextBlock Text="Quilt" FontWeight="Medium" VerticalAlignment="Center" />
+                                            </StackPanel>
                                             <TextBlock x:Name="QuiltStatus" Grid.Column="1" loc:Loc.Text="获取中…" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -801,8 +820,9 @@
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <ListView x:Name="QuiltBuildList" SelectionMode="None"
                                                   IsItemClickEnabled="True" ItemClick="QuiltBuild_Click"
-                                                  ScrollViewer.VerticalScrollMode="Disabled"
-                                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                                  MaxHeight="360"
+                                                  ScrollViewer.VerticalScrollMode="Enabled"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                                             <ListView.Resources>
                                                 <!-- 悬停反馈只由行内的高亮层与跟手光斑表达：框架给的整行底色是硬边矩形，
                                                      与光斑的圆角对不齐，叠在一起会看成两层框（与版本页同一约定）。 -->

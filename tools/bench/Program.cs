@@ -21,6 +21,63 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
+        // 加载器构建列表耗时：--loaders <mcVersion> 分别打四家耗时（安装页抽屉卡顿定位）
+        var loadersMc = Arg(args, "--loaders");
+        if (loadersMc is not null)
+        {
+            var dotMc2 = Path.Combine(Path.GetTempPath(), "sc-loaders-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(dotMc2);
+            var settings2 = new LauncherSettings { DotMinecraft = dotMc2, DownloadSource = "auto" };
+            var download2 = new DownloadService(() => settings2);
+            var installer = new InstallerService(download2);
+            var forge = new ForgeInstallerService(download2, new JavaService(download2));
+            var fabric = new FabricService(download2);
+
+            async Task TimeIt(string label, Func<Task<int>> work)
+            {
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    var n = await work();
+                    Console.WriteLine($"{label,-10} {sw.ElapsedMilliseconds,6} ms  条目 {n}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"{label,-10} {sw.ElapsedMilliseconds,6} ms  失败 {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            await TimeIt("Forge", async () => (await forge.ListForgeBuildsAsync(loadersMc)).Count);
+            await TimeIt("NeoForge", async () => (await forge.ListNeoForgeBuildsAsync(loadersMc)).Count);
+            await TimeIt("Fabric", async () => (await fabric.ListLoadersAsync(loadersMc)).Count);
+            await TimeIt("Quilt", async () => (await fabric.ListQuiltLoadersAsync(loadersMc)).Count);
+            try { Directory.Delete(dotMc2, true); } catch { }
+            return 0;
+        }
+
+        // 单文件排障：--fetch <url> 直接跑一次真实下载，打印引擎日志（含失败原因）
+        var fetch = Arg(args, "--fetch");
+        if (fetch is not null)
+        {
+            var dotMc = Path.Combine(Path.GetTempPath(), "sc-fetch-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(dotMc);
+            var settings = new LauncherSettings { DotMinecraft = dotMc, DownloadSource = "auto" };
+            var service = new DownloadService(() => settings) { Log = Console.WriteLine };
+            var dest = Path.Combine(dotMc, Path.GetFileName(new Uri(fetch).LocalPath));
+            try
+            {
+                await service.DownloadFileAsync(fetch, dest, null, ct: default);
+                Console.WriteLine($"OK {new FileInfo(dest).Length} bytes -> {dest}");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL {ex.GetType().Name}: {ex.Message}");
+                return 1;
+            }
+            finally { try { Directory.Delete(dotMc, true); } catch { } }
+        }
+
         var version = Arg(args, "--version") ?? "1.20.1";
         var runs = int.TryParse(Arg(args, "--runs"), out var r) ? Math.Max(1, r) : 3;
         var maxFiles = int.TryParse(Arg(args, "--max-files"), out var m) ? Math.Max(1, m) : 40;

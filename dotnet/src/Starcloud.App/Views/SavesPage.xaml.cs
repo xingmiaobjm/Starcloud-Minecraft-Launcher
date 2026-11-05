@@ -47,6 +47,9 @@ public sealed partial class SavesPage : Page
             await ResumePendingAsync();   // 中断补问须先于列表刷新（spec §3.5）
             await LoadSavesAsync();
         };
+        // 页面已缓存（NavigationCacheMode=Enabled）：版本页里切换游戏目录后本页不会重建，
+        // 订阅目录变更事件重扫存档，否则缓存页里的存档列表还是旧目录的
+        _s.GameDirChanged += () => DispatcherQueue.TryEnqueue(LoadSaves);
     }
 
     // ── 列表 ──

@@ -9,8 +9,10 @@
     NavigationCacheMode="Enabled">
 
     <Page.Resources>
-        <!-- PCL 风格：白卡片 + 1px 描边 + 圆角 + 悬浮/按压反馈（继承全局 ScHoverCard） -->
-        <Style x:Key="PclCard" TargetType="Border" BasedOn="{StaticResource ScHoverCard}" />
+        <!-- PCL 风格：白卡片 + 1px 描边 + 圆角。
+             不继承 ScHoverCard（那套带悬浮放大 1.012）—— 设置卡在 ScrollViewer 里已贴满右列，
+             悬浮放大后四角溢出裁剪边界，圆角看起来是缺的；设置卡也不是可点目标，不需要缩放反馈。 -->
+        <Style x:Key="PclCard" TargetType="Border" BasedOn="{StaticResource ScCard}" />
         <!-- 小节标题：中性 14px 粗体（强调色交给标题左侧的脊柱，见 App.xaml 的视觉基元）。
              原先整行染成品牌色，一屏十来个标题都在喊，层级反而被拉平。 -->
         <Style x:Key="PclSectionTitle" TargetType="TextBlock"
@@ -73,9 +75,13 @@
                         <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
                         <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
                     </ListView.Resources>
-                    <ListViewItem Tag="game" IsSelected="True">
-                        <ctrl:CategoryNavItem x:Name="CatGame" IsActive="True"
-                                              Glyph="&#xEC20;" loc:Loc.Text="游戏" />
+                    <!-- 顺序：通用（外观 / 更新 / 日志，最高频）→ 游戏 → Java → 下载与资源 → 跨设备 -->
+                    <ListViewItem Tag="general" IsSelected="True">
+                        <ctrl:CategoryNavItem x:Name="CatGeneral" IsActive="True"
+                                              Glyph="&#xEC04;" loc:Loc.Text="通用" />
+                    </ListViewItem>
+                    <ListViewItem Tag="game">
+                        <ctrl:CategoryNavItem x:Name="CatGame" Glyph="&#xEC20;" loc:Loc.Text="游戏" />
                     </ListViewItem>
                     <ListViewItem Tag="java">
                         <ctrl:CategoryNavItem x:Name="CatJava" Content="Java">
@@ -98,9 +104,6 @@
                     </ListViewItem>
                     <ListViewItem Tag="download">
                         <ctrl:CategoryNavItem x:Name="CatDownload" Glyph="&#xE90C;" loc:Loc.Text="下载与资源" />
-                    </ListViewItem>
-                    <ListViewItem Tag="general">
-                        <ctrl:CategoryNavItem x:Name="CatGeneral" Glyph="&#xEC04;" loc:Loc.Text="通用" />
                     </ListViewItem>
                     <ListViewItem Tag="crossdev">
                         <ctrl:CategoryNavItem x:Name="CatCross" loc:Loc.Text="跨设备">
@@ -138,7 +141,7 @@
                     <StackPanel Spacing="16">
 
                         <!-- ══ 游戏 ══ -->
-                        <StackPanel x:Name="SectionGame" Spacing="16">
+                        <StackPanel x:Name="SectionGame" Spacing="16" Visibility="Collapsed">
                                                         <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="10">
                                     <StackPanel Style="{StaticResource PclSectionHead}">
@@ -592,7 +595,7 @@
                         </StackPanel>
 
                         <!-- ══ 通用 ══ -->
-                        <StackPanel x:Name="SectionGeneral" Spacing="16" Visibility="Collapsed">
+                        <StackPanel x:Name="SectionGeneral" Spacing="16">
                             <Border Style="{StaticResource PclCard}">
                                 <StackPanel Spacing="12">
                                     <StackPanel Style="{StaticResource PclSectionHead}">
@@ -810,16 +813,74 @@
                                                       loc:Loc.Name="自动检查更新开关"
                                                       Toggled="AutoUpdateSwitch_Toggled" OnContent="" OffContent="" />
                                     </Grid>
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <!-- 发布渠道：下拉选择，每项悬停都有说明（ToolTip 挂在 ComboBoxItem 上） -->
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock loc:Loc.Text="发布渠道" FontWeight="Medium" />
+                                            <TextBlock loc:Loc.Text="决定检查更新时跟随哪条版本线：越靠前的渠道越稳定，越靠后越新但可能有 Bug。"
+                                                       FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <ComboBox x:Name="ChannelCombo" Grid.Column="1" Width="200"
+                                                  VerticalAlignment="Center"
+                                                  loc:Loc.Name="发布渠道选择"
+                                                  SelectionChanged="ChannelCombo_SelectionChanged">
+                                            <ComboBoxItem Tag="release" loc:Loc.Text="正式版"
+                                                          loc:Loc.Name="正式版渠道">
+                                                <ComboBoxItem.Content>正式版</ComboBoxItem.Content>
+                                                <ToolTipService.ToolTip>
+                                                    <TextBlock TextWrapping="Wrap" MaxWidth="300"
+                                                               Text="正式版（Release）：经过完整测试的稳定版本，更新频率最低。普通玩家建议选这个 —— 新功能上线也是先把问题修干净才进这条线。" />
+                                                </ToolTipService.ToolTip>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Tag="public-beta" loc:Loc.Text="公测版"
+                                                          loc:Loc.Name="公测版渠道">
+                                                <ComboBoxItem.Content>公测版</ComboBoxItem.Content>
+                                                <ToolTipService.ToolTip>
+                                                    <TextBlock TextWrapping="Wrap" MaxWidth="300"
+                                                               Text="公测版（Public Beta）：功能已完整，公开征集反馈的阶段。比正式版早一到两个版本，可能有小问题，但不至于影响正常使用。" />
+                                                </ToolTipService.ToolTip>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Tag="beta" loc:Loc.Text="Beta版"
+                                                          loc:Loc.Name="Beta版渠道">
+                                                <ComboBoxItem.Content>Beta 版</ComboBoxItem.Content>
+                                                <ToolTipService.ToolTip>
+                                                    <TextBlock TextWrapping="Wrap" MaxWidth="300"
+                                                               Text="Beta 版：新功能基本可用，但还在打磨。适合愿意尝鲜、并且能接受偶发异常的玩家；遇到问题欢迎反馈。" />
+                                                </ToolTipService.ToolTip>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Tag="alpha" loc:Loc.Text="Alpha版"
+                                                          loc:Loc.Name="Alpha版渠道">
+                                                <ComboBoxItem.Content>Alpha 版</ComboBoxItem.Content>
+                                                <ToolTipService.ToolTip>
+                                                    <TextBlock TextWrapping="Wrap" MaxWidth="300"
+                                                               Text="Alpha 版：开发中的功能，可能缺功能、可能崩、数据也可能需要重装。只在你想提前体验并愿意承担风险时选择。" />
+                                                </ToolTipService.ToolTip>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Tag="pre-alpha" loc:Loc.Text="Pre-alpha版"
+                                                          loc:Loc.Name="Pre-alpha版渠道">
+                                                <ComboBoxItem.Content>Pre-alpha 版</ComboBoxItem.Content>
+                                                <ToolTipService.ToolTip>
+                                                    <TextBlock TextWrapping="Wrap" MaxWidth="300"
+                                                               Text="Pre-alpha 版：最前沿的构建，随时可能推倒重来，不保证能正常启动。仅供内部测试与深度尝鲜，请勿用于正式存档。" />
+                                                </ToolTipService.ToolTip>
+                                            </ComboBoxItem>
+                                        </ComboBox>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
                                         <ctrl:GlowButton x:Name="CheckUpdateBtn" loc:Loc.Text="检查更新"
                                                 loc:Loc.Name="手动检查启动器更新"
                                                 Click="CheckUpdate_Click" />
-                                        <ctrl:GlowButton x:Name="FeedbackBtn" loc:Loc.Text="一键反馈"
-                                                loc:Loc.Name="一键反馈"
-                                                Click="Feedback_Click" />
                                         <TextBlock x:Name="UpdateStatusText" VerticalAlignment="Center" FontSize="12"
                                                    TextWrapping="Wrap"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="FeedbackHintText" VerticalAlignment="Center" FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   loc:Loc.Text="反馈问题请双击窗口标题栏" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -827,27 +888,7 @@
 
                     </StackPanel>
                 </ScrollViewer>
-
-                <!-- 固定底部操作栏：原来是"按钮浮在卡片上"，看着像没对齐；
-                     现在做成一条有上边线与底色的操作带，即滚动到任何位置它都是一条明确的动作区 -->
-                <Border Grid.Row="2" Padding="12,8" CornerRadius="8"
-                        Background="{ThemeResource LayerFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="0,1,0,0">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="12"
-                                   loc:Loc.Text="修改后在下方保存；未保存的改动会在切换分类时保留。"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <Button Grid.Column="1" loc:Loc.Text="保存设置" MinWidth="120"
-                                Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium" Click="Save_Click" />
-                    </Grid>
-                </Border>
             </Grid>
-        </Grid>
 
         <!-- 提示条浮层：与主体共用同一套列定义，只落在右列上方。
              VerticalAlignment=Top 让它贴在页面顶部，自身不参与主体布局，
@@ -862,6 +903,7 @@
                 <InfoBar x:Name="SavedBar" Severity="Success" loc:Loc.Title="已保存" IsOpen="False" IsClosable="True" />
                 <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" loc:Loc.Title="操作失败" />
             </StackPanel>
+        </Grid>
         </Grid>
     </Grid>
 </Page>

@@ -51,6 +51,14 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         // MC 版本筛选仅接受标准版本号（1.21.1 / 26.3）；整合包等自定义版本 id 推不出 MC 版本，
         // 传整串会把所有搜索结果/文件全部筛空（表现为「搜索用不了」）
         _mc = NormalizeMcFilter(mcVersion);
+        // 副本实例（26.3-2 / 用户自起名）从 id 推不出 MC 版本 → _mc 为 null。
+        // 自动补前置在 _mc 为空时会整段跳过（宁可少装不装错），于是「前置显示正常但一个都没装」。
+        // 这里从实例 JSON（inheritsFrom 链）补一次，补不上才保持不筛。
+        if (_mc is null && !string.IsNullOrWhiteSpace(versionId))
+        {
+            var detected = LoaderDetector.Detect(state.Settings.DotMinecraft, versionId);
+            _mc = NormalizeMcFilter(detected.McVersion);
+        }
         _versionId = versionId;
         _onInstalled = onInstalled;
         _initialHit = initialHit;
@@ -73,8 +81,8 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             _ => "下载 Mod",
         });
         CloseButtonText = Loc.T("关闭");
-        Resources["ContentDialogMaxWidth"] = 1200.0;
-        Resources["ContentDialogMaxHeight"] = 1040.0;
+        Resources["ContentDialogMaxWidth"] = 1360.0;
+        Resources["ContentDialogMaxHeight"] = 980.0;
         // 压缩标题与内容的默认间距，内容区上移（默认 Title 底距 12 + 容器顶距 24 过大）
         Resources["ContentDialogPadding"] = new Thickness(20, 24, 20, 16);
         Resources["ContentDialogTitleMargin"] = new Thickness(0);
@@ -714,6 +722,53 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         setState(Loc.T("下载中…"), false);
         try
         {
+            // 装之前先查前置：缺必需依赖时明确列出「缺哪些」，由用户决定要不要一起装。
+            // 之前是装完才在结果条里一句「缺少必需依赖」，用户已经切走了，等于没提示。
+            var installDeps = false;
+            List<MissingDependency> silentDeps = [];   // 加载器自带的基础 API：不问，直接补
+            DependencyReport? depReport = null;
+            if (_kind == "mod")
+            {
+                // 上游漏登记兜底：同项目最近几个版本声明过的必需前置，这个版本没写时也要算进来。
+                // 实测案例：createaddition fabric-1.20.1-1.3.4 的 dependencies 是空数组（1.3.3 有建 Create），
+                // 只按它自己的清单判 → 缺 Create 却报「安装成功」。左侧「前置资源」卡片取的是并集，
+                // 两边口径必须一致，否则用户看到卡片有依赖、结果条却说没问题。
+                var extraRequired = _versions.Take(8)
+                    .SelectMany(v => v.Dependencies)
+                    .Where(d => d.DependencyType == "required" && d.ProjectId is not null)
+                    .Select(d => d.ProjectId!)
+                    .Where(id => !string.Equals(id, version.ProjectId, StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                try
+                {
+                    depReport = await _s.ContentLibrary.CheckDependenciesAsync(
+                        version, _versionId, extraRequired: extraRequired);
+                }
+                catch { /* 依赖检查失败按无前置处理，不阻断安装 */ }
+
+                if (depReport is { Required.Count: > 0 })
+                {
+                    // 加载器自带的基础 API（Fabric API）不参与询问：装加载器时已经一并装过，
+                    // 玩家眼里它不是"前置"，是环境的一部分。万一真缺就静默补上，不打扰。
+                    var baseApis = depReport.Required.Where(d => IsLoaderProvided(d.ProjectId)).ToList();
+                    var askList = depReport.Required.Where(d => !IsLoaderProvided(d.ProjectId)).ToList();
+                    if (baseApis.Count > 0) silentDeps.AddRange(baseApis);
+
+                    if (askList.Count > 0)
+                    {
+                        var choice = await AskDependenciesAsync(askList);
+                        if (choice is null)
+                        {
+                            setState(verb, true);   // 用户取消：什么都不装
+                            return;
+                        }
+                        installDeps = choice.Value;
+                    }
+                }
+            }
+
             // CurseForge 的文件 id 不是 Modrinth 版本 id：记 null，避免更新检查拿它去问 Modrinth
             var info = new LibraryAdoptInfo(hit.Title, hit.IconUrl, hit.Author, hit.ProjectId,
                 _source == ContentSourceIds.CurseForge ? null : version.Id,
@@ -759,20 +814,52 @@ public sealed partial class ContentDownloadDialog : ContentDialog
             }
             if (_kind == "mod")
             {
-                // 自动补前置：开关打开时把缺的必需依赖按「最新兼容版本」逐个装好
+                // 版本对不上要先说清楚：把 1.20.1 的 mod 装进 26.3 的实例，进游戏只会报错，
+                // 而「前置装不上」往往也是这个原因（前置按主文件的版本去找）
+                if (_mc is { Length: > 0 } targetMc && version.GameVersions.Count > 0 &&
+                    !version.GameVersions.Contains(targetMc, StringComparer.OrdinalIgnoreCase))
+                {
+                    var fileMc = version.GameVersions.FirstOrDefault(v => v.Count(c => c == '.') >= 1 && !v.Contains('-'))
+                                 ?? version.GameVersions[0];
+                    msg += " " + Loc.T("⚠ 这个文件是给 {0} 的，当前实例是 {1}——装了不会生效，建议换匹配版本或另建实例。",
+                        fileMc, targetMc);
+                }
+                // 前置：用户在上面选了「自动安装」才装；否则把缺的列在结果条里
                 List<string> autoInstalled = [];
-                if (_s.Settings.AutoInstallModDependencies)
+                // 基础 API（Fabric API）不询问、直接补：它是加载器环境的一部分
+                if (silentDeps.Count > 0)
+                    autoInstalled.AddRange(await InstallExplicitDependenciesAsync(silentDeps));
+                if (installDeps)
+                {
                     autoInstalled = await AutoInstallDependenciesAsync(version, _versionId);
+                    if (LastDependencyFailures.Count > 0)
+                        msg += " " + Loc.T("⚠ 以下前置没找到匹配版本，需要手动安装：{0}（多半是版本或加载器对不上）。",
+                            string.Join("、", LastDependencyFailures.Distinct(StringComparer.OrdinalIgnoreCase)));
+                }
                 if (autoInstalled.Count > 0)
                     msg += " " + Loc.T("已自动安装前置：{0}。", string.Join("、", autoInstalled));
-                try
+                // 装完再核一遍：上面只报了「找不到版本」，这里兜住「装了但没被识别」
+                //（哈希查不到身份 / 落到别的目录 / 文件名冲突被跳过），别让用户以为齐了
+                if (installDeps)
                 {
-                    var dep = await _s.ContentLibrary.CheckDependenciesAsync(version, _versionId);
-                    if (dep.Required.Count > 0)
-                        msg += " " + Loc.T("缺少必需依赖：{0}，建议到下载页补齐。",
-                            string.Join("、", dep.Required.Select(d => d.Title)));
+                    try
+                    {
+                        var after = await _s.ContentLibrary.CheckDependenciesAsync(version, _versionId);
+                        var still = after.Required.Select(d => d.Title)
+                            .Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
+                        if (still.Count > 0)
+                            msg += " " + Loc.T("⚠ 仍有前置未就位：{0}。", string.Join("、", still));
+                    }
+                    catch { /* 复核失败不改变安装结果 */ }
                 }
-                catch { /* 依赖检查失败不阻断 */ }
+                if (!installDeps && depReport is { Required.Count: > 0 })
+                {
+                    var stillMissing = depReport.Required
+                        .Where(d => !IsLoaderProvided(d.ProjectId))
+                        .Select(d => d.Title).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+                    if (stillMissing.Count > 0)
+                        msg += " " + Loc.T("缺少必需依赖：{0}。", string.Join("、", stillMissing));
+                }
             }
             Info(msg, InfoBarSeverity.Success);
             setState(Loc.T("✓ 已安装"), false);   // 已装好，定格为完成态防重复安装
@@ -788,6 +875,171 @@ public sealed partial class ContentDownloadDialog : ContentDialog
 
     // ── 前置自动安装 ──
 
+    private TaskCompletionSource<bool?>? _depChoice;
+
+    /// <summary>
+    /// 列出缺失的必需前置，问用户要不要一起装。
+    /// 返回 true = 自动安装前置，false = 只装本体，null = 取消整个安装。
+    /// <para>为什么用同窗遮罩而不是 ContentDialog：本窗自己就是 ContentDialog，
+    /// 同一个 XamlRoot 不能同时开两个，第二个 ShowAsync 会直接抛异常。</para>
+    /// </summary>
+    private async Task<bool?> AskDependenciesAsync(IReadOnlyList<MissingDependency> required)
+    {
+        _depChoice = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // 逐项一行：图标 + 名称 + 「最低要求 / 将安装」 + 右侧状态（缺失 / 已安装）。
+        // 与参考稿一致：玩家在按按钮之前就能看清会装哪些、装哪个版本。
+        DepPromptList.Children.Clear();
+        var ids = required.Select(r => r.ProjectId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        IReadOnlyList<ModrinthProject> projects = [];
+        try { projects = await _s.Mods.GetProjectsAsync(ids); } catch { /* 图标/简介取不到不影响清单 */ }
+
+        foreach (var dep in required)
+        {
+            if (string.IsNullOrWhiteSpace(dep.Title)) continue;
+            var project = projects.FirstOrDefault(p =>
+                string.Equals(p.Id, dep.ProjectId, StringComparison.OrdinalIgnoreCase));
+
+            // 「将安装」= 点自动安装时真正会落地的那个版本（与补前置同一套挑选逻辑）
+            string? willInstall = null;
+            if (!string.IsNullOrEmpty(dep.ProjectId))
+            {
+                try
+                {
+                    var v = await FindLatestCompatibleAsync(dep.ProjectId, DepFallbackMc());
+                    willInstall = v is null ? null : $"{dep.Title} {v.VersionNumber}";
+                }
+                catch { /* 解析失败时只显示最低要求 */ }
+            }
+
+            DepPromptList.Children.Add(BuildDependencyPromptRow(
+                ModTitleHelper.Display(project?.Title ?? dep.Title),
+                project?.IconUrl,
+                dep.VersionId is { Length: > 0 } ? dep.Title : null,
+                willInstall));
+        }
+
+        DepPrompt.Visibility = Visibility.Visible;
+        try { return await _depChoice.Task; }
+        finally
+        {
+            DepPrompt.Visibility = Visibility.Collapsed;
+            DepPromptList.Children.Clear();
+            _depChoice = null;
+        }
+    }
+
+    /// <summary>补前置用的 MC 版本：主文件声明的版本优先（实例版本可能与之不符）</summary>
+    private string? DepFallbackMc() => _mc;
+
+    /// <summary>
+    /// 加载器自带的基础 API：安装加载器时启动器已经一并装过（下载页装完 Fabric 会自动补 Fabric API），
+    /// 所以它们不该出现在「缺少前置」询问里；万一真缺就静默补上，不打扰玩家。
+    /// </summary>
+    private static readonly HashSet<string> LoaderProvidedProjects =
+        new(StringComparer.OrdinalIgnoreCase) { "P7dR8mSH" };   // Fabric API
+
+    private static bool IsLoaderProvided(string? projectId) =>
+        projectId is { Length: > 0 } id && LoaderProvidedProjects.Contains(id);
+
+    /// <summary>按清单装指定项目（基础 API 用；失败留痕但不打扰用户）</summary>
+    private async Task<List<string>> InstallExplicitDependenciesAsync(IReadOnlyList<MissingDependency> deps)
+    {
+        var done = new List<string>();
+        foreach (var dep in deps)
+        {
+            if (string.IsNullOrEmpty(dep.ProjectId)) continue;
+            try
+            {
+                var v = await FindLatestCompatibleAsync(dep.ProjectId, DepFallbackMc());
+                if (v?.PrimaryFile is not { } f) continue;
+                var info = new LibraryAdoptInfo(dep.Title, null, null, dep.ProjectId,
+                    _source == ContentSourceIds.CurseForge ? null : v.Id,
+                    v.VersionNumber, v.GameVersions, v.Loaders, f.Url, _source);
+                var entry = await _s.ContentLibrary.DownloadAndAdoptAsync("mod", f.Url, f.Filename, f.Sha1, info);
+                await _s.ContentLibrary.InstallToVersionAsync(entry, _versionId);
+                done.Add(dep.Title);
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("deps", $"基础 API 安装失败：{dep.Title} — {ex.Message}");
+            }
+        }
+        return done;
+    }
+
+    /// <summary>依赖清单的一行（参考稿样式）：图标 / 名称 / 最低要求 / 将安装 / 状态</summary>
+    private Border BuildDependencyPromptRow(string title, string? iconUrl,
+        string? requiredVersion, string? willInstall)
+    {
+        var grid = new Grid { ColumnSpacing = 12, Padding = new Thickness(0, 8, 0, 8) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var iconBox = new Border
+        {
+            Width = 36, Height = 36, CornerRadius = new CornerRadius(8),
+            Background = ThemedBrush("SubtleFillColorTertiaryBrush"),
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        var resolved = RemoteIconHelper.Resolve(iconUrl);
+        iconBox.Child = resolved is null
+            ? new FontIcon
+            {
+                FontFamily = IconFont.Family, Glyph = "\uEC62", FontSize = 16,
+                Foreground = ThemedBrush("TextFillColorSecondaryBrush"),
+            }
+            : new Image { Source = resolved, Width = 36, Height = 36, Stretch = Stretch.UniformToFill };
+        grid.Children.Add(iconBox);
+
+        var texts = new StackPanel { Spacing = 2 };
+        texts.Children.Add(new TextBlock
+        {
+            Text = title, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        if (!string.IsNullOrWhiteSpace(requiredVersion))
+            texts.Children.Add(new TextBlock
+            {
+                Text = Loc.T("最低要求：{0}", requiredVersion), FontSize = 12,
+                Foreground = ThemedBrush("TextFillColorTertiaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        texts.Children.Add(new TextBlock
+        {
+            Text = willInstall is null ? Loc.T("将安装：未找到匹配版本") : Loc.T("将安装：{0}", willInstall),
+            FontSize = 12,
+            Foreground = willInstall is null
+                ? ThemedBrush("SystemFillColorCautionBrush")
+                : ThemedBrush("TextFillColorSecondaryBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        Grid.SetColumn(texts, 1);
+        grid.Children.Add(texts);
+
+        var status = new TextBlock
+        {
+            Text = willInstall is null ? Loc.T("需手动") : Loc.T("缺失"),
+            FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = willInstall is null
+                ? ThemedBrush("SystemFillColorCautionBrush")
+                : ThemedBrush("TextFillColorTertiaryBrush"),
+        };
+        Grid.SetColumn(status, 2);
+        grid.Children.Add(status);
+
+        return new Border { Child = grid };
+    }
+
+    private void DepPromptAuto_Click(object sender, RoutedEventArgs e) => _depChoice?.TrySetResult(true);
+
+    private void DepPromptSkip_Click(object sender, RoutedEventArgs e) => _depChoice?.TrySetResult(false);
+
+    private void DepPromptCancel_Click(object sender, RoutedEventArgs e) => _depChoice?.TrySetResult(null);
+
     /// <summary>
     /// 自动补齐必需前置：从主文件开始 BFS，缺什么装什么，每个都挑与目标 MC 版本 / 加载器
     /// 匹配的最新版本（release 优先、再按发布时间倒序）。最多装 12 个，防病态依赖链。
@@ -799,6 +1051,14 @@ public sealed partial class ContentDownloadDialog : ContentDialog
         var installed = new List<string>();
         // 不知道目标 MC 版本时不自动装：宁可少装，也不要把 1.20 的前置装进 1.21 的版本
         if (string.IsNullOrWhiteSpace(_mc)) return installed;
+        // 前置按「主文件自己的 MC 版本」找，而不是一律按目标实例的版本：
+        // 实例 26.3 里装了 1.20.1 的 mod 时（版本不匹配），按 26.3 去找 Create 的构建
+        // 一个都找不到 → 前置永远装不上、还不报错。用主文件的版本至少能和主文件配套。
+        var depMc = version.GameVersions.Contains(_mc, StringComparer.OrdinalIgnoreCase)
+            ? _mc
+            : version.GameVersions.FirstOrDefault(v =>
+                System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d+\.\d+(\.\d+)?$")) ?? _mc;
+        var failed = new List<string>();
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var queue = new Queue<ModrinthVersion>();
         queue.Enqueue(version);
@@ -815,9 +1075,18 @@ public sealed partial class ContentDownloadDialog : ContentDialog
                     continue;
                 try
                 {
-                    var depVersion = await FindLatestCompatibleAsync(missing.ProjectId);
+                    var depVersion = await FindLatestCompatibleAsync(missing.ProjectId, depMc);
                     var depFile = depVersion?.PrimaryFile;
-                    if (depVersion is null || depFile is null) continue;
+                    if (depVersion is null || depFile is null)
+                    {
+                        // 找不到「该 MC 版本 + 该加载器」的前置版本：多半是版本不匹配，
+                        // 以前这里直接 continue，用户只看到「前置没装上」却没有任何线索
+                        LauncherLog.Write("deps",
+                            $"前置未找到可比配版本：{missing.Title}（{missing.ProjectId}），" +
+                            $"目标 MC {depMc ?? "任意"}，加载器 {_loader ?? "任意"}");
+                        failed.Add(missing.Title);
+                        continue;
+                    }
 
                     var info = new LibraryAdoptInfo(
                         missing.Title, null, null, missing.ProjectId,
@@ -830,27 +1099,37 @@ public sealed partial class ContentDownloadDialog : ContentDialog
                     installed.Add(missing.Title);
                     queue.Enqueue(depVersion);   // 前置自己也可能有前置
                 }
-                catch { /* 单个前置失败不影响其它 */ }
+                catch (Exception ex)
+                {
+                    // 单个前置失败不影响其它，但要留痕：静默失败会让「前置没装上」变成玄学
+                    LauncherLog.Write("deps", $"前置安装失败：{missing.Title} — {ex.Message}");
+                    failed.Add(missing.Title);
+                }
             }
         }
+        LastDependencyFailures = failed;
         return installed;
     }
 
+    /// <summary>上一轮自动补前置里没装上的（供结果条如实告知，别报「已自动安装」却缺件）</summary>
+    private List<string> LastDependencyFailures { get; set; } = [];
+
     /// <summary>挑与目标版本匹配的最新文件：先用服务端筛选，落地前再本地核对一遍。</summary>
-    private async Task<ModrinthVersion?> FindLatestCompatibleAsync(string projectId)
+    private async Task<ModrinthVersion?> FindLatestCompatibleAsync(string projectId, string? mcOverride = null)
     {
+        var mc = mcOverride ?? _mc;
         List<ModrinthVersion> versions;
         try
         {
             versions = _source == ContentSourceIds.CurseForge
-                ? await _s.CurseForge.ListVersionsAsync(projectId, _loader, _mc)
-                : await _s.Mods.ListVersionsAsync(projectId, _loader, _mc);
+                ? await _s.CurseForge.ListVersionsAsync(projectId, _loader, mc)
+                : await _s.Mods.ListVersionsAsync(projectId, _loader, mc);
         }
         catch { return null; }
 
         return versions
             .Where(v => v.PrimaryFile is not null)
-            .Where(v => _mc is null || v.GameVersions.Count == 0 || v.GameVersions.Contains(_mc))
+            .Where(v => mc is null || v.GameVersions.Count == 0 || v.GameVersions.Contains(mc))
             .Where(v => _loader is null || v.Loaders.Count == 0 ||
                         v.Loaders.Contains(_loader, StringComparer.OrdinalIgnoreCase))
             .OrderByDescending(v => string.Equals(v.VersionType, "release", StringComparison.OrdinalIgnoreCase))

@@ -17,9 +17,13 @@
     <SelfContained>true</SelfContained>
     <DefaultLanguage>zh-CN</DefaultLanguage>
     <!-- 启动器自身版本（0.4.0）：标题栏版本标识与安装包/更新清单命名的唯一来源 -->
-    <Version>0.4.0</Version>
+    <Version>0.4.0-beta.1</Version>
     <!-- 应用图标（品牌标记，由 tools/gen-app-icon.ps1 生成）：嵌入 exe 资源供资源管理器/任务栏/安装器使用 -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <!-- 发布优化：R2R 预编译（仅 Release publish 生效）—— 冷启动免去大头 JIT，
+         各页面 100–400ms 的首访抖动显著下降。代价是载荷体积增大（约 +40%），
+         产物体积需要回调时删掉本行即可。 -->
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>

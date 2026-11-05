@@ -512,6 +512,7 @@ public sealed partial class DownloadPage : Page
 
     private async Task LoadLoaderOptionsAsync(string id)
     {
+        var swPerf = System.Diagnostics.Stopwatch.StartNew();
         _builds.Clear();
         _picked.Clear();
 
@@ -522,13 +523,18 @@ public sealed partial class DownloadPage : Page
             _builds[kind] = LoaderBuildCache.Read(dotMc, LoaderInfo[kind].CacheKind, id);
             _picked[kind] = null;
         }
+        LauncherLog.Write("perf", $"[loader] 缓存读取 {swPerf.ElapsedMilliseconds}ms（{id}）");
         if (_detailId == id) RefreshLoaderUI();
+        LauncherLog.Write("perf", $"[loader] 首次渲染 {swPerf.ElapsedMilliseconds}ms（{id}）");
 
-        // 并行拉取四家加载器的构建列表（失败时保留缓存或按无处理）
-        var forgeTask = SafeBuildsAsync(() => _s.Forge.ListForgeBuildsAsync(id));
-        var neoTask = SafeBuildsAsync(() => _s.Forge.ListNeoForgeBuildsAsync(id));
-        var fabricTask = SafeFabricBuildsAsync(id);
-        var quiltTask = SafeQuiltBuildsAsync(id);
+        // 并行拉取四家加载器的构建列表（失败时保留缓存或按无处理）。
+        // 每家 8 秒兜底：实测 maven.neoforged.net 在这台机器上要 30 秒才超时，
+        // 期间抽屉一直显示「获取中…」，用户体感就是"打开很卡"。
+        const int TimeoutMs = 8000;
+        var forgeTask = SafeBuildsAsync(() => WithTimeout(() => _s.Forge.ListForgeBuildsAsync(id), TimeoutMs));
+        var neoTask = SafeBuildsAsync(() => WithTimeout(() => _s.Forge.ListNeoForgeBuildsAsync(id), TimeoutMs));
+        var fabricTask = SafeFabricBuildsAsync(id, TimeoutMs);
+        var quiltTask = SafeQuiltBuildsAsync(id, TimeoutMs);
         await Task.WhenAll(forgeTask, neoTask, fabricTask, quiltTask);
 
         // 详情可能已被切换（用户快速返回再进入），仅当仍是当前详情时才应用
@@ -537,6 +543,7 @@ public sealed partial class DownloadPage : Page
         ApplyBuilds(LoaderKind.NeoForge, neoTask.Result, id);
         ApplyBuilds(LoaderKind.Fabric, fabricTask.Result, id);
         ApplyBuilds(LoaderKind.Quilt, quiltTask.Result, id);
+        LauncherLog.Write("perf", $"[loader] 网络+渲染完成 {swPerf.ElapsedMilliseconds}ms（{id}）");
     }
 
     /// <summary>应用拉取结果：成功则写缓存并覆盖，失败且无缓存按无处理</summary>
@@ -557,11 +564,11 @@ public sealed partial class DownloadPage : Page
         catch { return []; }
     }
 
-    private async Task<List<LoaderBuild>> SafeFabricBuildsAsync(string id)
+    private async Task<List<LoaderBuild>> SafeFabricBuildsAsync(string id, int timeoutMs = 8000)
     {
         try
         {
-            var loaders = await _s.Fabric.ListLoadersAsync(id);
+            var loaders = await WithTimeout(() => _s.Fabric.ListLoadersAsync(id), timeoutMs);
             return loaders
                 .Select(l => new LoaderBuild(l.Version, l.Loader.Stable ? null : Loc.T("预览版"), l.Loader.Stable))
                 .ToList();
@@ -569,16 +576,31 @@ public sealed partial class DownloadPage : Page
         catch { return []; }
     }
 
-    private async Task<List<LoaderBuild>> SafeQuiltBuildsAsync(string id)
+    private async Task<List<LoaderBuild>> SafeQuiltBuildsAsync(string id, int timeoutMs = 8000)
     {
         try
         {
-            var loaders = await _s.Fabric.ListQuiltLoadersAsync(id);
+            var loaders = await WithTimeout(() => _s.Fabric.ListQuiltLoadersAsync(id), timeoutMs);
             return loaders
                 .Select(l => new LoaderBuild(l.Version, l.Loader.Stable ? null : Loc.T("预览版"), l.Loader.Stable))
                 .ToList();
         }
         catch { return []; }
+    }
+
+    /// <summary>给任意网络拉取加超时；超时向上抛（外层 catch 按失败处理，保留缓存）</summary>
+    private static async Task<T> WithTimeout<T>(Func<Task<T>> work, int timeoutMs)
+    {
+        using var cts = new CancellationTokenSource();
+        var task = work();
+        var finished = await Task.WhenAny(task, Task.Delay(timeoutMs, cts.Token));
+        if (finished != task)
+        {
+            LauncherLog.Write("loader", $"加载器列表拉取超过 {timeoutMs}ms，按超时处理（保留缓存）");
+            throw new TimeoutException($"拉取超过 {timeoutMs}ms");
+        }
+        cts.Cancel();
+        return await task;
     }
 
     // ════════════ 加载器抽屉渲染与互斥（Forge / NeoForge / Fabric / Quilt 互斥选装） ════════════
@@ -649,7 +671,9 @@ public sealed partial class DownloadPage : Page
                     picked == b.Version)));
                 list.ItemsSource = null;
                 list.ItemsSource = rows;
-                MotionFx.StaggerListItems(list); // 首次铺开时错峰入场，从左往右羽化
+                // 255 个构建时别再整表播入场动画：UpdateLayout + 逐个补间会把展开这一下拖住
+                // （列表已限高并恢复内部滚动，可见项最多十来条，动画收益也小）
+                if (rows.Count <= 60) MotionFx.StaggerListItems(list);
             }
             else
             {
@@ -744,6 +768,11 @@ public sealed partial class DownloadPage : Page
         var neo = _picked.GetValueOrDefault(LoaderKind.NeoForge);
         var quilt = _picked.GetValueOrDefault(LoaderKind.Quilt);
 
+        // MC 版本（接口参数）与实例 id（目录名 / 版本名）从这里开始分家：
+        // 装第二份副本时 id 会变成用户起的名字（1.20.1-2），拿它去请求
+        // meta.fabricmc.net/.../loader/1.20.1-2/.../profile/json 必然 400。
+        var mcVersion = id;
+
         // 同一个版本允许装多份：已经装过就先让用户给新副本起名（默认 id-2），
         // 而不是默默追加后缀——版本名会原样写进版本 JSON，是这份实例在 UI 里的名字。
         var dotMc = _s.Settings.DotMinecraft;
@@ -764,20 +793,22 @@ public sealed partial class DownloadPage : Page
             try
             {
                 var version = await _s.Installer.LoadVersionAsync(_s.Settings.DotMinecraft, id);
-                javaMajor = JavaRequirement.Resolve(id, version.JavaVersion);
+                javaMajor = JavaRequirement.Resolve(mcVersion, version.JavaVersion);
             }
             catch { /* 读取失败时按 Java 8 兜底，EnsureJava 会自动补齐 */ }
 
             if (fabric is not null)
             {
                 progress.Report(new BatchProgress(Loc.T("安装 Fabric {0}", fabric), 0, 0, 0, 0, 0, null));
-                await _s.Installer.InstallFabricAsync(id, fabric, _s.Settings, progress);
+                // mcVersion 查接口，targetId 决定落到哪个实例目录（副本名在这里生效）
+                await _s.Installer.InstallFabricAsync(mcVersion, fabric, _s.Settings, progress,
+                    targetId: id);
 
                 // 选 Fabric 后自动同装 Fabric API（Modrinth P7dR8mSH），失败不阻塞主安装
                 try
                 {
                     progress.Report(new BatchProgress(Loc.T("下载 Fabric API"), 0, 0, 0, 0, 0, null));
-                    var apiVersions = await _s.Mods.ListVersionsAsync("P7dR8mSH", "fabric", id);
+                    var apiVersions = await _s.Mods.ListVersionsAsync("P7dR8mSH", "fabric", mcVersion);
                     if (apiVersions.FirstOrDefault()?.PrimaryFile is { } api)
                     {
                         var apiDest = Path.Combine(_s.Settings.DotMinecraft, "mods", api.Filename);
@@ -790,17 +821,20 @@ public sealed partial class DownloadPage : Page
             if (forge is not null)
             {
                 await _s.Forge.InstallViaInstallerAsync(
-                    ForgeInstallerService.ForgeInstallerUrl(id, forge), id, javaMajor, _s.Settings, progress);
+                    ForgeInstallerService.ForgeInstallerUrl(mcVersion, forge), mcVersion, javaMajor,
+                    _s.Settings, progress);
             }
             if (neo is not null)
             {
                 await _s.Forge.InstallViaInstallerAsync(
-                    ForgeInstallerService.NeoForgeInstallerUrl(id, neo), id, javaMajor, _s.Settings, progress);
+                    ForgeInstallerService.NeoForgeInstallerUrl(mcVersion, neo), mcVersion, javaMajor,
+                    _s.Settings, progress);
             }
             if (quilt is not null)
             {
                 progress.Report(new BatchProgress(Loc.T("安装 Quilt {0}", quilt), 0, 0, 0, 0, 0, null));
-                await _s.Installer.InstallQuiltAsync(id, quilt, _s.Settings, progress);
+                await _s.Installer.InstallQuiltAsync(mcVersion, quilt, _s.Settings, progress,
+                    targetId: id);
             }
         });
     }

@@ -241,6 +241,61 @@ public sealed partial class VersionDetailPage : Page
     private DateTime _reportAt;
 
     /// <summary>填充三个内容分区（IO 后台收集；先渲染，再异步标注「无法解析」）。</summary>
+    /// <summary>内容列表快照：目录指纹没变就直接拿来渲染，跳过 156 个 jar 的解析。</summary>
+    private sealed record ContentSnapshot(
+        string Stamp, List<ContentFileRow> Packs, List<ContentFileRow> Shaders,
+        List<(string Save, List<ContentFileRow> Rows)> Saves, List<ContentFileRow> Mods);
+
+    private static string SnapshotPath(string gameRoot)
+    {
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(
+            System.Text.Encoding.UTF8.GetBytes(gameRoot)))[..16];
+        return Path.Combine(Starcloud.Core.Services.LauncherPaths.CacheDir, $"content-v2-{hash}.json");
+    }
+
+    /// <summary>目录指纹：文件数 + 最后写入时间（够便宜，且任何增删改都会变）</summary>
+    private static string ContentStamp(string gameRoot)
+    {
+        static string DirStamp(string dir)
+        {
+            try
+            {
+                if (!Directory.Exists(dir)) return "-";
+                var info = new DirectoryInfo(dir);
+                return $"{info.EnumerateFileSystemInfos().Count()}|{info.LastWriteTimeUtc.Ticks}";
+            }
+            catch { return "?"; }
+        }
+        return string.Join(";", DirStamp(Path.Combine(gameRoot, "mods")),
+            DirStamp(Path.Combine(gameRoot, "resourcepacks")),
+            DirStamp(Path.Combine(gameRoot, "shaderpacks")),
+            DirStamp(Path.Combine(gameRoot, "saves")));
+    }
+
+    private static ContentSnapshot? TryLoadSnapshot(string gameRoot, string stamp)
+    {
+        try
+        {
+            var path = SnapshotPath(gameRoot);
+            if (!File.Exists(path)) return null;
+            var snap = System.Text.Json.JsonSerializer.Deserialize<ContentSnapshot>(File.ReadAllText(path),
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return snap is { } s && s.Stamp == stamp ? s : null;
+        }
+        catch { return null; }
+    }
+
+    private static void SaveSnapshot(string gameRoot, ContentSnapshot snapshot)
+    {
+        try
+        {
+            Directory.CreateDirectory(Starcloud.Core.Services.LauncherPaths.CacheDir);
+            File.WriteAllText(SnapshotPath(gameRoot),
+                System.Text.Json.JsonSerializer.Serialize(snapshot));
+        }
+        catch { /* 缓存写失败不影响展示 */ }
+    }
+
     private async void ContentPanelFill(string gameRoot) =>
         await ContentPanelFillAsync(gameRoot, broken: null);
 
@@ -251,6 +306,19 @@ public sealed partial class VersionDetailPage : Page
         _contentGeneration++;
         var gen = _contentGeneration;
         _modTail = null;
+
+        // 缓存优先：目录没变就直接用上次的快照渲染（156 个 jar 不再解析），秒开；
+        // 指纹一变（装了 / 删了 / 停用）就整段重扫，替换时同样无动画。
+        var stamp = await Task.Run(() => ContentStamp(gameRoot));
+        if (_contentGeneration != gen) return;
+        if (TryLoadSnapshot(gameRoot, stamp) is { } snap)
+        {
+            await RenderSnapshotAsync(gameRoot, snap, gen);
+            if (_contentGeneration != gen) return;
+            if (broken is null) _ = AnnotateBrokenModsAsync(gameRoot);
+            return;
+        }
+
         ShowContentSkeleton();
 
         // 1) 资源包/光影/存档 + mod 文件清单：都不解析 jar，很快
@@ -298,6 +366,51 @@ public sealed partial class VersionDetailPage : Page
             ModSection.Children.Add(_modTail);
         }
         if (broken is null) _ = AnnotateBrokenModsAsync(gameRoot);
+        SaveContentSnapshot(gameRoot);
+    }
+
+    /// <summary>把当前已解析的内容落成快照（下次进页面直接复用）</summary>
+    private void SaveContentSnapshot(string gameRoot)
+    {
+        var stamp = ContentStamp(gameRoot);
+        var packs = _contentRows.Where(r => r.Kind == "resourcepack").ToList();
+        var shaders = _contentRows.Where(r => r.Kind == "shader").ToList();
+        var mods = _contentRows.Where(r => r.Kind == "mod").ToList();
+        var saves = _contentRows.Where(r => r.Kind == "datapack")
+            .GroupBy(r => Path.GetFileName(Path.GetDirectoryName(r.FullPath) ?? ""))
+
+            .Select(g => (Save: g.Key, Rows: g.ToList())).ToList();
+        SaveSnapshot(gameRoot, new ContentSnapshot(stamp, packs, shaders, saves, mods));
+    }
+
+    /// <summary>用快照直接铺满三个分区（无入场动画、无逐条延迟）</summary>
+    private async Task RenderSnapshotAsync(string gameRoot, ContentSnapshot snap, int gen)
+    {
+        _modTotalCount = snap.Mods.Count;
+        // 资源包 / 光影 / 存档各自的分区直接一次填完
+        PackSection.Children.Clear();
+        ShaderSection.Children.Clear();
+        SaveSection.Children.Clear();
+        ModSection.Children.Clear();
+        _contentRows.Clear();
+
+        foreach (var row in snap.Packs) { _contentRows.Add(row); PackSection.Children.Add(BuildFileRow(row)); }
+        foreach (var row in snap.Shaders) { _contentRows.Add(row); ShaderSection.Children.Add(BuildFileRow(row)); }
+        foreach (var (save, rows) in snap.Saves)
+        {
+            foreach (var row in rows) { _contentRows.Add(row); SaveSection.Children.Add(BuildFileRow(row)); }
+            SaveSection.Children.Add(CategoryTail(3, rows.Count, Path.Combine(gameRoot, "saves", save, "datapacks")));
+        }
+        foreach (var row in snap.Mods) { _contentRows.Add(row); ModSection.Children.Add(BuildFileRow(row)); }
+        _modTail = CategoryTail(0, _modTotalCount, Path.Combine(gameRoot, "mods"));
+        ModSection.Children.Add(_modTail);
+
+        _categoryCounts[0] = snap.Mods.Count;
+        _categoryCounts[1] = snap.Packs.Count;
+        _categoryCounts[2] = snap.Shaders.Count;
+        _categoryCounts[3] = snap.Saves.Count;
+        SetCategory(_contentCategory);
+        await Task.CompletedTask;
     }
 
     /// <summary>并行解析一批 jar 并生成行（每批 10 个，元数据缓存命中时几乎瞬时）。</summary>
@@ -323,7 +436,11 @@ public sealed partial class VersionDetailPage : Page
         return rows;
     }
 
-    /// <summary>把一批行逐个追加到 Mod 区（Tail 始终垫底，每行 40ms 让"一个一个出来"看得出来）。</summary>
+    /// <summary>
+    /// 把一批行追加到 Mod 区。
+    /// <para>不再逐条 40ms 延迟：156 个 mod 会拖成 6 秒多（用户实测「打开太卡」）。
+    /// 现在整批一次铺完，只有首次解析（无缓存）时保留极短的错峰入场。</para>
+    /// </summary>
     private async Task AppendModRowsAsync(List<ContentFileRow> rows, int gen)
     {
         if (rows.Count == 0) return;
@@ -332,6 +449,7 @@ public sealed partial class VersionDetailPage : Page
             _modTail = CategoryTail(0, _modTotalCount, Path.Combine(_contentGameRoot, "mods"));
             ModSection.Children.Add(_modTail);
         }
+        ModSection.Children.Remove(_modTail);
         foreach (var row in rows)
         {
             if (_contentGeneration != gen) return;
@@ -339,16 +457,10 @@ public sealed partial class VersionDetailPage : Page
                 ? row with { StatusText = Loc.T("无法解析") }
                 : row;
             _contentRows.Add(shown);
-            var element = BuildFileRow(shown);
-            element.Transitions = new TransitionCollection
-            {
-                new EntranceThemeTransition { FromHorizontalOffset = -70, FromVerticalOffset = 0 },
-            };
-            ModSection.Children.Remove(_modTail);
-            ModSection.Children.Add(element);
-            ModSection.Children.Add(_modTail);
-            await Task.Delay(40);
+            ModSection.Children.Add(BuildFileRow(shown));   // 无逐条动画：整批直接接上
         }
+        ModSection.Children.Add(_modTail);
+        await Task.Yield();
     }
 
     /// <summary>扫描期间先显示「正在读取内容…」，四个分区清空避免残留旧版本的行。</summary>
@@ -689,6 +801,62 @@ public sealed partial class VersionDetailPage : Page
     };
 
     /// <summary>枚举目录内文件（含 .disabled）生成行模型；mod 额外读 jar 元数据（名称/版本/适配版本）。</summary>
+    /// <summary>
+    /// 去掉 Minecraft 文本格式码（§r / §l / §4 …）。光影包作者常把颜色码写进文件名，
+    /// 例如「§r§lAstra§4§lLex§r§l_By_LexBoosT_§4§lV89.0§r§l.zip」——
+    /// 原样显示就是一串看不懂的符号（用户反馈的「乱码」）。
+    /// </summary>
+    internal static string StripFormatCodes(string text)
+    {
+        if (text.IndexOf('§') < 0) return text;   // 绝大多数文件名没有码，快速返回
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '§' && i + 1 < text.Length) { i++; continue; }
+            sb.Append(text[i]);
+        }
+        return sb.ToString().Trim();
+    }
+
+    /// <summary>
+    /// 资源包 / 光影包的图标：包里通常自带 pack.png 或一张预览图。
+    /// jar 那套（ModConflictService）只认 fabric/forge 元数据，包类文件要单独取。
+    /// </summary>
+    private static string? ExtractPackIcon(string file)
+    {
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(file);
+            static bool IsCover(string path)
+            {
+                var name = Path.GetFileName(path).ToLowerInvariant();
+                if (name is not ("pack.png" or "icon.png" or "preview.png" or "cover.png")) return false;
+                // 只接受根目录或一层子目录里的封面
+                return path.Count(c => c == '/') <= 1;
+            }
+
+            var entry = zip.Entries.FirstOrDefault(e => IsCover(e.FullName));
+            if (entry is null || entry.Length == 0 || entry.Length > 4 * 1024 * 1024) return null;
+
+            var dir = Path.Combine(Starcloud.Core.Services.LauncherPaths.CacheDir, "pack-icons");
+            Directory.CreateDirectory(dir);
+            var key = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"{file}|{entry.Length}|{entry.LastWriteTime.UtcDateTime.Ticks}")))[..16];
+            var outFile = Path.Combine(dir, key + ".png");
+            if (!File.Exists(outFile))
+            {
+                using var input = entry.Open();
+                using var output = File.Create(outFile);
+                input.CopyTo(output);
+            }
+            return outFile;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static List<ContentFileRow> BuildFileRows(string dir, string kind)
     {
         if (!Directory.Exists(dir)) return [];
@@ -715,13 +883,17 @@ public sealed partial class VersionDetailPage : Page
             var enabled = !name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
             var display = enabled ? name : name[..^".disabled".Length];
             var meta = metas[i];
+            // 资源包 / 光影包：标题去掉格式码（§r§l…），图标从包里自带的 pack.png 抠一张
+            var iconPath = meta?.IconPath;
+            if (iconPath is null && kind is "shader" or "resourcepack")
+                iconPath = ExtractPackIcon(file);
             rows.Add(new ContentFileRow(
-                display, FormatSize(new FileInfo(file).Length),
+                StripFormatCodes(display), FormatSize(new FileInfo(file).Length),
                 enabled ? Loc.T("启用") : Loc.T("已停用"), enabled, kind, file,
                 // 有中文译名就用中文（缓存没命中时先显示原名并在后台解析，下次进入即中文）
                 meta?.ModName is { Length: > 0 } modName ? ModTitleHelper.Display(modName) : null,
                 meta?.ModVersion, meta?.GameVersion, meta?.Loader,
-                meta?.IconPath, meta?.ModId));
+                iconPath, meta?.ModId));
         }
         return rows.OrderBy(r => r.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -914,8 +1086,16 @@ public sealed partial class VersionDetailPage : Page
     {
         ContentInfoBar.Severity = severity;
         ContentInfoBar.Message = message;
+        ContentInfoBar.Visibility = Visibility.Visible;   // 关掉时下面会收起，这里要显式放回来
         ContentInfoBar.IsOpen = true;
     }
+
+    /// <summary>
+    /// InfoBar 关掉后模板会在卡片上留一条空白带（点「检查更新」再点 × 就能复现：
+    /// 内容卡上多出一个空框）。关闭时显式收掉，重新显示时由 ShowContentInfo 放回。
+    /// </summary>
+    private void ContentInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
+        => sender.Visibility = Visibility.Collapsed;
 
     // ── 分区导航（概览 / Mod 管理 / 游戏设置 / 启动参数） ──
 
@@ -1047,6 +1227,10 @@ public sealed partial class VersionDetailPage : Page
     }
 
     /// <summary>切换当前分类界面：四个分区互斥显示，芯片同步选中态。</summary>
+    /// <summary>芯片行首次量出宽度后，把药丸摆到当前段（此前 ActualWidth 还是 0）</summary>
+    private void CatChipGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        => AnimateCatIndicator(_contentCategory, animate: false);
+
     private void SetCategory(int index)
     {
         _contentCategory = index;
@@ -1061,6 +1245,8 @@ public sealed partial class VersionDetailPage : Page
         StyleChip(CatPacks, index == 1);
         StyleChip(CatShaders, index == 2);
         StyleChip(CatSaves, index == 3);
+        // 药丸指示器滑到当前段（合成动画，与主页账户模式切换同一套语汇）
+        AnimateCatIndicator(index);
 
         // 换分类后，说明行与空状态的可见性跟着这个分类的条目数走（空分类由空状态说话）
         SyncContentHint();
@@ -1107,13 +1293,57 @@ public sealed partial class VersionDetailPage : Page
     }
 
     /// <summary>芯片选中态：accent 实底 + 黑字加粗；未选中交回 ChipStyle 默认配色。</summary>
+    /// <summary>
+    /// 分类药丸平移到第 index 段：位置 = 前 index 个芯片的实测宽度之和，
+    /// 宽度 = 该芯片实测宽。用合成动画（Translation）而不是改 Margin，全程不触发布局。
+    /// </summary>
+    private void AnimateCatIndicator(int index, bool animate = true)
+    {
+        var buttons = new[] { CatMods, CatPacks, CatShaders, CatSaves };
+        if (index < 0 || index >= buttons.Length) return;
+        var target = buttons[index];
+        if (target.ActualWidth <= 0) return;   // 还没布局，等 SizeChanged 再来
+
+        var offset = 0.0;
+        for (var i = 0; i < index; i++) offset += buttons[i].ActualWidth;
+
+        try
+        {
+            if (double.IsNaN(CatIndicator.Width) || Math.Abs(CatIndicator.Width - target.ActualWidth) > 0.5)
+                CatIndicator.Width = target.ActualWidth;
+
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(CatIndicator);
+            Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(CatIndicator, true);
+            var to = new System.Numerics.Vector3((float)offset, 0f, 0f);
+
+            if (!animate || !AppServices.Instance.Motion.Enabled)
+            {
+                visual.StopAnimation("Translation");
+                visual.Properties.InsertVector3("Translation", to);
+                return;
+            }
+
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateVector3KeyFrameAnimation();
+            anim.Duration = TimeSpan.FromMilliseconds(MotionFx.Scale(260));
+            anim.InsertKeyFrame(1f, to, MotionFx.ControlEase(compositor));
+            visual.StartAnimation("Translation", anim);
+        }
+        catch
+        {
+            // 动效失败不影响切换
+        }
+    }
+
     private void StyleChip(Button b, bool selected)
     {
         if (selected)
         {
-            b.Background = ThemedBrush("AccentFillColorDefaultBrush");
+            // 底色由 CatIndicator 这颗药丸统一表现：按钮自己再刷一次 accent，
+            // 滑动时就会看到「矩形先跳、药丸后到」两层东西
+            b.ClearValue(Button.BackgroundProperty);
             b.Foreground = ThemedBrush("TextOnAccentFillColorPrimaryBrush");
-            b.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+            b.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         }
         else
         {

@@ -123,6 +123,13 @@
                  CloseButtonStyle / SecondaryButtonStyle 上。强调色主按钮（Primary）不受影响。 -->
             <Style x:Key="ScShadowButtonStyle" TargetType="Button"
                    BasedOn="{StaticResource ScLightButtonStyle}" />
+            <!-- 危险操作按钮（切到不稳定渠道 / 删除 / 解散房间等）：红底白字，与强调色按钮同模板 -->
+            <Style x:Key="ScDangerButtonStyle" TargetType="Button"
+                   BasedOn="{StaticResource ScLightButtonStyle}">
+                <Setter Property="Background" Value="{ThemeResource SystemFillColorCriticalBrush}" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
 
 <!-- 弹窗 16:9 由 ThemedDialog（自绘 Popup 壳）实现；ContentDialog 保持默认尺寸 -->
 

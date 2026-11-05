@@ -164,8 +164,12 @@ public sealed class AppServices
 
     private AppServices()
     {
+        var perf = System.Diagnostics.Stopwatch.StartNew();
+        void Mark(string phase) =>
+            LauncherLog.Write("perf", $"AppServices.{phase} {perf.ElapsedMilliseconds}ms");
         LauncherPaths.EnsureDataDir();
         Settings = LauncherSettings.Load();
+        Mark("settings");
         // 日志强度：设置值生效；开发构建（非正式版）锁定为调试档——用户改不下来
 #if DEBUG
         LauncherLog.SetFloor(LauncherLog.LogIntensity.Debug);
@@ -193,6 +197,7 @@ public sealed class AppServices
         Kernel.Register(BuiltinLlmGatewayPlugin.Descriptor, _ => new BuiltinLlmGatewayPlugin(() => Settings));
         // 内置插件的 InitializeAsync 都是纯内存构造，同步启动即可（有 I/O 的插件应声明 lazy）
         Kernel.StartAsync().GetAwaiter().GetResult();
+        Mark("kernel");
 
         Download = Kernel.Get<DownloadService>();
         // 下载源命中情况写进启动器日志，用于确认多源竞速是否生效
@@ -211,7 +216,8 @@ public sealed class AppServices
         SearchTranslation = Kernel.Get<SearchTranslationService>();
         ModSummaries = new ModSummaryTranslationService(Download, () => Settings);
         ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
-        Views.Shared.ModTitleHelper.Warmup();   // 标题词典后台预热：几 MB 的读盘不占开页那一帧
+        Views.Shared.ModTitleHelper.Warmup();
+        Mark("warmup-kick");   // 标题词典后台预热：几 MB 的读盘不占开页那一帧
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
@@ -235,6 +241,7 @@ public sealed class AppServices
         Friends = new FriendsService(() => StarcloudId.Current?.ApiKey);
         FriendsRuntime = new FriendsRuntime(Friends, StarcloudId);
         FriendsRuntime.Start();
+        Mark("friends");
         // 联机房间：接口未就绪时走本地演示后端（设置里可强制），UI 全链路先跑通。
         // 未登录也必须能进 Mock —— 否则大厅页在开发环境是空的。
         Rooms = new RoomService(() => StarcloudId.Current?.ApiKey,
@@ -243,6 +250,7 @@ public sealed class AppServices
                 ?? Accounts.Accounts.FirstOrDefault()?.Username ?? "我");
         RoomRuntime = new RoomRuntime(Rooms, () => StarcloudId.Current?.UserId, Multiplayer);
         RoomPackFlow = new RoomPackFlow(ModPackExport, Rooms, () => Settings.DotMinecraft);
+        Mark("rooms");
         // 跨设备链路：需要 SaveLibrary / Saves / StarcloudId（都已在上面就位）；
         // 下载管线从这里拿 P2P 对等源（PeerCount=0 时管线零开销跳过）
         DeviceLink = new DeviceLinkService(() => Settings, StarcloudId, SaveLibrary, Saves)
@@ -342,6 +350,7 @@ public sealed class AppServices
             LlmGateway);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
+        Mark("nova");
         // 插件系统：宿主版本号取自启动器程序集（minLauncherVersion 校验 / ctx 透出）
         var asmVer = typeof(AppServices).Assembly.GetName().Version ?? new Version(0, 0, 0);
         var pluginHostSdk = Path.Combine(AppContext.BaseDirectory,
@@ -364,17 +373,28 @@ public sealed class AppServices
                 Bridge = new PluginHostActions(),
             });
         Plugins = new PluginService(PluginHost);
+        Mark("plugins");
         Appearance = new AppearanceService();
         Motion = new MotionService(() => Settings);
         // 运行态监控：先注入依赖再起心跳（恢复探测需要 dotMinecraft 与历史库）
         GameRuntimeMonitor.Instance.Configure(() => Settings.DotMinecraft);
         GameRuntimeMonitor.Instance.Start();
+        Mark("monitor");
         LauncherLog.Write("app", $"启动器就绪，数据目录 {LauncherPaths.DataDir}");
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();
 
     public void SaveSettings() => Settings.Save();
+    /// <summary>
+    /// 当前游戏目录（DotMinecraft）变更。页面缓存（NavigationCacheMode=Enabled）之后
+    /// 「其他页下次进入时重建」的隐式假设不再成立 —— 缓存的首页 / 存档页必须订阅本事件重扫。
+    /// </summary>
+    public event Action? GameDirChanged;
+
+    /// <summary>游戏目录切换成功后调用（版本页顶部下拉 / 自动搜索落定）</summary>
+    public void RaiseGameDirChanged() =>
+        UIDispatcher.TryEnqueue(() => GameDirChanged?.Invoke());
 
     /// <summary>authlib-injector jar 路径（Assets 内置；缺失返回 null，由调用方报错）</summary>
     public static string? AgentJarPath()

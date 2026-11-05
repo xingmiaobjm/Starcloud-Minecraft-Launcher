@@ -296,6 +296,8 @@
                                     <Button x:Name="StartGameBtn" Padding="14,4" loc:Loc.Text="开始游戏"
                                             Style="{StaticResource ScAccentButtonStyle}"
                                             Click="StartGame_Click" />
+                                    <Button x:Name="InviteFriendBtn" Padding="10,4" loc:Loc.Text="邀请好友"
+                                            Click="InviteFriend_Click" />
                                     <Button x:Name="CopyCodeBtn" Padding="10,4" loc:Loc.Text="复制联机码"
                                             Click="CopyCode_Click" />
                                     <Button x:Name="DissolveBtn" Padding="10,4" Visibility="Collapsed"
@@ -482,8 +484,10 @@
         </Grid>
 
         <!-- 悬浮提示：Z 序在所有控件之上，ShowNotice 5 秒后自动收起 -->
+        <!-- 提示条贴在底部（输入框上方）：原来贴顶会盖住房间卡头部的房间名与状态行，
+             两条文案叠在一起，看起来就是"一直在闪"。 -->
         <InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True"
-                 HorizontalAlignment="Center" VerticalAlignment="Top"
-                 Margin="0,10,0,0" loc:Loc.Title="联机" />
+                 HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                 Margin="0,0,0,96" loc:Loc.Title="联机" />
     </Grid>
 </Page>

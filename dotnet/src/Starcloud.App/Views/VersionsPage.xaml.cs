@@ -201,6 +201,8 @@ public sealed partial class VersionsPage : Page
             // 下拉必须跟着重建：否则新加的目录虽然写进了设置，界面上仍只显示旧的两项
             // （用户反馈的「最多只能同时显示两个」就是这里漏了刷新）
             RefreshDirCombo();
+            // 通知缓存页（首页 / 存档页）：游戏目录变了，列表按新目录重扫
+            _s.RaiseGameDirChanged();
         }
         catch (Exception ex)
         {

@@ -389,6 +389,15 @@ public sealed class LauncherSettings
     [JsonPropertyName("auto_install_mod_dependencies")]
     public bool AutoInstallModDependencies { get; set; } = true;
 
+    /// <summary>SC 实验室的欢迎提示是否已经看过（只弹第一次，跨启动记住）</summary>
+    public bool LabWelcomeShown { get; set; }
+
+    /// <summary>
+    /// 发布渠道：release / public-beta / beta / alpha / pre-alpha。
+    /// 影响自更新检查走的清单（服务端按 channel 下发），越靠前的渠道越稳定。
+    /// </summary>
+    public string ReleaseChannel { get; set; } = "release";
+
     // ── 全局默认窗口（版本设置「跟随全局设置」档位取此处） ──
     [JsonPropertyName("default_window_width")]
     public int? DefaultWindowWidth { get; set; } = 854;

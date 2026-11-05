@@ -278,10 +278,7 @@ public static class HoverShadowBehavior
                 }
                 else
                 {
-                    // 载体允许比元素大（标题栏三连键就是外扩一圈的），它自己改尺寸时原点缓存要作废
-                    layer.SizeChanged -= OnCarrierSizeChanged;
-                    layer.SizeChanged += OnCarrierSizeChanged;
-                    state.LayerOriginValid = false;
+                    // 载体允许比元素大（标题栏三连键就是外扩一圈的）
                 }
             }
             else
@@ -369,6 +366,7 @@ public static class HoverShadowBehavior
             if (element.XamlRoot?.Content is not FrameworkElement root) return;
             if (HookedRoots.Contains(root)) return;
             root.PointerMoved += OnRootPointerMoved;
+            root.PointerEntered += OnRootPointerEntered;
             root.PointerExited += OnRootPointerExited;
             // 窗口尺寸变化会让所有缓存矩形失效（布局重排），一次性作废、下次事件再按需重算
             root.SizeChanged += OnRootSizeChanged;
@@ -388,13 +386,8 @@ public static class HoverShadowBehavior
 
     private static void OnRootPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        // 指针整个移出窗口 = 没有任何目标卡片 → 直接灭，不留尾巴（只处理本窗口的层）
-        var root = sender as FrameworkElement;
-        Leaving.Clear();
-        foreach (var state in Glowing) Leaving.Add(state);
-        foreach (var state in Leaving)
-            if (root is null || ReferenceEquals(state.Root, root)) ResetState(state);
-        Leaving.Clear();
+        // 指针整个移出窗口：不熄灭，全部渐弱到环境亮度——回到窗口时 OnRootPointerEntered 渐强回来
+        foreach (var state in Glowing) FadeToAmbient(state);
     }
 
     private static void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
@@ -407,6 +400,7 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement root) return;
         root.PointerMoved -= OnRootPointerMoved;
+        root.PointerEntered -= OnRootPointerEntered;
         root.PointerExited -= OnRootPointerExited;
         root.SizeChanged -= OnRootSizeChanged;
         root.Unloaded -= OnRootUnloaded;
@@ -515,7 +509,9 @@ public static class HoverShadowBehavior
             }
             else if (Glowing.Contains(state))
             {
-                Leaving.Add(state); // 先收集，等知道"有没有别的卡片接着"再决定怎么退场
+                // 卡片之外（含光标贴边/离开窗口）：不再立刻灭，
+                // 改为把光源"冻"在最后一次位置、整层渐弱（全局退光，见 Evaluate 尾部）
+                Leaving.Add(state);
             }
             if (near) anyNear = true;
         }
@@ -529,7 +525,54 @@ public static class HoverShadowBehavior
         foreach (var state in Leaving)
         {
             if (anyNear) FadeOut(state);   // 卡片 ↔ 卡片（含跨过行间缝隙）：交叉淡出
-            else ResetState(state);        // 离开所有卡片：立刻灭
+            else FadeToAmbient(state);     // 离开所有卡片：整层渐弱到常驻环境亮度
+        }
+    }
+
+    /// <summary>
+    /// 全局退光：光标离开卡片后光斑不熄灭，而是渐弱到 <see cref="AmbientOpacity"/> 常驻——
+    /// 用户要求"鼠标在窗口里阴影都生效"。光源位置冻结在最后一次命中点，
+    /// 光标回到该卡片时 Evaluate 会用新位置重新 ApplyLight 并拉回全亮。
+    /// </summary>
+    private static void FadeToAmbient(State state)
+    {
+        try
+        {
+            if (state.LayerVisual is { } layerVisual)
+            {
+                var fade = layerVisual.Compositor.CreateScalarKeyFrameAnimation();
+                fade.Duration = TimeSpan.FromMilliseconds(MotionFx.HoverFadeOutMs);
+                fade.InsertKeyFrame(1f, AmbientOpacity, MotionFx.FadeEase(layerVisual.Compositor));
+                layerVisual.StartAnimation("Opacity", fade);
+            }
+            // 保持在 Glowing 里：这是"常驻暗光"而不是退场
+        }
+        catch
+        {
+            // 静默
+        }
+    }
+
+    /// <summary>光标离开卡片后光斑的常驻亮度（0~1）。0.35 = 隐约可见的一层暗光</summary>
+    private const float AmbientOpacity = 0.35f;
+
+    /// <summary>光标进入窗口（从窗口外回来）：所有常驻暗光的层渐强回全亮</summary>
+    private static void OnRootPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        foreach (var state in Glowing)
+        {
+            try
+            {
+                if (state.LayerVisual is not { } layerVisual) continue;
+                var fade = layerVisual.Compositor.CreateScalarKeyFrameAnimation();
+                fade.Duration = TimeSpan.FromMilliseconds(MotionFx.HoverFadeInMs);
+                fade.InsertKeyFrame(1f, 1f, MotionFx.FadeEase(layerVisual.Compositor));
+                layerVisual.StartAnimation("Opacity", fade);
+            }
+            catch
+            {
+                // 静默
+            }
         }
     }
 
@@ -639,8 +682,6 @@ public static class HoverShadowBehavior
     {
         state.Hovered = false;
         Glowing.Remove(state);
-        if (state.Layer is { } carrier) carrier.SizeChanged -= OnCarrierSizeChanged; // 别攥住要回收的载体
-        state.LayerOriginValid = false;
         try
         {
             if (state.LayerVisual is { } layerVisual)
@@ -783,27 +824,18 @@ public static class HoverShadowBehavior
     /// </summary>
     private static Point LayerOriginOf(FrameworkElement element, State state, FrameworkElement surface)
     {
-        if (state.LayerOriginValid) return state.LayerOrigin;
+        // **每次都现算，不做缓存**：
+        // 缓存只在载体 SizeChanged 时作废，但顶栏按钮的载体位置会随布局重排挪动
+        // （Nova Orb 显隐、窗口尺寸变化、语言切换文案变长），这些都不会触发载体自身的
+        // SizeChanged —— 过期的原点让光斑画到卡片外面（实测：调度中心按钮的光斑跑到了
+        // 按钮左侧的空档里）。TransformToVisual 是纯矩阵运算，每次现算毫无压力。
         try
         {
-            state.LayerOrigin = surface.TransformToVisual(element).TransformPoint(new Point(0, 0));
+            return surface.TransformToVisual(element).TransformPoint(new Point(0, 0));
         }
         catch
         {
-            state.LayerOrigin = new Point(0, 0); // 拿不到变换（弹层等）就按同尺寸处理
-        }
-        state.LayerOriginValid = true;
-        return state.LayerOrigin;
-    }
-
-    /// <summary>载体自己改尺寸（外扩载体随布局重排）→ 原点缓存作废，下次指针事件重算</summary>
-    private static void OnCarrierSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        if (sender is not FrameworkElement carrier) return;
-        for (var i = 0; i < Cards.Count; i++)
-        {
-            var s = Cards[i];
-            if (ReferenceEquals(s.Layer, carrier)) s.LayerOriginValid = false;
+            return new Point(0, 0); // 拿不到变换（弹层等）就按同尺寸处理
         }
     }
 
@@ -838,7 +870,6 @@ public static class HoverShadowBehavior
     {
         if (sender is not FrameworkElement fe || !States.TryGetValue(fe, out var s)) return;
         s.BoundsValid = false;
-        s.LayerOriginValid = false; // 载体跟着元素摆（居中/负边距），元素改尺寸它也会挪
         try
         {
             // 自建层的矩形几何要跟着元素尺寸走，否则按钮改尺寸后光斑会停在旧大小
@@ -882,8 +913,8 @@ public static class HoverShadowBehavior
         public Rect Bounds;
         public bool BoundsValid;
         /// <summary>载体左上角在元素坐标系里的位置（同 Bounds 一样缓存，见 LayerOriginOf）</summary>
-        public Point LayerOrigin;
-        public bool LayerOriginValid;
+
+
         /// <summary>上一次光源位置（元素内坐标）：改半径 / 改尺寸后据此重画，不跳回中心</summary>
         public double LightX;
         public double LightY;
