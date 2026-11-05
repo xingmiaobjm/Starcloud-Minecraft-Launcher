@@ -491,6 +491,24 @@ public static class Program
                 return new { ok = true, lastVersion = _settings.LastVersion };
             }
 
+            case "versions.setMarks":
+            {
+                // 置顶 / 收藏标记（与 Win 端主页版本卡的标记口径一致：存实例档案）。
+                // 两个开关都可选：传了才改，没传保持原值。
+                var versionId = p.GetProperty("versionId").GetString()!;
+                if (!Directory.Exists(Path.Combine(_settings.DotMinecraft, "versions", versionId)))
+                    throw new Exception($"版本目录不存在：{versionId}");
+                var store = new InstanceSettingsStore(_settings.DotMinecraft);
+                var profile = store.Get(versionId);
+                if (p.TryGetProperty("pinned", out var pin) && IsBool(pin))
+                    profile.Pinned = pin.GetBoolean();
+                if (p.TryGetProperty("favorite", out var fav) && IsBool(fav))
+                    profile.Favorite = fav.GetBoolean();
+                store.Set(versionId, profile);
+                store.Save();
+                return new { ok = true, pinned = profile.Pinned, favorite = profile.Favorite };
+            }
+
             case "saves.icon":
             {
                 // 世界缩略图是本地文件，渲染层（Electron）读不到文件系统，
@@ -3905,6 +3923,9 @@ public static class Program
             lastPlayedAt = instances.Get(info.Id).LastPlayedAt?.ToString("O"),
             isDefault = _settings.LastVersion == info.Id,
             isolated = _settings.VersionIsolated,
+            favorite = instances.Get(info.Id).Favorite,
+            pinned = instances.Get(info.Id).Pinned,
+            iconPath = instances.Get(info.Id).IconPath ?? "",
         };
     }
 
