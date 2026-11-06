@@ -47,6 +47,7 @@ public static class Program
     private static ProjectionLibrary _projections = null!;
     private static StarcloudIdService _starcloudId = null!;
     private static FriendsService _friends = null!;
+    private static CancellationTokenSource? FriendsEventsCts;
     private static CurseForgeService _curseForge = null!;
     private static ForgeInstallerService _forge = null!;
     private static ModPackExportService _modPackExport = null!;
@@ -197,6 +198,10 @@ public static class Program
             downloadSource = _settings.DownloadSource,
         });
 
+        // 好友实时通道：登录状态下桥接启动即拉起 SSE 循环（断线指数退避重连），
+        // 事件以 friends.event 转发给壳端（Win 端等价物是 FriendsRuntime）。
+        if (_starcloudId.IsLoggedIn) StartFriendsEvents(stdout);
+
         while (await stdin.ReadLineAsync() is { } line)
         {
             if (line.Length == 0) continue;
@@ -310,6 +315,7 @@ public static class Program
             or "content.search" or "content.install"
             or "version.checkUpdates" or "version.updateMod" or "version.checkDependencies"
             or "skins.importUrl" or "skins.station.list" or "skins.station.apply"
+            or "skins.bs6.authorize" or "skins.bs6.closet" or "skins.bs6.apply"
             or "nova.plan.execute"
             or "lab.load" or "lab.worldEater" or "lab.assets"
             or "projections.scan" or "projections.copy" or "projections.move"
@@ -489,6 +495,24 @@ public static class Program
                 _settings.LastVersion = string.IsNullOrEmpty(versionId) ? null : versionId;
                 _settings.Save();
                 return new { ok = true, lastVersion = _settings.LastVersion };
+            }
+
+            case "versions.setMarks":
+            {
+                // 置顶 / 收藏标记（与 Win 端主页版本卡的标记口径一致：存实例档案）。
+                // 两个开关都可选：传了才改，没传保持原值。
+                var versionId = p.GetProperty("versionId").GetString()!;
+                if (!Directory.Exists(Path.Combine(_settings.DotMinecraft, "versions", versionId)))
+                    throw new Exception($"版本目录不存在：{versionId}");
+                var store = new InstanceSettingsStore(_settings.DotMinecraft);
+                var profile = store.Get(versionId);
+                if (p.TryGetProperty("pinned", out var pin) && IsBool(pin))
+                    profile.Pinned = pin.GetBoolean();
+                if (p.TryGetProperty("favorite", out var fav) && IsBool(fav))
+                    profile.Favorite = fav.GetBoolean();
+                store.Set(versionId, profile);
+                store.Save();
+                return new { ok = true, pinned = profile.Pinned, favorite = profile.Favorite };
             }
 
             case "saves.icon":
@@ -1579,6 +1603,80 @@ public static class Program
                 return new { message };
             }
 
+            // ── Blessing Skin 6 衣柜（Win 0.4.0：OAuth2 + PKCE，LittleSkin 一键授权） ──
+            // serverBase 由壳端传入（账户的认证服务器），uuid 只是令牌存档键。
+
+            case "skins.bs6.status":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var major = await new BlessingSkin6Service().ProbeMajorAsync(root);
+                var tokens = Bs6TokenStore.Get(_settings.DotMinecraft, uuid);
+                return new { root, major, hasTokens = tokens is not null };
+            }
+
+            case "skins.bs6.authorize":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var tokens = await new BlessingSkin6Service().AuthorizeAsync(root,
+                    BlessingSkin6Service.LittleSkinClientId,
+                    BlessingSkin6Service.LittleSkinClientSecret,
+                    uri => Process.Start(new ProcessStartInfo(uri.ToString())
+                    {
+                        UseShellExecute = true,
+                    }));
+                Bs6TokenStore.Set(_settings.DotMinecraft, uuid, tokens);
+                return new { ok = true };
+            }
+
+            case "skins.bs6.closet":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var category = p.TryGetProperty("category", out var bcat) &&
+                               bcat.ValueKind == JsonValueKind.String
+                    ? bcat.GetString()!
+                    : "skin";
+                var tokens = await EnsureBs6TokensAsync(uuid, root);
+                var items = await new BlessingSkin6Service().ListClosetAsync(
+                    root, tokens.AccessToken, category);
+                return new
+                {
+                    items = items.Select(s => new { s.Id, s.Name, s.Model, s.Url, s.Kind }),
+                };
+            }
+
+            case "skins.bs6.apply":
+            {
+                var uuid = p.GetProperty("uuid").GetString()!;
+                var account = _accounts.Accounts.FirstOrDefault(a => a.Uuid == uuid)
+                    ?? throw new Exception("账户不存在");
+                var root = SkinStationService.SiteRootOf(account.ServerBase ?? "");
+                var tid = p.GetProperty("tid").GetString()!;
+                var kind = p.TryGetProperty("kind", out var bkind) &&
+                           bkind.ValueKind == JsonValueKind.String
+                    ? bkind.GetString()!
+                    : "skin";
+                var tokens = await EnsureBs6TokensAsync(uuid, root);
+                var bs6 = new BlessingSkin6Service();
+                var players = await bs6.ListPlayersAsync(root, tokens.AccessToken);
+                var picked = players.FirstOrDefault();
+                if (picked.Name is null || picked.Pid is null)
+                    throw new Exception("该账号在皮肤站上还没有角色（player）");
+                if (kind == "cape")
+                    await bs6.SetCapeAsync(root, tokens.AccessToken, picked.Pid!, tid);
+                else
+                    await bs6.SetSkinAsync(root, tokens.AccessToken, picked.Pid!, tid);
+                return new { player = picked.Name };
+            }
+
             case "auth.microsoft.start":
             {
                 var code = await _msAuth.StartDeviceCodeAsync();
@@ -1980,6 +2078,7 @@ public static class Program
                 var session = await _starcloudId.LoginAsync(
                     p.GetProperty("id").GetString() ?? "",
                     p.GetProperty("password").GetString() ?? "");
+                StartFriendsEvents(stdout);
                 return new
                 {
                     loggedIn = true,
@@ -2009,6 +2108,7 @@ public static class Program
 
             case "starcloud.logout":
                 _starcloudId.Logout();
+                StopFriendsEvents();
                 return new { ok = true };
 
             case "friends.list":
@@ -2110,6 +2210,98 @@ public static class Program
             {
                 var updated = await _friends.MarkReadAsync(p.GetProperty("userId").GetString()!);
                 return new { updated };
+            }
+
+            // ── 群聊（Win 0.4.0 同口径；附件协议与好友消息一致） ──
+
+            case "friends.groups":
+                return new
+                {
+                    signedIn = _friends.IsSignedIn,
+                    groups = await _friends.GetGroupsAsync(),
+                };
+
+            case "friends.groupDetail":
+                return new
+                {
+                    group = await _friends.GetGroupDetailAsync(
+                        p.GetProperty("groupId").GetString()!),
+                };
+
+            case "friends.groupMessages":
+            {
+                long? beforeId = p.TryGetProperty("beforeId", out var gmBefore) &&
+                                gmBefore.ValueKind == JsonValueKind.Number
+                    ? gmBefore.GetInt64()
+                    : null;
+                var items = await _friends.GetGroupMessagesAsync(
+                    p.GetProperty("groupId").GetString()!, beforeId);
+                return new { items };
+            }
+
+            case "friends.groupSend":
+            {
+                var message = await _friends.SendGroupMessageAsync(
+                    p.GetProperty("groupId").GetString()!,
+                    p.GetProperty("content").GetString() ?? "");
+                return new { message };
+            }
+
+            case "friends.groupMarkRead":
+            {
+                await _friends.MarkGroupReadAsync(p.GetProperty("groupId").GetString()!);
+                return new { ok = true };
+            }
+
+            case "friends.groupCreate":
+            {
+                var members = p.GetProperty("members").EnumerateArray()
+                    .Select(m => m.GetString() ?? "").Where(m => m.Length > 0).ToList();
+                var group = await _friends.CreateGroupAsync(
+                    p.GetProperty("name").GetString() ?? "", members);
+                return new { group };
+            }
+
+            case "friends.groupAddMembers":
+            {
+                var members = p.GetProperty("members").EnumerateArray()
+                    .Select(m => m.GetString() ?? "").Where(m => m.Length > 0).ToList();
+                await _friends.AddGroupMembersAsync(p.GetProperty("groupId").GetString()!, members);
+                return new { ok = true };
+            }
+
+            case "friends.groupDissolve":
+            {
+                await _friends.DissolveGroupAsync(p.GetProperty("groupId").GetString()!);
+                return new { ok = true };
+            }
+
+            // ── 文件传输（图片 ≤30MB / 视频·文件 ≤200MB；消息 = 前缀 + JSON，后端只管存取） ──
+
+            case "friends.uploadFile":
+            {
+                var filePath = p.GetProperty("path").GetString()!;
+                // kind 可选：不给按扩展名判定（与 Win 端 FriendsPage 同口径）
+                var kind = p.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String
+                    ? k.GetString()!
+                    : KindOfFile(filePath);
+                var (id, size) = await _friends.UploadFileAsync(filePath);
+                return new
+                {
+                    id,
+                    size,
+                    kind,
+                    content = FriendsService.EncodeFileMessage(
+                        Path.GetFileName(filePath), size, kind, id),
+                };
+            }
+
+            case "friends.downloadFile":
+            {
+                await _friends.DownloadFileAsync(
+                    p.GetProperty("fileId").GetString()!,
+                    p.GetProperty("destPath").GetString()!);
+                return new { ok = true };
             }
             case "versions.rename":
             {
@@ -3905,6 +4097,9 @@ public static class Program
             lastPlayedAt = instances.Get(info.Id).LastPlayedAt?.ToString("O"),
             isDefault = _settings.LastVersion == info.Id,
             isolated = _settings.VersionIsolated,
+            favorite = instances.Get(info.Id).Favorite,
+            pinned = instances.Get(info.Id).Pinned,
+            iconPath = instances.Get(info.Id).IconPath ?? "",
         };
     }
 
@@ -3950,6 +4145,99 @@ public static class Program
             @event = eventName,
             @params = parameters,
         }, JsonOpts));
+    }
+
+    /// <summary>
+    /// 取 BS6 令牌：本地有未过期令牌直接用；有刷新令牌就续期；都没有抛可读错误
+    /// （与 Win AccountDetailPage.EnsureBs6TokensAsync 同策略）。
+    /// </summary>
+    private static async Task<Bs6Tokens> EnsureBs6TokensAsync(string uuid, string root)
+    {
+        var bs6 = new BlessingSkin6Service();
+        var tokens = Bs6TokenStore.Get(_settings.DotMinecraft, uuid);
+        if (tokens is not null && tokens.ExpiresAt > DateTime.UtcNow.AddMinutes(1)) return tokens;
+
+        if (!string.IsNullOrEmpty(tokens?.RefreshToken))
+        {
+            try
+            {
+                tokens = await bs6.RefreshAsync(root,
+                    BlessingSkin6Service.LittleSkinClientId,
+                    BlessingSkin6Service.LittleSkinClientSecret, tokens.RefreshToken);
+                Bs6TokenStore.Set(_settings.DotMinecraft, uuid, tokens);
+                return tokens;
+            }
+            catch
+            {
+                // 刷新令牌失效：走重新授权
+            }
+        }
+
+        throw new InvalidOperationException("还没有连接皮肤站：请先在皮肤站卡片点「连接皮肤站」完成授权");
+    }
+
+    /// <summary>拉起好友 SSE 实时事件循环（转发为 friends.event 桥接事件）。</summary>
+    private static void StartFriendsEvents(TextWriter writer)
+    {
+        StopFriendsEvents();
+        var cts = new CancellationTokenSource();
+        FriendsEventsCts = cts;
+        _ = Task.Run(() => FriendsEventsLoopAsync(writer, cts.Token));
+    }
+
+    private static void StopFriendsEvents()
+    {
+        var old = Interlocked.Exchange(ref FriendsEventsCts, null);
+        old?.Cancel();
+        old?.Dispose();
+    }
+
+    /// <summary>SSE 长连接循环：断线指数退避（3s 起步，封顶 60s），与 Win FriendsRuntime 同策略。</summary>
+    private static async Task FriendsEventsLoopAsync(TextWriter writer, CancellationToken ct)
+    {
+        var delay = TimeSpan.FromSeconds(3);
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await _friends.StreamEventsAsync(ev =>
+                {
+                    Emit(writer, "friends.event", new { type = ev.Type, data = ev.Data });
+                    return Task.CompletedTask;
+                }, ct);
+                delay = TimeSpan.FromSeconds(3);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("friends", $"事件连接断开：{ex.GetType().Name}: {ex.Message}");
+            }
+
+            try
+            {
+                await Task.Delay(delay, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 60));
+        }
+    }
+
+    /// <summary>按扩展名判定附件类型（与 Win 端 FriendsPage 同口径）。</summary>
+    private static string KindOfFile(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => "image",
+            ".mp4" or ".mkv" or ".mov" or ".avi" or ".webm" or ".flv" => "video",
+            _ => "file",
+        };
     }
 
     private static void WriteLine(TextWriter writer, string line)
