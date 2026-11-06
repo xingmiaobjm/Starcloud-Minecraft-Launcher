@@ -1,4 +1,4 @@
-// 版本行共用辅助（图标解析 / 类型推断 / 时间格式化）：版本页、首页与详情页共用。
+﻿// 版本行共用辅助（图标解析 / 类型推断 / 时间格式化）：版本页、首页与详情页共用。
 //
 // 性能取向：类型的三个问题时（"推断类型标签 / 选加载器图标 / 选版本类型图标"）都落在同一个
 // 版本 JSON 上。这里把"读文件 + 解析"收敛成一次 <see cref="Meta"/> 调用并缓存结果，
@@ -26,8 +26,13 @@ public static class VersionRowHelpers
         ["old_alpha"] = "natural_dirt.png",
     };
 
-    /// <summary>图标解码缓存（同一文件多行复用，避免重复解码）</summary>
+    /// <summary>
+    /// 图标解码缓存（同一文件多行复用，避免重复解码）。
+    /// <para>必须加锁：版本扫描现在跑在后台线程，UI 线程同时在读同一个字典，
+    /// 无锁的 Dictionary 并发写会抛异常或写坏 —— 表现就是图标「偶尔」变成空白。</para>
+    /// </summary>
     private static readonly Dictionary<string, ImageSource?> VersionIconCache = [];
+    private static readonly object IconCacheGate = new();
 
     /// <summary>
     /// 版本类型 → 内置等距方块图标（随输出目录发布于 Assets/MC-Icons）。
@@ -36,9 +41,16 @@ public static class VersionRowHelpers
     public static ImageSource? VersionIcon(string? type)
     {
         var file = VersionIconFiles.GetValueOrDefault(type ?? "", VersionIconFiles["release"]);
-        if (VersionIconCache.TryGetValue(file, out var cached)) return cached;
+        lock (IconCacheGate)
+        {
+            if (VersionIconCache.TryGetValue(file, out var cached)) return cached;
+        }
         var source = ResolveIconSource(BuiltInIconPath(file));
-        VersionIconCache[file] = source;
+        lock (IconCacheGate)
+        {
+            // 缺失（null）不缓存：资源可能在安装/更新后才到位，缓存住 null 就永远补不回来
+            if (source is not null) VersionIconCache[file] = source;
+        }
         return source;
     }
 
@@ -132,15 +144,26 @@ public static class VersionRowHelpers
     public static string DetectVersionType(string dotMc, string versionId) =>
         ReadMeta(dotMc, versionId).Type;
 
-    /// <summary>内置图标文件是否存在（同一文件多行复用，避免每行一次 File.Exists 系统调用）</summary>
+    /// <summary>
+    /// 内置图标文件是否存在（同一文件多行复用，避免每行一次 File.Exists 系统调用）。
+    /// <para>同样要加锁：版本扫描在后台线程，UI 线程同时在读。</para>
+    /// </summary>
     private static readonly Dictionary<string, string?> BuiltInIconPaths = [];
+    private static readonly object IconPathGate = new();
 
     private static string? BuiltInIconPath(string file)
     {
-        if (BuiltInIconPaths.TryGetValue(file, out var cached)) return cached;
+        lock (IconPathGate)
+        {
+            if (BuiltInIconPaths.TryGetValue(file, out var cached)) return cached;
+        }
         var path = Path.Combine(AppContext.BaseDirectory, "Assets", "MC-Icons", file);
         var resolved = File.Exists(path) ? path : null;
-        BuiltInIconPaths[file] = resolved;
+        lock (IconPathGate)
+        {
+            // 缺失不缓存：资源可能随安装 / 更新后才出现，缓存住 null 就永远补不回来
+            if (resolved is not null) BuiltInIconPaths[file] = resolved;
+        }
         return resolved;
     }
 
@@ -162,12 +185,22 @@ public static class VersionRowHelpers
     /// 本地图片路径 → ImageSource。x:Bind 绑定 Image.Source 时，本地绝对路径无法被隐式转换
     /// （XamlBindingHelper.ConvertValue 会抛 ArgumentException 导致整页崩溃），故显式构造。
     /// </summary>
-    public static ImageSource? ResolveIconSource(string? path)
+    /// <summary>
+    /// 加载图标并按需缩解码。<paramref name="decodePixelWidth"/>（逻辑像素）限制解码尺寸：
+    /// 用户自定义图标可能是任意大图（2048px 的 PNG 解码要 16MB 内存），列表行显示只有
+    /// 32-56px——不约束的话每个大图标都全尺寸解码，列表一滚内存和渲染都在白烧。
+    /// 需要更大显示的场景（版本详情页）传更大的值。
+    /// </summary>
+    public static ImageSource? ResolveIconSource(string? path, int decodePixelWidth = 128)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         try
         {
-            return new BitmapImage(new Uri(path));
+            return new BitmapImage(new Uri(path))
+            {
+                DecodePixelWidth = decodePixelWidth,
+                DecodePixelType = DecodePixelType.Logical,
+            };
         }
         catch
         {

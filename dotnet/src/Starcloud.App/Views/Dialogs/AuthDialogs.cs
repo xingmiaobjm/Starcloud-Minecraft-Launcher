@@ -29,13 +29,20 @@ public static class AuthDialogs
     /// 用户取消登录返回 null；无可用账户等错误原样抛出由调用方展示。
     /// </summary>
     public static async Task<ResolvedPlayer?> EnsurePlayableAccountAsync(
-        XamlRoot root, AppServices s, Action<string>? onError = null)
+        XamlRoot root, AppServices s, Action<string>? onError = null, Action<string>? onNotice = null)
     {
         while (true)
         {
             try
             {
-                return await s.LaunchAccount.ResolveAsync();
+                // 默认用主页选定的登录方式；该方式根本没有账户时自动退到可用账户
+                // （联机「开始游戏」这类跨页启动尤其需要：用户可能是从别人房间进游戏，
+                //  主页选的微软方式恰好没加过账户，不该整局启动直接失败）
+                return await s.LaunchAccount.ResolveWithFallbackAsync(note =>
+                {
+                    LauncherLog.Write("auth", note);
+                    onNotice?.Invoke(note);
+                });
             }
             catch (AccountLoginRequiredException ex)
             {
@@ -342,7 +349,7 @@ public static class AuthDialogs
         };
 
         string? loggedInName = null;
-        ContentDialog dlg = null!; // 先声明后赋值：Click 闭包需要引用
+        Views.Dialogs.ThemedDialog dlg = null!; // 先声明后赋值：Click 闭包需要引用
         loginBtn.Click += async (_, _) =>
         {
             errText.Visibility = Visibility.Collapsed;

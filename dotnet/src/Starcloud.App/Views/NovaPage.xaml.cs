@@ -1,6 +1,6 @@
-// Nova 设置页（原聊天区已移除——对话入口在顶栏 NovaOrb 面板 / 底部 NovaBar，共用 NovaRuntime 消息流）：
+﻿// Nova 设置页（原聊天区已移除——对话入口在顶栏 NovaOrb 面板 / 底部 NovaBar，共用 NovaRuntime 消息流）：
 // 账户（登录 / 退出）/ 模型设置（第三方 LLM 添加 + 多模型档案切换）/ 游戏内辅助浮窗 /
-// 游戏记录记忆（战报 / 时刻统计）/ 动手许可层（开启先弹确认）/ 可审计的操作日志 / 能力路线。
+// 游戏记录记忆（战报 / 时刻统计）/ 动手许可层（开启先弹确认）/ 电脑与游戏操控许可。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -29,7 +29,6 @@ public sealed partial class NovaPage : Page
     {
         InitializeComponent();
         // 输入控件 Header 无法用 XAML 附加属性本地化（Loc.Header 仅支持 ToggleSwitch/Expander）→ 在此赋值
-        PwdBox.Header = Loc.T("密码");
         LlmPresetBox.Header = Loc.T("服务商预设");
         LlmBaseUrlBox.Header = Loc.T("接入地址（Base URL，OpenAI 兼容）");
         ProfileNameBox.Header = Loc.T("备注名");
@@ -37,8 +36,8 @@ public sealed partial class NovaPage : Page
         Loaded += OnLoaded;
         Unloaded += (_, _) =>
         {
-            _s.NovaRuntime.LogChanged -= OnLogChanged;
             _s.Recording.StatusChanged -= OnRecordingStatusChanged;
+        _s.Cloud.CheckinChanged -= OnCheckinChanged;
             NovaGatewayClient.QuotaChanged -= OnQuotaChanged;
         };
     }
@@ -46,28 +45,27 @@ public sealed partial class NovaPage : Page
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
     // 确认执行 / 取消 / 授权开关都会写日志 → 日志卡片跟着刷新
-        _s.NovaRuntime.LogChanged += OnLogChanged;
         _s.Recording.StatusChanged += OnRecordingStatusChanged;
+        _s.Cloud.CheckinChanged += OnCheckinChanged;
         NovaGatewayClient.QuotaChanged += OnQuotaChanged; // 任何一次云端调用带回的额度都即时反映到卡片
         UpdateAccountState();
 
         // 许可层开关回显（默认关闭；代码设置期间抑制 Toggled）
         _toggling = true;
         RecordingSwitch.IsOn = _s.NovaPermissions.IsOn(NovaPermissionStore.Recording);
-        OverlaySwitch.IsOn = _s.Settings.NovaOverlayEnabled;
+        SyncPermissionUi(NovaPermissionStore.Computer, ComputerSwitch, ComputerLevelBox);
+        SyncPermissionUi(NovaPermissionStore.GameControl, GameSwitch, GameLevelBox);
         GatewaySwitch.IsOn = _s.Settings.NovaGatewayEnabled;
         _toggling = false;
 
         RefreshProfiles();
         RefreshMemory();
-        RefreshLog();
+        _ = RefreshCheckinAsync();
         RefreshRecording();
 
         // 主题切换后芯片配色要按新主题重取（画刷是查表得来的，不会自己跟着换）
         ActualThemeChanged += (_, _) => ApplyQuota(_quota);
     }
-
-    private void OnLogChanged() => DispatcherQueue.TryEnqueue(RefreshLog);
 
     // ── 账户：登录表单 / 已登录信息切换（登录态变化 → NovaRuntime 清空全局消息流并重新问候） ──
     private void UpdateAccountState()
@@ -76,7 +74,15 @@ public sealed partial class NovaPage : Page
         LoginForm.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
         AccountInfo.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
         if (session is { } s)
+        {
             UserSub.Text = $"{s.UserId} · Key {MaskKey(s.ApiKey)}";
+            var avatar = Views.Shared.RemoteIconHelper.Resolve(session.AvatarUrl);
+            AccountAvatar.Source = avatar;
+            AccountAvatar.Visibility = avatar is null ? Visibility.Collapsed : Visibility.Visible;
+            AccountAvatarText.Visibility = avatar is null ? Visibility.Visible : Visibility.Collapsed;
+            AccountAvatarText.Text = string.IsNullOrWhiteSpace(s.DisplayName)
+                ? "?" : s.DisplayName[..1].ToUpperInvariant();
+        }
         ApplyQuota(_s.Settings.CachedQuota()); // 先显示上次数值，再异步刷新
         MaybeRefreshQuota();
     }
@@ -230,27 +236,10 @@ public sealed partial class NovaPage : Page
 
     private async void Login_Click(object sender, RoutedEventArgs e)
     {
-        var id = IdBox.Text.Trim();
-
-        LoginBtn.IsEnabled = false;
-        LoginProgress.IsActive = true;
-        LoginError.Visibility = Visibility.Collapsed;
-        try
-        {
-            await _s.StarcloudId.LoginAsync(id, PwdBox.Password);
-            UpdateAccountState();
-            _s.NovaRuntime.NotifyLoginChanged();
-        }
-        catch (Exception ex)
-        {
-            LoginError.Text = ex.Message;
-            LoginError.Visibility = Visibility.Visible;
-        }
-        finally
-        {
-            LoginBtn.IsEnabled = true;
-            LoginProgress.IsActive = false;
-        }
+        // 登录表单收口到弹窗（账户页同款）：页内只留引导文案与按钮
+        if (!await Views.Dialogs.StarcloudLoginDialog.ShowAsync(Content.XamlRoot, _s.StarcloudId)) return;
+        UpdateAccountState();
+        _s.NovaRuntime.NotifyLoginChanged();
     }
 
     private async void Logout_Click(object sender, RoutedEventArgs e)
@@ -532,12 +521,63 @@ public sealed partial class NovaPage : Page
         timer.Start();
     }
 
-    // ── 游戏内辅助浮窗（nova_overlay_enabled：默认关 = 开启即显式授权） ──
-    private void Overlay_Toggled(object sender, RoutedEventArgs e)
+    // ── 每日签到：未登录=登录后签到；未签=签到按钮；已签=已签到 ──
+    private bool _checkinPageBusy;
+
+    private async Task RefreshCheckinAsync()
     {
-        if (_toggling) return;
-        _s.Settings.NovaOverlayEnabled = OverlaySwitch.IsOn;
-        _s.Settings.Save();
+        var session = _s.StarcloudId.Current;
+        if (session is null)
+        {
+            CheckinPageBtn.Content = Loc.T("登录后签到");
+            CheckinPageBtn.IsEnabled = false;
+            CheckinPageStatus.Text = Loc.T("登录 Starcloud ID 后可每日签到领 token");
+            return;
+        }
+        if (_checkinPageBusy) return;
+        _checkinPageBusy = true;
+        try
+        {
+            var st = await _s.Cloud.GetCheckinStatusAsync();
+            var signed = st?.SignedToday == true || _s.Cloud.LastCheckinStatus?.SignedToday == true;
+            CheckinPageBtn.Content = signed ? Loc.T("已签到") : Loc.T("签到领 token");
+            CheckinPageBtn.IsEnabled = !signed;
+            CheckinPageStatus.Text = signed
+                ? Loc.T("今日已签到，明天再来")
+                : Loc.T("今天还没签到");
+        }
+        catch (Exception ex)
+        {
+            CheckinPageStatus.Text = Loc.T("签到状态获取失败：{0}", ex.Message);
+        }
+        finally
+        {
+            _checkinPageBusy = false;
+        }
+    }
+
+    private void OnCheckinChanged() => DispatcherQueue.TryEnqueue(() => _ = RefreshCheckinAsync());
+
+    private async void CheckinPageBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_checkinPageBusy || CheckinPageBtn.IsEnabled == false) return;
+        _checkinPageBusy = true;
+        CheckinPageBtn.IsEnabled = false;
+        CheckinPageBtn.Content = Loc.T("签到中…");
+        try
+        {
+            var (ok, message) = await _s.Cloud.CheckInAsync();
+            CheckinPageStatus.Text = message;
+        }
+        catch (Exception ex)
+        {
+            CheckinPageStatus.Text = Loc.T("签到失败：{0}", ex.Message);
+        }
+        finally
+        {
+            _checkinPageBusy = false;
+            _ = RefreshCheckinAsync();
+        }
     }
 
     // ── 游戏记录记忆：战报 / 时刻统计 ──
@@ -580,7 +620,78 @@ public sealed partial class NovaPage : Page
         _toggling = true;
         ts.IsOn = on; // UI 开关同步到已确认状态（还原动作只是等待确认，不代表结果）
         _toggling = false;
-        RefreshLog();
+    }
+
+    /// <summary>两级控件：开关 = 是否授权；下拉 = 授权到哪一档（1..3 → 索引 0..2）。</summary>
+    private ComboBox LevelBoxFor(string key) =>
+        key == NovaPermissionStore.GameControl ? GameLevelBox : ComputerLevelBox;
+
+    private ToggleSwitch SwitchFor(string key) =>
+        key == NovaPermissionStore.GameControl ? GameSwitch : ComputerSwitch;
+
+    private void SyncPermissionUi(string key, ToggleSwitch toggle, ComboBox box)
+    {
+        var level = _s.NovaPermissions.Level(key);
+        _toggling = true;
+        toggle.IsOn = level >= NovaPermissionLevel.Confirm;
+        // 未授权时下拉停在上次用的档位（没有记录就落在"变更前确认"）
+        box.SelectedIndex = Math.Clamp((int)level - 1, 0, 2);
+        box.IsEnabled = toggle.IsOn;
+        _toggling = false;
+    }
+
+    /// <summary>当前下拉选的是哪一档（取不到就当"变更前确认"）。</summary>
+    private static NovaPermissionLevel SelectedLevel(ComboBox box) =>
+        box.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var i)
+            ? (NovaPermissionLevel)Math.Clamp(i, 1, 3)
+            : NovaPermissionLevel.Confirm;
+
+    // ── 分级授权（操控电脑 / 临时接管游戏）：变更前确认 / 自主模式 / 完全访问 ──
+    private async void PermissionLevel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_toggling || sender is not ComboBox { Tag: string key } box) return;
+        // 开关没开时下拉不参与（IsEnabled=false，这里再挡一层）
+        if (!SwitchFor(key).IsOn) return;
+
+        var level = SelectedLevel(box);
+        var old = (int)_s.NovaPermissions.Level(key);
+        if ((int)level == old) return;
+
+        // 从"确认"起步的档位都要先说清楚后果；关闭不需要确认
+        if (level >= NovaPermissionLevel.Confirm)
+        {
+            var (title, boundary) = NovaPermissionStore.Describe(key);
+            var risk = level switch
+            {
+                NovaPermissionLevel.Auto =>
+                    "自主模式：我动手时不再逐条问你，会直接执行（仍受代码里的硬边界限制）。",
+                NovaPermissionLevel.Full =>
+                    "完全访问：不再逐条确认，并且放开路径白名单（可以打开任意本地文件/程序）。",
+                _ =>
+                    "变更前确认：每次动手前都先列出清单，你点头之后才执行。",
+            };
+            var dlg = new ThemedDialog
+            {
+                Title = Loc.T("把「{0}」设为「{1}」", title, NovaPermissionStore.LevelText(level)),
+                Content = risk + "\n\n边界：" + boundary,
+                PrimaryButtonText = Loc.T("授权"),
+                CloseButtonText = Loc.T("取消"),
+                // 自主/完全访问默认落在"取消"上：手滑回车不会直接放开
+                DefaultButton = level >= NovaPermissionLevel.Auto
+                    ? ContentDialogButton.Close
+                    : ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot,
+            };
+            if (await dlg.ShowAsync() != ContentDialogResult.Primary)
+            {
+                _toggling = true;
+                box.SelectedIndex = old;
+                _toggling = false;
+                return;
+            }
+        }
+
+        await _s.NovaPermissions.SetLevelAsync(key, level, _s.NovaLog);
     }
 
     // ── 录屏：许可开关 + 手动起停 + 状态播报 ──
@@ -615,11 +726,10 @@ public sealed partial class NovaPage : Page
             RecordingStatusText.Text = path.Length > 0
                 ? Loc.T("已停止，录像已保存：{0}", path)
                 : Loc.T("已停止。");
-            RefreshLog();
-            return;
+                return;
         }
 
-        if (_s.Recording.StartManual(out var message)) RefreshLog();
+        if (_s.Recording.StartManual(out var message)) { /* 已起录 */ }
         RecordingStatusText.Text = message;
         RefreshRecording();
     }
@@ -640,30 +750,6 @@ public sealed partial class NovaPage : Page
         {
             RecordingStatusText.Text = Loc.T("打开录像目录失败：{0}", ex.Message);
         }
-    }
-
-    // ── 操作日志 ──
-    private void RefreshLog()
-    {
-        var entries = _s.NovaLog.Entries.Take(10).ToList();
-        LogList.ItemsSource = entries;
-        LogEmptyText.Visibility = entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private async void ClearLog_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new ThemedDialog
-        {
-            Title = "清空操作日志",
-            Content = "日志记录 Nova 执行过的每一步操作，清空后不可恢复，确定吗？",
-            PrimaryButtonText = "清空",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = Content.XamlRoot,
-        };
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
-        _s.NovaLog.Clear();
-        RefreshLog();
     }
 
     private static string MaskKey(string key) =>

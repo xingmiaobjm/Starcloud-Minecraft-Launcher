@@ -22,8 +22,18 @@ public sealed class PreflightReport
     /// <summary>官方清单里该版本 JSON 的下载地址（vanilla 可自动恢复；Fabric 类为 null）</summary>
     public string? ManifestJsonUrl { get; internal set; }
 
+    /// <summary>
+    /// 版本 JSON 自身完好、但 inheritsFrom 链上缺了这个父版本（整合包实例常见：
+    /// 包声明继承某个加载器/原版，而那一条没装上）。
+    /// 与「自身缺失/损坏」是两回事，修复方式也不同（装父版本即可）。
+    /// </summary>
+    public string? MissingParentVersion { get; internal set; }
+
     public bool NeedsRepair => Issues.Count > 0 || VersionJsonBroken;
     public bool CanAutoRestoreJson => VersionJsonBroken && ManifestJsonUrl is not null;
+
+    /// <summary>能否靠官方清单自动补上缺失的父版本（父版本是原版时才可能）</summary>
+    public bool CanAutoInstallParent => MissingParentVersion is not null;
 }
 
 /// <summary>补全失败：个别文件重试穷尽后仍缺失或校验不通过</summary>
@@ -47,6 +57,48 @@ public sealed class LaunchPreflightService
         _manifest = manifest;
     }
 
+    /// <summary>
+    /// 沿 inheritsFrom 链找出第一个**缺失/读不出**的祖先版本 id。
+    /// 自身 JSON 读不出来时返回 null（那是自身的问题，不是父版本）；
+    /// 自身能读、但父链断了则返回断点 id。
+    /// </summary>
+    private async Task<string?> FindMissingParentAsync(string dotMinecraft, string versionId,
+        CancellationToken ct)
+    {
+        try
+        {
+            var selfPath = _installer.VersionJsonPath(dotMinecraft, versionId);
+            if (!File.Exists(selfPath)) return null;   // 自身丢了：不是父版本问题
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { versionId };
+            var current = versionId;
+            for (var depth = 0; depth < 8; depth++)
+            {
+                MinecraftVersion parsed;
+                try
+                {
+                    var json = await File.ReadAllTextAsync(
+                        _installer.VersionJsonPath(dotMinecraft, current), ct);
+                    parsed = System.Text.Json.JsonSerializer.Deserialize<MinecraftVersion>(json)!;
+                }
+                catch
+                {
+                    return current;   // 链上这一环读不出来
+                }
+                if (string.IsNullOrEmpty(parsed.InheritsFrom)) return null;
+                if (!seen.Add(parsed.InheritsFrom)) return null;   // 循环继承：交给上层报损坏
+                if (!File.Exists(_installer.VersionJsonPath(dotMinecraft, parsed.InheritsFrom)))
+                    return parsed.InheritsFrom;
+                current = parsed.InheritsFrom;
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>启动前完整性检查（只查不动）。版本 JSON 缺失/损坏时其余项无法检查，直接返回。</summary>
     public async Task<PreflightReport> CheckAsync(string dotMinecraft, string versionId,
         CancellationToken ct = default)
@@ -63,21 +115,29 @@ public sealed class LaunchPreflightService
                 or JsonException or InvalidOperationException)
         {
             report.VersionJsonBroken = true;
-            try
+            // 先分清是哪一环坏了：自身 JSON 缺失/损坏 vs inheritsFrom 上的父版本没装。
+            // 两者都表现为 LoadVersionAsync 抛异常，但对用户是完全不同的处理
+            // （前者重装本版本，后者只需装父版本）——笼统说"JSON 损坏"会把人带偏。
+            report.MissingParentVersion = await FindMissingParentAsync(dotMinecraft, versionId, ct);
+            if (report.MissingParentVersion is null)
             {
-                var manifest = await _manifest.GetManifestAsync(forceRefresh: false, ct);
-                report.ManifestJsonUrl =
-                    manifest.Versions.FirstOrDefault(v => v.Id == versionId)?.Url;
-            }
-            catch
-            {
-                /* 断网且无缓存：无法自动恢复 */
+                try
+                {
+                    var manifest = await _manifest.GetManifestAsync(forceRefresh: false, ct);
+                    report.ManifestJsonUrl =
+                        manifest.Versions.FirstOrDefault(v => v.Id == versionId)?.Url;
+                }
+                catch
+                {
+                    /* 断网且无缓存：无法自动恢复 */
+                }
             }
             return report;
         }
 
         // 客户端 jar
         if (version.Downloads?.Client is { Url: not "" } client)
+
         {
             // 与启动器同口径：实例目录同名 jar 优先，其次目录内客户端 jar、JSON id 兜底
             var jarPath = GameLauncher.ResolveClientJar(dotMinecraft, versionId, version.Id);

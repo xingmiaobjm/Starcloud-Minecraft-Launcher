@@ -117,6 +117,9 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
 
         progress?.Report(new MultiplayerProgress("下载联机核心", 0, null));
         Exception? last = null;
+        // 每个源的失败原因都留着：只报最后一个的话，排查时分不清是网络不通还是
+        // 源返回了登录页/错误页（两种表现都只是"失败"两个字）
+        var failures = new List<string>();
         foreach (var url in urls)
         {
             try
@@ -124,6 +127,10 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
                 // 下载期间按文件大小轮询上报进度与瞬时速度（DownloadService 只负责把文件拿到手）
                 using var reporter = new SizeReporter(pkg, "下载联机核心", progress);
                 await _download.DownloadFileAsync(url, pkg, ct: ct);
+
+                // 内容校验：Gitee/GitHub 在限流或要求登录时会返回 200 的 HTML 页面，
+                // 直接当核心包解压会抛一句看不懂的 gzip 错误。这里先看包魔数。
+                EnsurePackageLooksValid(pkg);
                 last = null;
                 break;
             }
@@ -134,16 +141,35 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
             catch (Exception ex)
             {
                 last = ex;
+                failures.Add($"{ShortHost(url)}：{ex.Message}");
                 LauncherLog.Write("multiplayer", $"{_p.Id} 下载失败（换下一个源）：{url} → {ex.Message}");
                 TryDelete(pkg);
             }
         }
         if (last is not null)
-            throw new InvalidOperationException($"下载联机核心失败：{last.Message}", last);
+            throw new InvalidOperationException(
+                $"下载联机核心失败（{failures.Count} 个源都不可用）：{string.Join("；", failures)}", last);
 
         progress?.Report(new MultiplayerProgress("解压联机核心", 0, null));
-        // 解压前清空旧核心：避免上一次安装残留的 DLL 干扰新核心
-        if (Directory.Exists(CoreDir)) Directory.Delete(CoreDir, recursive: true);
+        // 解压前清空旧核心：避免上一次安装残留的 DLL 干扰新核心。
+        // 核心进程还在跑 / 被杀软锁定时删除会抛「访问被拒绝」——先把进程结束掉再删，
+        // 仍失败就给可执行的指引（而不是丢一句 UnauthorizedAccessException）
+        if (Directory.Exists(CoreDir))
+        {
+            KillCoreProcesses();
+            try
+            {
+                Directory.Delete(CoreDir, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LauncherLog.Write("multiplayer", $"{_p.Id} 清理旧核心失败：{ex.Message}");
+                throw new InvalidOperationException(
+                    $"无法写入联机核心目录：{CoreDir}（{ex.Message}）。"
+                    + "核心进程可能仍在运行，或被安全软件占用——请关掉正在进行的联机/结束 terracotta 进程后重试，"
+                    + "或把该目录加入安全软件白名单。", ex);
+            }
+        }
         Directory.CreateDirectory(CoreDir);
 
         await Task.Run(() =>
@@ -193,6 +219,40 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
             return false;
         }
     }
+
+    /// <summary>
+    /// 校验下载到的确实是核心包（按压缩格式看魔数）。
+    /// 镜像站限流/要求登录时常见「HTTP 200 + HTML 登录页」，不拦截的话
+    /// 用户看到的会是 "The archive entry was compressed using an unsupported
+    /// compression method" 这种无从下手的错误。
+    /// </summary>
+    private void EnsurePackageLooksValid(string pkg)
+    {
+        var head = new byte[4];
+        int read;
+        using (var fs = File.OpenRead(pkg)) read = fs.Read(head, 0, head.Length);
+        if (read < 2) throw new InvalidOperationException("下载到的文件是空的");
+
+        bool ok = _p.ArchiveKind.ToLowerInvariant() switch
+        {
+            // gzip: 1F 8B
+            "tar.gz" or "tgz" => head[0] == 0x1F && head[1] == 0x8B,
+            // zip / jar: PK
+            "zip" or "jar" => head[0] == 0x50 && head[1] == 0x4B,
+            _ => true,   // 未知格式不做判断，交给解压阶段
+        };
+        if (!ok)
+        {
+            var looksHtml = read >= 1 && (head[0] == (byte)'<' || head[0] == (byte)'{');
+            throw new InvalidOperationException(looksHtml
+                ? "下载源返回了网页而不是核心包（可能需要登录或被限流）"
+                : "下载到的文件不是有效的核心包（可能下载中断）");
+        }
+    }
+
+    /// <summary>日志里的源标识：只留主机名，避免把整条长 URL 写进提示</summary>
+    private static string ShortHost(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
 
     /// <summary>按压缩包类型解压；逐条目校验路径，拒绝绝对路径与 <c>..</c> 穿越</summary>
     private void Extract(string pkg, string destDir)
@@ -350,7 +410,18 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"启动联机核心失败：{ex.Message}", ex);
+                // 「拒绝访问」几乎都是安全软件（Defender / 360 / 火绒）拦了 P2P 类程序，
+                // 或 exe 被杀软隔离：光报 ex.Message 用户完全不知道该干什么。
+                var denied = ex is UnauthorizedAccessException
+                    || (ex is System.ComponentModel.Win32Exception w32 && w32.NativeErrorCode == 5)
+                    || ex.Message.Contains("denied", StringComparison.OrdinalIgnoreCase)
+                    || ex.Message.Contains("拒绝", StringComparison.Ordinal);
+                LauncherLog.Write("multiplayer", $"{_p.Id} 启动核心失败：{ExecutablePath} → {ex}");
+                throw new InvalidOperationException(denied
+                    ? $"联机核心被阻止启动（访问被拒绝）：{ExecutablePath}。"
+                      + "通常是安全软件（Windows  Defender / 360 / 火绒）拦截了 P2P 程序——"
+                      + "请把该文件或整个目录加入白名单后重试；若文件已被隔离，请先「重装联机核心」。"
+                    : $"启动联机核心失败：{ex.Message}（路径 {ExecutablePath}）", ex);
             }
 
             var deadline = DateTimeOffset.Now.AddSeconds(Math.Max(5, _p.StartTimeoutSeconds));
@@ -436,21 +507,147 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
         TryDelete(PortFilePath);
     }
 
+    /// <summary>急停：优雅关闭 → 仍存活就强杀核心进程 → 清端口记录。杀不掉抛异常。</summary>
+    public async Task EmergencyStopAsync(CancellationToken ct)
+    {
+        var port = _port != 0 ? _port : TryReadPortFile() ?? 0;
+        // 1) 优雅关闭先试一次：核心自己收尾虚拟网卡最干净；挂死/无响应由下一步兜底
+        if (port != 0)
+        {
+            try { await TryGetAsync(Api(port, _p.IdlePath), ct); } catch { /* 挂死就走强杀 */ }
+            if (!string.IsNullOrEmpty(_p.ShutdownPath))
+            {
+                try { await TryGetAsync(Api(port, _p.ShutdownPath), ct); } catch { /* 同上 */ }
+            }
+        }
+
+        // 2) 进程兜底：按核心可执行文件名找进程强杀（核心名唯一，无同名误伤风险；
+        //    核心自提权后 Kill 可能拒绝访问 —— 那就报错让用户知道要手动处理）
+        var killed = KillCoreProcesses();
+
+        // 3) 状态清零 + 确认真的死了
+        _port = 0;
+        _ownSession = false;
+        TryDelete(PortFilePath);
+        if (port != 0 && await PingAsync(port, CancellationToken.None))
+        {
+            throw new InvalidOperationException(killed
+                ? "联机核心仍在响应（可能以管理员权限运行），请手动结束它"
+                : "联机核心进程无法结束（可能以管理员权限运行），请手动结束它");
+        }
+        LauncherLog.Write("multiplayer", $"{_p.Id} 急停完成（强杀 {killed} 个进程）");
+    }
+
+    /// <summary>
+    /// 结束所有核心进程（按可执行文件名匹配），返回是否杀掉过。
+    /// 重装核心前清目录、急停、异常态复位都靠它——核心进程活着时目录删不掉。
+    /// </summary>
+    private bool KillCoreProcesses()
+    {
+        var killed = false;
+        var name = Path.GetFileNameWithoutExtension(ExecutablePath);
+        foreach (var proc in Process.GetProcessesByName(name))
+        {
+            try
+            {
+                proc.Kill(entireProcessTree: true);
+                killed = true;
+            }
+            catch (Exception ex)
+            {
+                // 以管理员权限运行时 Kill 会被拒绝：记日志，交给调用方给用户提示
+                LauncherLog.Write("multiplayer", $"{_p.Id} 进程 {proc.Id} 结束失败（{ex.Message}）");
+            }
+            finally
+            {
+                try { proc.Dispose(); } catch { }
+            }
+        }
+        if (killed) LauncherLog.Write("multiplayer", $"{_p.Id} 已结束残留核心进程");
+        return killed;
+    }
+
     public async Task IdleAsync(CancellationToken ct)
     {
         var port = await RequirePortAsync(ct);
         await TryGetAsync(Api(port, _p.IdlePath), ct);
     }
 
-    public Task HostAsync(string? player, IReadOnlyList<string> nodes, CancellationToken ct) =>
-        SendAsync(_p.HostPath, player, room: null, nodes, ct);
+    public async Task HostAsync(string? player, IReadOnlyList<string> nodes, CancellationToken ct)
+    {
+        await ResetIfRoleBusyAsync(switchingToHost: true, ct);
+        await SendAsync(_p.HostPath, player, room: null, nodes, ct);
+    }
 
-    public Task JoinAsync(string room, string? player, IReadOnlyList<string> nodes, CancellationToken ct) =>
-        SendAsync(_p.JoinPath, player, room, nodes, ct);
+    public async Task JoinAsync(string room, string? player, IReadOnlyList<string> nodes, CancellationToken ct)
+    {
+        await ResetIfRoleBusyAsync(switchingToHost: false, ct);
+        await SendAsync(_p.JoinPath, player, room, nodes, ct);
+    }
+
+    /// <summary>
+    /// 切角色前复位：核心只在 waiting 接受 host/guesting 命令，已处于另一端角色或
+    /// 异常态时直接发会被拒（实测 400 Bad Request，响应体是框架的 HTML 错误页）。
+    /// 这里先回空闲再发；复位失败不阻断（让 SendAsync 去报真实错误）。
+    /// </summary>
+    private async Task ResetIfRoleBusyAsync(bool switchingToHost, CancellationToken ct)
+    {
+        try
+        {
+            var state = await FetchStateAsync(ct);
+            var mustReset = state.Phase switch
+            {
+                MultiplayerPhase.Idle => false,
+                MultiplayerPhase.HostScanning or MultiplayerPhase.HostStarting or MultiplayerPhase.HostReady
+                    => !switchingToHost,      // 房主角色要切去当玩家：先复位
+                MultiplayerPhase.GuestConnecting or MultiplayerPhase.GuestEntering or MultiplayerPhase.GuestReady
+                    => switchingToHost,       // 玩家角色要切去开房：先复位
+                _ => true,                    // Failed 等异常态：一律复位
+            };
+            if (!mustReset) return;
+            LauncherLog.Write("multiplayer",
+                $"{_p.Id} 核心当前 {state.Phase}，切角色前先回空闲");
+            await IdleAsync(ct);
+            await Task.Delay(300, ct);   // 给核心一点时间落状态
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("multiplayer", $"{_p.Id} 切角色前复位失败（继续尝试）：{ex.Message}");
+        }
+    }
 
     /// <summary>把「玩家名 / 房间号 / 公共节点」拼成查询参数后调用控制面</summary>
     private async Task SendAsync(string path, string? player, string? room, IReadOnlyList<string> nodes,
         CancellationToken ct)
+    {
+        var (status, body) = await SendOnceAsync(path, player, room, nodes, ct);
+        if ((int)status == 400)
+        {
+            // 400 基本都是「核心当前状态不接受该角色切换」（profile 被上一次 host/guest 占用）：
+            // 回空闲再来一次，成了就继续，别让用户看到一个框架的 HTML 错误页
+            LauncherLog.Write("multiplayer",
+                $"{_p.Id} 请求 {path} 返回 400，复位核心后重试一次");
+            await IdleAsync(ct);
+            await Task.Delay(400, ct);
+            (status, body) = await SendOnceAsync(path, player, room, nodes, ct);
+            if ((int)status is >= 200 and < 300)
+            {
+                LauncherLog.Write("multiplayer", $"{_p.Id} 复位后重试成功");
+                return;
+            }
+        }
+        if ((int)status is >= 200 and < 300) return;
+
+        LauncherLog.Write("multiplayer",
+            $"{_p.Id} 核心请求失败 {(int)status}：{path} → {(body.Length > 0 ? body : "(无响应体)")}");
+        throw new InvalidOperationException(
+            $"联机核心返回 HTTP {(int)status}" + (body.Length > 0 ? $"：{body}" : ""));
+    }
+
+    /// <summary>发一次控制面请求，返回状态码与响应体（不抛 HTTP 错误）</summary>
+    private async Task<(System.Net.HttpStatusCode Status, string Body)> SendOnceAsync(
+        string path, string? player, string? room, IReadOnlyList<string> nodes, CancellationToken ct)
     {
         var port = await RequirePortAsync(ct);
         var sb = new StringBuilder(Api(port, path));
@@ -466,12 +663,22 @@ public sealed class ProtocolMultiplayerProvider : IMultiplayerProvider
             sep = '&';
         }
         if (!string.IsNullOrEmpty(_p.NodesQueryKey))
+        {
             foreach (var node in nodes)
+            {
                 sb.Append(sep).Append(_p.NodesQueryKey).Append('=').Append(Uri.EscapeDataString(node));
+                // 必须更新分隔符：多个节点时只用第一个带 '?'，否则拼出
+                // "...?public_nodes=a?public_nodes=b"，核心直接回 400（实测踩过）
+                sep = '&';
+            }
+        }
 
         using var resp = await _http.GetAsync(sb.ToString(), ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"联机核心返回 HTTP {(int)resp.StatusCode}");
+        // 400 这类错误核心会在响应体里说明哪不对，带上才不会只能靠猜
+        var body = "";
+        try { body = (await resp.Content.ReadAsStringAsync(ct)).Trim(); } catch { }
+        if (body.Length > 300) body = body[..300];
+        return (resp.StatusCode, body);
     }
 
     public async Task<MultiplayerState> FetchStateAsync(CancellationToken ct)

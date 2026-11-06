@@ -98,6 +98,14 @@ public sealed record FriendMessage(
     [property: JsonPropertyName("read_at")] string? ReadAt);
 
 /// <summary>聊天附件：消息文本 = 前缀 + 这个结构的 JSON（走现有消息通道，后端只管文件存取）</summary>
+/// <summary>房卡（联机邀请）载荷：房间码 + 展示用的元信息</summary>
+public sealed record RoomInvitePayload(
+    [property: System.Text.Json.Serialization.JsonPropertyName("code")] string Code,
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")] string? Name = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("mc")] string? McVersion = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("loader")] string? Loader = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("owner")] string? Owner = null);
+
 public sealed record FileAttachment(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("size")] long Size,
@@ -319,6 +327,29 @@ public sealed class FriendsService
 
     /// <summary>附件消息的内容前缀：前端据此把气泡渲染成文件卡片。</summary>
     public const string FileMessagePrefix = "[文件]";
+    /// <summary>房卡（联机邀请）消息前缀：气泡渲染成邀请卡片，点「加入房间」直接进房。</summary>
+    public const string RoomInviteMessagePrefix = "[联机邀请]";
+
+    /// <summary>把当前房间编码成一条聊天消息（后端只当文本存，不涉及房间状态）。</summary>
+    public static string EncodeRoomInviteMessage(string code, string? name, string? mc,
+        string? loader, string? owner) =>
+        RoomInviteMessagePrefix + JsonSerializer.Serialize(
+            new { code, name, mc, loader, owner }, JsonOpts);
+
+    public static RoomInvitePayload? TryParseRoomInviteMessage(string? content)
+    {
+        if (content is null || !content.StartsWith(RoomInviteMessagePrefix, StringComparison.Ordinal))
+            return null;
+        try
+        {
+            var payload = JsonSerializer.Deserialize<RoomInvitePayload>(
+                content[RoomInviteMessagePrefix.Length..], JsonOpts);
+            return payload is { Code.Length: > 0 } ? payload : null;
+        }
+        catch { return null; }
+    }
+
+
 
     /// <summary>把附件编码成一条聊天消息文本（走现有消息通道，后端只管文件存取）。</summary>
     public static string EncodeFileMessage(string name, long size, string kind, string id) =>

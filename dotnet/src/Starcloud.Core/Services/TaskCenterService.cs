@@ -154,15 +154,20 @@ public sealed class TaskCenterService
     // ── 下载聚合（常驻「资源下载」任务：任意下载活动期间显示总速度） ──
 
     private AppTask? _downloadTask;
-    private long _emaSpeed;                 // 指数滑动平均速度（字节/秒）
-    private long _lastTick;
+    private double _emaSpeed;                // 指数滑动平均速度（字节/秒）
+    private long _windowBytes;               // 当前采样窗口内累计的字节
+    private long _windowStart;               // 当前采样窗口的起点（TickCount64）
     private int _active;                    // 活动下载计数（>0 期间任务保持 Running）
     private int _closeLoop;                 // 收尾循环单飞标志（1 = 已在跑）
 
     /// <summary>下载字节上报（DownloadService 各路径调用，n 为本次增量字节）。
     /// 首次调用自动登记常驻任务；活动结束约 3 秒后自动完成。
     /// <para>调用方已按 10 Hz 聚合上报，这里不再做逐次去抖；收尾循环是单飞的
-    /// （原来每次上报都 `_ = CloseWhenIdleAsync()`，满速下载时每秒几百个睡眠任务）。</para></summary>
+    /// （原来每次上报都 `_ = CloseWhenIdleAsync()`，满速下载时每秒几百个睡眠任务）。</para>
+    /// <para>速度按「固定采样窗口」结算，而不是按「距上次任意上报的间隔」：
+    /// 多个下载线程的窗口边界天然对齐，第 1 个上报时 dt≈100 ms（算得对），
+    /// 紧接着其余几个 dt≈0 ms 而字节数仍是完整窗口的量 → 瞬时速度被放大十倍上百倍，
+    /// 面板上就表现为速度疯狂跳动。改成固定窗口后，读数才是真实吞吐。</para></summary>
     public void ReportDownloadBytes(long n)
     {
         if (n <= 0) return;
@@ -172,18 +177,30 @@ public sealed class TaskCenterService
             _downloadTask ??= BeginUnsafe("资源下载");
             task = _downloadTask;
             Volatile.Write(ref _active, Volatile.Read(ref _active) + 1);
+
             var now = Environment.TickCount64;
-            if (_lastTick > 0)
+            if (_windowStart == 0)
             {
-                var dt = now - _lastTick;
-                if (dt > 0)
-                {
-                    var inst = n * 1000 / dt;
-                    _emaSpeed = _emaSpeed == 0 ? inst : (_emaSpeed * 3 + inst) / 4;
-                }
+                _windowStart = now;
+                _windowBytes = 0;
             }
-            _lastTick = now;
-            task.Detail = FormatSpeed(_emaSpeed);
+            _windowBytes += n;
+
+            // 采样窗口到 200 ms 结算一次：用「窗口字节 ÷ 窗口时长」得到这段时间的真实吞吐
+            var windowMs = now - _windowStart;
+            if (windowMs >= 200)
+            {
+                var inst = _windowBytes * 1000.0 / windowMs;
+                _emaSpeed = _emaSpeed <= 0 ? inst : (_emaSpeed * 3 + inst) / 4;
+                _windowStart = now;
+                _windowBytes = 0;
+                task.Detail = FormatSpeed(_emaSpeed);
+            }
+            else if (_emaSpeed > 0)
+            {
+                // 窗口内沿用上一轮的值，只更新显示
+                task.Detail = FormatSpeed(_emaSpeed);
+            }
         }
         Changed?.Invoke();
         EnsureCloseLoop();
@@ -219,7 +236,8 @@ public sealed class TaskCenterService
                     if (_downloadTask is null) return;  // 已被清空：收工
                     task = _downloadTask;
                     _downloadTask = null;
-                    _lastTick = 0;
+                    _windowStart = 0;
+                    _windowBytes = 0;
                     _emaSpeed = 0;
                 }
                 Finish(task, AppTaskState.Completed, "下载完成");
@@ -354,12 +372,12 @@ public sealed class TaskCenterService
             : $"已下载 {done / 1048576.0:F1} MB";
     }
 
-    internal static string FormatSpeed(long bytesPerSec) => bytesPerSec switch
+    internal static string FormatSpeed(double bytesPerSec) => bytesPerSec switch
     {
         >= 1L << 30 => $"{bytesPerSec / (double)(1L << 30):F1} GB/s",
         >= 1 << 20 => $"{bytesPerSec / 1048576.0:F1} MB/s",
         >= 1024 => $"{bytesPerSec / 1024.0:F0} KB/s",
-        > 0 => $"{bytesPerSec} B/s",
+        > 0 => $"{bytesPerSec:F0} B/s",
         _ => "连接中…",
     };
 }

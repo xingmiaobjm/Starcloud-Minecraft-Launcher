@@ -1,4 +1,4 @@
-// 主窗口：Acrylic 毛玻璃背景（自定义透明度）+ NavigationView 导航
+﻿// 主窗口：Acrylic 毛玻璃背景（自定义透明度）+ NavigationView 导航
 
 using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -8,13 +8,15 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using System.Runtime.InteropServices;
+using Microsoft.UI.Input;
+using Starcloud.Core.Services;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
 using Starcloud.App.Views;
 using Starcloud.App.Views.Shared;
 using Starcloud.Core.Plugins;
-using Starcloud.Core.Services;
 using Windows.Graphics;
 using Windows.UI;
 
@@ -108,7 +110,11 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        var perf = System.Diagnostics.Stopwatch.StartNew();
+        void Mark(string phase) =>
+            LauncherLog.Write("perf", $"MainWindow.{phase} {perf.ElapsedMilliseconds}ms");
         InitializeComponent();
+        Mark("xaml");
 
         // 任务历史只保留本次会话：启动时清空调度中心（任务列表纯内存，无跨启动持久化）
         Starcloud.Core.Services.TaskCenterService.Instance.ClearAll();
@@ -116,19 +122,28 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        // 窗口按钮改为自绘（见 MainWindow.xaml）：隐藏系统 caption，保留边框（拖拽缩放仍可用），
-        // 顶栏 AppTitleBar 依旧是拖拽区（ExtendsContentIntoTitleBar 已开启）。
+        // 窗口按钮改为自绘（见 MainWindow.xaml）：隐藏系统 caption，保留边框（阴影/圆角）。
+        // 尺寸锁定：启动器是固定版式（16:10），拖边缩放会让各页的双栏/固定列被挤坏，
+        // 因此不允许拉伸、不允许最大化；顶栏的最大化按钮在 XAML 里直接隐藏。
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(true, false);
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            // IsMaximizable 挡不住标题栏双击 / 拖顶 / Win+Up 的最大化（系统 caption 行为），
+            // 用 WndProc 子类化硬吞最大化消息（见 MaximizeBlocker_WndProc）
             // 窗口尺寸下限：首页是「左版本库 + 右 360px 启动卡」的双栏，再窄右侧卡片就会把
             // 版本列表挤到只剩几个字；版本页的行又是固定列结构（图标 / 260px 名称列 / 芯片 / 数据列），
             // 同样需要一个下限才能保证每一列都读得出来。
             presenter.PreferredMinimumWidth = 900;
             presenter.PreferredMinimumHeight = 620;
         }
-        // 首次出现时居中到当前显示器工作区：系统默认把窗口摆在左上角，观感像没做完的工具
+        // 首次出现时定尺寸并居中到当前显示器工作区：系统默认把窗口摆在左上角，
+        // 观感像没做完的工具
         Activated += CenterOnFirstActivate;
+        // 不能只依赖 Activated：窗口在后台创建时首帧激活可能迟迟不来（被前台窗口挡住），
+        // 那样用户第一眼看到的还是系统默认的 1280×800。这里先设一次，激活时再确认。
+        ApplyInitialWindowSize();
         // 亚克力背景延后到首次激活再挂：构造函数里赋值时 XamlRoot 还没就绪，
         // 框架会立刻回调 OnDefaultSystemBackdropConfigurationChanged 并抛 ArgumentException
         // （0xc000027b，能绕过托管 UnhandledException 直接终止进程）。
@@ -153,6 +168,7 @@ public sealed partial class MainWindow : Window
             if (++_themePollTick % 8 == 0) UpdateTaskbarIcon();
         };
         _taskRefresh.Start();
+        Mark("timers");
 
         // 图标按 AppContext.BaseDirectory 解析：相对路径会跟随快捷方式的「起始位置」，从开始菜单启动时可能落空。
         // 任务栏底色跟随【系统】主题（与应用内主题设置无关）：深色任务栏用浅色底板图标，否则墨线直接隐形。
@@ -169,10 +185,42 @@ public sealed partial class MainWindow : Window
         if (meta >= 0) rawVer = rawVer[..meta];
         VersionBadgeText.Text = Loc.T("开发版 V{0}", rawVer);
 
+        // 硬禁最大化：标题栏双击 / 拖顶 / Win+Up 全部吞掉（窗口 16:10 锁尺寸的一部分）
+        _maxBlockWndProc = MaximizeBlocker_WndProc;
+        var hwndMain = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        SetWindowSubclass(hwndMain, _maxBlockWndProc, 1u, IntPtr.Zero);
+
         // Nova 内嵌（NOVA_INTEGRATION.md 五入口）：顶栏 Orb 随全局状态机联动
         var rt = AppServices.Instance.NovaRuntime;
         rt.StateChanged += OnNovaStateChanged;
+        // 双击左上角品牌区：复制诊断信息（日志 + 电脑信息），反馈问题时用
+        BrandHotspot.PointerPressed += BrandHotspot_Pressed;
+
         rt.OverlayToast += OnOverlayToast; // 浮窗一句话提醒 → TeachingTip（nova-overlay-plan.md T7）
+
+        // 游戏结束问一句「是否关闭联机房间」：全局弹窗（与更新提示同级），
+        // 不依赖联机页是否打开 —— 玩家常常游戏结束后停在主页。
+        AppServices.Instance.RoomRuntime.AskGameExit = () =>
+        {
+            var tcs = new TaskCompletionSource<Services.RoomRuntime.GameExitChoice>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    tcs.TrySetResult(await Views.Dialogs.GameExitDialog.AskAsync(Content.XamlRoot));
+                }
+                catch
+                {
+                    tcs.TrySetResult(Services.RoomRuntime.GameExitChoice.After120);
+                }
+            });
+            return tcs.Task;
+        };
+
+        // 每日签到：登录且今天没签 → 账户头像下弹签到卡（只弹一次）
+        // 二分试验：禁用签到弹窗
+        // _ = ShowCheckinTipIfUnsignedAsync();
         NovaGatewayClient.QuotaChanged += OnQuotaChanged; // 云端额度变动 → 面板标头那一行
         _toastResetTimer.IsRepeating = false;
         _toastResetTimer.Tick += (_, _) =>
@@ -182,12 +230,15 @@ public sealed partial class MainWindow : Window
         };
         NovaToastTip.Target = NovaOrb;
         ApplyNovaState(rt.State);
+        Mark("nova-state");
         RefreshAccountButton();
         Activated += (_, _) => RefreshAccountButton();
 
         // 导航项在 Loaded 时按贡献点生成；选中项由 BuildNavFromContributions 落第一项。
-        // 首屏直接进首页（页面类型同样来自贡献点，这里保留常量只为启动即有内容）。
-        ContentFrame.Navigate(ResolvePageType("home"), null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
+        // 首屏进首页（页面类型同样来自贡献点，这里保留常量只为启动即有内容）。
+        // 注意：ContentFrame.Navigate 是同步构造目标页的 —— 首页 XAML 有近千行，
+        // 在构造函数里导航就等于「窗口显示前把整页建完」。这里先占位，
+        // 真正的导航挪到 root.Loaded（窗口已可见），用户先看到窗口框再看到内容。
         ContentFrame.NavigationFailed += (_, e) =>
             LauncherLog.Error("nav", $"导航到 {e.SourcePageType.Name} 失败", e.Exception);
         Closed += (_, _) =>
@@ -238,6 +289,7 @@ public sealed partial class MainWindow : Window
             UpdateTaskbarIcon(); // 应用跟随系统主题时，这里能第一时间响应；轮询只兜「应用固定主题」的情况
         };
         _background.Apply(AppServices.Instance.Settings, root.ActualTheme);
+        Mark("wallpaper");
         ApplyGlassStrength(AppServices.Instance.Settings);
         MotionMaterials.Apply(AppServices.Instance.Settings); // 极少档收起卡片毛玻璃，其余档恢复原配方
         root.SizeChanged += (_, _) => _background.Resize(root.ActualWidth, root.ActualHeight);
@@ -254,8 +306,24 @@ public sealed partial class MainWindow : Window
             _pluginNavHooked = true;
             AppServices.Instance.PluginHost.ContributionsChanged += OnPluginContributionsChanged;
             RebuildPluginNavGroup();
+
+            // 首屏导航放在这里：窗口已经可见，首页的构建与版本扫描不会再挡住窗口出现
+            Mark("root-loaded");
+            if (!_homeNavigated)
+            {
+                _homeNavigated = true;
+                var home = ResolvePageType("home");
+                if (ContentFrame.CurrentSourcePageType != home)
+                {
+                    ContentFrame.Navigate(home, null,
+                        MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
+                }
+            }
         };
     }
+
+    /// <summary>首屏是否已导航（避免 Loaded 重复触发时二次导航）。</summary>
+    private bool _homeNavigated;
 
     // ── 设备上下线横幅 ──
 
@@ -407,26 +475,48 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 首次激活时把窗口居中到当前显示器的工作区（只做一次，之后完全尊重用户拖动的位置）。
-    /// 用物理像素：<see cref="AppWindow.Size"/> 与 <c>DisplayArea.WorkArea</c> 同一坐标系。
+    /// 首次激活时定尺寸并居中（只做一次，之后完全尊重用户拖动的位置）。
     /// </summary>
     private void CenterOnFirstActivate(object sender, WindowActivatedEventArgs args)
     {
         Activated -= CenterOnFirstActivate;
+        ApplyInitialWindowSize();
+    }
+
+    /// <summary>
+    /// 初始尺寸 1280×800 DIP（16:10），按显示器 DPI 折算成物理像素并居中到工作区；
+    /// 工作区放不下时等比缩小。窗口已锁定尺寸（不可拉伸/最大化），这里是唯一一次设定大小。
+    /// 用物理像素：<see cref="AppWindow.Size"/> 与 <c>DisplayArea.WorkArea</c> 同一坐标系。
+    /// </summary>
+    private void ApplyInitialWindowSize()
+    {
         try
         {
             var work = Microsoft.UI.Windowing.DisplayArea
                 .GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest).WorkArea;
-            var size = AppWindow.Size;
-            AppWindow.Move(new PointInt32(
+            // 不能用 Content.XamlRoot.RasterizationScale：窗口刚创建时 XamlRoot 还没就绪，
+            // 拿到的是 1.0，150% 屏上窗口会只有 2/3 大（实测踩过）。直接问窗口的 DPI。
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var scale = GetDpiForWindow(hwnd) / 96.0;
+            const double dipWidth = 1280, dipHeight = 800;   // 16:10
+            var width = dipWidth * scale;
+            var height = dipHeight * scale;
+            // 工作区留 8% 余量；太大就等比缩（不破坏 16:10）
+            var fit = Math.Min(1.0, Math.Min(work.Width * 0.92 / width, work.Height * 0.92 / height));
+            var size = new Windows.Graphics.SizeInt32((int)(width * fit), (int)(height * fit));
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
                 work.X + Math.Max(0, (work.Width - size.Width) / 2),
-                work.Y + Math.Max(0, (work.Height - size.Height) / 2)));
+                work.Y + Math.Max(0, (work.Height - size.Height) / 2),
+                size.Width, size.Height));
         }
         catch
         {
             // 拿不到显示器信息就保持系统给的默认位置
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
@@ -454,18 +544,28 @@ public sealed partial class MainWindow : Window
         if (ContentFrame.CurrentSourcePageType != page)
         {
             LauncherLog.Write("nav", $"导航 {ContentFrame.CurrentSourcePageType?.Name} → {page.Name}（tag={tag}）");
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var ok = ContentFrame.Navigate(page, null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
-            // Navigate 同步完成目标页的构造：这个耗时就是「点了没反馈」的元凶，
-            // 日志按页面记录，慢的页面针对性优化。
-            LauncherLog.Write("nav",
-                $"页面构建耗时 {sw.ElapsedMilliseconds}ms（{page.Name}），Navigate 返回 {ok}");
+            // **先让导航项的选中态渲染一帧，再同步构建目标页**：
+            // Frame.Navigate 是同步阻塞的（页面 XAML 在这一调用里解析完），如果直接在这里调，
+            // 点击高亮与页面构建挤在同一帧 —— 用户看到的就是「点了没反应，然后整页突然出现」。
+            // 低优先级入队：渲染先走，构建紧随其后（不引入可感知的额外延迟）。
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var ok = ContentFrame.Navigate(page, null, MotionService.TransitionFor(AppServices.Instance.Motion.Transitions));
+                // Navigate 同步完成目标页的构造：这个耗时就是「点了没反馈」的元凶，
+                // 日志按页面记录，慢的页面针对性优化。
+                LauncherLog.Write("nav",
+                    $"页面构建耗时 {sw.ElapsedMilliseconds}ms（{page.Name}），Navigate 返回 {ok}");
+            });
         }
         // 选择完成后自动收起侧栏，保持内容区宽畅
         Nav.IsPaneOpen = false;
     }
 
     /// <summary>页面内跳转入口：通过设置导航栏选中项驱动 Frame 导航，保证左侧选中状态同步。</summary>
+    /// <summary>当前内容页（独立工具箱窗口用它找到主页）。</summary>
+    public Page? CurrentPage => ContentFrame.Content as Page;
+
     public void NavigateTo(string tag)
     {
         var target = Nav.MenuItems.Concat(Nav.FooterMenuItems)
@@ -1224,6 +1324,255 @@ public sealed partial class MainWindow : Window
     private void OnNovaStateChanged(NovaState state) =>
         DispatcherQueue.TryEnqueue(() => ApplyNovaState(state));
 
+    /// <summary>每日签到弹窗：登录且未签到才弹；签到后按钮变已签并同步 Nova 页。</summary>
+    private async Task ShowCheckinTipIfUnsignedAsync()
+    {
+        try
+        {
+            SyncLog2("checkin: 开始");
+            await Task.Delay(TimeSpan.FromSeconds(10));   // 等首屏、云配置、登录态都稳
+            SyncLog2("checkin: 延迟完成");
+            var st = await AppServices.Instance.Cloud.GetCheckinStatusAsync();
+            SyncLog2($"checkin: 状态 {(st is null ? "null" : st.Summary)}");
+            if (st is null || st.SignedToday) return;     // 未登录 / 已签 / 接口未上线：不弹
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                SyncLog2("checkin: 弹窗开始");
+                CheckinTipBtn.Content = "立即签到";
+                CheckinTipBtn.IsEnabled = true;
+                CheckinTip.IsOpen = true;
+                SyncLog2("checkin: 弹窗完成");
+            });
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("checkin", $"签到弹窗失败（忽略）：{ex.Message}");
+        }
+    }
+
+    private bool _checkinBusy;
+
+    private static void SyncLog2(string msg)
+    {
+        try
+        {
+            File.AppendAllText(Path.Combine(Path.GetTempPath(), "checkin-debug.log"),
+                DateTime.Now.ToString("HH:mm:ss.fff") + " " + msg + Environment.NewLine);
+        }
+        catch { }
+    }
+
+    // ── 最大化硬禁（WndProc 子类化） ──
+
+    /// <summary>SUBCLASSPROC 的原生签名（6 参，含 uIdSubclass / dwRefData）。
+    /// 少写一个参数的话，第 6 个栈槽会被错读成后面的参数——实测踩过。</summary>
+    private delegate IntPtr SubclassProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+        UIntPtr uIdSubclass, UIntPtr dwRefData);
+
+    private const uint SC_MAXIMIZE = 0xF030;
+    private const uint WM_SYSCOMMAND = 0x0112;
+    private const uint WM_NCLBUTTONDBLCLK = 0x00A3;
+    private const IntPtr HTCAPTION = (IntPtr)2;
+
+    private SubclassProcDelegate? _maxBlockWndProc;
+
+    private IntPtr MaximizeBlocker_WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+        UIntPtr uIdSubclass, UIntPtr dwRefData)
+    {
+        switch (msg)
+        {
+            case WM_NCLBUTTONDBLCLK:
+                // 标题栏双击：只有命中 caption（HTCAPTION）才吞；客户区双击不受影响
+                if (wParam == (IntPtr)2) return IntPtr.Zero;
+                break;
+            case WM_SYSCOMMAND:
+                // Win+Up / 系统菜单的最大化项：一律吞（窗口锁 16:10，永不最大化）
+                if ((wParam.ToInt64() & 0xFFF0) == (long)SC_MAXIMIZE) return IntPtr.Zero;
+                break;
+        }
+        // 必须链回 DefSubclassProc（而不是 DefWindowProc）：子类化链条的下一环是
+        // WinUI 自己的窗口过程，直接跳到 DefWindowProc 会丢掉全部消息处理，
+        // 表现为启动 ~25s 后某个后台消息回调 NRE 崩溃（实测踩过）
+        return DefSubclassProc(hWnd, msg, wParam, lParam);
+    }
+
+    private async void CheckinTipBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_checkinBusy) return;
+        _checkinBusy = true;
+        CheckinTipBtn.IsEnabled = false;
+        CheckinTipBtn.Content = "签到中…";
+        var (ok, message) = await AppServices.Instance.Cloud.CheckInAsync();
+        if (ok)
+        {
+            CheckinTipBtn.Content = "已签到 ✓";
+            NovaToastTip.Subtitle = $"签到成功：{message}";
+            NovaToastTip.IsOpen = false;
+            NovaToastTip.IsOpen = true;
+            _toastResetTimer.Stop();
+            _toastResetTimer.Interval = TimeSpan.FromSeconds(5);
+            _toastResetTimer.Start();
+            _ = CloseCheckinTipSoonAsync();
+        }
+        else
+        {
+            CheckinTipBtn.Content = "重试签到";
+            CheckinTipBtn.IsEnabled = true;
+            NovaToastTip.Subtitle = message;
+            NovaToastTip.IsOpen = false;
+            NovaToastTip.IsOpen = true;
+            _toastResetTimer.Stop();
+            _toastResetTimer.Interval = TimeSpan.FromSeconds(5);
+            _toastResetTimer.Start();
+        }
+        _checkinBusy = false;
+    }
+
+    private async Task CloseCheckinTipSoonAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        DispatcherQueue.TryEnqueue(() => CheckinTip.IsOpen = false);
+    }
+
+    /// <summary>
+    /// 双击左上角品牌区：把诊断信息（版本 / 系统 / 配置 / 最近日志）复制到剪贴板。
+    /// 处理 PointerPressed 且标记 Handled，抑制系统的双击最大化。
+    /// </summary>
+
+    /// <summary>
+    /// 标题栏点击计数：**累计点 2 下就触发反馈**，不再要求「500ms 内双击」。
+    /// <para>为什么改：双击时间窗对手速慢/触控板用户很苛刻，点两下间隔稍长就没反应，
+    /// 用户以为坏了。改成累计计数后，随时点两下都能叫出反馈，触发一次后清零。</para>
+    /// </summary>
+    private void BrandHotspot_Pressed(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(BrandHotspot);
+        if (point.Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed) return;
+        _titleTapCount++;
+        if (_titleTapCount < 2) return;
+        _titleTapCount = 0;
+        e.Handled = true;
+        _ = UploadDiagnosticsAsync();
+    }
+
+    /// <summary>标题栏累计点击次数（触发反馈后清零）</summary>
+    private int _titleTapCount;
+
+    private bool _diagBusy;
+
+    /// <summary>
+    /// 双击标题：上传诊断包 → 弹窗显示诊断码（用户把码填进飞书问卷，开发者凭码查全文）。
+    /// 未登录 / 上传失败 → 退回复制到剪贴板（老行为）。
+    /// </summary>
+    private async Task UploadDiagnosticsAsync()
+    {
+        if (_diagBusy) return;
+        _diagBusy = true;
+        try
+        {
+            NovaToastTip.Subtitle = "正在上传诊断信息…";
+            NovaToastTip.IsOpen = false;
+            NovaToastTip.IsOpen = true;
+            _toastResetTimer.Stop();
+            _toastResetTimer.Interval = TimeSpan.FromSeconds(5);
+            _toastResetTimer.Start();
+
+            var diagnostics = AppServices.Instance.Cloud.BuildDiagnostics(60);
+            var (ok, codeOrMessage) = await AppServices.Instance.Cloud.SubmitDiagnosticsAsync(diagnostics);
+            if (ok)
+            {
+                ShowDiagnosticCodeDialog(codeOrMessage);
+                return;
+            }
+
+            // 失败：退回复制
+            CopyTextToClipboard(diagnostics);
+            NovaToastTip.Subtitle = $"诊断上传失败，已复制到剪贴板（{codeOrMessage}）";
+            NovaToastTip.IsOpen = false;
+            NovaToastTip.IsOpen = true;
+            _toastResetTimer.Stop();
+            _toastResetTimer.Interval = TimeSpan.FromSeconds(6);
+            _toastResetTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("diagnostics", $"诊断上传流程异常：{ex.Message}");
+        }
+        finally
+        {
+            _diagBusy = false;
+        }
+    }
+
+    /// <summary>诊断码弹窗：大号可选中 + 一键复制，用户把码填进飞书问卷。</summary>
+    private void ShowDiagnosticCodeDialog(string code)
+    {
+        var codeText = new TextBlock
+        {
+            Text = code,
+            FontSize = 26,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            IsTextSelectionEnabled = true,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        var copyBtn = new Button
+        {
+            Content = "复制诊断码",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        copyBtn.Click += (_, _) =>
+        {
+            var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            data.SetText(code);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+            copyBtn.Content = "已复制 ✓";
+        };
+
+        var dlg = new Views.Dialogs.ThemedDialog
+        {
+            Title = "诊断信息已上传",
+            Content = new StackPanel
+            {
+                Spacing = 14,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "请把下面的诊断码填入飞书问卷，开发者凭码查询诊断详情：",
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    codeText,
+                    copyBtn,
+                    new TextBlock
+                    {
+                        Text = "诊断包含启动器版本、系统信息与最近日志，服务器保留 30 天。诊断码已自动记入反馈。",
+                        FontSize = 12,
+                        Opacity = 0.65,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            },
+            PrimaryButtonText = "关闭",
+            XamlRoot = (Content as FrameworkElement)!.XamlRoot,
+        };
+        _ = dlg.ShowAsync();
+    }
+
+    private void CopyTextToClipboard(string text)
+    {
+        try
+        {
+            var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            data.SetText(text);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("diagnostics", $"复制到剪贴板失败：{ex.Message}");
+        }
+    }
+
     // ── 浮窗提醒 → TeachingTip（8s 后自动收起） ──
 
     private readonly DispatcherQueueTimer _toastResetTimer = DispatcherQueue.GetForCurrentThread()
@@ -1305,9 +1654,12 @@ public sealed partial class MainWindow : Window
         var name = logged ? session!.DisplayName : "";
         var initial = !string.IsNullOrEmpty(name) ? name[..1]
             : logged && !string.IsNullOrEmpty(session!.UserId) ? session.UserId[..1] : "";
+        var avatar = logged ? Views.Shared.RemoteIconHelper.Resolve(session!.AvatarUrl) : null;
+        AccountAvatarImage.Source = avatar;
+        AccountAvatarImageClip.Visibility = avatar is null ? Visibility.Collapsed : Visibility.Visible;
         AccountAvatarText.Text = initial;
-        AccountAvatarText.Visibility = initial.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        AccountAvatarGlyph.Visibility = initial.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
+        AccountAvatarText.Visibility = avatar is null && initial.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AccountAvatarGlyph.Visibility = avatar is null && initial.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var tip = new StackPanel { Spacing = 2 };
         tip.Children.Add(new TextBlock
@@ -1353,4 +1705,14 @@ public sealed partial class MainWindow : Window
 
     private static SolidColorBrush Solid(byte r, byte g, byte b) =>
         new(Color.FromArgb(0xFF, r, g, b));
+    // ── 最大化硬禁 P/Invoke ──
+
+    [DllImport("comctl32.dll")]
+    private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProcDelegate proc, uint id, IntPtr data);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern bool RemoveWindowSubclass(IntPtr hWnd, SubclassProcDelegate proc, uint id);
 }

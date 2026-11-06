@@ -1,10 +1,11 @@
-// 「导入整合包」入口弹窗：三种方式任选——拖入文件、选择文件、从链接导入。
+﻿// 「导入整合包」入口弹窗：三种方式任选——拖入文件、选择文件、从链接导入。
 // 之前是两颗按钮（导入整合包 / 从链接导入）加整页拖拽，入口分散；现在统一收进一个窗口。
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.Core.Services;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -32,7 +33,7 @@ internal static class ImportPackDialog
         };
         var dropSub = new TextBlock
         {
-            Text = Loc.T("支持 .mrpack、.zip（Modrinth / CurseForge / MultiMC / packwiz / 通用压缩包）"),
+            Text = Loc.T("支持 .mrpack / .zip / .7z / .rar / .tar.gz（Modrinth / CurseForge / MultiMC / packwiz / 通用压缩包）"),
             FontSize = 12,
             Opacity = 0.7,
             TextWrapping = TextWrapping.Wrap,
@@ -70,9 +71,10 @@ internal static class ImportPackDialog
             IReadOnlyList<IStorageItem> items;
             try { items = await e.DataView.GetStorageItemsAsync(); }
             catch { return; }
-            var file = items.OfType<StorageFile>().FirstOrDefault(f =>
-                f.Name.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase) ||
-                f.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+            // 优先按扩展名；没有/不认识时按文件头魔数认（下载站常给无扩展名或改名的包）
+            var candidates = items.OfType<StorageFile>().ToList();
+            var file = candidates.FirstOrDefault(f => ModPackDetector.IsArchive(f.Name))
+                       ?? candidates.FirstOrDefault(f => ModPackDetector.LooksLikeArchive(f.Path));
             if (file is null) return;
             dialog.Hide();
             await ModPackDialogs.ImportAsync(root, s, file.Path);
@@ -93,6 +95,10 @@ internal static class ImportPackDialog
                 WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow));
             picker.FileTypeFilter.Add(".mrpack");
             picker.FileTypeFilter.Add(".zip");
+            picker.FileTypeFilter.Add(".7z");
+            picker.FileTypeFilter.Add(".rar");
+            picker.FileTypeFilter.Add(".tar");
+            picker.FileTypeFilter.Add(".gz");
             var file = await picker.PickSingleFileAsync();
             if (file is null) return;
             dialog.Hide();

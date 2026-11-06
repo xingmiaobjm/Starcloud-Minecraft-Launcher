@@ -27,7 +27,7 @@ internal enum P2PFrameType : byte
     /// <summary>文件块</summary>
     Data = 5,
 
-    /// <summary>累计确认（ack_seq = 下一个期望块号，ack_bits 为其后 32 块位图）</summary>
+    /// <summary>累计确认（ack_seq = 下一个期望块号，ack_bits 为其后 64 块位图）</summary>
     Ack = 6,
 
     /// <summary>发送完毕</summary>
@@ -38,11 +38,11 @@ internal enum P2PFrameType : byte
 }
 
 internal readonly struct P2PFrame(P2PFrameType type, uint sessionTag, uint seq = 0,
-    uint ackSeq = 0, uint ackBits = 0, ReadOnlyMemory<byte> payload = default)
+    uint ackSeq = 0, ulong ackBits = 0, ReadOnlyMemory<byte> payload = default)
 {
-    public const int HeaderSize = 20;
+    public const int HeaderSize = 24;
 
-    /// <summary>单块载荷：20 字节头 + 1100 = 1120，低于 1280</summary>
+    /// <summary>单块载荷：24 字节头 + 1100 = 1124，低于 1280</summary>
     public const int MaxPayload = 1100;
 
     /// <summary>小端读出来是 'S' 'C'</summary>
@@ -54,7 +54,7 @@ internal readonly struct P2PFrame(P2PFrameType type, uint sessionTag, uint seq =
     public uint SessionTag { get; } = sessionTag;
     public uint Seq { get; } = seq;
     public uint AckSeq { get; } = ackSeq;
-    public uint AckBits { get; } = ackBits;
+    public ulong AckBits { get; } = ackBits;
     public ReadOnlyMemory<byte> Payload { get; } = payload;
 
     public byte[] Encode()
@@ -67,7 +67,7 @@ internal readonly struct P2PFrame(P2PFrameType type, uint sessionTag, uint seq =
         BinaryPrimitives.WriteUInt32LittleEndian(span[4..], SessionTag);
         BinaryPrimitives.WriteUInt32LittleEndian(span[8..], Seq);
         BinaryPrimitives.WriteUInt32LittleEndian(span[12..], AckSeq);
-        BinaryPrimitives.WriteUInt32LittleEndian(span[16..], AckBits);
+        BinaryPrimitives.WriteUInt64LittleEndian(span[16..], AckBits);
         Payload.Span.CopyTo(span[HeaderSize..]);
         return buffer;
     }
@@ -88,7 +88,7 @@ internal readonly struct P2PFrame(P2PFrameType type, uint sessionTag, uint seq =
             BinaryPrimitives.ReadUInt32LittleEndian(buffer[4..]),
             BinaryPrimitives.ReadUInt32LittleEndian(buffer[8..]),
             BinaryPrimitives.ReadUInt32LittleEndian(buffer[12..]),
-            BinaryPrimitives.ReadUInt32LittleEndian(buffer[16..]),
+            BinaryPrimitives.ReadUInt64LittleEndian(buffer[16..]),
             payloadLength == 0 ? ReadOnlyMemory<byte>.Empty : buffer[HeaderSize..].ToArray());
         return true;
     }

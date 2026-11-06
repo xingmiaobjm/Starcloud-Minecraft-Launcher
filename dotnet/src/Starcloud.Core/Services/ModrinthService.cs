@@ -49,9 +49,11 @@ public sealed class ModrinthService
             ? $"modrinth.search.{projectType}.{loader ?? "any"}.{gameVersion ?? "any"}"
             : null;
 
+        // 空结果不进缓存也不算命中：一次网络抖动写进去的「0 个结果」会让后续每次开窗都读到空列表，
+        // 表现就是「打开没内容，手动重搜才有」。空结果一律回落网络。
         if (!forceRefresh && cacheKey is not null
             && _cache!.TryRead<ModrinthSearchResult>(cacheKey, out var cached)
-            && cached is not null)
+            && cached is not null && cached.Hits.Count > 0)
         {
             LastSearchFromCache = true;
             return cached;
@@ -70,8 +72,37 @@ public sealed class ModrinthService
         var json = await _downloader.GetStringAsync(url, ct);
         var result = JsonSerializer.Deserialize<ModrinthSearchResult>(json) ?? new();
         LastSearchFromCache = false;
-        if (cacheKey is not null) _cache!.Write(cacheKey, result);
+        if (cacheKey is not null && result.Hits.Count > 0) _cache!.Write(cacheKey, result);
         return result;
+    }
+
+    /// <summary>
+    /// 只读缓存（绝不联网）：先找本筛选条件下的默认列表，没有再退到同类资源的通用默认列表。
+    /// <para>为什么要回退：缓存键带 loader / MC 版本，玩家换了个新版本（如 26.1 + Fabric）时
+    /// 精确键必然未命中，弹窗就会空着等网络——看起来像「打开没反应」。通用列表是上次已经
+    /// 拿到的推荐内容，先展示它比白屏好得多。</para>
+    /// </summary>
+    public bool TryReadCachedSearch(string projectType, string? loader, string? gameVersion,
+        out ModrinthSearchResult? result)
+    {
+        result = null;
+        if (_cache is null) return false;
+        string[] keys =
+        [
+            $"modrinth.search.{projectType}.{loader ?? "any"}.{gameVersion ?? "any"}",
+            $"modrinth.search.{projectType}.any.any",
+        ];
+        foreach (var key in keys)
+        {
+            if (_cache.TryRead<ModrinthSearchResult>(key, out var cached)
+                && cached is not null && cached.Hits.Count > 0)
+            {
+                LastSearchFromCache = true;
+                result = cached;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>查询项目兼容指定加载器/游戏版本的文件（按发布时间倒序）。

@@ -246,6 +246,16 @@ public sealed class MultiplayerService : IDisposable
         await RefreshAsync(ct);
     }
 
+    /// <summary>
+    /// 急停：不管核心处在什么状态，优雅关闭 → 强制结束进程 → 清端口记录，
+    /// 一步到位。给「我的」页的急停按钮用（会话挂死 / 状态机卡住时的兜底出口）。
+    /// </summary>
+    public async Task EmergencyStopAsync(CancellationToken ct)
+    {
+        await Active.EmergencyStopAsync(ct);
+        await RefreshAsync(ct);
+    }
+
     public Task<string> FetchLogsAsync(CancellationToken ct) => Active.FetchLogsAsync(ct);
 
     /// <summary>拉取公共节点（给界面显示"本次用了几个节点"）</summary>

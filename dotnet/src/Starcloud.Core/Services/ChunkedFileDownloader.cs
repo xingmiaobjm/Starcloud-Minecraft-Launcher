@@ -1,4 +1,4 @@
-// 多源分片竞速下载器：同一文件切分片 → 多源并行拉取 → 按偏移写入 → 整文件 SHA1 校验
+﻿// 多源分片竞速下载器：同一文件切分片 → 多源并行拉取 → 按偏移写入 → 整文件 SHA1 校验
 // 设计见 docs/designs/2026-09-12-multi-source-download-design.md §3.2 / §4.1
 //
 // 提速要点（2026-09-21 实测：CDN 单连接常被限到 1–3 MB/s，4 条并行能拿到 3.1×）：
@@ -32,11 +32,46 @@ public sealed class ChunkedFileDownloader
     /// <summary>单片文件的片数上限</summary>
     public const int MaxChunks = 64;
 
-    /// <summary>单文件并发分片 worker 数（并行连接是主要提速手段）</summary>
+    /// <summary>单文件并发分片 worker 数（镜像默认）</summary>
     public const int MaxWorkersPerFile = 8;
 
+    /// <summary>
+    /// 单文件 worker 的硬上限（官方 CDN 用）。PlanChunks 的夹取上界。
+    /// <para>2026-11-02 实测（1.20.1 client.jar 23 MB，本机直连官方）：8 条连接 12.9–20.2 s、
+    /// 16 条 10.6–12.8 s、32 条 6.1–6.4 s，48/64 条没有进一步收益 —— 官方按连接限速，
+    /// 连接数就是主要提速手段。单文件给 16 条，剩下的并行度交给「多文件同时下载」去叠加。</para>
+    /// </summary>
+    public const int MaxWorkersPerMojangFile = 16;
+
     /// <summary>进程级 worker 预算：多文件同时下载时的总并发连接上限</summary>
-    public const int GlobalWorkerBudget = 32;
+    public const int GlobalWorkerBudget = 40;
+
+    /// <summary>
+    /// 单主机并发上限（镜像）。镜像（尤其带网关的 S3）按 IP 限流，一个文件 8 片 × 同时下 8 个文件
+    /// = 60+ 连接打同一台，实测总吞吐反而掉到 0.85 MB/s（单连接能跑 7 MB/s）；
+    /// 压到 8 条后总吞吐回升。这是"多源竞速"真正需要的一层：源之间并发，
+    /// 单个源内部不并发到爆炸。
+    /// </summary>
+    public const int MaxConnectionsPerHost = 8;
+
+    /// <summary>
+    /// Mojang 官方 CDN 的单主机并发上限：实测 32 条才吃满（23 MB / 6.1 s ≈ 3.8 MB/s），
+    /// 且没有触发 429。镜像封顶 8 条的限制不应该安在官方身上 —— 那是两种完全不同的服务端。
+    /// </summary>
+    public const int MaxMojangConnectionsPerHost = 32;
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> HostGates = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>该主机的连接闸门容量：官方 CDN 32 条，镜像 8 条</summary>
+    internal static int GateLimitFor(string host) =>
+        DownloadSourceRegistry.IsMojangHost(host) ? MaxMojangConnectionsPerHost : MaxConnectionsPerHost;
+
+    /// <summary>该 URL 的单文件 worker 上限：官方 16，其它 8</summary>
+    internal static int WorkersCapFor(string url) =>
+        DownloadSourceRegistry.IsMojangUrl(url) ? MaxWorkersPerMojangFile : MaxWorkersPerFile;
+
+    private static SemaphoreSlim HostGateOf(string host) =>
+        HostGates.GetOrAdd(host, h => new SemaphoreSlim(GateLimitFor(h), GateLimitFor(h)));
 
     /// <summary>分片读缓冲：512 KiB（ArrayPool 租借，无 GC 压力）</summary>
     private const int BufferSize = 512 * 1024;
@@ -76,7 +111,7 @@ public sealed class ChunkedFileDownloader
     {
         if (size <= 0) return [];
 
-        var w = Math.Clamp(workers, 1, MaxWorkersPerFile);
+        var w = Math.Clamp(workers, 1, MaxWorkersPerMojangFile);
         var target = (size + w * 2L - 1) / (w * 2L);
         var chunk = AlignMiB(Math.Clamp(target, MinChunkSize, MaxChunkSize));
         if ((size + chunk - 1) / chunk > MaxChunks)
@@ -88,6 +123,55 @@ public sealed class ChunkedFileDownloader
         return plan;
     }
 
+    // ── 分片级断点续传 ──
+
+    /// <summary>
+    /// 已完成分片的记录文件（与 .sc-tmp 同名加 .parts 后缀）。
+    /// <para>为什么需要：原来分片失败就把 .sc-tmp 整个删掉，下一次从 0 开始重下；
+    /// 大文件失败一次 = 前面几 MB 白下。整文件路径本来就有 Range 续传，
+    /// 分片路径（≥ 4 MB 的文件全部走这条）却是唯一没有续传能力的。</para>
+    /// <para>格式：每行一个已完成分片的起始偏移（十进制，纯文本）。解析失败就当没有记录。</para>
+    /// </summary>
+    private static string PartsFile(string tmp) => tmp + ".parts";
+
+    /// <summary>读取已完成的分片起始偏移；文件损坏或读不出来时返回空（整份重下）。</summary>
+    private static HashSet<long> LoadCompletedParts(string tmp)
+    {
+        var done = new HashSet<long>();
+        try
+        {
+            var file = PartsFile(tmp);
+            if (!File.Exists(file)) return done;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                var text = line.Trim();
+                if (text.Length == 0) continue;
+                if (!long.TryParse(text, out var start)) continue;
+                done.Add(start);
+            }
+        }
+        catch
+        {
+            // 记录文件坏了就整份重下
+        }
+        return done;
+    }
+
+    /// <summary>追加一条「已完成分片」的记录（每片成功即写一次）。</summary>
+    private static void SaveCompletedPart(string tmp, long start)
+    {
+        try
+        {
+            var file = PartsFile(tmp);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.AppendAllText(file, $"{start}\n");
+        }
+        catch
+        {
+            // 记录失败不影响本次下载（最坏情况是下次重下这一片）
+        }
+    }
+
     private static long AlignMiB(long bytes) =>
         (bytes + 1024 * 1024 - 1) / (1024 * 1024) * (1024 * 1024);
 
@@ -96,14 +180,26 @@ public sealed class ChunkedFileDownloader
     /// <para>为什么不能只看池里第一个源：池首常是被 429 限过的镜像（限到 1 条），
     /// 而这片文件实际是官方 CDN 在扛 —— 按镜像的限流值收并发等于把整文件压成单连接
     /// （实测 0.29 MB/s，而官方多连接应有 1 MB/s 以上）。</para>
+    /// <para>但也不能盲目取池内最大值：那个被限到 1 条的镜像未必会被用到，
+    /// 按 8 条去打它就是连续 429 → 减半 → 冷却 → 再撞。
+    /// 所以这里按「实际会用的那个源」取（preferred 有效时用它），取不到再退回池内最大值。</para>
     /// </summary>
-    internal int ConcurrencyFor(string url, IReadOnlyList<SourceKind> pool)
+    internal int ConcurrencyFor(string url, IReadOnlyList<SourceKind> pool, SourceKind? preferred = null)
     {
+        // 上限按 URL 取：官方 CDN 给 16 条，镜像仍是 8 条（镜像的网关按 IP 限流）
+        var cap = WorkersCapFor(url);
         var widest = pool
             .Select(k => ParallelGovernor.LimitFor(HostOf(_sources.Rewrite(url, k))))
-            .DefaultIfEmpty(MaxWorkersPerFile)
+            .DefaultIfEmpty(cap)
             .Max();
-        return Math.Max(1, Math.Min(MaxWorkersPerFile, widest));
+
+        if (preferred is { } p && pool.Contains(p))
+        {
+            var limit = ParallelGovernor.LimitFor(HostOf(_sources.Rewrite(url, p)));
+            return Math.Max(1, Math.Min(cap, limit));
+        }
+
+        return Math.Max(1, Math.Min(cap, widest));
     }
 
     /// <summary>
@@ -117,58 +213,97 @@ public sealed class ChunkedFileDownloader
 
         Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
         var tmp = destFile + ".sc-tmp";
-        var pool = new CandidateSet(_sources.RacingPoolFor(url), _sources.IsDegraded, preferred);
+        var pool = new CandidateSet(_sources.RacingPoolFor(url), _sources.IsDegraded, preferred,
+            initialSpeed: k => _sources.ScoreOf(k));
         if (pool.Count == 0) throw new IOException($"没有可用的下载源: {Path.GetFileName(destFile)}");
 
         // 首次分片前做一次源质量预检（进程内一次）
         if (_sources.WarmupNeeded) await WarmupAsync(url, pool, ct);
         if (pool.Count == 0) throw new IOException($"没有支持分片的下载源: {Path.GetFileName(destFile)}");
 
-        var plan = PlanChunks(size, MaxWorkersPerFile);
-        var allowed = Math.Min(MaxWorkersPerFile, plan.Count);
-        var wanted = Math.Min(allowed, ConcurrencyFor(url, pool.Snapshot()));
+        var plan = PlanChunks(size, WorkersCapFor(url));
+        var allowed = Math.Min(WorkersCapFor(url), plan.Count);
+        var wanted = Math.Min(allowed, ConcurrencyFor(url, pool.Snapshot(), preferred));
         var usage = new ConcurrentDictionary<string, long>(StringComparer.Ordinal);
         // 每个分片的重试额度必须至少覆盖池里全部源：否则重试次数用完了还没轮到官方兜底，
         // 整文件就会因为「假死镜像先被轮询到」而失败，退化到单连接整文件下载（实测慢十倍）。
         var attempts = Math.Max(Math.Max(1, maxRetries), pool.Count);
-        var queue = new ConcurrentQueue<(long Start, long Length)>(plan);
         var token = new object();
 
-        // 进程级预算：能租几条算几条（至少 1 条），批量下载时自动让路给别的文件
+        // 分片级断点续传：上次已经下完的片直接跳过，只补没下完的那些。
+        // 续传的前提是「片计划完全一致」——计划由 (size, worker 上限) 决定，
+        // 两者不变就一致；记录里出现计划外偏移（换了并发度或改了文件）就整份重下。
+        var completed = LoadCompletedParts(tmp);
+        var resumed = false;
+        if (completed.Count > 0 && File.Exists(tmp))
+        {
+            var tmpInfo = new FileInfo(tmp);
+            var planStarts = plan.Select(c => c.Start).ToHashSet();
+            resumed = tmpInfo.Length == size && completed.All(planStarts.Contains);
+        }
+        if (!resumed) completed.Clear();
+        var resumedBytes = resumed
+            ? plan.Where(c => completed.Contains(c.Start)).Sum(c => c.Length)
+            : 0;
+
+        var queue = new ConcurrentQueue<(long Start, long Length)>(
+            resumed ? plan.Where(c => !completed.Contains(c.Start)) : plan);
+        if (resumed && resumedBytes > 0)
+            Log?.Invoke($"分片续传 {Path.GetFileName(destFile)}：跳过 {completed.Count} 片"
+                        + $"（{resumedBytes / 1024.0 / 1024.0:F1}MB 已下）");
+
+        // 进程级预算：先拿「保底份额」（阻塞等），再多拿的用非阻塞抢。
+        // 为什么不能"能抢几条算几条"：单文件上限抬到 16 后，先进来的文件会把预算吃满，
+        // 后进来的大文件只能捡到 1–2 条 —— 一个 23 MB 文件用 1 条连接要爬 70 秒，
+        // 而它不报错，只表现为"整批莫名变慢"（实测 10 秒 → 246 秒）。
+        const int MinLease = 4;
+        var minimum = Math.Min(wanted, MinLease);
         var leased = 0;
-        while (leased < wanted && await Budget.WaitAsync(0, ct)) leased++;
-        if (leased == 0)
+        while (leased < minimum)
         {
             await Budget.WaitAsync(ct);
-            leased = 1;
+            leased++;
         }
+        while (leased < wanted && await Budget.WaitAsync(0, ct)) leased++;
 
         TaskCenterService.Instance.ReportRacingBegin(token, Path.GetFileName(destFile), size);
         try
         {
             // FileOptions.Asynchronous：RandomAccess 的定位写在异步句柄上才是真异步（否则走线程池模拟）
-            using (var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.Write, FileShare.None,
-                       FileOptions.Asynchronous, size))
+            // OpenOrCreate + 预分配：续传时保留已有内容，只把没下完的片写进去。
+            // 不续传时文件可能存在但内容是旧的（上次失败留下的），必须先清零 ——
+            // 否则旧内容会被当成新片写进去，最终 SHA1 校验必然失败。
+            // 续传成立 → OpenOrCreate（保留已下内容）；不成立 → Create（截断重建，
+            // 否则上次失败留下的旧内容会被当成新片写进去，SHA1 必然对不上）。
+            // 注意不能用 OpenOrCreate 一刀切：它不会截断、也不会按 size 预分配，
+            // 实测会让整个分片下载退化成单连接（吞吐掉到 1/4）。
+            using (var handle = File.OpenHandle(tmp, resumed ? FileMode.OpenOrCreate : FileMode.Create,
+                       FileAccess.Write, FileShare.None, FileOptions.Asynchronous, size))
             {
                 var running = Enumerable.Range(0, leased).Select(_ => Task.Run(async () =>
                 {
                     while (queue.TryDequeue(out var chunk))
-                        await FetchChunkAsync(handle, url, chunk, pool, usage, onBytes, attempts, token, ct);
+                        await FetchChunkAsync(handle, tmp, url, chunk, pool, usage, onBytes, attempts, token, ct);
                 }, ct));
                 await Task.WhenAll(running);
             }
 
             // 完整性闸门：分片重试只会计多不会计少，成功字节 < 文件大小 = 有分片静默缺失，
             // 绝不能当成功落盘 → 抛错走调用方的整文件退化
-            var got = usage.Values.Sum();
+            // 续传时已下完的片不重下，usage 里没有它们，要按「已完成字节」补进来
+            var got = usage.Values.Sum() + resumedBytes;
             if (got < size)
                 throw new IOException($"分片不完整：成功 {got / 1048576.0:F1} MB / 应为 {size / 1048576.0:F1} MB");
 
             VerifyAndCommit(tmp, destFile, sha1);
+            TryDelete(PartsFile(tmp));
         }
         catch
         {
-            TryDelete(tmp);
+            // 保留 .sc-tmp 与分片记录：下次重试（或调用方退回整文件路径时）能接着下，
+            // 而不是从头再来（原来这里直接删掉临时文件，大文件失败一次就白下几十 MB）。
+            // 记录文件不存在时说明这一轮没成功过任何一片，删掉临时文件即可。
+            if (!File.Exists(PartsFile(tmp))) TryDelete(tmp);
             TaskCenterService.Instance.ReportRacingEnd(token, false, usage.Values.Sum());
             throw;
         }
@@ -182,6 +317,12 @@ public sealed class ChunkedFileDownloader
                     + $"（{size / 1024.0 / 1024.0:F1}MB / {plan.Count} 片 / {leased} 并发）："
                     + string.Join(" / ", usage.OrderByDescending(kv => kv.Value)
                         .Select(kv => $"{kv.Key} {kv.Value / 1024.0 / 1024.0:F1}MB")));
+        // 分片明细进启动器日志（详细档）：每源拿了多少片 / 多少字节，排查"为什么这么慢"全靠它
+        LauncherLog.Debug("download",
+            $"分片完成 {Path.GetFileName(destFile)}：{plan.Count} 片 {size / 1024.0 / 1024.0:F1} MB"
+            + $"，{leased} 并发，"
+            + string.Join("，", usage.OrderByDescending(kv => kv.Value)
+                .Select(kv => $"{kv.Key} {kv.Value / 1024.0 / 1024.0:F1}MB")));
     }
 
     /// <summary>
@@ -258,7 +399,8 @@ public sealed class ChunkedFileDownloader
     private readonly record struct ChunkFetchResult(bool Ranged, long Bytes, long ElapsedMs);
 
     /// <summary>取下一片，失败换源重试（同一片累计重试上限 = maxRetries）</summary>
-    private async Task FetchChunkAsync(SafeFileHandle handle, string url, (long Start, long Length) chunk,
+    private async Task FetchChunkAsync(SafeFileHandle handle, string tmp, string url,
+        (long Start, long Length) chunk,
         CandidateSet pool, ConcurrentDictionary<string, long> usage, Action<long>? onBytes,
         int attempts, object token, CancellationToken ct)
     {
@@ -279,6 +421,18 @@ public sealed class ChunkedFileDownloader
                 continue;
             }
 
+            // 单主机并发闸门：多文件同时下载时，不要让所有分片都挤到同一个源上
+            // （镜像与 S3 网关按 IP 限流，32 条并发打同一台反而比 8 条慢十倍）
+            var hostGate = HostGateOf(host);
+            await hostGate.WaitAsync(ct);
+            var gateHeld = true;
+            void ReleaseGate()
+            {
+                if (!gateHeld) return;
+                gateHeld = false;
+                hostGate.Release();
+            }
+
             ChunkFetchResult result;
             try
             {
@@ -287,24 +441,63 @@ public sealed class ChunkedFileDownloader
             }
             catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
             {
+                // 404 / 410：文件在这个源上就是不存在，换源重试也没意义 ——
+                // 摘掉这个源后换下一个，别在同一个源上空等退避。
+                // 记 404 而不是失败：文件未缓存不是源故障，不能把源打进降级
+                if (ex is PermanentHttpException)
+                {
+                    ReleaseGate();   // 退避/换源期间不该继续占着这台主机的名额
+                    _sources.RecordNotFound(kind);
+                    pool.ReleaseProbe(kind);
+                    if (pool.Count > 1) pool.Remove(kind);
+                    Log?.Invoke($"{label} 分片永久失败（{ex.Message}）→ 换源，不重试本源");
+                    if (++failed >= attempts) throw;
+                    continue;
+                }
+
+                ReleaseGate();
                 _sources.RecordFailure(kind);
                 // 本文件内直接摘掉这个坏源：否则 8 个 worker 会轮流撞它，每片都先超时再换源
                 pool.ReleaseProbe(kind);
+
+                // 限流（429/503）与超时的语义是「**这个源**暂时别用」，不是「整个文件等一下」。
+                // 原来这里按主机冷却时间 await，被限流一次就让这一片干等 30 秒——
+                // 实测 8 个文件里只要有一个撞上 429，整批耗时从 6 秒涨到 248 秒。
+                // 正确做法：立刻摘掉该源、换下一个继续，冷却只作用于它自己。
+                var throttled = ex.Message.Contains("限流")
+                                || ex.Message.Contains("429")
+                                || ex.Message.Contains("503");
                 if (pool.Count > 1) pool.Remove(kind);
+                if (throttled)
+                {
+                    LauncherLog.Debug("download", $"{label} 限流，本文件内不再使用该源");
+                    if (++failed >= attempts) throw;
+                    continue;   // 不等待：直接换下一个源
+                }
+
                 Log?.Invoke($"{label} 分片失败（{ex.Message}）→ 本文件内换源重试");
                 if (++failed >= attempts) throw;
-                // 退避：平方增长；被限流时按主机的冷却时间等（限流不会因为立刻重试就消失）
-                var backoff = TimeSpan.FromMilliseconds(400 * failed * failed);
-                var cooldown = ParallelGovernor.CooldownFor(host);
-                await Task.Delay(cooldown > backoff ? cooldown : backoff, ct);
+                // 真正的网络故障才短退避（上限 5 秒，避免一个慢源把整批拖住）
+                var backoff = TimeSpan.FromMilliseconds(Math.Min(5000, 400 * failed * failed));
+                await Task.Delay(backoff, ct);
                 continue;
+            }
+            finally
+            {
+                ReleaseGate();   // 成功路径与未捕获异常都在这释放
             }
 
             if (result.Ranged)
             {
                 _sources.RecordSuccess(kind);
+                // 把实测吞吐回填给源注册表：源池据此给慢源降权，
+                // 避免「能连但很慢」的镜像一直排在最前面拖住整个下载
+                if (result.ElapsedMs > 0)
+                    _sources.RecordSpeed(kind, result.Bytes, result.ElapsedMs);
                 ParallelGovernor.ReportSuccess(host);
                 pool.ReportSpeed(kind, result.Bytes, result.ElapsedMs);
+                // 记下这一片已完成：下次失败重试时它不用再下（分片级断点续传）
+                SaveCompletedPart(tmp, chunk.Start);
                 return;
             }
             // 源忽略 Range 返回整文件：已退出分片池，立即换源且不消耗重试额度
@@ -350,14 +543,32 @@ public sealed class ChunkedFileDownloader
             if (resp.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
             {
                 ParallelGovernor.ReportThrottled(host); // 按主机记住：下次这个域名少开几条连接
+                _sources.RecordThrottled(kind);        // 源级：慢源降权时也扣分
+                // 服务端给了 Retry-After 就按它说的等（比我们自己猜的准）。
+                // 参照 PrismLauncher 的 Request::downloadError。
+                var retryAfter = ParseRetryAfter(resp.Headers.RetryAfter);
+                if (retryAfter is { } wait)
+                {
+                    ParallelGovernor.ReportRetryAfter(host, wait);
+                    throw new IOException($"{label} 限流（HTTP {(int)resp.StatusCode}），服务端要求等待 {wait.TotalSeconds:F0} 秒");
+                }
                 throw new IOException($"{label} 限流（HTTP {(int)resp.StatusCode}）");
             }
+
+            // 404 / 410：文件在这个源上就是不存在，重试多少次都没用。
+            // 不区分就白等满退避（PrismLauncher 明确「404 没有重试的意义」）。
+            if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+                throw new PermanentHttpException(
+                    $"下载源 {label} 返回 {(int)resp.StatusCode}（文件不存在）");
 
             resp.EnsureSuccessStatusCode();
             if (resp.StatusCode != HttpStatusCode.PartialContent)
                 throw new IOException($"下载源 {label} 返回 {(int)resp.StatusCode}");
 
             Log?.Invoke($"分片 {chunk.Start / 1048576.0:F0}MB/{chunk.Length / 1048576.0:F1}MB ← {label} HTTP/{resp.Version}");
+            LauncherLog.Trace("download",
+                $"分片 {chunk.Start / 1048576.0:F1}MB-{(chunk.Start + chunk.Length) / 1048576.0:F1}MB"
+                + $" ← {label}（HTTP {(int)resp.StatusCode}）");
             _sources.MarkRangeSupport(host, true);  // 实测支持分片 → 同主机后续文件直接走分片
             _sources.RecordRangeHonored(kind, channel); // 这条通道上确实能分片：清掉之前的忽略计数
 
@@ -449,6 +660,24 @@ public sealed class ChunkedFileDownloader
     private static string HostOf(string url) =>
         DownloadSourceRegistry.HostOf(url);
 
+    /// <summary>
+    /// 解析 Retry-After 响应头（秒数或 HTTP 日期两种格式）。
+    /// <para>服务端明确说了要等多久，就按它说的等 —— 比我们自己猜的指数冷却准
+    /// （参照 PrismLauncher 的 Request::downloadError）。</para>
+    /// </summary>
+    private static TimeSpan? ParseRetryAfter(System.Net.Http.Headers.RetryConditionHeaderValue? header)
+    {
+        if (header is null) return null;
+        if (header.Delta is { } delta)
+            return delta > TimeSpan.Zero ? delta : null;
+        if (header.Date is { } date)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait > TimeSpan.Zero ? wait : null;
+        }
+        return null;
+    }
+
     /// <summary>展示用源名：Mojang 镜像报镜像名，非 Mojang 域名（不会被改写）直接报主机名</summary>
     private static string Label(SourceKind kind, string host) =>
         DownloadSourceRegistry.IsMojangHost(host) ? DownloadSourceRegistry.Name(kind) : host;
@@ -486,11 +715,23 @@ public sealed class ChunkedFileDownloader
         }
 
         public CandidateSet(IEnumerable<SourceKind> items, Func<SourceKind, bool>? isDegraded = null,
-            SourceKind? preferred = null)
+            SourceKind? preferred = null, Func<SourceKind, double>? initialSpeed = null)
         {
             _items = items.ToArray();
             _isDegraded = isDegraded;
             _preferred = preferred;
+            // 速度样本按实例记忆，而 CandidateSet 每个文件新建一个 —— 不播种的话，
+            // 批量预热测到的速度传不进来，每个文件的 worker 都要重新探测一遍死镜像
+            //（实测一整个批次都在为探测买单，自动模式白白多花一倍时间）。
+            if (initialSpeed is not null)
+            {
+                foreach (var kind in _items)
+                {
+                    var speed = initialSpeed(kind);
+                    if (speed > 0)
+                        _speeds[kind] = new SpeedSample { Ema = speed, Samples = 1 };
+                }
+            }
         }
 
         public int Count => _items.Length;
@@ -505,7 +746,11 @@ public sealed class ChunkedFileDownloader
             var items = _items;
             if (items.Length == 0) throw new IOException("没有支持分片下载的下载源");
 
-            // 批量下载时文件被分摊到指定源：整个文件都用它，换源只在它失败/降级后发生
+            // 批量下载时文件被分摊到指定源：整个文件都用它，换源只在它失败/降级后发生。
+            // 这条短路是「源级并行」策略的前提：批量时把不同文件分摊到不同源，
+            // 目的正是让各镜像同时出力（见 DownloadService.DownloadBatchAsync）。
+            // 若在这里放开择优，每个文件的分片都会去抢最快源，其余镜像就闲着了 ——
+            // 整体吞吐反而下降。慢源的处置交给上层：分摊时按健康度挑源 + 源失败即换。
             if (_preferred is { } preferred && items.Contains(preferred) &&
                 !(_isDegraded?.Invoke(preferred) ?? false))
             {
@@ -541,6 +786,23 @@ public sealed class ChunkedFileDownloader
                 {
                     best = candidates[i];
                     bestSpeed = speed;
+                }
+            }
+            // 按实测速度**加权轮询**，而不是永远返回最快的那一个。
+            // 只挑最快 = 整个文件的 8 个分片全压在一个源上，其余镜像完全闲着，
+            // 总吞吐就等于那个源的单源上限（实测：竞速反而比仅官方慢 3 倍）。
+            // 加权后吞吐 ≈ 各源带宽之和；某个源被限流时它的分片会失败换源，
+            // 权重也随之下降，自动收敛。
+            var totalWeight = 0.0;
+            foreach (var kind in candidates) totalWeight += Math.Max(1.0, SpeedOf(kind));
+            if (candidates.Length > 1 && totalWeight > candidates.Length)
+            {
+                var pick = (Interlocked.Increment(ref _cursor) & 0x7FFFFFFF) % totalWeight;
+                foreach (var kind in candidates)
+                {
+                    var weight = Math.Max(1.0, SpeedOf(kind));
+                    if (pick < weight) return kind;
+                    pick -= weight;
                 }
             }
             return best;

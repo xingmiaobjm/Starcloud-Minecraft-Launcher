@@ -5,6 +5,7 @@ using Starcloud.Core.Plugins;
 using Starcloud.App.Shell;
 using Starcloud.Core.Kernel.Contracts;
 using Starcloud.Core.Services;
+using Starcloud.Core.Services.Rooms;
 using Starcloud.Core.Services.Lab;
 using Starcloud.Core.Services.Multiplayer;
 using Starcloud.Core.Services.P2P;
@@ -66,11 +67,23 @@ public sealed class AppServices
 
     public StarcloudIdService StarcloudId { get; }
 
+    /// <summary>远程配置 / 活跃上报 / 一键反馈（都走官方服务器，失败即静默）</summary>
+    public LauncherCloudService Cloud { get; }
+
     /// <summary>好友：好友列表 / 申请 / 搜索 / 联机邀请 + 实时事件</summary>
     public FriendsService Friends { get; }
 
     /// <summary>登录后常驻的好友事件长连接（后台线程）</summary>
     public FriendsRuntime FriendsRuntime { get; }
+
+    /// <summary>联机房间服务（云端 / 本地演示）</summary>
+    public RoomService Rooms { get; }
+
+    /// <summary>联机房间运行时（当前房间、临时聊天、陶瓦码）</summary>
+    public RoomRuntime RoomRuntime { get; }
+
+    /// <summary>房主建房时的「一键上传整合包」：打包版本 → 上传 /v1/files → 返回 pack 元数据（带本地缓存）</summary>
+    public RoomPackFlow RoomPackFlow { get; }
 
     /// <summary>
     /// 跨设备链路（设计：2026-10-14-cross-device-sync-design.md）：同 Starcloud ID 设备发现、
@@ -117,6 +130,10 @@ public sealed class AppServices
     public NovaMomentsService NovaMoments { get; }
     public NovaInviteService NovaInvites { get; }
     public NovaToolRegistry NovaTools { get; }
+    /// <summary>UI 线程的 DispatcherQueue（后台线程回 UI 用；AppServices 在 UI 线程构造）。</summary>
+    public Microsoft.UI.Dispatching.DispatcherQueue UIDispatcher { get; } =
+        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+
     public NovaService Nova { get; }
     public NovaRuntime NovaRuntime { get; }
 
@@ -147,8 +164,21 @@ public sealed class AppServices
 
     private AppServices()
     {
+        var perf = System.Diagnostics.Stopwatch.StartNew();
+        void Mark(string phase) =>
+            LauncherLog.Write("perf", $"AppServices.{phase} {perf.ElapsedMilliseconds}ms");
         LauncherPaths.EnsureDataDir();
         Settings = LauncherSettings.Load();
+        Mark("settings");
+        // 日志强度：设置值生效；开发构建（非正式版）锁定为调试档——用户改不下来
+#if DEBUG
+        LauncherLog.SetFloor(LauncherLog.LogIntensity.Debug);
+#endif
+        LauncherLog.ApplyIntensity((LauncherLog.LogIntensity)
+            Math.Clamp(Settings.LogIntensity, 0, 2));
+#if DEBUG
+        LauncherLog.Write("log", "开发构建：日志强度锁定为调试（全部细节）");
+#endif
 
         // ── 内核：登记内置插件并启动 ──
         // 插件化改造的 P0：内核先跑起来，下面那几个服务改成"从内核取"。
@@ -167,6 +197,7 @@ public sealed class AppServices
         Kernel.Register(BuiltinLlmGatewayPlugin.Descriptor, _ => new BuiltinLlmGatewayPlugin(() => Settings));
         // 内置插件的 InitializeAsync 都是纯内存构造，同步启动即可（有 I/O 的插件应声明 lazy）
         Kernel.StartAsync().GetAwaiter().GetResult();
+        Mark("kernel");
 
         Download = Kernel.Get<DownloadService>();
         // 下载源命中情况写进启动器日志，用于确认多源竞速是否生效
@@ -179,12 +210,14 @@ public sealed class AppServices
         Java = new JavaService(Download);
         Forge = new ForgeInstallerService(Download, Java);
         Mods = new ModrinthService(Download, ResourceCache);
-        CurseForge = new CurseForgeService(Download, () => Settings);
+        CurseForge = new CurseForgeService(Download, () => Settings, ResourceCache);
         CurseForgePacks = new CurseForgePackInstaller(Download, CurseForge);
         ProjectionLibrary = Kernel.Get<Starcloud.Core.Kernel.Contracts.IProjectionLibrary>();
         SearchTranslation = Kernel.Get<SearchTranslationService>();
         ModSummaries = new ModSummaryTranslationService(Download, () => Settings);
         ContentLibrary = new ContentLibraryService(Download, Mods, Manifest, () => Settings);
+        Views.Shared.ModTitleHelper.Warmup();
+        Mark("warmup-kick");   // 标题词典后台预热：几 MB 的读盘不占开页那一帧
         Launcher = new GameLauncher(Installer, Java);
         Accounts = AccountStore.Load();
         MicrosoftAuth = new MicrosoftAuthService();
@@ -204,9 +237,20 @@ public sealed class AppServices
                 ?? Accounts.Accounts.FirstOrDefault()?.Username,
             SaveSettings);
         StarcloudId = new StarcloudIdService();
+        Cloud = new LauncherCloudService(() => StarcloudId.Current, () => Settings);
         Friends = new FriendsService(() => StarcloudId.Current?.ApiKey);
         FriendsRuntime = new FriendsRuntime(Friends, StarcloudId);
         FriendsRuntime.Start();
+        Mark("friends");
+        // 联机房间：接口未就绪时走本地演示后端（设置里可强制），UI 全链路先跑通。
+        // 未登录也必须能进 Mock —— 否则大厅页在开发环境是空的。
+        Rooms = new RoomService(() => StarcloudId.Current?.ApiKey,
+            mock: Settings.RoomsUseMock || StarcloudId.Current?.ApiKey is not { Length: > 0 },
+            me: Accounts.DefaultOf(LaunchAccount.Mode)?.Username
+                ?? Accounts.Accounts.FirstOrDefault()?.Username ?? "我");
+        RoomRuntime = new RoomRuntime(Rooms, () => StarcloudId.Current?.UserId, Multiplayer);
+        RoomPackFlow = new RoomPackFlow(ModPackExport, Rooms, () => Settings.DotMinecraft);
+        Mark("rooms");
         // 跨设备链路：需要 SaveLibrary / Saves / StarcloudId（都已在上面就位）；
         // 下载管线从这里拿 P2P 对等源（PeerCount=0 时管线零开销跳过）
         DeviceLink = new DeviceLinkService(() => Settings, StarcloudId, SaveLibrary, Saves)
@@ -247,8 +291,13 @@ public sealed class AppServices
         SkinUpload = new SkinUploadService();
         SkinStation = new SkinStationService();
         OfflineSkins.Configure(Accounts, Skins);
-        // 清掉 0.3.1 早期「代码画出来的」老预置皮肤（用户自己导入的不动）
-        SkinPresetMigration.PurgeLegacyPresetSkins(Skins, Accounts);
+        // 清掉 0.3.1 早期「代码画出来的」老预置皮肤（用户自己导入的不动）。
+        // 这是维护动作（要读盘、删文件），与「启动器尽快出现」无关，挪到后台做。
+        _ = Task.Run(() =>
+        {
+            try { SkinPresetMigration.PurgeLegacyPresetSkins(Skins, Accounts); }
+            catch { /* 清理失败不影响启动 */ }
+        });
         Diagnostics = new GameDiagnosticsService(Installer, Manifest);
         Preflight = new LaunchPreflightService(Installer, Download, Manifest);
         CrashAnalyzer = new CrashAnalysisService(Installer);
@@ -285,6 +334,7 @@ public sealed class AppServices
             Launcher = Launcher,
             Accounts = LaunchAccount,
             Store = Accounts,
+            Permissions = NovaPermissions,
             Saves = Saves,
             SaveLibrary = SaveLibrary,
             Backups = VersionBackup,
@@ -300,6 +350,7 @@ public sealed class AppServices
             LlmGateway);
         // Nova 全局运行时最后建：订阅时刻提案 + 建观察定时器（依赖上面的服务）
         NovaRuntime = new NovaRuntime(this);
+        Mark("nova");
         // 插件系统：宿主版本号取自启动器程序集（minLauncherVersion 校验 / ctx 透出）
         var asmVer = typeof(AppServices).Assembly.GetName().Version ?? new Version(0, 0, 0);
         var pluginHostSdk = Path.Combine(AppContext.BaseDirectory,
@@ -322,17 +373,28 @@ public sealed class AppServices
                 Bridge = new PluginHostActions(),
             });
         Plugins = new PluginService(PluginHost);
+        Mark("plugins");
         Appearance = new AppearanceService();
         Motion = new MotionService(() => Settings);
         // 运行态监控：先注入依赖再起心跳（恢复探测需要 dotMinecraft 与历史库）
         GameRuntimeMonitor.Instance.Configure(() => Settings.DotMinecraft);
         GameRuntimeMonitor.Instance.Start();
+        Mark("monitor");
         LauncherLog.Write("app", $"启动器就绪，数据目录 {LauncherPaths.DataDir}");
     }
 
     public void ReloadSettings() => Settings = LauncherSettings.Load();
 
     public void SaveSettings() => Settings.Save();
+    /// <summary>
+    /// 当前游戏目录（DotMinecraft）变更。页面缓存（NavigationCacheMode=Enabled）之后
+    /// 「其他页下次进入时重建」的隐式假设不再成立 —— 缓存的首页 / 存档页必须订阅本事件重扫。
+    /// </summary>
+    public event Action? GameDirChanged;
+
+    /// <summary>游戏目录切换成功后调用（版本页顶部下拉 / 自动搜索落定）</summary>
+    public void RaiseGameDirChanged() =>
+        UIDispatcher.TryEnqueue(() => GameDirChanged?.Invoke());
 
     /// <summary>authlib-injector jar 路径（Assets 内置；缺失返回 null，由调用方报错）</summary>
     public static string? AgentJarPath()

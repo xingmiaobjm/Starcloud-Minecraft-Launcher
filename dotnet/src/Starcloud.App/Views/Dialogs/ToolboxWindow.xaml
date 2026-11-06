@@ -1,0 +1,62 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- 主页布局编辑工具箱（独立顶层窗口）。
+     工具箱做成独立窗口而不是主页里的浮层：主页内容区本身占满窗口宽（MaxWidth 居中，
+     右侧只剩约 100 DIP 留白），任何浮层都会盖住账户卡。独立窗口可以拖到屏幕别处，
+     主页一个像素都不动。
+
+     结构 = 抬头（标题 + 说明，可拖动） + 卡片缩略图网格（横排两列） + 选中卡片的参数区。 -->
+<Window
+    x:Class="Starcloud.App.Views.Dialogs.ToolboxWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
+    xmlns:loc="using:Starcloud.App.Localization">
+
+    <!-- 背景不设色：亚克力毛玻璃由 AcrylicBackdropHost 挂在窗口上（与主窗口同一套），
+         之上再叠主窗口同款的「壁纸三层」（清晰图 / 模糊层 / 毛玻璃遮罩）——
+         没有壁纸层时 GlassCardBrush（应用内亚克力）取样不到内容，卡片会变成桌面模糊色，
+         与主窗口的观感也对不上。层序：亚克力 → 壁纸三层 → 内容。 -->
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 自定义背景三层（与 MainWindow.xaml 同构） -->
+        <Grid x:Name="BackgroundLayer" Grid.RowSpan="3"
+              IsHitTestVisible="False" Visibility="Collapsed">
+            <Image x:Name="BackgroundImage" Stretch="UniformToFill" Opacity="0.7" />
+            <Border x:Name="BackgroundBlurHost" />
+            <Border x:Name="BackgroundMask" />
+        </Grid>
+
+        <!-- 抬头：兼作窗口拖拽区（SetTitleBar 指向它）。底色用 Alpha=1 的近全黑：
+             纯透明背景不参与命中测试，拖不动。视觉上看不出来。 -->
+        <Grid x:Name="Header" Grid.Row="0" Background="#01000000"
+              Padding="14,10" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE8A7;" FontSize="13"
+                      VerticalAlignment="Center" Opacity="0.55" />
+            <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock x:Name="TitleText" loc:Loc.Text="布局编辑工具箱" FontWeight="Medium" FontSize="14" />
+                <TextBlock loc:Loc.Text="把卡片拖到主页上落位"
+                           Style="{StaticResource ScCardHint}"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 工具箱面板：条目区（横排两列，7 类卡片）+ 底部的参数区。
+             整个面板作为一个控件放进来 —— 不能把它的子元素拆到别处：
+             一个 XAML 元素只能有一个父级，拆走会抛 ArgumentException。
+             面板高度按内容走，窗口装不下时由这层滚动条滚。 -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="10,4,10,4">
+            <ContentControl x:Name="PanelHost" />
+        </ScrollViewer>
+    </Grid>
+</Window>

@@ -58,6 +58,35 @@ android {
     }
 }
 
+/**
+ * Sync the Electron web frontend build output into the Android Web shell assets.
+ *
+ * Both ends run the same React pages, but the artifacts live in two places
+ * (electron/out/renderer and android/.../assets/web/app). Copying by hand let
+ * them drift, so the Android build now pulls them in automatically.
+ * Run `gradle :app:syncWebAssets` after `npm run build` in electron/.
+ */
+val syncWebAssets by tasks.registering(Sync::class) {
+    group = "web"
+    description = "Sync the Electron web frontend build output into the Android Web shell assets"
+    val rendererDir = rootProject.file("../../electron/out/renderer")
+    val webAppDir = file("src/main/assets/web/app")
+    // Only the assets subdirectory: Sync wipes the destination directory, and
+    // index.html / bridge.js live one level up.
+    into(File(webAppDir, "assets"))
+    doFirst {
+        require(rendererDir.exists()) {
+            "Electron build output not found at ${rendererDir}: run npm run build in electron/ first"
+        }
+    }
+    from(File(rendererDir, "assets"))
+}
+
+// Keep the packaged web UI in sync with the Electron sources.
+tasks.named("preBuild") {
+    dependsOn("syncWebAssets")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)

@@ -1,6 +1,7 @@
-// 启动器日志：按日滚动落盘 + 内存尾部缓冲 + 变更事件（对应旧 Rust logging.rs）
+﻿// 启动器日志：按日滚动落盘 + 内存尾部缓冲 + 变更事件（对应旧 Rust logging.rs）
 // 设计：docs/designs/2026-09-11-launch-reliability-design.md §4.1
 
+using System.Collections.Concurrent;
 using System.Text;
 
 namespace Starcloud.Core.Services;
@@ -20,7 +21,46 @@ public static class LauncherLog
     /// <summary>进程启动当天（跨天自动滚动文件名，沿用旧版「按日滚动」语义）</summary>
     private static readonly DateTime StartDate = DateTime.Today;
 
+    /// <summary>
+    /// 待落盘队列。日志写入原来在调用线程同步做（打开文件 + 追加 + 关闭），
+    /// 启动期日志密集时会一次次卡住 UI 线程；现在改成后台消费者批量追加。
+    /// </summary>
+    private static readonly ConcurrentQueue<string> Pending = new();
+
     private static int _writesSinceSizeCheck;
+
+    /// <summary>
+    /// 日志强度：普通（现状密度）/ 详细（关键路径补充：来源、耗时、重试）/ 调试（全部细节）。
+    /// 设置页可调；**非正式版（开发构建）由 App 侧 SetFloor 锁定为调试**，用户改不动。
+    /// </summary>
+    public enum LogIntensity { Normal = 0, Verbose = 1, Debug = 2 }
+
+    private static int _intensity = (int)LogIntensity.Normal;
+    private static int _floor = (int)LogIntensity.Normal;
+
+    /// <summary>当前生效强度（设置值与下限取大；下限由非正式版锁定）。</summary>
+    public static LogIntensity Intensity =>
+        (LogIntensity)Math.Max(Volatile.Read(ref _intensity), Volatile.Read(ref _floor));
+
+    /// <summary>应用用户设置的强度。</summary>
+    public static void ApplyIntensity(LogIntensity level)
+    {
+        if (Interlocked.Exchange(ref _intensity, (int)level) == (int)level) return;
+        Write("log", $"日志强度 -> {LevelText(Intensity)}");
+    }
+
+    /// <summary>
+    /// 强度下限（非正式版锁调试档用）：设置低于下限时按下限生效，用户改不下来。
+    /// </summary>
+    public static void SetFloor(LogIntensity level) =>
+        Interlocked.Exchange(ref _floor, (int)level);
+
+    public static string LevelText(LogIntensity level) => level switch
+    {
+        LogIntensity.Verbose => "详细",
+        LogIntensity.Debug => "调试（全部细节）",
+        _ => "普通",
+    };
 
     /// <summary>追加一行时触发（可能在后台线程；订阅方自行切 UI 线程）</summary>
     public static event Action<string>? Appended;
@@ -31,9 +71,22 @@ public static class LauncherLog
             ? Path.Combine(LauncherPaths.LogsDir, "launcher.log")
             : Path.Combine(LauncherPaths.LogsDir, $"launcher-{DateTime.Today:yyyy-MM-dd}.log");
 
-    /// <summary>写一行（自动加时间戳）</summary>
-    public static void Write(string category, string message)
+    /// <summary>写一行普通日志（自动加时间戳；任何强度都记录）。</summary>
+    public static void Write(string category, string message) =>
+        WriteAt(LogIntensity.Normal, category, message);
+
+    /// <summary>详细日志：关键路径的补充细节（来源、耗时、重试）。强度 ≥ 详细 才记录。</summary>
+    public static void Debug(string category, string message) =>
+        WriteAt(LogIntensity.Verbose, category, message);
+
+    /// <summary>跟踪日志：最细粒度（逐请求 / 逐分片）。仅 调试 强度记录。</summary>
+    public static void Trace(string category, string message) =>
+        WriteAt(LogIntensity.Debug, category, message);
+
+    private static void WriteAt(LogIntensity level, string category, string message)
     {
+        // 低于当前强度的行整个丢弃（缓冲 / 文件 / 事件都不进）——强度就是密度开关
+        if (level > Intensity) return;
         var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{category}] {message}";
         lock (Gate)
         {
@@ -48,7 +101,8 @@ public static class LauncherLog
         {
             // 订阅方异常不影响日志系统
         }
-        AppendToFile(line);
+        Pending.Enqueue(line);
+        EnsureWriter();
     }
 
     /// <summary>异常便捷写法</summary>
@@ -65,13 +119,48 @@ public static class LauncherLog
         }
     }
 
-    private static void AppendToFile(string line)
+    private static int _writerStarted;
+
+    /// <summary>确保后台写线程已启动（幂等）。</summary>
+    private static void EnsureWriter()
+    {
+        if (Interlocked.Exchange(ref _writerStarted, 1) == 1) return;
+        var thread = new Thread(WriterLoop)
+        {
+            IsBackground = true,
+            Name = "starcloud-log",
+            Priority = ThreadPriority.Lowest,
+        };
+        thread.Start();
+    }
+
+    /// <summary>后台写线程：攒一小批再一次性追加，减少打开/关闭文件的次数。</summary>
+    private static void WriterLoop()
+    {
+        var batch = new List<string>(64);
+        while (true)
+        {
+            if (!Pending.TryDequeue(out var line))
+            {
+                Thread.Sleep(120);
+                continue;
+            }
+            batch.Add(line);
+            // 队列里还有就顺手多收一点，凑成一批写
+            while (batch.Count < 128 && Pending.TryDequeue(out var more)) batch.Add(more);
+            AppendBatch(batch);
+            batch.Clear();
+        }
+    }
+
+    private static void AppendBatch(List<string> lines)
     {
         try
         {
             Directory.CreateDirectory(LauncherPaths.LogsDir);
             var file = CurrentFile;
-            File.AppendAllText(file, line + Environment.NewLine, Encoding.UTF8);
+            var text = string.Concat(lines.Select(l => l + Environment.NewLine));
+            File.AppendAllText(file, text, Encoding.UTF8);
             if (++_writesSinceSizeCheck < 50) return;
             _writesSinceSizeCheck = 0;
             TrimIfTooLarge(file);

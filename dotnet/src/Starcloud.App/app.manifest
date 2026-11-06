@@ -13,6 +13,10 @@
     <windowsSettings>
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
       <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <!-- 长路径支持：Minecraft 的版本/库路径动辄十几层，用户名长的机器很容易撞 260 字符上限。
+           声明 longPathAware 后，系统开了长路径策略（Win10 1607+）即可正常读写超长路径；
+           系统未开启策略时保持旧行为，无副作用。 -->
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>
 </assembly>

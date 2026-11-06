@@ -344,14 +344,23 @@ public sealed class ModPackExportService(ModrinthService mods, CurseForgeService
         if (!string.IsNullOrWhiteSpace(request.Author) || !string.IsNullOrWhiteSpace(request.Description))
             WriteText(zip, "pack.json", PackMeta(request), request.Compression);
 
-        long totalBytes = 0;
+        var totalBytes = files.Sum(f => Math.Max(f.Size, 0));
+        long doneBytes = 0;
         var count = 0;
+        var nextReportBytes = 0L;
         foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
-            totalBytes += file.Size;
             AddFile(zip, $".minecraft/{file.Rel}", file.Abs, request.Compression);
+            doneBytes += Math.Max(file.Size, 0);
             count++;
+            // 联机房间上传用的实时进度：按字节报（mod 包单文件可能上百 MB，按个数报会长时间不动）
+            if (doneBytes >= nextReportBytes || count == files.Count)
+            {
+                nextReportBytes = doneBytes + 32 * 1024 * 1024;
+                var pct = totalBytes > 0 ? doneBytes * 100 / totalBytes : 100;
+                status?.Report($"正在打包… {pct}%（{doneBytes / 1048576.0:F0}/{totalBytes / 1048576.0:F0} MB）");
+            }
         }
         return new ExportResult(0, count, 0, totalBytes, null);
     }

@@ -1,4 +1,4 @@
-// Starcloud ID 账号体系：登录换取会话令牌，再用令牌换取云 AI 助手 API Key。
+﻿// Starcloud ID 账号体系：登录换取会话令牌，再用令牌换取云 AI 助手 API Key。
 // 只保留云端通道（测试通道的本地模拟账号已移除）。
 //
 // 协议（后端 /v1/auth/*）：
@@ -21,7 +21,9 @@ public sealed record StarcloudSession(
     [property: JsonPropertyName("display_name")] string DisplayName,
     [property: JsonPropertyName("api_key")] string ApiKey,
     [property: JsonPropertyName("channel")] string Channel,
-    [property: JsonPropertyName("login_at")] DateTime LoginAt);
+    [property: JsonPropertyName("login_at")] DateTime LoginAt,
+    /// <summary>用户头像（登录响应下发；旧会话文件没有，空则界面回退首字母色块）</summary>
+    [property: JsonPropertyName("avatar_url")] string? AvatarUrl = null);
 
 public sealed class StarcloudIdService
 {
@@ -48,6 +50,7 @@ public sealed class StarcloudIdService
     /// <summary>退出登录：清掉内存里的会话与本地会话文件。</summary>
     public void Logout()
     {
+        LauncherLog.Debug("auth", $"登出：{Current?.DisplayName ?? "(无会话)"}（会话与本地 Key 清除）");
         Current = null;
         if (File.Exists(LauncherPaths.StarcloudIdFile))
             File.Delete(LauncherPaths.StarcloudIdFile);
@@ -157,6 +160,8 @@ public sealed class StarcloudIdService
         var userId = doc.RootElement.TryGetProperty("user_id", out var uid) ? uid.GetString() ?? "" : "";
         var displayName = doc.RootElement.TryGetProperty("display_name", out var dn)
             ? dn.GetString() ?? id : id;
+        var avatarUrl = doc.RootElement.TryGetProperty("avatar_url", out var av)
+            ? av.GetString() : null;
 
         // 令牌只能消费一次；这里立刻换成长期 API Key
         using var req = new HttpRequestMessage(HttpMethod.Post, "/v1/auth/apikeys");
@@ -170,7 +175,7 @@ public sealed class StarcloudIdService
         var apiKey = (keyDoc.RootElement.TryGetProperty("api_key", out var ak) ? ak.GetString() : null)
                      ?? throw new InvalidOperationException("API Key 创建失败");
 
-        return new StarcloudSession(userId, displayName, apiKey, CloudChannel, DateTime.Now);
+        return new StarcloudSession(userId, displayName, apiKey, CloudChannel, DateTime.Now, avatarUrl);
     }
 
     /// <summary>后端错误体统一是 {"error":{"code","message"}}，message 已中文化，直接给用户看。</summary>

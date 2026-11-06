@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Starcloud.App.Views.HomePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -8,7 +8,7 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <Page.Resources>
         <!-- 版本行模板：展开态的列表与折叠态的紧凑行共用同一份，两处的图标 / 名称 / 芯片 /
@@ -159,6 +159,11 @@
                                       ToolTipService.ToolTip="收藏" />
                         </StackPanel>
                     </Grid>
+                    <!-- 选中竖条：动画落定后由 ListSelectionFx 交接过来，从此绑在这一行上，
+                         滚动 / 回收 / 布局都由框架带着走（几何与共用条一致：左缘、上下各留 10） -->
+                    <Border Tag="bar" Width="3" CornerRadius="2" Background="#FFD322"
+                            HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                            Margin="0,10" IsHitTestVisible="False" Visibility="Collapsed" />
                 </Grid>
             </Border>
         </DataTemplate>
@@ -190,19 +195,25 @@
     </Page.Resources>
 
     <!-- 不用 ScrollViewer：整体填满视口，卡片与窗口同高（PCL2 式） -->
-    <!-- 根节点两层：HomeContent（主页两列）+ LaunchOverlay（启动页覆盖层，见文件尾） -->
+    <!-- 根节点三层：HomeContent（主页两列）+ 布局编辑悬浮层（Canvas 绝对定位）
+         + LaunchOverlay（启动页覆盖层，见文件尾） -->
     <Grid>
-        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="360" />
-            </Grid.ColumnDefinitions>
+        <Grid x:Name="HomeContent" MaxWidth="1280" HorizontalAlignment="Stretch"
+              AutomationProperties.Name="主页内容区">
+            <!-- 卡片网格：固定 12 列 × 6 行，主页永远不滚动。
+                 卡片按固定尺寸档位摆放，放不下就提示，不靠拉高页面解决。 -->
+            <ctrl:CardGridPanel x:Name="HomeGrid" Columns="12" Rows="6" ColumnGap="24" RowGap="16"
+                                StretchRows="True"
+                                AutomationProperties.Name="主页卡片网格"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <ctrl:CardHost x:Name="VersionsHost" CardId="versions" CardType="versions"
+                           Column="0" Row="0" ColumnSpan="8" RowSpan="6">
 
         <!-- ═══ 左列：通知/自检（按需占位） + 插件首页卡片 + 版本库（撑满余下高度） ═══
              各行之间的间距走元素自己的 Margin，不用 Grid.RowSpacing：
              RowSpacing 按行边界收取，通知区 / 挂载区 / 卡片带整块收起、行高为 0 时它照收一份，
              版本卡就被推下去一截，与右栏账户卡的上边缘对不齐。 -->
-        <Grid Grid.Column="0" Margin="0,0,24,0">
+        <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <!-- 状态摘要条：只在收起态露面（展开态由版本卡自己占满整列） -->
@@ -294,8 +305,10 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock loc:Loc.Text="已安装版本" FontWeight="Medium" FontSize="15"
+                        <!-- 文案按设置切换（已安装 / 收藏 / 置顶），由代码在列表就绪时写 -->
+                        <TextBlock x:Name="VersionTitleText" FontWeight="Medium" FontSize="15"
                                    VerticalAlignment="Center" />
                         <Border Grid.Column="1" CornerRadius="5" Padding="6,1" VerticalAlignment="Center"
                                 Background="{ThemeResource SubtleFillColorSecondaryBrush}">
@@ -319,7 +332,12 @@
                                       Fill="Transparent" />
                             </Grid>
                         </ctrl:GlowButton>
-                        <ctrl:GlowButton x:Name="RefreshVersionsBtn" Grid.Column="4" Padding="6"
+                        <ctrl:GlowButton x:Name="EditLayoutBtn" Grid.Column="4" Padding="6"
+                                Background="Transparent" BorderThickness="0"
+                                Click="EditLayout_Click" loc:Loc.Name="编辑布局" loc:Loc.Tip="编辑主页布局">
+                            <TextBlock Text="布局" FontSize="12" />
+                        </ctrl:GlowButton>
+                        <ctrl:GlowButton x:Name="RefreshVersionsBtn" Grid.Column="5" Padding="6"
                                 Background="Transparent" BorderThickness="0"
                                 Click="RefreshVersionsBtn_Click" loc:Loc.Name="刷新列表" loc:Loc.Tip="刷新列表">
                             <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE918;" FontSize="14" />
@@ -425,14 +443,17 @@
                 </Grid>
             </Border>
         </Grid>
+            </ctrl:CardHost>
 
+            <ctrl:CardHost x:Name="AccountHost" CardId="account" CardType="account"
+                           Column="8" Row="0" ColumnSpan="4" RowSpan="6">
         <!-- ═══ 右列：PCL2 式账户/启动卡（与窗口同高；可收起成一条只留启动按钮的 Dock） ═══ -->
         <!-- 展开态：Height=NaN + 拉伸，卡片跟着窗口同高；收起态：88 高 × 280 宽的窄条 + 右／底边对齐，
              与左栏版本窄条同尺寸（两角各一颗同宽同高的 Dock）。收起态底边就落在内容区底沿上，
              与展开态一致（两态页边距相等，不再多留一段底部缝）；由 SetCardExpanded 逐帧补间两者之间过渡
              （高度与宽度都是依赖型属性，上不了合成层）。宽度收起时右对齐 —— 右边缘始终贴着列右沿，
              与左栏窄条贴列左沿正好镜像。 -->
-        <Border x:Name="AccountCard" Grid.Column="1"
+        <Border x:Name="AccountCard"
                 Background="{ThemeResource GlassCardBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="12">
@@ -705,10 +726,231 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
             </Grid>
         </Border>
+            </ctrl:CardHost>
+
+            <!-- ═══ 可选卡片：默认隐藏，通过编辑模式浮条里的「卡片」菜单添加 ═══
+                 启动按钮：按钮本身按内容自适应大小并居中，不铺满整张卡 ——
+                 铺满的话 4×2 的卡就是一大块纯黄色。 -->
+            <ctrl:CardHost x:Name="LaunchHost" CardId="launch" CardType="launch"
+                           Column="8" Row="0" ColumnSpan="2" RowSpan="3" Visibility="Collapsed">
+                <ctrl:SizeAwareContent x:Name="LaunchCardBody">
+                    <Border Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="16" Padding="8">
+                        <Button x:Name="CardLaunchBtn" Click="CardLaunch_Click"
+                                Style="{StaticResource ScAccentButtonStyle}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                Padding="16,10">
+                            <StackPanel Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEBDF;" FontSize="20" />
+                                <TextBlock x:Name="CardLaunchTitle" Text="启动游戏" FontSize="13"
+                                           FontWeight="Medium" HorizontalAlignment="Center" />
+                                <TextBlock x:Name="CardLaunchVersion" FontSize="11" Opacity="0.75"
+                                           HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           MaxWidth="150" />
+                            </StackPanel>
+                        </Button>
+                    </Border>
+                </ctrl:SizeAwareContent>
+            </ctrl:CardHost>
+
+            <!-- 账户选择：模式分段（正版 / 外置 / 离线）+ 头像 + 名字，和账户卡里那一块同构。 -->
+            <ctrl:CardHost x:Name="AccountPickerHost" CardId="account-picker" CardType="account-picker"
+                           Column="8" Row="5" ColumnSpan="4" RowSpan="3" Visibility="Collapsed">
+                <ctrl:SizeAwareContent x:Name="AccountPickerBody">
+                    <Border Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="16" Padding="12">
+                        <Grid RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                    CornerRadius="8" Padding="2">
+                                <Grid ColumnSpacing="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ToggleButton x:Name="PickerMsBtn" Grid.Column="0" Tag="microsoft"
+                                                  Content="正版" Click="PickerMode_Click"
+                                                  FontSize="11" Padding="6,3" MinWidth="0" BorderThickness="0"
+                                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                                    <ToggleButton x:Name="PickerExternalBtn" Grid.Column="1" Tag="external"
+                                                  Content="外置" Click="PickerMode_Click"
+                                                  FontSize="11" Padding="6,3" MinWidth="0" BorderThickness="0"
+                                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                                    <ToggleButton x:Name="PickerOfflineBtn" Grid.Column="2" Tag="offline"
+                                                  Content="离线" Click="PickerMode_Click"
+                                                  FontSize="11" Padding="6,3" MinWidth="0" BorderThickness="0"
+                                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <Button x:Name="AccountPickerBtn" Grid.Row="1" Click="AccountPicker_Click"
+                                    Background="Transparent" BorderThickness="0" Padding="0"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <Border Width="40" Height="40" CornerRadius="20"
+                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                        <Grid>
+                                            <TextBlock x:Name="PickerAvatarText" FontSize="16" FontWeight="Medium"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Image x:Name="PickerAvatarImage" Stretch="UniformToFill" />
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock x:Name="PickerNameText" FontWeight="Medium" FontSize="13"
+                                                   TextTrimming="CharacterEllipsis" MaxWidth="160" />
+                                        <TextBlock x:Name="PickerHintText" Text="点击切换账户" FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
+                </ctrl:SizeAwareContent>
+            </ctrl:CardHost>
+
+            <!-- 收藏 / 最近：同一套版本小列表，行数随卡片高度、芯片随宽度增减（见 RebuildMiniList）。 -->
+            <ctrl:CardHost x:Name="FavoritesHost" CardId="favorites" CardType="favorites"
+                           Column="0" Row="6" ColumnSpan="4" RowSpan="4" Visibility="Collapsed">
+                <ctrl:SizeAwareContent x:Name="FavoritesBody">
+                    <Border Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="16" Padding="12">
+                        <Grid RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="FavoritesTitle" Text="收藏的版本" FontWeight="Medium" FontSize="13" />
+                            <StackPanel x:Name="FavoritesList" Grid.Row="1" Spacing="2" />
+                        </Grid>
+                    </Border>
+                </ctrl:SizeAwareContent>
+            </ctrl:CardHost>
+
+            <ctrl:CardHost x:Name="RecentHost" CardId="recent" CardType="recent"
+                           Column="0" Row="6" ColumnSpan="4" RowSpan="4" Visibility="Collapsed">
+                <ctrl:SizeAwareContent x:Name="RecentBody">
+                    <Border Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="16" Padding="12">
+                        <Grid RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="RecentTitle" Text="最近的版本" FontWeight="Medium" FontSize="13" />
+                            <StackPanel x:Name="RecentList" Grid.Row="1" Spacing="2" />
+                        </Grid>
+                    </Border>
+                </ctrl:SizeAwareContent>
+            </ctrl:CardHost>
+
+            <!-- 游玩时长排名：按累计游玩秒数倒序（秒数在游戏正常退出后入账）。 -->
+            <ctrl:CardHost x:Name="MostPlayedHost" CardId="most-played" CardType="most-played"
+                           Column="0" Row="6" ColumnSpan="4" RowSpan="4" Visibility="Collapsed">
+                <ctrl:SizeAwareContent x:Name="MostPlayedBody">
+                    <Border Background="{ThemeResource GlassCardBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="16" Padding="12">
+                        <Grid RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="MostPlayedTitle" Text="游玩时长" FontWeight="Medium" FontSize="13" />
+                            <StackPanel x:Name="MostPlayedList" Grid.Row="1" Spacing="2" />
+                        </Grid>
+                    </Border>
+                </ctrl:SizeAwareContent>
+            </ctrl:CardHost>
+            </ctrl:CardGridPanel>
         </Grid>
 
-        <!-- ═══ 启动页覆盖层：点启动后盖住两列内容（PCL2 式，设计：launch-overlay-design.md §3.1） ═══ -->
+        <!-- 布局编辑工具箱：浮层面板，贴在主页右缘、压在所有控件之上，不参与主页布局 ——
+             主界面卡片的位置与大小一概不动。
+             放在独立的 Canvas 里、用绝对坐标定位：Canvas 不参与 Grid 的尺寸分配，
+             工具箱既不会把主页内容挤窄，也不会让内容区变成 0 宽。
+
+             宽度取窄条（196）：主页内容区本身占满窗口宽（MaxWidth=1280 DIP 居中，
+             右侧只剩约 100 DIP 留白），宽面板会把账户卡整块盖住。
+             窄条单列排，每条是「缩略图 + 名称」，竖向可滚。
+             按住标题条可把工具箱拖到别处（位置会记住）。
+
+             所有卡片都预设在里面，从这里拖到主页任意格位落卡；
+             点选某张卡后，尺寸档位 / 移除也在这一条里改。 -->
+        <Canvas Canvas.ZIndex="10" IsHitTestVisible="True">
+            <Grid x:Name="LayoutEditBar" Visibility="Collapsed"
+                  Canvas.Left="0" Canvas.Top="14" Width="196" Height="0"
+                  AutomationProperties.Name="布局编辑工具箱">
+            <!-- 工具箱底色用不透明：玻璃底（半透明）会把下面的账户卡透出来，
+                 浮层压在内容上时一片糊，反而看不清自己这边是什么。 -->
+            <Border Background="{ThemeResource ScFloatingPanelBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="16" Padding="10,8">
+                <Grid RowSpacing="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <!-- 标题条：按住可把整条工具箱拖到别处（悬浮层，不挡主界面）。
+                         底色用 Alpha=1 的近全黑：纯透明背景不参与命中测试，
+                         拖不动。视觉上完全看不出来。 -->
+                    <Grid x:Name="ToolboxHandle" Background="#01000000"
+                          ColumnSpacing="6" Height="20"
+                          PointerPressed="ToolboxHandle_PointerPressed"
+                          PointerMoved="ToolboxHandle_PointerMoved"
+                          PointerReleased="ToolboxHandle_PointerReleased"
+                          PointerCanceled="ToolboxHandle_PointerReleased">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xE8A7;" FontSize="11"
+                                  VerticalAlignment="Center" Opacity="0.55" />
+                        <TextBlock Grid.Column="1" loc:Loc.Text="拖到主页" FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <!-- 卡片列表：窄条单列竖排；缩略图让每条更高，七条要滚动，
+                         但每条的「长什么样」始终看得见。 -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="PaletteChips" Orientation="Vertical" Spacing="2" />
+                    </ScrollViewer>
+                    <Border Grid.Row="2" Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <!-- 参数区（尺寸档位 + 移除）：横排一排，档位按钮并排显示 -->
+                    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="CardParams" Orientation="Vertical" Spacing="6" />
+                    </ScrollViewer>
+                    <Button Grid.Row="4" Content="完成" Click="LayoutDone_Click"
+                            Style="{StaticResource ScAccentButtonStyle}" Padding="8,4"
+                            HorizontalAlignment="Stretch" />
+                </Grid>
+            </Border>
+        </Grid>
+        </Canvas>
+
+        <!-- 页面级悬浮提示：卡片的操作结果（空间不足等）浮在所有控件之上，
+             不再塞进某张卡片内部（卡片会被拖动/缩放/隐藏，提示跟着跑没有意义）。 -->
+        <InfoBar x:Name="HomeToast" Severity="Error" IsOpen="False" IsClosable="True"
+                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
+                 MaxWidth="560" Canvas.ZIndex="20" />
+
+        <!-- ═══ 启动页覆盖层：点启动后盖住两列内容（PCL2 式，设计：launch-overlay-design.md §3.1） ═══
+             ZIndex 高于工具箱：启动过程中不该还看见编辑浮条。 -->
         <Grid x:Name="LaunchOverlay" Visibility="Collapsed"
+              Canvas.ZIndex="30"
               Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
             <StackPanel MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Spacing="14">

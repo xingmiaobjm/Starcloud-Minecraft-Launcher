@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "sync:web": "node ../tools/sync-web-assets.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
     "package": "electron-vite build && electron-builder --config electron-builder.yml --linux",

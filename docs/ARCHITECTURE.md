@@ -81,7 +81,7 @@ dotnet/
             ├── VersionsPage.xaml(.cs)      # 版本管理列表
             ├── VersionDetailPage.xaml(.cs) # 版本详情（隔离设置/Mod/存档/导出）
             ├── SavesPage.xaml(.cs)         # 存档跨版本聚合 + 复制启动
-            ├── MultiplayerPage.xaml(.cs)   # 联机：陶瓦联机 / 第三方联机 SDK（建房·进房·状态·日志）
+            ├── RoomsPage.xaml(.cs)         # 联机房间：大厅 / 房间 / 我的（陶瓦房主·玩家·急停）
             ├── DownloadPage.xaml(.cs)      # 版本列表 + 安装进度
             ├── AccountsPage.xaml(.cs)      # 账户列表（一级）：Starcloud ID 卡 + 游戏账户卡片流
             ├── AccountAddPage.xaml(.cs)    # 添加游戏账户（二级）：左选身份 / 右填表单（微软·第三方·离线）
@@ -113,8 +113,7 @@ dotnet/
             │   ├── EnvCheckDialogs.cs      # 环境自检
             │   ├── UpdateDialog.cs         # 自更新
             │   └── LaunchTips.cs           # 启动提示共享逻辑
-            ├── Overlays/                   # 独立浮窗
-            │   └── NovaOverlayWindow.xaml(.cs) # Nova 浮窗窗口
+            ├── Overlays/                   # 独立浮窗（Nova 游戏内浮窗已下线，目录留空占位）
             ├── Rows/                       # 列表行模型与行辅助
             │   ├── RowModels.cs            # 各页面的行 record / 视图模型 / 模板选择器
             │   └── VersionRowHelpers.cs    # 版本类型与加载器判定（缓存后单次读 JSON）+ 图标解析

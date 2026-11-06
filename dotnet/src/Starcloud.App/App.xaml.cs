@@ -1,4 +1,4 @@
-// WinUI 3 应用入口
+﻿// WinUI 3 应用入口
 
 using System.IO;
 using Microsoft.UI.Xaml;
@@ -12,6 +12,9 @@ public partial class App : Application
     /// <summary>首次向导窗口的强引用（WinUI 的 Window 不持有引用就会被 GC 关掉）</summary>
     private Views.Dialogs.OnboardingWindow? _onboarding;
 
+    /// <summary>主页布局编辑工具箱窗口（独立顶层窗口，同样需要强引用否则会被 GC 关掉）</summary>
+    public static Views.Dialogs.ToolboxWindow? Toolbox { get; set; }
+
     /// <summary>启动参数（向导结束、主窗口延后创建时仍要处理 starcloud://join）</summary>
     private LaunchActivatedEventArgs? _launchArgs;
 
@@ -20,8 +23,27 @@ public partial class App : Application
     // 跨页启动请求：版本列表页详情页"启动"后导航回主页消费
     public static string? PendingLaunchVersionId;
 
+    // 跨页启动附带的「自动连接服务器」：联机房间的「开始游戏」在启动时带房主地址
+    // （走 --quickPlayMultiplayer），消费一次即清空
+    public static string? PendingLaunchServer;
+
+    // 本次启动来自联机房间：游戏窗口出现后自动跳回好友页联机标签（消费一次即清）
+    public static bool PendingReturnToFriends;
+
     // 跨页日志跳转：运行状态页点「打开日志」时置 "game"，日志页进入后消费一次
     public static string? PendingLogSource;
+
+    /// <summary>跨页进房请求：好友聊天里的房卡点「加入房间」时置房间码，联机页进入后消费一次</summary>
+    public static string? PendingRoomCode;
+
+    /// <summary>nre.log 追加锁：FirstChance 可能任意线程并发触发</summary>
+    private static readonly object NreLogGate = new();
+
+    /// <summary>启动分段计时的零点：显式静态构造保证在 AppServices 构造（实例 ctor 第一行触发）之前开始
+    /// （无显式 cctor 的类型是 beforefieldinit，初始化时机不保证落在实例构造之前）</summary>
+    private static readonly System.Diagnostics.Stopwatch PerfSinceStart;
+
+    static App() => PerfSinceStart = System.Diagnostics.Stopwatch.StartNew();
 
     public App()
     {
@@ -29,6 +51,48 @@ public partial class App : Application
         Loc.Initialize(AppServices.Instance.Settings.UiLanguage);
         InitializeComponent();
         // 全局异常日志：WinUI stowed exception（0xc000027b）默认不留托管堆栈，落地到文件便于诊断
+        // 诊断：首破异常记录 NRE 的真实抛出点（无堆栈的 NRE 靠这个定位）
+        AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
+        {
+            if (e.Exception is not NullReferenceException nre) return;
+            // 落盘放后台：FirstChance 在异常抛出点同步触发，若在 UI 线程高频路径上
+            // 直接 AppendAllText，一次抖动就是一帧卡顿
+            var message = nre.Message;
+            var stack = nre.StackTrace ?? "(无堆栈)";
+            Task.Run(() =>
+            {
+                try
+                {
+                    lock (NreLogGate)
+                    {
+                        var dir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "Starcloud");
+                        Directory.CreateDirectory(dir);
+                        File.AppendAllText(Path.Combine(dir, "nre.log"),
+                            $"[{DateTime.Now:HH:mm:ss.fff}] {message}" + "\n" + stack + "\n\n");
+                    }
+                }
+                catch { }
+            });
+        };
+
+        // 后台线程的未捕获异常不会走 UnhandledException（XAML 线程专用）——它们直接杀进程，
+        // 且 stderr 只有一行 "Unhandled exception"。这里补上，保证有堆栈可查。
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Starcloud");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "crash.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [background] {e.ExceptionObject}" + "\n\n");
+            }
+            catch { }
+        };
+
         UnhandledException += (_, e) =>
         {
             try
@@ -50,6 +114,10 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // 启动分段计时：进程内第一条 [perf] 从这里打，AppServices ctor / 主窗口 ctor / 首页导航各一段，
+        // 优化只对着最大的那段下手（见 MainWindow root.Loaded 里的收尾一条）
+        Starcloud.Core.Services.LauncherLog.Write("perf",
+            $"OnLaunched（进程内已过 {PerfSinceStart.ElapsedMilliseconds}ms）");
         _launchArgs = args;
         // 首次使用：先只开使用引导，主窗口等引导关闭后再创建（用户设完才进启动器）。
         // 老用户 / 已完成后正常启动，不弹任何东西。

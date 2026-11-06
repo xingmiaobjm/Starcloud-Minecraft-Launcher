@@ -6,3 +6,61 @@
 - Settings toggles no longer show the default "Off / On / Off" text.
 - The download page's "Installed" badge no longer collides with long version names.
 - The projection manager now guides you when nothing is selected, and the projection preview ready handshake is fixed.
+
+Home card grid
+- The home page is now an editable card grid: cards are placed by column, row and span. In edit mode you drag a card to a new position and pick a fixed size from the button in its lower-right corner.
+- While dragging, the card itself follows the pointer; a dashed outline stays in its original slot and the card snaps into place only when you let go.
+- The edit toolbox is now its own floating window beside the home page and never moves or resizes anything on it. The acrylic background and wallpaper follow the launcher settings, and the window position is remembered.
+- Every card type in the toolbox comes with a thumbnail sketch, so you can tell at a glance what that card looks like.
+- Adding a card no longer does nothing: when the default layout fills the grid, the layout makes room - the new card gets a smaller size preset first, and if that is still not enough the other cards are rearranged to give it space. A message tells you when a card was adjusted.
+- Card sizes: installed versions 4x3 to 12x6, account and launch 2x3 to 4x6, account picker 2x2 to 6x4, launch button 2x1 to 6x2, favorites and recent 3x2 or 3x3.
+- Three new cards: Favorites, Recent and Play time, plus standalone account picker and launch button cards.
+- Play time is only counted when a game exits normally after at least 30 seconds, and versions are ranked by accumulated play time.
+
+Startup speed
+- Scanning installed versions now runs on a background thread: the window appears first and the version list follows.
+- First-page navigation is deferred until after the window is visible instead of building the whole page beforehand.
+- Hardware encoder probing and legacy preset skin cleanup moved to the background.
+- Launcher log writes are batched on a background thread instead of opening the file on every call.
+
+Download engine
+- Fixed the speed readout: instantaneous speed is now settled over a fixed sampling window, so concurrent reports no longer produce spikes dozens of times too high.
+- Chunk-level resume: an interrupted large file only re-downloads the chunks that were missing instead of starting over.
+- Concurrency is derived from the download source actually in use, avoiding repeated requests against a source that is already rate limited.
+- Large files are processed first in a batch so they receive the concurrency budget earlier.
+- Download sources are ranked by a health score combining measured throughput, failures and rate limits, so slow mirrors move back automatically (5-minute half-life follows the drift in mirror quality).
+- Multi-source racing now allocates by measured speed: only mirrors scoring close to the best source take a share of the files, chunks are distributed by weighted round-robin over each source's measured throughput, and the allocation is recomputed per file as real throughput comes in - slow sources and mirrors whose warm-up sample overshot them drop out on their own. With effective mirrors, aggregation is up to 47% faster (measured locally, 45 files).
+- Sources are probed for liveness, speed and chunk support before files are split: mirrors that are entirely down are dropped, sources without Range support no longer receive large files, and a mirror returning 404 counts as "not cached" instead of a failure that degrades the source.
+- Official-source downloads are faster: the per-file chunk count and connection cap for Mojang's CDN are now 2x and 4x the mirror limits (the official CDN throttles per connection), so single large files finish noticeably sooner.
+- Whole-file downloads try each source once and never wait out a rate-limit cooldown: previously one file could repeatedly run into a dead mirror and drag the whole batch.
+- The Starcloud accelerator is now a fallback source: regular downloads no longer touch our own object storage; it joins automatically only when every mirror and the official source are unavailable, or when all primary sources failed for a specific file. It can still be selected explicitly in settings.
+
+Launch arguments
+- The classpath is cached by library set fingerprint instead of stat-ing hundreds of library files on every launch.
+- Duplicate JVM arguments are removed: a custom -Xmx no longer coexists with the memory setting, so the interface matches what actually takes effect.
+- --class-path is now recognized alongside -cp and -classpath.
+- Forge's legacyClassPath field is now honored; previously it was ignored and Forge installs failed with "main class not found".
+- The official logging argument (log4j configuration since 1.16) is passed through, putting game logs back in the official location and format.
+
+P2P acceleration
+- Removed the interface freeze during downloads: peer requests are now awaited asynchronously.
+- Fixed concurrent writes into the UDP receive channel, which could corrupt or drop frames.
+- The acknowledgement bitmap is extended to 64 bits to match the sliding window, removing the stall caused by a lost packet in the second half of the window.
+- Retransmission timeout now adapts to measured round-trip latency, and fast retransmit on duplicate acknowledgements is supported.
+- STUN probing runs in parallel: worst-case wait for a failed probe drops from 24 seconds to 2.
+- P2P transferred bytes now count towards the download progress.
+
+Installation and mod packs
+- Free disk space is checked before installing or importing, with allowance for unpacking and temporary files, so a full disk is reported before downloading rather than halfway through.
+- Detecting, flattening and previewing a mod pack run in the background, so importing a large pack no longer freezes the interface.
+- A failed import cleans up the leftover instance directory.
+- Files marked as optional are skipped during import, and the overrides path check no longer allows escaping the instance directory.
+
+Security
+- The installer refuses a drive root or network share root as the install location.
+- When a legacy install in a drive root is detected, uninstallation removes only the files this product installed instead of the whole volume.
+- Version deletion validates the version name and rejects illegal characters and out-of-tree paths.
+
+Fixes
+- Version and save icons occasionally appeared blank: the row model's icon property created a new bitmap on every access, so the two bindings got different instances and the image was unavailable before decoding finished.
+- Icon caches are now thread safe, and missing resources are no longer permanently cached as empty.

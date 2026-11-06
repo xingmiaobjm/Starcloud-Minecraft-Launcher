@@ -104,6 +104,62 @@ public sealed class LaunchAccountService(
     }
 
     /// <summary>
+    /// 解析可用身份，**带方式回退**：默认用当前选定的登录方式（主页选择的那个）；
+    /// 该方式**根本没有账户**时（例如没加过微软账户），自动改用其它可用方式，
+    /// 顺序：已登录的微软 → 已登录的第三方 → 离线账户。
+    /// <para>注意：选定方式<b>有账户但没登录</b>时不回退——那仍需用户登录，
+    /// 静默换成别的身份会让人莫名其妙变成另一个玩家名。</para>
+    /// <paramref name="onFallback"/> 会被回退说明调用一次（界面提示用）。
+    /// </summary>
+    public async Task<ResolvedPlayer> ResolveWithFallbackAsync(Action<string>? onFallback = null)
+    {
+        var preferred = Mode;
+        try
+        {
+            return await ResolveAsync();
+        }
+        catch (AccountLoginRequiredException)
+        {
+            // 选定的账户只是没登录：交回 UI 弹登录，不回退（见上面的说明）
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            // 该方式没有任何账户：继续找可用的
+        }
+
+        foreach (var candidate in new[] { "microsoft", "external", "offline" })
+        {
+            if (string.Equals(candidate, preferred, StringComparison.OrdinalIgnoreCase)) continue;
+            if (candidate != "offline" && accounts.DefaultOf(candidate) is null) continue;
+            if (candidate == "offline" && accounts.DefaultOf(AccountStore.OfflineType) is null) continue;
+
+            Mode = candidate;
+            try
+            {
+                var player = await ResolveAsync();
+                var label = candidate switch
+                {
+                    "microsoft" => "微软账户",
+                    "external" => "第三方账户",
+                    _ => "离线账户",
+                };
+                onFallback?.Invoke(
+                    $"选定的登录方式暂无可用账户，已改用{label}「{player.Name}」启动");
+                return player;
+            }
+            catch (Exception)
+            {
+                // 该方式有账户但凭证不可用：继续看下一个
+            }
+        }
+
+        Mode = preferred;   // 全都不行：恢复用户的选择，让调用方报原来的错
+        throw new InvalidOperationException(
+            "没有可用的游戏账户，请先到账户页添加或登录一个账户");
+    }
+
+    /// <summary>
     /// 正版登录 30 天免登录：用本机保存的 refresh_token 续期。
     /// 失败（过期 / 被吊销 / 网络）就删掉本地凭证，交给 UI 重新走设备码登录。
     /// </summary>

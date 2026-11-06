@@ -23,6 +23,8 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   List<GameAccount> _accounts = const [];
   String? _current;
   String? _message;
+  /// 消息是不是错误：原来错误也用 info 样式显示，用户看不出哪里失败了。
+  bool _messageIsError = false;
 
   /// 非空时整页显示账户详情（页内导航）。
   GameAccount? _detail;
@@ -47,11 +49,17 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     try {
       await action(store);
       if (!mounted) return;
-      setState(() => _message = null);
+      setState(() {
+        _message = null;
+        _messageIsError = false;
+      });
       _reload();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _message = '$e');
+      setState(() {
+        _message = '$e';
+        _messageIsError = true;
+      });
     }
   }
 
@@ -61,7 +69,10 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       builder: (context) => const _AddAccountDialog(),
     );
     if (added == true && mounted) {
-      setState(() => _message = '账户已添加');
+      setState(() {
+        _message = '账户已添加';
+        _messageIsError = false;
+      });
       _reload();
     }
   }
@@ -121,9 +132,14 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
             if (_message != null) ...[
               InfoBar(
                 title: Text(_message!),
-                severity: InfoBarSeverity.info,
+                severity: _messageIsError
+                    ? InfoBarSeverity.error
+                    : InfoBarSeverity.info,
                 isLong: true,
-                onClose: () => setState(() => _message = null),
+                onClose: () => setState(() {
+                  _message = null;
+                  _messageIsError = false;
+                }),
               ),
               const SizedBox(height: 12),
             ],

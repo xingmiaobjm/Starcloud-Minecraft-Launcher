@@ -7,7 +7,7 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:rows="using:Starcloud.App.Views.Rows"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <!-- 账户页（一级）：Starcloud ID 卡 + 游戏账户卡片流。
          交互按下载页那套「列表 → 二级页」来：卡片只负责「进详情」，
@@ -32,36 +32,35 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="16" Padding="20">
             <Grid>
-                <StackPanel x:Name="ScLoginPanel" Spacing="12">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <!-- Nova / Starcloud ID 的身份图标 = 品牌标记（多色，字形画不出来） -->
-                        <ctrl:BrandMark Small="True" Width="16" Height="16" VerticalAlignment="Center" />
-                        <TextBlock loc:Loc.Text="Starcloud ID" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" />
-                        <TextBlock loc:Loc.Text="登录后可使用邀请 / 时刻等在线功能" FontSize="12"
+                <!-- 未登录：一行引导（登录收口到弹窗，页内不再放表单） -->
+                <Grid x:Name="ScLoginPanel" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock loc:Loc.Text="登录 Starcloud ID，立即使用全部功能"
+                                   FontSize="15" FontWeight="Medium" TextWrapping="Wrap" />
+                        <TextBlock loc:Loc.Text="邀请 / 时刻等在线功能即刻可用；凭据只保存在本机。" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   VerticalAlignment="Center" />
+                                   TextWrapping="Wrap" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox x:Name="ScIdBox" loc:Loc.Placeholder="Starcloud ID（用户名或邮箱）" Width="250" />
-                        <PasswordBox x:Name="ScPwdBox" loc:Loc.Placeholder="密码" Width="150" KeyDown="ScPwdBox_KeyDown" />
-                        <Button x:Name="ScLoginBtn" loc:Loc.Text="登录" Style="{StaticResource ScAccentButtonStyle}"
-                                FontWeight="Medium" Click="ScLogin_Click" />
-                        <ProgressRing x:Name="ScLoginProgress" Width="24" Height="24" Visibility="Collapsed"
-                                      IsActive="False" VerticalAlignment="Center" />
-                        <HyperlinkButton x:Name="ScToRegisterBtn" loc:Loc.Text="没有账号？注册" Padding="4,0"
-                                         VerticalAlignment="Center" Click="ScToRegister_Click" />
-                    </StackPanel>
-                    <TextBlock x:Name="ScErrorText" FontSize="12" Visibility="Collapsed" TextWrapping="Wrap"
-                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
-                </StackPanel>
+                    <Button Grid.Column="1" x:Name="ScLoginBtn" loc:Loc.Text="登录"
+                            Style="{StaticResource ScAccentButtonStyle}" FontWeight="Medium" MinWidth="120"
+                            VerticalAlignment="Center" Click="ScLogin_Click" />
+                </Grid>
 
                 <StackPanel x:Name="ScUserPanel" Spacing="12" Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal" Spacing="10">
+                        <!-- Starcloud ID 头像：登录响应下发 avatar_url；没有就回退首字母色块 -->
                         <Border Width="40" Height="40" CornerRadius="20"
                                 Background="{ThemeResource AccentFillColorDefaultBrush}">
-                            <TextBlock x:Name="ScAvatarText" FontSize="17" FontWeight="Medium"
-                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Grid>
+                                <Image x:Name="ScAvatarImage" Width="40" Height="40" Visibility="Collapsed" />
+                                <TextBlock x:Name="ScAvatarText" FontSize="17" FontWeight="Medium"
+                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
                         </Border>
                         <StackPanel Spacing="2" VerticalAlignment="Center">
                             <TextBlock x:Name="ScNameText" FontWeight="Medium" />

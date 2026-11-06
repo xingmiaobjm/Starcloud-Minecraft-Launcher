@@ -1,4 +1,4 @@
-// 插件管理页（plugin-spec.md）：安装 / 启停（免责确认）/ 卸载 / 面板入口。
+﻿// 插件管理页（plugin-spec.md）：安装 / 启停（免责确认）/ 卸载 / 面板入口。
 // 免责提示为强制流程：第三方未验证插件启用前必须用户手动确认（规范 §4）。
 
 using Microsoft.UI.Xaml;
@@ -42,14 +42,6 @@ public sealed record PluginRow(
             : Visibility.Collapsed;
 }
 
-/// <summary>插件面板行</summary>
-public sealed record PluginPanelRow(string Id, string Title, string PluginName)
-{
-    public string Id { get; set; } = Id;
-    public string Title { get; set; } = Title;
-    public string PluginName { get; set; } = PluginName;
-}
-
 /// <summary>
 /// 内核插件行（内置插件）。内置与外部插件是同一套插件模型的**两档信任等级**：
 /// 内置 = 进程内完全信任，外部 = 沙箱 + 权限白名单，所以放在同一页展示。
@@ -65,22 +57,15 @@ public sealed record KernelPluginRow(
     public string StateText { get; set; } = StateText;
 }
 
-public sealed partial class PluginsPage : Page, INotifyPropertyChanged
+public sealed partial class PluginsPage : Page
 {
     private readonly AppServices _s = AppServices.Instance;
     private bool _syncing;
 
-    /// <summary>PanelsCardVisible 走 OneWay x:Bind，需在面板集合变化后主动通知。</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     public ObservableCollection<PluginRow> Rows { get; } = [];
-    public ObservableCollection<PluginPanelRow> PanelRows { get; } = [];
 
     /// <summary>内置插件（内核插件）：与外部插件同一页展示，标注信任等级与激活状态</summary>
     public ObservableCollection<KernelPluginRow> KernelRows { get; } = [];
-
-    public Visibility PanelsCardVisible =>
-        PanelRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public PluginsPage()
     {
@@ -93,18 +78,12 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
             MotionFx.StaggerListItems(KernelList);
             MotionFx.StaggerListItems(PluginList);
         };
-        _s.PluginHost.PanelRegistered += OnPanelsChanged;
-        _s.PluginHost.PanelUnregistered += (_, _) => EnqueueRefresh();
+        // 注意：这里刻意不订阅 PanelRegistered/PanelUnregistered。
+        // 启停插件会注册/注销面板，若据此重建列表，用户拨动开关的瞬间整个
+        // 「已安装」列表会 Clear + 重播入场动画（实测就是「一开一关界面闪一下」）。
+        // 开关状态由开关本身表达，行内容不因启停变化；面板入口在每行的
+        // 「打开面板」按钮上（PanelsVisibility），不需要页级聚合卡。
     }
-
-    private void OnPanelsChanged(PluginHost.PanelRegistration reg) => EnqueueRefresh();
-
-    private void EnqueueRefresh() =>
-        DispatcherQueue?.TryEnqueue(() =>
-        {
-            RefreshPanelRows();
-            RefreshRows();
-        });
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
@@ -119,7 +98,6 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
     private void RefreshAll()
     {
         RefreshKernelRows();
-        RefreshPanelRows();
         RefreshRows();
     }
 
@@ -156,17 +134,6 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
         KernelSummary.Text = Loc.T("共 {0} 个 · 内核 {1}", KernelRows.Count, KernelVersion.Kernel);
     }
 
-    private void RefreshPanelRows()
-    {
-        PanelRows.Clear();
-        var names = _s.Plugins.Scan().ToDictionary(p => p.Manifest.Id, p => p.Manifest.Name);
-        foreach (var panel in _s.PluginHost.Panels)
-            PanelRows.Add(new PluginPanelRow(
-                $"{panel.PluginId}::{panel.PanelId}", panel.Title,
-                names.GetValueOrDefault(panel.PluginId, panel.PluginId)));
-        Bindings.Update();
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PanelsCardVisible)));
-    }
 
     private void RefreshRows()
     {
@@ -333,6 +300,8 @@ public sealed partial class PluginsPage : Page, INotifyPropertyChanged
     }
 
     // ── 面板 ──
+
+    // ── 面板入口（每行的「打开面板」按钮；页顶聚合卡已删） ──
 
     private void OpenPanel_Click(object sender, RoutedEventArgs e)
     {

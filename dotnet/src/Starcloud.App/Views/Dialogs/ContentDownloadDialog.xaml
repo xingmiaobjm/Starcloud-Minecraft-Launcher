@@ -17,7 +17,7 @@
         </Style>
     </ContentDialog.Resources>
 
-    <Grid RowSpacing="12" Width="1060">
+    <Grid RowSpacing="12" Width="1240">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -44,23 +44,12 @@
                 </ctrl:GlowButton>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <!-- 资源来源切换：Modrinth / CurseForge（两个源的数据模型已统一，切完直接重搜） -->
-                <ctrl:GlowButton x:Name="SourceModrinthBtn" Content="Modrinth" FontSize="12" Padding="10,4"
-                        Click="SourceModrinth_Click" loc:Loc.Name="资源来源 Modrinth" />
-                <ctrl:GlowButton x:Name="SourceCurseForgeBtn" Content="CurseForge" FontSize="12" Padding="10,4"
-                        Click="SourceCurseForge_Click" loc:Loc.Name="资源来源 CurseForge" />
-                <TextBox x:Name="SearchBox" loc:Loc.Placeholder="搜索 Modrinth…"
-                         Width="260" KeyDown="DownloadSearch_KeyDown" loc:Loc.Name="搜索资源" />
-                <ctrl:GlowButton Click="DownloadSearch_Click" loc:Loc.Name="搜索资源">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEA6F;" FontSize="14" />
-                        <TextBlock loc:Loc.Text="搜索" />
-                    </StackPanel>
-                </ctrl:GlowButton>
+                <!-- 本弹窗只做「按版本筛选 + 安装」：来源由入口决定，搜索框已移除，
+                     打开即展示该来源的默认列表（缓存优先），不再让用户手动触发 -->
             </StackPanel>
         </Grid>
         <InfoBar Grid.Row="1" x:Name="DlInfoBar" IsOpen="False" IsClosable="True" />
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="720"
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="760"
                       HorizontalScrollMode="Disabled">
             <StackPanel Spacing="12">
 
@@ -148,5 +137,42 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
         </ScrollViewer>
+
+        <!-- 缺少前置的确认层（版式对齐参考稿：标题 + 说明 + 逐项依赖行 + 三个操作按钮）。
+             同一个 XamlRoot 不能再开第二个 ContentDialog，所以做成同窗浮层。 -->
+        <Grid x:Name="DepPrompt" Grid.RowSpan="3" Visibility="Collapsed"
+              Background="{ThemeResource SmokeFillColorDefaultBrush}" Canvas.ZIndex="10">
+            <Border Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    CornerRadius="16" Padding="28,24" Width="620" MaxHeight="640"
+                    Translation="0,0,40"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border.Shadow>
+                    <ThemeShadow />
+                </Border.Shadow>
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock loc:Loc.Text="缺少前置模组" FontSize="22" FontWeight="SemiBold" />
+                        <TextBlock loc:Loc.Text="当前的模组需要前置模组" FontSize="13"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="380">
+                        <StackPanel x:Name="DepPromptList" Spacing="4" />
+                    </ScrollViewer>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                        <ctrl:GlowButton Click="DepPromptCancel_Click" loc:Loc.Text="取消"
+                                         MinWidth="96" Height="36" HorizontalContentAlignment="Center" />
+                        <ctrl:GlowButton Click="DepPromptSkip_Click" loc:Loc.Text="不安装前置模组"
+                                         MinWidth="148" Height="36" HorizontalContentAlignment="Center" />
+                        <ctrl:GlowButton Click="DepPromptAuto_Click" loc:Loc.Text="自动安装前置模组"
+                                         MinWidth="164" Height="36" HorizontalContentAlignment="Center"
+                                         Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                         Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </ContentDialog>

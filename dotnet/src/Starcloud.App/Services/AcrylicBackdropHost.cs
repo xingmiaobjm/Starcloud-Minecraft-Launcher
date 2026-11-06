@@ -1,4 +1,4 @@
-// 亚克力背景手动挂载（不走 Window.SystemBackdrop）。
+﻿// 亚克力背景手动挂载（不走 Window.SystemBackdrop）。
 //
 // 为什么不用 SystemBackdrop 子类：框架会在自己的时机回调
 // SystemBackdrop.OnDefaultSystemBackdropConfigurationChanged，此时 target/xamlRoot 可能
@@ -29,6 +29,14 @@ internal sealed class AcrylicBackdropHost
     private ElementTheme _theme = ElementTheme.Light;
     private bool _followTheme = true;
     private double? _maskOpacity;
+
+    /// <summary>
+    /// 着色不透明度的下限（0–1，0 = 不设限，跟随设置）。
+    /// <para>为什么需要：主窗口背后有壁纸层兜底，毛玻璃拉到最透也看得清；
+    /// 工具箱这类纯浮窗没有兜底层，用户把强度调到 0 时窗口几乎全透、内容糊成一片。
+    /// 浮窗可以给一个下限（例如 0.5 = 透明度不超过 50%）。</para>
+    /// </summary>
+    public double MinimumTintOpacity { get; set; }
 
     public AcrylicBackdropHost(Window window, FrameworkElement root)
     {
@@ -104,9 +112,12 @@ internal sealed class AcrylicBackdropHost
             _controller.TintColor = dark
                 ? Windows.UI.Color.FromArgb(0xFF, 0x14, 0x14, 0x14)
                 : Windows.UI.Color.FromArgb(0xFF, 0xFC, 0xFC, 0xFC);
-            _controller.TintOpacity = (float)Math.Clamp(mask, 0.02, 0.95);
+            var tint = Math.Clamp(mask, 0.02, 0.95);
+            if (MinimumTintOpacity > 0) tint = Math.Max(tint, Math.Min(MinimumTintOpacity, 0.95));
+            _controller.TintOpacity = (float)tint;
             // 亮度层按同一比例缩放：强度拉到 0 时窗口几乎全透，拉到 1 时是浓毛玻璃
-            _controller.LuminosityOpacity = (float)Math.Clamp((dark ? 0.30 : 0.18) * (mask / baseMask), 0.02, 0.95);
+            var luminosity = Math.Clamp((dark ? 0.30 : 0.18) * (tint / baseMask), 0.02, 0.95);
+            _controller.LuminosityOpacity = (float)luminosity;
             _controller.FallbackColor = dark
                 ? Windows.UI.Color.FromArgb(0xFF, 0x11, 0x11, 0x11)
                 : Windows.UI.Color.FromArgb(0xFF, 0xF3, 0xF3, 0xF3);

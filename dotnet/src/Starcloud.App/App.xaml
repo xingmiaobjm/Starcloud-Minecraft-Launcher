@@ -1,4 +1,4 @@
-<Application
+﻿<Application
     x:Class="Starcloud.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -123,6 +123,15 @@
                  CloseButtonStyle / SecondaryButtonStyle 上。强调色主按钮（Primary）不受影响。 -->
             <Style x:Key="ScShadowButtonStyle" TargetType="Button"
                    BasedOn="{StaticResource ScLightButtonStyle}" />
+            <!-- 危险操作按钮（切到不稳定渠道 / 删除 / 解散房间等）：红底白字，与强调色按钮同模板 -->
+            <Style x:Key="ScDangerButtonStyle" TargetType="Button"
+                   BasedOn="{StaticResource ScLightButtonStyle}">
+                <Setter Property="Background" Value="{ThemeResource SystemFillColorCriticalBrush}" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+<!-- 弹窗 16:9 由 ThemedDialog（自绘 Popup 壳）实现；ContentDialog 保持默认尺寸 -->
 
             <!-- 隐式滑块样式：跟手柔光（滑轨像玻璃管被光标点亮，淡档不染脏轨道）
                  + 均衡档引力形变。 -->
@@ -580,6 +589,10 @@
                     <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#5C666666" />
                     <!-- 卡片边框 #E2E2E2 -->
                     <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#FFE2E2E2" />
+                    <!-- 浮层面板底色（不透明）：浮层压在内容之上时，半透明底会把下面的
+                         卡片内容透上来，糊成一片；浮层自己得是实色才看得清。
+                         浅色主题取近白，与窗口框架同调。 -->
+                    <SolidColorBrush x:Key="ScFloatingPanelBrush" Color="#FFFAFAFA" />
                     <!-- 窗口框架（标题栏 / 左侧栏）：不透明实色，浅色为近白 -->
                     <!-- 说明：左侧导航栏的底色由 MainWindow.xaml 的 NavigationView.Resources 覆盖
                          （NavigationView*PaneBackground 这两个 key 在这里覆盖不到模板） -->
@@ -679,6 +692,8 @@
                     <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#E61A1A1A" />
                     <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#B31A1A1A" />
                     <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#5C1A1A1A" />
+                    <!-- 浮层面板底色（不透明）：理由见浅色主题同名键；深色下取近黑的实色 -->
+                    <SolidColorBrush x:Key="ScFloatingPanelBrush" Color="#FF1F1F1F" />
                     <!-- 毛玻璃内容卡片：应用内亚克力，透出并模糊背后的自定义背景；效果不可用时退化为近实色 -->
                     <AcrylicBrush x:Key="GlassCardBrush"
                                   TintColor="#2B2B2B" TintOpacity="0.75" FallbackColor="#FF1F1F1F" />

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Starcloud.Bench</AssemblyName>
+    <RootNamespace>Starcloud.Bench</RootNamespace>
+    <!-- 独立小工具：不参与主解决方案构建 -->
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <!-- 本机可能只装了更高版本的运行时（如 .NET 10）：允许向上滚动，免得为了跑一次测量再装 8 -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\dotnet\src\Starcloud.Core\Starcloud.Core.csproj" />
+  </ItemGroup>
+
+</Project>

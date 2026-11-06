@@ -140,6 +140,70 @@ public class GameLauncherClasspathTests
         Assert.Contains("com.mojang.rubydung.RubyDung", cmd);
     }
 
+    // Forge 1.13 之前：安装器把整条 classpath 写在 legacyClassPath 字段里，
+    // 不是 arguments.jvm。不认它就会退化成启动器自己拼的 classpath ——
+    // 少了 Forge 的补丁 jar，表现为「Forge 装了却报找不到主类」。
+    [Fact]
+    public async Task Forge老版本用legacyClassPath()
+    {
+        using var dotMc = new TempDotMc();
+        dotMc.File("versions/forge-1.12.2/forge-1.12.2.json", """{"id":"forge-1.12.2"}""");
+        var jar = dotMc.File("versions/forge-1.12.2/forge-1.12.2.jar", "F");
+
+        var version = new MinecraftVersion
+        {
+            Id = "forge-1.12.2",
+            MainClass = "net.minecraft.launchwrapper.Launch",
+            LegacyClassPath = "C:\\forge\\patch.jar;C:\\forge\\lib\\guava.jar",
+            MinecraftArguments = "--username ${auth_player_name}",
+        };
+        var options = new LaunchOptions("forge-1.12.2", "Steve", dotMc.Path, dotMc.Path,
+            512, 1024, "/opt/java/bin/java", [], false,
+            Credentials: new LaunchCredentials("uuid-1", "token-1", "external"));
+
+        var cmd = await new GameLauncher(new InstallerService(null!))
+            .BuildCommandLineAsync(version, options);
+
+        // 必须是 legacyClassPath 里的那条，而不是启动器自己拼的
+        Assert.Contains("-cp", cmd);
+        Assert.Contains("patch.jar", cmd);
+        Assert.DoesNotContain(jar, cmd);
+        Assert.Contains("net.minecraft.launchwrapper.Launch", cmd);
+    }
+
+    // 1.16 起的官方日志参数：logging.client.argument 指向 log4j 配置文件。
+    [Fact]
+    public async Task 现代版本带上官方日志配置参数()
+    {
+        using var dotMc = new TempDotMc();
+        dotMc.File("versions/1.21.1/1.21.1.json", """{"id":"1.21.1"}""");
+        dotMc.File("versions/1.21.1/1.21.1.jar", "MC");
+
+        var version = new MinecraftVersion
+        {
+            Id = "1.21.1",
+            MainClass = "net.minecraft.client.main.Main",
+            Arguments = new VersionArguments
+            {
+                Jvm = [Arg("-Dfoo=bar")],
+                Game = [Arg("--username"), Arg("${auth_player_name}")],
+            },
+            Logging = System.Text.Json.JsonDocument.Parse(
+                """{"client":{"argument":"-Dlog4j2.configurationFile=${assets_root}/log_configs/client-1.21.xml"}}"""
+            ).RootElement,
+        };
+        var options = new LaunchOptions("1.21.1", "Steve", dotMc.Path, dotMc.Path,
+            512, 1024, "/opt/java/bin/java", [], false,
+            Credentials: new LaunchCredentials("uuid-1", "token-1", "msa"));
+
+        var cmd = await new GameLauncher(new InstallerService(null!))
+            .BuildCommandLineAsync(version, options);
+
+        Assert.Contains("-Dlog4j2.configurationFile=", cmd);
+        // ${assets_root} 要被替换成真实的 assets 目录
+        Assert.DoesNotContain("${assets_root}", cmd);
+    }
+
     // ── 测试基础设施 ──
 
     private static async Task<string> CommandFor(TempDotMc dotMc, string instanceId, string jsonId)

@@ -61,12 +61,15 @@ public sealed partial class NovaToolRegistry
     private Task<string> DeleteVersionAsync(JsonElement args, CancellationToken ct)
     {
         var id = Require(Str(args, "version_id"), "version_id");
+        // 版本 id 会拼进删除路径：非法字符（含路径分隔符与 ..）一律拒绝
+        if (!InstanceLayout.IsValidVersionId(id))
+            throw new InvalidOperationException("版本 ID 含有非法字符");
         if (GameSessionGuard.IsAnyGameAlive(DotMc))
             throw new InvalidOperationException("有游戏实例正在运行，先关掉游戏再删");
 
         var dir = Path.Combine(DotMc, "versions", id);
         var existed = Directory.Exists(dir);
-        if (existed) Directory.Delete(dir, recursive: true);
+        if (existed) InstalledVersionManager.Remove(DotMc, id);
         new InstanceSettingsStore(DotMc).Remove(id);
         if (S.LastVersion == id) { S.LastVersion = null; _c.SaveSettings?.Invoke(); }
         return Task.FromResult(existed

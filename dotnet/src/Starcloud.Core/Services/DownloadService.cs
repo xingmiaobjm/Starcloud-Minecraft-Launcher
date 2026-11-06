@@ -1,5 +1,6 @@
-// 并发下载引擎：多文件批量下载 + 多源分片竞速 + 重试 + 进度/速度/ETA 回调（对应旧 Rust download 模块）
+﻿// 并发下载引擎：多文件批量下载 + 多源分片竞速 + 重试 + 进度/速度/ETA 回调（对应旧 Rust download 模块）
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Buffers;
 using System.Net;
@@ -46,10 +47,14 @@ public sealed class DownloadService
     /// <summary>设置来源：本地复用要按当前 .minecraft 扫「同版本文件」</summary>
     private readonly Func<LauncherSettings> _settings;
 
+    // 保留 handler 引用：代理是 handler 级配置，改设置后要能就地重建连接池
+    private readonly SocketsHttpHandler _httpHandler;
+    private readonly SocketsHttpHandler _directHandler;
+
     public DownloadService(Func<LauncherSettings> settings)
     {
         _settings = settings;
-        var sockets = new SocketsHttpHandler
+        var sockets = _httpHandler = new SocketsHttpHandler
         {
             AutomaticDecompression = System.Net.DecompressionMethods.None,
             MaxConnectionsPerServer = 128, // 承载多源分片并发
@@ -57,19 +62,21 @@ public sealed class DownloadService
             EnableMultipleHttp2Connections = true,       // HTTP/2 服务端会限单连接速率，多开连接才能并行提速
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
         };
+        ApplyProxy(sockets, settings());
         // 总时长超时会误杀慢速大文件（速度 × 60s ≈ 24MB 处必然被掐死）→ 禁用，
         // 连接健康改由各读循环的 15 秒空闲超时负责（无数据即判死换源）
         // CurseForge CDN 自 2026-07-16 起要求带 x-api-key（否则 401）：挂在 handler 上，
         // 整文件 / 分片 / 探测所有路径一并覆盖，调用方一行不用改。
         _http = new HttpClient(new CurseForgeCdnAuthHandler(settings, sockets)) { Timeout = Timeout.InfiniteTimeSpan };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Starcloud-Launcher");
-        var directSockets = new SocketsHttpHandler
+        var directSockets = _directHandler = new SocketsHttpHandler
         {
             AutomaticDecompression = System.Net.DecompressionMethods.None,
             MaxConnectionsPerServer = 128,
             ConnectTimeout = TimeSpan.FromSeconds(10),
             EnableMultipleHttp2Connections = true,
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
+            // 局域网 / P2P 通道本来就是内网通信，走代理反而连不上：保持直连
             UseProxy = false,
         };
         _directHttp = new HttpClient(new CurseForgeCdnAuthHandler(settings, directSockets)) { Timeout = Timeout.InfiniteTimeSpan };
@@ -77,6 +84,42 @@ public sealed class DownloadService
         _sources = new DownloadSourceRegistry(settings);
         _chunked = new ChunkedFileDownloader(_http, _sources) { Log = msg => Log?.Invoke(msg) };
     }
+
+    /// <summary>
+    /// 按设置给 handler 装代理策略：
+    /// system（默认）= 跟随系统代理（SocketsHttpHandler 默认行为）；
+    /// direct = 忽略系统代理直连；custom = 用用户填的代理地址。
+    /// 代理地址非法时退回跟随系统，不因为一个填错的值把下载整死。
+    /// </summary>
+    private static void ApplyProxy(SocketsHttpHandler handler, LauncherSettings settings)
+    {
+        switch (settings.DownloadProxyMode?.Trim().ToLowerInvariant())
+        {
+            case "direct":
+                handler.UseProxy = false;
+                break;
+            case "custom":
+                if (Uri.TryCreate(settings.DownloadProxyUrl?.Trim(), UriKind.Absolute, out var proxyUri) &&
+                    (proxyUri.Scheme == Uri.UriSchemeHttp || proxyUri.Scheme == Uri.UriSchemeHttps))
+                {
+                    handler.Proxy = new System.Net.WebProxy(proxyUri);
+                    handler.UseProxy = true;
+                }
+                else
+                {
+                    LauncherLog.Write("download",
+                        $"自定义代理地址不可用（{settings.DownloadProxyUrl}），已退回跟随系统代理");
+                }
+                break;
+            // system / 未设置：保持默认（UseProxy=true + Proxy=null → HttpClient.DefaultProxy）
+        }
+    }
+
+    /// <summary>
+    /// 设置改动后立即生效：代理是 handler 级配置，改完不重建连接池就得重启启动器。
+    /// 只作用于公网下载通道——直连通道（局域网 / P2P）恒不走代理。
+    /// </summary>
+    public void ApplyProxySettings() => ApplyProxy(_httpHandler, _settings());
 
     /// <summary>下载日志出口（「文件 → 源 → 字节数」）；默认 null = 零开销</summary>
     public Action<string>? Log { get; set; }
@@ -86,6 +129,9 @@ public sealed class DownloadService
     /// SHA1 文件时网内拉取。App 层构造完成后注入（避免服务相互构造依赖）；null 或 PeerCount=0
     /// 时完全跳过，行为与从前逐字节一致。
     /// </summary>
+    /// <summary>源注册表（竞速池 / 健康度 / 远程开关）：给启动链设置 S3 镜像参与用。</summary>
+    public DownloadSourceRegistry Sources => _sources;
+
     public Func<IPeerFileSource?>? PeerSource { get; set; }
 
     /// <summary>
@@ -118,7 +164,34 @@ public sealed class DownloadService
     /// 又强制要求密钥，失败面比过去大。文件字节仍以官方为准——这里只是通道兜底，
     /// 且不给镜像发密钥（见 <see cref="CurseForgeCdn"/>）。
     /// </summary>
+    /// <summary>
+    /// 按目标文件的去重闸门：同一个 dest 同时只允许一个下载在跑。
+    /// <para>为什么需要：用户连点两下「下载安装」时，第二个请求会去写同一个 .sc-tmp，
+    /// 直接抛「file is being used by another process」，最终显示成「全部下载源均不可用」——
+    /// 看起来像网络问题，其实只是自己撞自己（实测日志里连撞两次）。</para>
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> DestGates =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private async Task DownloadOneAsync(
+        string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
+        long size, Action<long>? onBytes, SourceKind? preferred = null)
+    {
+        var gateKey = Path.GetFullPath(destFile);
+        var gate = DestGates.GetOrAdd(gateKey, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await DownloadOneCoreAsync(url, destFile, sha1, maxRetries, ct, size, onBytes, preferred)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task DownloadOneCoreAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct,
         long size, Action<long>? onBytes, SourceKind? preferred = null)
     {
@@ -178,6 +251,11 @@ public sealed class DownloadService
         {
             size = (await ProbeRangeAsync(url, ct)).Size; // 只补体积，不覆盖已记忆的能力
         }
+
+        LauncherLog.Debug("download",
+            $"决策 {Path.GetFileName(destFile)}：{size / 1024.0:F0} KB，"
+            + (size >= ChunkedFileDownloader.Threshold && range == true ? "分片竞速" : "整文件")
+            + $"（主机 {host}，Range={range}）");
 
         if (size >= ChunkedFileDownloader.Threshold && range == true)
         {
@@ -241,7 +319,179 @@ public sealed class DownloadService
         }
     }
 
-    /// <summary>整文件下载（不分片）：按竞速池顺序换源重试，官方恒为兜底</summary>
+    /// <summary>
+    /// 批量下载开始前，对全部镜像做一次并行探速（读 256 KB 计时），结果直接进健康度：
+    /// 连不上的直接降级，能用的按实测吞吐排序。这样「把文件分摊到多个源」才有依据——
+    /// 否则会按声明顺序把文件分给不通的镜像，失败后又全部涌到最快的那个源上。
+    /// 每个进程只做一次（分片路径的预检共用同一个标记）。
+    /// </summary>
+    private async Task<HashSet<SourceKind>> WarmupSourcesAsync(string sampleUrl, CancellationToken ct)
+    {
+        var ranged = new HashSet<SourceKind> { SourceKind.Official };   // 官方一直支持 Range
+        if (!_sources.WarmupNeeded) return ranged;
+        _sources.MarkWarmupDone();
+
+        // 官方也要探：分摊时靠「实测速度」决定给谁分文件，官方没有样本会被当成 0 分，
+        // 结果整批文件全分给了某个看起来有样本的慢镜像（实测 auto 反而比仅官方慢 44%）。
+        var probes = _sources.RacingPool().ToList();
+        if (probes.Count == 0) return ranged;
+
+        const int sampleBytes = 256 * 1024;
+        await Task.WhenAll(probes.Select(async kind =>
+        {
+            string target;
+            if (kind == SourceKind.Official)
+            {
+                target = sampleUrl;   // 官方不需要改写
+            }
+            else
+            {
+                target = _sources.Rewrite(sampleUrl, kind);
+                if (string.Equals(target, sampleUrl, StringComparison.OrdinalIgnoreCase)) return;
+            }
+            var host = DownloadSourceRegistry.HostOf(target);
+            try
+            {
+                // 先用「版本清单」探活：每个镜像都该有这个文件，拿它区分两件事——
+                // ① 源本身失效（整站 404，如上海交大镜像已下线）→ 直接降级，别让它占着分摊名额；
+                // ② 只是这个文件没缓存 → 不降级（正常回落）。
+                // 少了这一步，失效源会永远留在池里：每个被分给它的文件都要 404 一次再换源。
+                if (!await ProbeSourceAliveAsync(kind, ct)) return;
+                // 认 Range 的源才进「大文件分摊」名单（探活已把能力写进 registry）
+                if (_sources.RangeSupport(DownloadSourceRegistry.HostOf(target)) == true)
+                    lock (ranged) ranged.Add(kind);
+                using var req = new HttpRequestMessage(HttpMethod.Get, target);
+                req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, sampleBytes - 1);
+                req.Version = HttpVersion.Version11;
+                req.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+                using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                conn.CancelAfter(TimeSpan.FromSeconds(4));
+                var sw = Stopwatch.StartNew();
+                using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    if ((int)resp.StatusCode is 404 or 410)
+                    {
+                        // 这个文件它没有，不代表源坏：只记 404，不降级
+                        _sources.RecordNotFound(kind);
+                    }
+                    else
+                    {
+                        _sources.MarkDegraded(kind);
+                    }
+                    LauncherLog.Debug("download", $"源探速：{DownloadSourceRegistry.Name(kind)} 返回 {(int)resp.StatusCode}");
+                    return;
+                }
+                await using var stream = await resp.Content.ReadAsStreamAsync(conn.Token);
+                var buffer = new byte[32 * 1024];
+                long read = 0;
+                while (read < sampleBytes)
+                {
+                    var n = await stream.ReadAsync(buffer, conn.Token);
+                    if (n <= 0) break;
+                    read += n;
+                }
+                sw.Stop();
+                if (read > 0 && sw.ElapsedMilliseconds > 0)
+                {
+                    _sources.RecordSpeed(kind, read, sw.ElapsedMilliseconds);
+                    ParallelGovernor.ReportSuccess(host);
+                    if (resp.StatusCode == HttpStatusCode.PartialContent)
+                        lock (ranged) ranged.Add(kind);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                // 连不上/DNS/SSL：这个源在本机网络里用不了，直接降级（参与分摊只会拖累）
+                _sources.MarkDegraded(kind);
+                LauncherLog.Debug("download",
+                    $"源探速：{DownloadSourceRegistry.Name(kind)} 不可用（{ex.Message}）");
+            }
+        }));
+        return ranged;
+    }
+
+    /// <summary>
+    /// 源探活 + Range 能力：用版本清单这种「每个镜像都该有」的文件判断源是否还在服务。
+    /// 整站 404 / 连接失败 → 降级（不再参与分摊）；
+    /// 另外看它认不认 Range —— 不认的源只能整文件下载，不该被分摊到大文件上
+    /// （分片必然失败，然后再退回最快的那个源，等于所有流量又挤到一个源）。
+    /// </summary>
+    private async Task<bool> ProbeSourceAliveAsync(SourceKind kind, CancellationToken ct)
+    {
+        const string metaUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+        var target = _sources.Rewrite(metaUrl, kind);
+        if (string.Equals(target, metaUrl, StringComparison.OrdinalIgnoreCase)) return true;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, target);
+            req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 1023);
+            req.Version = HttpVersion.Version11;
+            req.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+            using var conn = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            conn.CancelAfter(TimeSpan.FromSeconds(2.5));   // 不通就快失败：预检是纯开销
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, conn.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _sources.MarkDegraded(kind);
+                LauncherLog.Write("download",
+                    $"源探活：{DownloadSourceRegistry.Name(kind)} 清单返回 {(int)resp.StatusCode}（整站不可用），本次不参与分摊");
+                return false;
+            }
+            // 206 = 认 Range（可参与分片分摊）；200 = 只能整文件
+            var ranged = resp.StatusCode == HttpStatusCode.PartialContent;
+            _sources.MarkRangeSupport(DownloadSourceRegistry.HostOf(target), ranged);
+            if (!ranged)
+                LauncherLog.Write("download",
+                    $"源探活：{DownloadSourceRegistry.Name(kind)} 不回 Range，只用于整文件下载");
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _sources.MarkDegraded(kind);
+            LauncherLog.Write("download",
+                $"源探活：{DownloadSourceRegistry.Name(kind)} 不可达（{ex.Message}），本次不参与分摊");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 是否属于「这个源在本机网络里根本连不上」的硬故障：
+    /// SSL 握手失败 / DNS 解析失败 / 连接被拒 / 连接超时。
+    /// 与「请求发出去了但失败」区分开——前者一次就该把源降权，后者才需要累计两次。
+    /// </summary>
+    private static bool IsHardConnectFailure(Exception ex)
+    {
+        var message = ex.ToString();
+        return message.Contains("SSL", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("handshake", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("actively refused", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("拒绝", StringComparison.Ordinal)
+            || message.Contains("Connection timed out", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("无法连接", StringComparison.Ordinal)
+            || ex is System.Net.Http.HttpRequestException;
+    }
+
+    /// <summary>
+    /// 主源全部失败后的最后一张牌：把 Starcloud 加速（S3）追加进这个文件的源池。
+    /// <para>用户定调（2026-11-02）：S3 只做**极端情况**的辅助 —— 常规下载由镜像与官方扛，
+    /// 只有它们在这个文件上全试过还失败，才请它出来。返回 false 表示已经没牌可打。</para>
+    /// </summary>
+    private bool AppendAuxiliary(List<SourceKind> pool)
+    {
+        if (!_sources.StarcloudMirrorEnabled) return false;
+        if (pool.Contains(SourceKind.Starcloud)) return false;
+        if (_sources.IsDegraded(SourceKind.Starcloud)) return false;
+        pool.Add(SourceKind.Starcloud);
+        _sources.UnlockAuxiliary();
+        LauncherLog.Write("download", "主源全部失败，本文件改用 Starcloud 加速兜底");
+        Log?.Invoke("主源全部失败，改用 Starcloud 加速兜底");
+        return true;
+    }
+
+    /// <summary>
+    /// 整文件下载（不分片）：按竞速池顺序换源重试，官方恒为兜底</summary>
     private async Task DownloadWholeFileAsync(
         string url, string destFile, string? sha1, int maxRetries, CancellationToken ct, long size,
         Action<long>? onBytes, SourceKind? preferred = null)
@@ -250,31 +500,136 @@ public sealed class DownloadService
         var pool = _sources.RacingPoolFor(url).ToList();
         // 批量下载的文件分摊：整文件路径也先走分配到的源，失败再按池顺序兜底
         if (preferred is { } pin && pool.Remove(pin)) pool.Insert(0, pin);
-        // 与分片路径同一口径：重试额度至少覆盖池里全部源，保证官方兜底在预算内被轮到
-        var attempts = Math.Max(Math.Max(1, maxRetries), pool.Count);
-        for (int attempt = 1; ; attempt++)
+        // 官方不再无条件垫底：预热之后官方往往就是实测最快的源，按声明顺序让它垫底
+        // 意味着每个小文件都要先白撞一轮 404 镜像。按实测分数重排（官方参与排序），
+        // 分数并列 / 全部未知时保持原顺序 —— 那时官方仍是最后的兜底。
+        if (preferred is null && pool.Count > 1)
         {
-            var kind = pool[(attempt - 1) % pool.Count];
-            // 该主机刚被限流过 → 先等冷却，否则这次请求也只是再撞一次 429
+            pool = pool.Select((k, i) => (k, i))
+                .OrderBy(x => _sources.IsDegraded(x.k) ? 1 : 0)
+                .ThenBy(x => _sources.InNotFoundCooldown(x.k) ? 1 : 0)
+                .ThenByDescending(x => _sources.ScoreOf(x.k))
+                .ThenBy(x => x.i)
+                .Select(x => x.k)
+                .ToList();
+        }
+
+        // 选源规则：**每个源最多试一次**，全试过才算山穷水尽。
+        // 不能按固定次数轮询：404（文件未缓存）不算失败也不摘源，按次数轮询会
+        // 反复撞同一个 404 镜像、把官方挤出击额度之外——实测 8 个官方能下的文件
+        // 被误判成「主源全部失败」，白白烧了兜底源的带宽。
+        var tried = new HashSet<SourceKind>();
+        var attempt = 0;
+        Exception? lastError = null;   // 最后一次失败的原始异常，用于最终报错
+        // 断点续传的 .sc-tmp 可能是上一次中断留下的残片（内容与这次的远端不一致）：
+        // 续传后 SHA1 必然对不上，然后每个源都"成功"却校验失败。校验失败一次就丢掉残片重下。
+        var tmpDropped = false;
+        while (true)
+        {
+            attempt++;
+            var untouched = pool.Where(k => !tried.Contains(k)).ToList();
+            if (untouched.Count == 0)
+            {
+                // 真·极端情况：主源（含官方）在这份文件上全试过仍失败 → 请兜底源。
+                // 兜底源只会改写 Mojang 域名；非 Mojang URL（Modrinth / CurseForge 直链）
+                // 换源等于同一个地址再试一遍，纯浪费一轮，直接收尾。
+                var canFallback = DownloadSourceRegistry.IsMojangUrl(url) && AppendAuxiliary(pool);
+                if (ct.IsCancellationRequested || !canFallback)
+                {
+                    // 把最后一次的真实原因带出去：否则用户只看到「全部下载源均不可用」，
+                    // 排查时完全不知道是 404、TLS 还是超时
+                    var reason = lastError is null ? "" : $"（{lastError.Message}）";
+                    throw new IOException($"下载失败：{Path.GetFileName(destFile)}{reason}", lastError);
+                }
+                continue;   // untouched 现在只剩刚追加的兜底源
+            }
+
+            // 该主机刚被限流过 → 有没在冷却的源就直接换它，**绝不干等**
+            //（等冷却把整批拖住是分片路径修过的老毛病：一个文件撞上 429，整批 6 秒变 248 秒）。
+            // 只有还没试过的源全都在冷却时，才等最短的那个。
+            var kind = untouched[0];
             var cooldown = ParallelGovernor.CooldownFor(
                 DownloadSourceRegistry.HostOf(_sources.Rewrite(url, kind)));
             if (cooldown > TimeSpan.Zero)
             {
-                Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 正在限流冷却，等待 {cooldown.TotalSeconds:F0}s");
-                await Task.Delay(cooldown, ct);
+                var ready = untouched.Where(k => ParallelGovernor.CooldownFor(
+                    DownloadSourceRegistry.HostOf(_sources.Rewrite(url, k))) == TimeSpan.Zero).ToList();
+                if (ready.Count > 0)
+                {
+                    kind = ready[0];
+                }
+                else
+                {
+                    var shortest = untouched.Min(k => ParallelGovernor.CooldownFor(
+                        DownloadSourceRegistry.HostOf(_sources.Rewrite(url, k))));
+                    Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 正在限流冷却，" +
+                                $"未试过的源都在冷却，等待 {shortest.TotalSeconds:F0}s");
+                    await Task.Delay(shortest, ct);
+                }
             }
+            tried.Add(kind);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 await FetchWholeAsync(_sources.Rewrite(url, kind), destFile, sha1, ct, onBytes);
                 _sources.RecordSuccess(kind);
+                // 实测吞吐必须回填：分摊权重逐文件按分数现算，整文件不回填的话，
+                // 镜像的预热样本（256KB，虚高）会一路有效到批次结束——
+                // 实测 10 个小文件全被一个实际慢 5 倍的镜像拖走（自动比仅官方慢 50%）。
+                sw.Stop();
+                if (size > 0 && sw.ElapsedMilliseconds > 0)
+                    _sources.RecordSpeed(kind, size, sw.ElapsedMilliseconds);
+                LauncherLog.Debug("download",
+                    $"完成 {Path.GetFileName(destFile)} ← {DownloadSourceRegistry.Name(kind)}"
+                    + $"，第 {attempt} 次尝试，{size / 1024.0:F0} KB，{sw.ElapsedMilliseconds} ms"
+                    + (size > 0 && sw.ElapsedMilliseconds > 0
+                        ? $"，{size / 1024.0 / Math.Max(1, sw.ElapsedMilliseconds):F1} MB/s"
+                        : ""));
                 if (size >= ChunkedFileDownloader.Threshold)
                     Log?.Invoke($"整文件下载 {Path.GetFileName(destFile)}（{DownloadSourceRegistry.Name(kind)}）");
                 return;
             }
-            catch (Exception) when (attempt < attempts && !ct.IsCancellationRequested)
+            catch (PermanentHttpException)
             {
-                _sources.RecordFailure(kind);
-                await Task.Delay(TimeSpan.FromSeconds(Math.Min(attempt, 5)), ct);
+                // 404 / 410：**这个源**没有这个文件（镜像未缓存 / SJTU 不代理 libraries 路径）。
+                // 不能直接放弃整个文件——别的源很可能有。记录后换下一个源。
+                // 另外这里必须排在下面的通用 catch **之前**：PermanentHttpException 是
+                // Exception 的子类，放到后面就永远是死代码（实测过：整文件路径遇到镜像 404
+                // 直接抛错，5 个库文件整批失败）。
+                _sources.RecordNotFound(kind);
+                lastError = new IOException($"{DownloadSourceRegistry.Name(kind)} 返回 404/410（文件不存在）");
+                Log?.Invoke($"{DownloadSourceRegistry.Name(kind)} 返回 404/410，换下一个源");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 失败也留痕（含来源与已耗时）：排查「这个文件为什么下不下来」全靠它
+                sw.Stop();
+                lastError = ex;
+                if (!tmpDropped && ex.Message.Contains("SHA1", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 残片不可信：删掉它，下一次从零开始（否则会一直撞同一个校验失败）
+                    tmpDropped = true;
+                    try { File.Delete(destFile + ".sc-tmp"); } catch { }
+                    LauncherLog.Write("download",
+                        $"{Path.GetFileName(destFile)} 校验失败，已丢弃续传残片重下");
+                }
+                LauncherLog.Debug("download",
+                    $"失败 {Path.GetFileName(destFile)} ← {DownloadSourceRegistry.Name(kind)}"
+                    + $"，第 {attempt} 次尝试，{sw.ElapsedMilliseconds} ms：{ex.Message}");
+                // 连接层面的硬故障（SSL / DNS / 拒绝连接）：这个源在本机网络里根本用不了，
+                // 一次就降权。等第二次失败意味着每个小文件都先白撞它一轮——
+                // 实测 45 个文件就是这样比官方源慢 14%。
+                if (IsHardConnectFailure(ex))
+                    _sources.MarkDegraded(kind);
+                else
+                    _sources.RecordFailure(kind);
+                // 限流：换个源就行，等冷却只会拖慢整批（详细理由见分片路径）
+                var throttled = ex.Message.Contains("限流")
+                                || ex.Message.Contains("429")
+                                || ex.Message.Contains("503");
+                if (!throttled)
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(3000, 400 * attempt * attempt)), ct);
             }
         }
     }
@@ -349,8 +704,18 @@ public sealed class DownloadService
             // 整文件请求也会被限流：按主机记下来，后续请求先等冷却，别再撞
             var host = DownloadSourceRegistry.HostOf(url);
             ParallelGovernor.ReportThrottled(host);
+            _sources.RecordThrottled(SourceKind.Official);   // 整文件路径的限流也算源健康度
+            // 服务端给了 Retry-After 就按它说的等（比我们自己猜的准）
+            if (resp.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+                ParallelGovernor.ReportRetryAfter(host, delta);
             resp.Dispose();
             throw new IOException($"{host} 限流（HTTP {(int)resp.StatusCode}）");
+        }
+        // 404 / 410：文件在这个源上就是不存在，重试也没用 —— 换源或放弃
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+        {
+            resp.Dispose();
+            throw new PermanentHttpException($"下载源返回 {(int)resp.StatusCode}（文件不存在）");
         }
         resp.EnsureSuccessStatusCode();
 
@@ -444,9 +809,27 @@ public sealed class DownloadService
         File.Move(tmp, destFile, overwrite: true);
     }
 
-    /// <summary>探测远端文件大小（HEAD，逐源尝试）；失败返回 0 = 按未知处理</summary>
-    private async Task<long> ProbeSizeAsync(string url, CancellationToken ct)
+    /// <summary>
+    /// 校验已落盘文件的 sha512（新版 Modrinth 索引给的是 sha512，不是 sha1）。
+    /// <para>下载层只认 sha1，这里在落盘后补一道校验 —— 校验不过就删掉，
+    /// 宁可不装也别装个坏的。参照 PrismLauncher 的 parseManifest 用 sha512。</para>
+    /// </summary>
+    internal static bool VerifySha512(string path, string expectedHex)
     {
+        try
+        {
+            using var read = File.OpenRead(path);
+            var actual = Convert.ToHexString(System.Security.Cryptography.SHA512.HashData(read));
+            return actual.Equals(expectedHex, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>探测远端文件大小（HEAD，逐源尝试）；失败返回 0 = 按未知处理</summary>
+    private async Task<long> ProbeSizeAsync(string url, CancellationToken ct)    {
         foreach (var kind in _sources.RacingPoolFor(url))
         {
             try
@@ -638,7 +1021,8 @@ public sealed class DownloadService
         int concurrency,
         int maxRetries,
         IProgress<BatchProgress>? progress,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyDictionary<string, string>? sha512ByDest = null)
     {
         // 去重（同 hash 已存在则跳过）
         var pending = new List<(string Url, string Dest, string? Sha1, long Size)>();
@@ -689,12 +1073,14 @@ public sealed class DownloadService
                 if (string.IsNullOrEmpty(f.Sha1)) continue; // 没哈希可比：不冒险
                 try
                 {
-                    if (!peer.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
+                    // 走异步版：同步版会在当前线程上阻塞等待对端（最坏 20 多秒），
+                    // 而这里跑在 UI 线程上 —— 阻塞就是界面冻结。
+                    if (!await peer.TryProvideAsync(f.Dest, f.Sha1, f.Size, ct).ConfigureAwait(false)) continue;
                     pending.Remove(f);
                     p2pHits++;
                     NoteObtained(f.Dest, f.Sha1, f.Size);
                     LauncherLog.Write("download",
-                        $"传递优化复用 {Path.GetFileName(f.Dest)} ← {via}");
+                        $"传递优化复用 {Path.GetFileName(f.Dest)} ← 局域网对端");
                 }
                 catch
                 {
@@ -716,12 +1102,12 @@ public sealed class DownloadService
                 if (string.IsNullOrEmpty(f.Sha1)) continue;
                 try
                 {
-                    if (!internet.TryProvide(f.Dest, f.Sha1, f.Size, out var via)) continue;
+                    if (!await internet.TryProvideAsync(f.Dest, f.Sha1, f.Size, ct).ConfigureAwait(false)) continue;
                     pending.Remove(f);
                     internetHits++;
                     NoteObtained(f.Dest, f.Sha1, f.Size);
                     LauncherLog.Write("download",
-                        $"高级传递优化复用 {Path.GetFileName(f.Dest)} ← {via}");
+                        $"高级传递优化复用 {Path.GetFileName(f.Dest)} ← 互联网对端");
                 }
                 catch
                 {
@@ -772,32 +1158,98 @@ public sealed class DownloadService
             return;
         }
 
-        // 多文件并发时把不同文件分摊到不同源：单文件靠分片并行，多文件再叠一层“源级并行”，
+        // 每个批次重新判定「要不要请 Starcloud 兜底」：上一批因为它救场而被放行，
+        // 不代表这一批还要它（S3 只做极端情况辅助，不进常规竞速）
+        _sources.ResetAuxiliary();
+
+        // 多文件并发时把不同文件分摊到不同源：单文件靠分片并行，多文件再叠一层"源级并行"，
         // 避免所有文件都挤在同一个最快源上（其余镜像闲着）。只有一个文件 / 一个源时不指定。
+        HashSet<SourceKind> ranged = [SourceKind.Official];
         var assignPool = new List<SourceKind>();
         if (pending.Count > 1)
         {
+            // **分摊前先探一次**：没有实测数据时按声明顺序分，会把文件分给不通/未缓存的镜像，
+            // 失败后它们又全部退到最快的那个源 —— 实测结果是 35 片全在 S3、官方只分到 2 片，
+            // S3 被自己打限流，整批耗时从 10 秒涨到 164 秒。
+            ranged = await WarmupSourcesAsync(pending[0].Url, ct);
+
             foreach (var kind in _sources.RacingPool())
                 if (!_sources.IsDegraded(kind)) assignPool.Add(kind);
             if (assignPool.Count == 0) assignPool.Add(SourceKind.Official);
         }
+
+        // 分摊只给「实测速度接近最快源」的那些源。
+        // 关键教训一：平均分摊会把文件分给慢一个数量级的源，整批时间就由它决定——
+        // 实测本机 S3 有 23 MB/s、官方只有 0.48 MB/s（差 48 倍），把 1/4 的文件
+        // 分给官方，整批就从 2 秒变成 52 秒。
+        // 关键教训二：预热只有 256KB 样本，会高估镜像（BMCLAPI 边缘节点应答快，
+        // 持续吞吐只有样本的一半不到）——门槛放到 0.75，样本明显虚的源不参赛。
+        // 关键教训三：权重不能整批固定。RecordSpeed 会在批次过程中持续回填真实吞吐，
+        // 每个文件分摊时现算一遍，慢源自己掉出名单；固定快照会把错误放大到整批
+        // （实测：镜像样本虚高时一半文件被它拖住，自动模式反而比仅官方慢 80%）。
+        const double KeepRatio = 0.75;
+        List<SourceKind> Weight(IReadOnlyList<SourceKind> pool)
+        {
+            if (pool.Count <= 1) return pool.ToList();
+            var maxScore = pool.Max(k => _sources.ScoreOf(k));
+            if (maxScore <= 0) return pool.ToList();
+            var fast = pool.Where(k => _sources.ScoreOf(k) >= maxScore * KeepRatio).ToList();
+            if (fast.Count == 0) return pool.ToList();
+            // 快源内部再按速度加权（快的多分），权重 = speed/maxSpeed × 4，最少 1
+            var list = new List<SourceKind>();
+            foreach (var kind in fast)
+            {
+                var weight = Math.Clamp((int)Math.Round(_sources.ScoreOf(kind) / maxScore * 4), 1, 4);
+                list.AddRange(Enumerable.Repeat(kind, weight));
+            }
+            return list;
+        }
+
+        // 逐文件取分摊名单：永远用「当下」的存活源与实测分数（含兜底解锁后的变化）
+        List<SourceKind> PoolForFile(bool bigFile)
+        {
+            var live = _sources.RacingPool().Where(k => !_sources.IsDegraded(k)).ToList();
+            if (live.Count == 0) live.Add(SourceKind.Official);
+            if (bigFile)
+            {
+                // 大文件只能分给认 Range 的源：分给不认 Range 的，分片必然失败再退回最快源，
+                // 等于所有流量又挤到一处（实测 BMCL 有速度样本但只回整文件，坑在这里）
+                var rangeOnly = Weight(live.Where(ranged.Contains).ToList());
+                if (rangeOnly.Count > 0) return rangeOnly;
+            }
+            return Weight(live);
+        }
+
         var assignCursor = 0;
-        if (assignPool.Count > 1)
+        var initialPool = PoolForFile(bigFile: false);
+        if (initialPool.Count > 1)
         {
             LauncherLog.Write("download",
-                $"批量分摊下载源：{string.Join(" / ", assignPool.Select(DownloadSourceRegistry.Name))}" +
+                $"批量分摊下载源：{string.Join(" / ", initialPool.Distinct().Select(DownloadSourceRegistry.Name))}" +
                 $"（{pending.Count} 个文件）");
         }
 
+        // 大文件优先：先下 client.jar / 资源包这类大件，免得它们被排在队尾、
+        // 晚拿到并发额度；小文件随后补位。
+        var ordered = pending
+            .OrderByDescending(f => f.Size)
+            .ToList();
+
         using var gate = new SemaphoreSlim(Math.Max(1, concurrency));
-        var tasks = pending.Select(async f =>
+        var tasks = ordered.Select(async f =>
         {
             await gate.WaitAsync(ct);
             try
             {
-                var preferred = assignPool.Count > 1 && DownloadSourceRegistry.IsMojangUrl(f.Url)
-                    ? assignPool[(int)((uint)Interlocked.Increment(ref assignCursor) %
-                                        (uint)assignPool.Count)]
+                // 分摊时按文件大小错开：同一源不要连着接两个大文件，
+                // 否则那个源被两个大文件压满，其余源闲着 —— 整体速度取决于最慢的那个源。
+                // 大文件走分片：只在认 Range 的源里分摊；小文件整文件下载，任意存活源都行。
+                // 名单只剩一个源时也要钉住它：不然分片器自己的加权轮询会把份额派回慢源，
+                // 一个 1 MB/s 的镜像就能给整批拖出长尾（实测 22MB 的文件被分走一半）。
+                var poolForFile = PoolForFile(f.Size >= ChunkedFileDownloader.Threshold);
+                var preferred = poolForFile.Count > 0 && DownloadSourceRegistry.IsMojangUrl(f.Url)
+                    ? poolForFile[(int)((uint)Interlocked.Increment(ref assignCursor) %
+                                        (uint)poolForFile.Count)]
                     : (SourceKind?)null;
                 long reported = 0;
                 await DownloadOneAsync(f.Url, f.Dest, f.Sha1, maxRetries, ct, f.Size,
@@ -807,6 +1259,19 @@ public sealed class DownloadService
                         Interlocked.Add(ref reported, n);
                         Report();
                     }, preferred);
+                // sha512 二次校验：整合包索引给的 sha512（新版 Modrinth 常见），
+                // 下载层只认 sha1，这里按落盘后的文件补一道校验，
+                // 校验不过就把文件删掉（宁可不装，也别装个坏的）。
+                if (sha512ByDest is not null &&
+                    sha512ByDest.TryGetValue(f.Dest, out var expected512) &&
+                    !string.IsNullOrWhiteSpace(expected512))
+                {
+                    if (!VerifySha512(f.Dest, expected512))
+                    {
+                        try { File.Delete(f.Dest); } catch { }
+                        throw new IOException($"SHA512 校验失败: {Path.GetFileName(f.Dest)}");
+                    }
+                }
                 // 整文件兜底路径无增量上报，补齐差额保证进度最终到位
                 Interlocked.Add(ref doneBytes, Math.Max(0, Math.Max(f.Size, 0) - Interlocked.Read(ref reported)));
                 Interlocked.Increment(ref doneFiles);

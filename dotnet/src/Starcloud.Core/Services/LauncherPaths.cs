@@ -192,6 +192,18 @@ public sealed class LauncherSettings
     [JsonPropertyName("download_custom_mirror_url")]
     public string? DownloadCustomMirrorUrl { get; set; } = "";
 
+    /// <summary>
+    /// 下载代理：system（跟随系统）/ direct（直连，忽略系统代理）/ custom（用下面的地址）。
+    /// <para>极端网络环境下（TUN 劫持、公司代理、加速器）多源竞速仍可能整体不稳定，
+    /// 给用户一个明确的出口比让他猜有用。</para>
+    /// </summary>
+    [JsonPropertyName("download_proxy_mode")]
+    public string DownloadProxyMode { get; set; } = "system";
+
+    /// <summary>自定义代理地址（DownloadProxyMode == "custom" 时生效），如 http://127.0.0.1:7890</summary>
+    [JsonPropertyName("download_proxy_url")]
+    public string? DownloadProxyUrl { get; set; } = "";
+
     [JsonPropertyName("version_isolated")]
     public bool VersionIsolated { get; set; } = true;
 
@@ -221,6 +233,17 @@ public sealed class LauncherSettings
     /// <summary>账户页右侧玩家形象是否播放走路动画（关闭 = 站立静止）。</summary>
     [JsonPropertyName("account_walk_animation")]
     public bool AccountWalkAnimation { get; set; } = true;
+
+    // ── 联机房间 ──
+    /// <summary>用本地演示房间数据（接口未就绪时验收 UI 用；默认关）</summary>
+    [JsonPropertyName("rooms_use_mock")]
+    public bool RoomsUseMock { get; set; }
+
+    // ── 主页版本卡显示哪组版本 ──
+    /// <summary>主页版本列表的内容：installed（已安装）/ favorites（收藏）/ pinned（置顶）。
+    /// 收藏与置顶的标记在版本右键菜单里设置（存版本档案，不在这里）。</summary>
+    [JsonPropertyName("home_version_card_mode")]
+    public string HomeVersionCardMode { get; set; } = "installed";
 
     // ── 主页两栏卡片的收起 / 展开状态 ──
     // 主页每次重新进入都是新实例（NavigationCacheMode=Disabled），状态必须落在设置里才不会还原；
@@ -333,7 +356,12 @@ public sealed class LauncherSettings
             ? new NovaQuota(limit, used, Math.Max(0, limit - used), NovaQuotaResetAt)
             : null;
 
-    // ── Nova 游戏内浮窗（设计：nova-overlay-design.md §3.3；默认关 = 开启即显式授权） ──
+    // ── 日志强度：0=普通 1=详细 2=调试（非正式版由 App 侧锁定为 2，用户改不动） ──
+    [JsonPropertyName("log_intensity")]
+    public int LogIntensity { get; set; } = 0;
+
+    // ── Nova 游戏内浮窗：**功能已下线**（2026-10-30 用户判定挂件观感不佳，整套移除）。
+    //    字段只为兼容旧设置文件与 Bridge 快照保留，运行时不再读取、界面不再暴露。 ──
     [JsonPropertyName("nova_overlay_enabled")]
     public bool NovaOverlayEnabled { get; set; } = false;
 
@@ -342,6 +370,13 @@ public sealed class LauncherSettings
 
     [JsonPropertyName("nova_overlay_y")]
     public int? NovaOverlayY { get; set; }
+
+    // ── 主页布局编辑工具箱窗口位置（独立顶层窗口；物理像素） ──
+    [JsonPropertyName("toolbox_window_x")]
+    public int? ToolboxWindowX { get; set; }
+
+    [JsonPropertyName("toolbox_window_y")]
+    public int? ToolboxWindowY { get; set; }
 
     // ── 资源列表缓存开关（设计：resource-cache-multi-java-global-settings-design.md §3.1） ──
     [JsonPropertyName("resource_cache_enabled")]
@@ -353,6 +388,15 @@ public sealed class LauncherSettings
     /// </summary>
     [JsonPropertyName("auto_install_mod_dependencies")]
     public bool AutoInstallModDependencies { get; set; } = true;
+
+    /// <summary>SC 实验室的欢迎提示是否已经看过（只弹第一次，跨启动记住）</summary>
+    public bool LabWelcomeShown { get; set; }
+
+    /// <summary>
+    /// 发布渠道：release / public-beta / beta / alpha / pre-alpha。
+    /// 影响自更新检查走的清单（服务端按 channel 下发），越靠前的渠道越稳定。
+    /// </summary>
+    public string ReleaseChannel { get; set; } = "release";
 
     // ── 全局默认窗口（版本设置「跟随全局设置」档位取此处） ──
     [JsonPropertyName("default_window_width")]
@@ -486,6 +530,7 @@ public sealed class LauncherSettings
     public void ClampBackgroundValues()
     {
         if (BackgroundMode is not ("none" or "builtin" or "file")) BackgroundMode = "none";
+        if (HomeVersionCardMode is not ("installed" or "favorites" or "pinned")) HomeVersionCardMode = "installed";
         BackgroundImageOpacity = Math.Clamp(BackgroundImageOpacity, 0.2, 1.0);
         BackgroundBlurRadius = Math.Clamp(BackgroundBlurRadius, 0, 64);
         if (BackgroundMaskOpacity is { } m) BackgroundMaskOpacity = Math.Clamp(m, 0, 1);

@@ -177,7 +177,9 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: versions.isEmpty
                 ? Center(
                     child: Text(
-                      _loadError ?? '还没有已安装的版本 —— 去「下载」页安装',
+                      // 错误已经在上方单独提示条里显示过了；
+                      // 这里再显示一次会把「加载失败」说成「没有版本」，语义混淆。
+                      _loadError != null ? '版本列表加载失败' : '还没有已安装的版本 —— 去「下载」页安装',
                       style: typography.body,
                       textAlign: TextAlign.center,
                     ),

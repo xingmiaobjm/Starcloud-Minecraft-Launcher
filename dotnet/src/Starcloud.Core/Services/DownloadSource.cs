@@ -1,4 +1,4 @@
-// 多下载源聚合：Mojang 域名改写 + 源健康度降级 + 竞速池
+﻿// 多下载源聚合：Mojang 域名改写 + 源健康度降级 + 竞速池
 // （移植并升级自旧 Rust src/download/sources.rs；设计见 docs/designs/2026-09-12-multi-source-download-design.md）
 
 using System.Collections.Concurrent;
@@ -6,7 +6,7 @@ using System.Collections.Concurrent;
 namespace Starcloud.Core.Services;
 
 /// <summary>下载源类型</summary>
-public enum SourceKind { Official, Bmclapi, Fastmirror, Rainyun, Custom }
+public enum SourceKind { Official, Bmclapi, Fastmirror, Rainyun, Sjtu, Starcloud, Custom }
 
 /// <summary>
 /// 下载通道：同一个源在不同通道上的能力可以完全不同。
@@ -48,13 +48,22 @@ public sealed class DownloadSourceRegistry
     ];
 
     /// <summary>
-    /// 自动模式下的候选镜像（不含官方）。
-    /// <para>RainYun 不在这里：它的镜像根本没有任何 Minecraft 文件，请求会返回站点 HTML
+    /// 自动模式下的候选镜像（不含官方），**顺序即默认优先级**。
+    /// <para>2026-10-31：BMCLAPI 已升级为 OpenBMCLAPI，会把下载路由到官方较慢的源 ——
+    /// 降到池子末位（健康度评分仍能让快源上浮，但冷启动时不再让它打头阵）。</para>
+    /// <para>SJTU（上海交大）与 Starcloud S3（自家对象存储的热门版本缓存）都在 BMCLAPI 之前。
+    /// RainYun 不在这里：它的镜像根本没有任何 Minecraft 文件，请求会返回站点 HTML
     /// （2026-09-22 实测。元数据请求拿到 HTML 会直接 JSON 解析失败，比"慢"更糟）。
     /// 源类型与改写规则保留，用户显式在设置里选它时仍会生效。</para>
     /// </summary>
     private static readonly SourceKind[] MirrorKinds =
-        [SourceKind.Bmclapi, SourceKind.Fastmirror, SourceKind.Custom];
+        [
+            SourceKind.Fastmirror,
+            SourceKind.Sjtu,
+            SourceKind.Starcloud,
+            SourceKind.Custom,
+            SourceKind.Bmclapi,
+        ];
 
     private sealed class Health
     {
@@ -62,6 +71,21 @@ public sealed class DownloadSourceRegistry
         public bool Degraded;
         /// <summary>各通道上「无视 Range」的连续计数（命中 206 即清零）</summary>
         public readonly ConcurrentDictionary<SourceChannel, int> RangeIgnored = new();
+        /// <summary>实测吞吐（字节/毫秒）的指数滑动平均；0 = 还没测过</summary>
+        public double SpeedEma;
+        public int SpeedSamples;
+        /// <summary>最近一次成功的时间（TickCount64）；用于让健康度随时间衰减</summary>
+        public long LastSuccessAt;
+        /// <summary>是否被限流过（429/503）</summary>
+        public int Throttles;
+        /// <summary>
+        /// 404 连发计数（窗口内）。404 = 文件未缓存，是「这个 URL 在这个源上没有」，
+        /// 不是源故障 —— 绝不能计入 Failures 触发整源降级（否则下一个未缓存版本会把
+        /// S3 打到池尾，之后切回已缓存版本它也不再参与）。连发只触发短时避让。
+        /// </summary>
+        public int NotFoundStreak;
+        public long NotFoundWindowAt;
+        public long NotFoundCooldownUntil;
     }
 
     private readonly Func<LauncherSettings> _settings;
@@ -69,6 +93,32 @@ public sealed class DownloadSourceRegistry
 
     /// <summary>源质量预检是否已做过（进程内一次；预检本身也要发真实请求，不能每文件都做）</summary>
     private int _warmedUp;
+
+    /// <summary>
+    /// Starcloud S3 加速镜像是否可用（默认开）。由远程配置（/v1/launcher/config）
+    /// 在启动时设置 —— 服务端缓存清理 / 故障时可以一键把用户端切走。
+    /// <para>注意：可用 ≠ 参与竞速。它默认只做极端情况兜底，见 <see cref="IsAuxiliary"/>。</para>
+    /// </summary>
+    public volatile bool StarcloudMirrorEnabled = true;
+
+    /// <summary>
+    /// 此源是不是「兜底源」：平时不参与竞速，只在主源用不了时上线。
+    /// <para>用户定调（2026-11-02）：S3 是自家对象存储，带宽要留给「镜像与官方全挂 / 全被限流」
+    /// 这种极端情况，不能让它靠"测速快"长期占据常规下载的主力位置。</para>
+    /// <para>用户显式在设置里选定它（<see cref="Pinned"/>）时不受此限 —— 那是用户的明确选择。</para>
+    /// </summary>
+    public static bool IsAuxiliary(SourceKind k) => k == SourceKind.Starcloud;
+
+    /// <summary>兜底源已临时上线（主源全部失败触发的，进程内有效，每个批次重置）</summary>
+    private volatile bool _auxiliaryUnlocked;
+
+    public bool AuxiliaryUnlocked => _auxiliaryUnlocked;
+
+    /// <summary>本批次结束后重置：下一个批次重新按当时的源健康度决定要不要兜底</summary>
+    public void ResetAuxiliary() => _auxiliaryUnlocked = false;
+
+    /// <summary>主源全部失败：把兜底源临时放进竞速池（本批次内一直有效）</summary>
+    public void UnlockAuxiliary() => _auxiliaryUnlocked = true;
 
     /// <summary>
     /// 主机级 Range 能力记忆（进程内）：未知 = 没有记录。
@@ -85,6 +135,8 @@ public sealed class DownloadSourceRegistry
         SourceKind.Bmclapi => "bmclapi",
         SourceKind.Fastmirror => "fastmirror",
         SourceKind.Rainyun => "rainyun",
+        SourceKind.Sjtu => "sjtu",
+        SourceKind.Starcloud => "starcloud",
         SourceKind.Custom => "custom",
         _ => "official",
     };
@@ -92,9 +144,11 @@ public sealed class DownloadSourceRegistry
     /// <summary>源显示名（用于日志）</summary>
     public static string Name(SourceKind k) => k switch
     {
-        SourceKind.Bmclapi => "BMCLAPI",
+        SourceKind.Bmclapi => "BMCLAPI (OpenBMCLAPI)",
         SourceKind.Fastmirror => "FastMinecraftMirror",
         SourceKind.Rainyun => "RainYun 雨云",
+        SourceKind.Sjtu => "上海交大镜像",
+        SourceKind.Starcloud => "Starcloud 加速",
         SourceKind.Custom => "自定义镜像",
         _ => "Mojang 官方",
     };
@@ -108,6 +162,8 @@ public sealed class DownloadSourceRegistry
             case "bmclapi": kind = SourceKind.Bmclapi; return true;
             case "fastmirror": kind = SourceKind.Fastmirror; return true;
             case "rainyun": kind = SourceKind.Rainyun; return true;
+            case "sjtu": kind = SourceKind.Sjtu; return true;
+            case "starcloud": kind = SourceKind.Starcloud; return true;
             case "custom": kind = SourceKind.Custom; return true;
             default: kind = SourceKind.Official; return false;
         }
@@ -151,6 +207,11 @@ public sealed class DownloadSourceRegistry
                 return RewriteRoot(url, "mirrors.rainyun.com");
             case SourceKind.Fastmirror:
                 return RewriteFastmirror(url);
+            case SourceKind.Sjtu:
+                return RewriteSjtu(url);
+            case SourceKind.Starcloud:
+                // 自家 S3 的热门版本缓存（BMCLAPI 风格布局，见 docs/api-launcher-services.md §5）
+                return RewriteRoot(url, S3MirrorRoot);
             case SourceKind.Custom:
                 var root = NormalizeMirrorRoot(customMirrorUrl);
                 return root is null ? url : RewriteRoot(url, root);
@@ -174,6 +235,9 @@ public sealed class DownloadSourceRegistry
     /// 竞速池：健康镜像 → 降级镜像 → 官方兜底；官方恒为最后一个。
     /// 用户显式指定单一源时只含该源（不受降级影响，否则会把用户锁死）；
     /// 已被判定不支持 Range 的源退出分片池，未配置地址的自定义源不参与。
+    /// <para>排序在「是否降级」之上再加一层健康度评分：能连但很慢的镜像不再霸占首位
+    /// （原来只看降级标记，慢源一直排前面，整个下载被它拖慢 —— 表现就是时快时慢）。
+    /// 评分相同的按声明顺序（镜像 → 官方）保持稳定。</para>
     /// </summary>
     public IReadOnlyList<SourceKind> RacingPool()
     {
@@ -184,11 +248,33 @@ public sealed class DownloadSourceRegistry
         foreach (var k in MirrorKinds)
         {
             if (k == SourceKind.Custom && custom is null) continue;
+            // Starcloud S3 缓存受云控开关：服务端没开（配置拉不到 / 显式关闭）就不参与
+            if (k == SourceKind.Starcloud && !StarcloudMirrorEnabled) continue;
+            // 兜底源平时不参赛：只有本批次已被放行（主源全失败）才进来
+            if (IsAuxiliary(k) && !_auxiliaryUnlocked) continue;
             mirrors.Add(k);
         }
-        // 降级源靠后；OrderBy 稳定，故同一健康档位内保持声明顺序
-        var pool = mirrors.OrderBy(k => Get(k).Degraded ? 1 : 0).ToList();
+        // 降级源靠后；404 连发避让的源次之（文件未缓存不是源坏，冷却后立即恢复）；
+        // 同档位内按健康度评分降序（评分相同的保持声明顺序，故用 ThenBy 索引）
+        var indexed = mirrors.Select((k, i) => (k, i)).ToList();
+        var pool = indexed
+            .OrderBy(x => Get(x.k).Degraded ? 1 : 0)
+            .ThenBy(x => InNotFoundCooldown(x.k) ? 1 : 0)
+            .ThenByDescending(x => ScoreOf(x.k))
+            .ThenBy(x => x.i)
+            .Select(x => x.k)
+            .ToList();
         pool.Add(SourceKind.Official);
+
+        // 主源全部不可用（镜像全降级 + 官方也降级）：这才是「极端情况」，
+        // 自动把 S3 请出来顶到最前面，而不是让用户对着「没有可用的下载源」干等。
+        if (!_auxiliaryUnlocked && StarcloudMirrorEnabled &&
+            Get(SourceKind.Official).Degraded &&
+            mirrors.All(k => Get(k).Degraded))
+        {
+            UnlockAuxiliary();
+            pool.Insert(0, SourceKind.Starcloud);
+        }
         return pool;
     }
 
@@ -213,6 +299,31 @@ public sealed class DownloadSourceRegistry
         var h = Get(k);
         Interlocked.Exchange(ref h.Failures, 0);
         h.Degraded = false;
+        h.LastSuccessAt = Environment.TickCount64;
+    }
+
+    /// <summary>
+    /// 记录一次实测吞吐（字节/毫秒）。用来给慢源降权 ——
+    /// 源质量不只是「能不能连上」，还有「连上之后有多快」：
+    /// 一个能连但很慢的镜像排在前面，整个下载都会被它拖住。
+    /// </summary>
+    public void RecordSpeed(SourceKind k, long bytes, long elapsedMs)
+    {
+        if (bytes <= 0 || elapsedMs <= 0) return;
+        var h = Get(k);
+        var instant = bytes / (double)elapsedMs;
+        lock (h)
+        {
+            h.SpeedEma = h.SpeedSamples == 0 ? instant : h.SpeedEma * 0.6 + instant * 0.4;
+            h.SpeedSamples++;
+        }
+    }
+
+    /// <summary>记录一次限流（429/503）。</summary>
+    public void RecordThrottled(SourceKind k)
+    {
+        var h = Get(k);
+        lock (h) { h.Throttles = Math.Min(h.Throttles + 1, 8); }
     }
 
     /// <summary>记录请求失败：连续失败达到阈值自动降级</summary>
@@ -220,6 +331,70 @@ public sealed class DownloadSourceRegistry
     {
         var h = Get(k);
         if (Interlocked.Increment(ref h.Failures) >= DegradeAfterFailures) h.Degraded = true;
+    }
+
+    /// <summary>
+    /// 记录一次 404/410（文件未缓存，非源故障）：不计失败、不降级；
+    /// 短窗口内连发（整批文件都打空）才进入短时避让 —— 排到其它镜像之后、官方之前，
+    /// 冷却一过立即恢复。这是「按 URL 该源不可用」与「源坏了」的分界。
+    /// </summary>
+    public void RecordNotFound(SourceKind k)
+    {
+        const int BurstLimit = 20;          // 60 秒窗口内 20 次 404 → 短时避让
+        const long WindowMs = 60_000;
+        const long CooldownMs = 60_000;
+        var h = Get(k);
+        lock (h)
+        {
+            var now = Environment.TickCount64;
+            if (now - h.NotFoundWindowAt > WindowMs)
+            {
+                h.NotFoundWindowAt = now;
+                h.NotFoundStreak = 0;
+            }
+            if (++h.NotFoundStreak >= BurstLimit)
+            {
+                h.NotFoundCooldownUntil = now + CooldownMs;
+                h.NotFoundStreak = 0;
+            }
+        }
+    }
+
+    /// <summary>该源是否正处于 404 连发避让期（只是排序靠后，不是不可用）</summary>
+    public bool InNotFoundCooldown(SourceKind k) =>
+        Environment.TickCount64 < Get(k).NotFoundCooldownUntil;
+
+    /// <summary>
+    /// 源健康度评分（越大越好）。
+    /// <para>要解决的问题：源池原来只按「有没有被降级」排序，一个「能连但很慢」的镜像
+    /// 会一直排在前面，整个下载速度被它拖住 —— 用户看到的就是「时快时慢」。
+    /// 这里把实测吞吐、失败次数、限流次数合成一个分数，池按分数排序。</para>
+    /// <para>速度样本的权重随时间衰减（半衰期约 5 分钟）：镜像质量会漂移，
+    /// 十分钟前的测速不该一直主导现在的排序。</para>
+    /// </summary>
+    internal double ScoreOf(SourceKind k)
+    {
+        var h = Get(k);
+        double speed;
+        int samples;
+        int throttles;
+        lock (h)
+        {
+            speed = h.SpeedEma;
+            samples = h.SpeedSamples;
+            throttles = h.Throttles;
+        }
+        if (samples == 0) return 0;   // 没测过：交给后面的实测择优
+
+        // 样本过期打折（半衰期 5 分钟）
+        var age = Environment.TickCount64 - h.LastSuccessAt;
+        var freshness = age <= 0 ? 1.0 : Math.Pow(0.5, Math.Min(age / 300_000.0, 4.0));
+
+        // 吞吐归一化：1 MB/s 记 1 分，线性放大后取对数（避免快源一家独大）
+        var mbPerSec = speed * 1000.0 / (1024 * 1024);
+        var speedScore = Math.Log(1 + Math.Max(0, mbPerSec)) * 10;
+
+        return speedScore * freshness - h.Failures * 2 - throttles * 1.5;
     }
 
     /// <summary>该源是否已被预检/失败计数降级（分片池据此跳过它）</summary>
@@ -291,8 +466,41 @@ public sealed class DownloadSourceRegistry
         }
         if (Prefix(url, "https://resources.download.minecraft.net", out var rest))
             return $"https://{mirror}/assets{rest}";
-        if (Prefix(url, "https://libraries.minecraft.net", out rest))
+        if (Prefix(url, "https://libraries.minecraft.net", out rest) ||
+            Prefix(url, "https://libraries.mojang.com", out rest))
             return $"https://{mirror}/maven{rest}";
+        return url;
+    }
+
+    /// <summary>
+    /// Starcloud S3 加速根（自家对象存储，公开读）。
+    /// 服务端每天把下载量前三的版本缓存进来（布局 = BMCLAPI 风格）；
+    /// 缓存未命中的文件 404，由竞速池自动落到下一源 —— 不需要预知"哪些在缓存里"。
+    /// </summary>
+    public const string S3MirrorRoot = "starcloud.cn-nb1.rains3.com/mc";
+
+    /// <summary>
+    /// 上海交大镜像改写。布局与 BMCLAPI 不同：meta/data 原样路径，库在 /libraries（不是 /maven）。
+    /// 个别路径若 404（镜像布局有出入），健康度系统会自动把它降级，不锁死用户。
+    /// </summary>
+    private static string RewriteSjtu(string url)
+    {
+        const string root = "mirror.sjtu.edu.cn/minecraft";
+        foreach (var host in new[]
+                 {
+                     "piston-meta.mojang.com", "piston-data.mojang.com",
+                     "launchermeta.mojang.com", "launcher.mojang.com",
+                 })
+        {
+            if (Prefix(url, $"https://{host}", out var rest))
+                return $"https://{root}{rest}";
+        }
+        if (Prefix(url, "https://resources.download.minecraft.net", out var r))
+            return $"https://{root}/assets{r}";
+        if (Prefix(url, "https://libraries.minecraft.net", out r))
+            return $"https://{root}/libraries{r}";
+        if (Prefix(url, "https://libraries.mojang.com", out r))
+            return $"https://{root}/libraries{r}";
         return url;
     }
 

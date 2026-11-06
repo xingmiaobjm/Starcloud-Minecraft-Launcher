@@ -1,4 +1,4 @@
-// 窗口背景宿主：背景图 / 模糊层 / 毛玻璃遮罩三层（设计：custom-background-theme-design.md §6）
+﻿// 窗口背景宿主：背景图 / 模糊层 / 毛玻璃遮罩三层（设计：custom-background-theme-design.md §6）
 //
 // 层序（自下而上）：SystemBackdrop 亚克力 → 本类三层 → 常规 XAML 内容。
 // 模糊用 composition 的 GaussianBlurEffect 作用于图片表面（而非 backdrop），
@@ -89,7 +89,9 @@ internal sealed class WindowBackgroundHost
         if (_imagePath == path && _image.Source is not null) return true;
         try
         {
-            _image.Source = new BitmapImage(new Uri(path));
+            // 壁纸按窗口宽度解码：4K 原图全尺寸解码要 33MB 内存与更大的 GPU 纹理，
+            // 显示层撑满窗口也就 ~2K——超出的部分纯白烧
+            _image.Source = new BitmapImage(new Uri(path)) { DecodePixelWidth = 2560 };
             _imagePath = path;
             return true;
         }

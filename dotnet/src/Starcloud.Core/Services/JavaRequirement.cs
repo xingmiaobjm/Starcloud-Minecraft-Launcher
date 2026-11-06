@@ -60,4 +60,63 @@ public static class JavaRequirement
         // 快照（24w14a）等：给较新的运行时，真跑不起来会有明确的类版本错误提示
         return 21;
     }
+
+    /// <summary>
+    /// 该版本能用的 Java **最高**主版本（null = 没有上限）。
+    /// <para>只看下限是不够的：老版本用新 Java 不是"能跑但慢"，而是直接崩——
+    /// 老版本的 ASM/Forge 无法解析 Java 9+ 的类文件，OptiFine 更是要求特定版本。
+    /// 常见组合（社区长期验证的兼容边界）：</para>
+    ///   · 1.5.2 及更早              → 最高 8
+    ///   · LaunchWrapper（Forge ≤1.12）→ 最高 8（见下方说明）
+    ///   · 1.8 – 1.11 + OptiFine     → 恰好 8（Java 9+ 崩溃）
+    ///   · 1.12 + OptiFine           → 最高 8
+    /// </summary>
+    /// <param name="mainClass">版本 JSON 的 mainClass；用于识别 LaunchWrapper 系实例</param>
+    public static int? MaxSupported(string? versionId, bool hasOptiFine, string? mainClass = null)
+    {
+        if (string.IsNullOrWhiteSpace(versionId)) return null;
+        var release = Release.Match(versionId.Trim());
+        if (!release.Success) return null;   // 24w14a / 26.3 这类：不设上限
+
+        var minor = int.Parse(release.Groups[1].Value);
+        var patch = release.Groups[2].Success ? int.Parse(release.Groups[2].Value) : 0;
+
+        // LaunchWrapper 时代（Forge / LiteLoader / OptiFine，1.12 及更早）：
+        // 它假定系统类加载器是 URLClassLoader，而 Java 9+ 的 AppClassLoader 不是，
+        // 会直接抛 ClassCastException 起不来。这是硬限制，不是版本没有下限判断能发现的。
+        // （lwjgl3ify / Cleanroom 会把 mainClass 换成自己的 Bootstrap，所以不会误伤它们。）
+        if (!string.IsNullOrEmpty(mainClass) &&
+            mainClass.Contains("launchwrapper", StringComparison.OrdinalIgnoreCase) && minor <= 12)
+            return 8;
+
+        // 1.5.2 及更早：Java 9+ 的类文件版本与旧 ASM 不兼容
+        if (minor < 6 || (minor == 5 && patch <= 2)) return 8;
+
+        if (hasOptiFine)
+        {
+            // 1.8 – 1.11：OptiFine 的补丁强绑定 Java 8，9+ 会崩在 tweaker 初始化
+            if (minor is >= 8 and <= 11) return 8;
+            // 1.12：同样是 Java 8 上限（1.12.2 + OptiFine + Java 9+ 已知崩溃）
+            if (minor == 12) return 8;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 选定的 Java 主版本是否超出该版本能接受的范围；超了返回给用户看的说明，正常返回 null。
+    /// </summary>
+    public static string? TooNewWarning(string? versionId, bool hasOptiFine, int actualMajor,
+        string? mainClass = null)
+    {
+        if (MaxSupported(versionId, hasOptiFine, mainClass) is not { } max || actualMajor <= max) return null;
+        if (!string.IsNullOrEmpty(mainClass) &&
+            mainClass.Contains("launchwrapper", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"这个版本用的是 LaunchWrapper 启动器（Forge 1.12 及更早），它只支持 Java {max}。"
+                + $"当前选的 Java {actualMajor} 会直接抛类加载器类型错误——请换 Java {max}";
+        }
+        return hasOptiFine
+            ? $"这个版本搭配 OptiFine 时最高只能用 Java {max}，当前选的 Java {actualMajor} 会让游戏在启动阶段崩溃——请换 Java {max}"
+            : $"这个版本最高只能用 Java {max}，当前选的 Java {actualMajor} 会让游戏无法启动——请换 Java {max}";
+    }
 }

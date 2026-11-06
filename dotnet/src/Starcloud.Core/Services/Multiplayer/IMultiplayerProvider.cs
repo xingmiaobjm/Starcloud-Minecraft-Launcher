@@ -57,6 +57,12 @@ public interface IMultiplayerProvider : IDisposable
     /// <summary>结束本启动器拉起的那次会话</summary>
     Task StopSessionAsync(CancellationToken ct);
 
+    /// <summary>
+    /// 急停：优雅关闭 → 强制结束核心进程（含上一次会话遗留的）→ 清端口记录。
+    /// 与 <see cref="StopSessionAsync"/> 的区别：不依赖会话还正常响应，杀不掉就报错。
+    /// </summary>
+    Task EmergencyStopAsync(CancellationToken ct);
+
     /// <summary>拉取核心日志（无日志接口返回空串）</summary>
     Task<string> FetchLogsAsync(CancellationToken ct);
 

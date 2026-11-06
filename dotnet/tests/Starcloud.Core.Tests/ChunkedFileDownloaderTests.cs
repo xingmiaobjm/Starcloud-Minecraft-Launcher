@@ -102,12 +102,31 @@ public class ChunkedFileDownloaderTests
     public void worker数被夹在1到上限之间()
     {
         var many = ChunkedFileDownloader.PlanChunks(64 * MiB, 1000);
-        var capped = ChunkedFileDownloader.PlanChunks(64 * MiB, ChunkedFileDownloader.MaxWorkersPerFile);
+        var capped = ChunkedFileDownloader.PlanChunks(64 * MiB, ChunkedFileDownloader.MaxWorkersPerMojangFile);
         Assert.Equal(capped, many);
 
         var single = ChunkedFileDownloader.PlanChunks(64 * MiB, 1);
         AssertCoverage(single, 64 * MiB);
         Assert.True(single.Count <= capped.Count, "worker 越少，片应越少（更粗的分片）");
+    }
+
+    [Fact]
+    public void 官方URL的单文件worker上限高于镜像()
+    {
+        const string official = "https://piston-data.mojang.com/v1/objects/abc/client.jar";
+        const string mirror = "https://bmclapi2.bangbang93.com/v1/objects/abc/client.jar";
+
+        // 实测官方 CDN 按连接限速：16 条明显快于 8 条，32 条才吃满
+        Assert.Equal(ChunkedFileDownloader.MaxWorkersPerMojangFile,
+            ChunkedFileDownloader.WorkersCapFor(official));
+        Assert.Equal(ChunkedFileDownloader.MaxWorkersPerFile,
+            ChunkedFileDownloader.WorkersCapFor(mirror));
+
+        // 连接闸门同理：官方 32 条、镜像 8 条（镜像网关按 IP 限流）
+        Assert.Equal(ChunkedFileDownloader.MaxMojangConnectionsPerHost,
+            ChunkedFileDownloader.GateLimitFor("piston-data.mojang.com"));
+        Assert.Equal(ChunkedFileDownloader.MaxConnectionsPerHost,
+            ChunkedFileDownloader.GateLimitFor("starcloud.cn-nb1.rains3.com"));
     }
 
     [Theory]
@@ -187,9 +206,9 @@ public class ChunkedFileDownloaderTests
         try
         {
             // 吞吐是墙钟量测：构建/其它测试抢 CPU 时单次结果可能被压低。
-            // 取两次里最好的一次（真出问题时两次都过不了），避免把偶发抖动当成并行失效。
+            // 取三次里最好的一次（真出问题时三次都过不了），避免把偶发抖动当成并行失效。
             var best = 0.0;
-            for (var attempt = 0; attempt < 2; attempt++)
+            for (var attempt = 0; attempt < 3; attempt++)
             {
                 TryDelete(dest);
                 var sw = Stopwatch.StartNew();
@@ -297,10 +316,10 @@ public class ChunkedFileDownloaderTests
     /// 本地限速 HTTP 服务器：支持 Range（可选），每条连接按字节速率限速。
     /// 用裸 TcpListener 而不是 HttpListener：后者在非管理员下需要 URL ACL，测试不应依赖提权。
     /// </summary>
-    // ── 选源策略：旧实现每片轮询所有源，坏/慢源也均摊 1/N 的片 ──
+    // ── 选源策略：先各探一片拿速度，再按实测速度加权轮询 ──
 
     [Fact]
-    public void 候选源先探测速度再选最快()
+    public void 候选源先探测速度再按速度加权()
     {
         var pool = new ChunkedFileDownloader.CandidateSet(
             [SourceKind.Bmclapi, SourceKind.Official]);
@@ -309,11 +328,19 @@ public class ChunkedFileDownloaderTests
         Assert.Equal(SourceKind.Bmclapi, pool.Next());
         Assert.Equal(SourceKind.Official, pool.Next());
 
-        // 官方快 10 倍：之后一直用官方
+        // 官方快 100 倍（1000 vs 10 bytes/ms）
         pool.ReportSpeed(SourceKind.Bmclapi, bytes: 1_000, elapsedMs: 100);
         pool.ReportSpeed(SourceKind.Official, bytes: 10_000, elapsedMs: 10);
-        for (var i = 0; i < 5; i++)
-            Assert.Equal(SourceKind.Official, pool.Next());
+
+        // 不是「永远只返回最快的那个」：那样 8 个分片全压一个源，
+        // 其余镜像闲置，总吞吐等于单源上限（实测竞速反而比仅官方慢 3 倍）。
+        // 正确行为是加权轮询：快的拿绝对多数分片，慢的保留少量份额继续出力。
+        var official = 0;
+        for (var i = 0; i < 100; i++)
+            if (pool.Next() == SourceKind.Official) official++;
+
+        Assert.True(official >= 80, $"官方应承担绝大多数分片，实际 {official}/100");
+        Assert.True(official < 100, $"慢源不应被完全饿死，实际 {official}/100");
     }
 
     [Fact]

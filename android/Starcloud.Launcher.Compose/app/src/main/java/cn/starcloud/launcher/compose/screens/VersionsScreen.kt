@@ -22,6 +22,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
@@ -48,11 +52,17 @@ private fun fmtSize(bytes: Long): String = when {
 
 @Composable
 fun VersionsScreen(repo: VersionsRepository, refreshKey: Int) {
-    var versions by remember(refreshKey) { mutableStateOf(repo.list()) }
+    // 扫盘在主线程会卡首帧（每个版本 JSON 都要读一遍）：改成异步加载
+    val scope = rememberCoroutineScope()
+    var versions by remember(refreshKey) { mutableStateOf(emptyList<InstalledVersion>()) }
     var pendingDelete by remember { mutableStateOf<InstalledVersion?>(null) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PageHeader(title = "版本管理", actionLabel = "刷新", onAction = { versions = repo.list() })
+        deleteError?.let { msg ->
+            Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        PageHeader(title = "版本管理", actionLabel = "刷新", onAction = { scope.launch { versions = withContext(Dispatchers.IO) { repo.list() } } })
 
         if (versions.isEmpty()) {
             Column(
@@ -129,9 +139,20 @@ fun VersionsScreen(repo: VersionsRepository, refreshKey: Int) {
             text = { Text("确定要删除版本 " + v.id + " 吗？将删除其版本文件夹，此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
-                    repo.remove(v.id)
-                    versions = repo.list()
-                    pendingDelete = null
+                    // 删除是主线程的递归删（可能很慢），且失败不能静默：
+                    // 原来既没切到后台也没 try/catch，权限不足时直接崩。
+                    scope.launch {
+                        val failure = withContext(Dispatchers.IO) {
+                            runCatching { repo.remove(v.id) }.exceptionOrNull()
+                        }
+                        if (failure == null) {
+                            versions = withContext(Dispatchers.IO) { repo.list() }
+                            pendingDelete = null
+                        } else {
+                            pendingDelete = null
+                            deleteError = failure.message ?: "删除失败"
+                        }
+                    }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },

@@ -1,4 +1,4 @@
-// Media Foundation 互操作（录屏编码用）：只声明本项目用到的那一小部分。
+﻿// Media Foundation 互操作（录屏编码用）：只声明本项目用到的那一小部分。
 //
 // 为什么要手写：MF 没有 .NET 投影，而录屏必须走硬件编码器（NVENC / QSV / AMF 注册的
 // H.264 MFT），这就要求 MF_SINK_WRITER + MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS 这套原生属性。
@@ -40,36 +40,66 @@ internal static class MfGuids
  InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IMFAttributes
 {
+    [PreserveSig]
     int GetItem(ref Guid guidKey, IntPtr pValue);
+    [PreserveSig]
     int GetItemType(ref Guid guidKey, out int pType);
+    [PreserveSig]
     int CompareItem(ref Guid guidKey, IntPtr value, out bool pbResult);
+    [PreserveSig]
     int Compare(IMFAttributes pTheirs, int matchType, out bool pbResult);
+    [PreserveSig]
     int GetUINT32(ref Guid guidKey, out uint punValue);
+    [PreserveSig]
     int GetUINT64(ref Guid guidKey, out ulong punValue);
+    [PreserveSig]
     int GetDouble(ref Guid guidKey, out double pfValue);
+    [PreserveSig]
     int GetGUID(ref Guid guidKey, out Guid pguidValue);
+    [PreserveSig]
     int GetStringLength(ref Guid guidKey, out uint pcchLength);
+    [PreserveSig]
     int GetString(ref Guid guidKey, [MarshalAs(UnmanagedType.LPWStr)] StringBuilder pwszValue,
         uint cchBufSize, out uint pcchLength);
+    [PreserveSig]
     int GetAllocatedString(ref Guid guidKey, out IntPtr ppwszValue, out uint pcchLength);
+    [PreserveSig]
     int GetBlobSize(ref Guid guidKey, out uint pcbBlobSize);
+    [PreserveSig]
     int GetBlob(ref Guid guidKey, out IntPtr pBuf, uint cbBufSize, out uint pcbBlobSize);
+    [PreserveSig]
     int GetAllocatedBlob(ref Guid guidKey, out IntPtr ppBuf, out uint pcbSize);
+    [PreserveSig]
     int GetUnknown(ref Guid guidKey, ref Guid riid, out IntPtr ppv);
+    [PreserveSig]
     int SetItem(ref Guid guidKey, IntPtr value);
+    [PreserveSig]
     int DeleteItem(ref Guid guidKey);
+    [PreserveSig]
     int DeleteAllItems();
+    [PreserveSig]
     int SetUINT32(ref Guid guidKey, uint unValue);
+    [PreserveSig]
     int SetUINT64(ref Guid guidKey, ulong unValue);
+    [PreserveSig]
     int SetDouble(ref Guid guidKey, double fValue);
+    [PreserveSig]
     int SetGUID(ref Guid guidKey, ref Guid guidValue);
+    [PreserveSig]
     int SetString(ref Guid guidKey, [MarshalAs(UnmanagedType.LPWStr)] string wszValue);
+    [PreserveSig]
     int SetBlob(ref Guid guidKey, byte[] pBuf, uint cbBufSize);
+    [PreserveSig]
     int SetUnknown(ref Guid guidKey, [MarshalAs(UnmanagedType.IUnknown)] object pUnknown);
+    [PreserveSig]
     int LockStore();
+    [PreserveSig]
     int UnlockStore();
+    [PreserveSig]
     int GetCount(out uint pcItems);
+    [PreserveSig]
     int GetItemByIndex(uint unIndex, out Guid pguidKey, IntPtr pValue);
+    [PreserveSig]
     int CopyAllItems(IMFAttributes pDest);
 }
 
@@ -85,41 +115,76 @@ internal interface IMFAttributes
  InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IMFMediaType
 {
+    [PreserveSig]
     int GetItem(ref Guid guidKey, IntPtr pValue);
+    [PreserveSig]
     int GetItemType(ref Guid guidKey, out int pType);
+    [PreserveSig]
     int CompareItem(ref Guid guidKey, IntPtr value, out bool pbResult);
+    [PreserveSig]
     int Compare(IMFAttributes pTheirs, int matchType, out bool pbResult);
+    [PreserveSig]
     int GetUINT32(ref Guid guidKey, out uint punValue);
+    [PreserveSig]
     int GetUINT64(ref Guid guidKey, out ulong punValue);
+    [PreserveSig]
     int GetDouble(ref Guid guidKey, out double pfValue);
+    [PreserveSig]
     int GetGUID(ref Guid guidKey, out Guid pguidValue);
+    [PreserveSig]
     int GetStringLength(ref Guid guidKey, out uint pcchLength);
+    [PreserveSig]
     int GetString(ref Guid guidKey, [MarshalAs(UnmanagedType.LPWStr)] StringBuilder pwszValue,
         uint cchBufSize, out uint pcchLength);
+    [PreserveSig]
     int GetAllocatedString(ref Guid guidKey, out IntPtr ppwszValue, out uint pcchLength);
+    [PreserveSig]
     int GetBlobSize(ref Guid guidKey, out uint pcbBlobSize);
+    [PreserveSig]
     int GetBlob(ref Guid guidKey, out IntPtr pBuf, uint cbBufSize, out uint pcbBlobSize);
+    [PreserveSig]
     int GetAllocatedBlob(ref Guid guidKey, out IntPtr ppBuf, out uint pcbSize);
+    [PreserveSig]
     int GetUnknown(ref Guid guidKey, ref Guid riid, out IntPtr ppv);
+    [PreserveSig]
     int SetItem(ref Guid guidKey, IntPtr value);
+    [PreserveSig]
     int DeleteItem(ref Guid guidKey);
+    [PreserveSig]
     int DeleteAllItems();
+    [PreserveSig]
     int SetUINT32(ref Guid guidKey, uint unValue);
+    [PreserveSig]
     int SetUINT64(ref Guid guidKey, ulong unValue);
+    [PreserveSig]
     int SetDouble(ref Guid guidKey, double fValue);
+    [PreserveSig]
     int SetGUID(ref Guid guidKey, ref Guid guidValue);
+    [PreserveSig]
     int SetString(ref Guid guidKey, [MarshalAs(UnmanagedType.LPWStr)] string wszValue);
+    [PreserveSig]
     int SetBlob(ref Guid guidKey, byte[] pBuf, uint cbBufSize);
+    [PreserveSig]
     int SetUnknown(ref Guid guidKey, [MarshalAs(UnmanagedType.IUnknown)] object pUnknown);
+    [PreserveSig]
     int LockStore();
+    [PreserveSig]
     int UnlockStore();
+    [PreserveSig]
     int GetCount(out uint pcItems);
+    [PreserveSig]
     int GetItemByIndex(uint unIndex, out Guid pguidKey, IntPtr pValue);
+    [PreserveSig]
     int CopyAllItems(IMFAttributes pDest);
+    [PreserveSig]
     int GetMajorType(out Guid pguidMajorType);
+    [PreserveSig]
     int IsCompressedFormat(out bool pfCompressed);
+    [PreserveSig]
     int IsEqual(IMFMediaType pIMediaType, out uint pdwFlags);
+    [PreserveSig]
     int GetRepresentation(Guid guidRepresentation, out IntPtr ppvRepresentation);
+    [PreserveSig]
     int FreeRepresentation(Guid guidRepresentation, IntPtr pvRepresentation);
 }
 
@@ -127,10 +192,15 @@ internal interface IMFMediaType
  InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IMFMediaBuffer
 {
+    [PreserveSig]
     int Lock(out IntPtr ppbBuffer, out uint pcbMaxLength, out uint pcbCurrentLength);
+    [PreserveSig]
     int Unlock();
+    [PreserveSig]
     int GetCurrentLength(out uint pcbCurrentLength);
+    [PreserveSig]
     int SetCurrentLength(uint cbCurrentLength);
+    [PreserveSig]
     int GetMaxLength(out uint pcbMaxLength);
 }
 
@@ -139,50 +209,94 @@ internal interface IMFMediaBuffer
  InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IMFSample
 {
+    [PreserveSig]
     int GetItem(ref Guid guidKey, IntPtr pValue);
+    [PreserveSig]
     int GetItemType(ref Guid guidKey, out int pType);
+    [PreserveSig]
     int CompareItem(ref Guid guidKey, IntPtr value, out bool pbResult);
+    [PreserveSig]
     int Compare(IMFAttributes pTheirs, int matchType, out bool pbResult);
+    [PreserveSig]
     int GetUINT32(ref Guid guidKey, out uint punValue);
+    [PreserveSig]
     int GetUINT64(ref Guid guidKey, out ulong punValue);
+    [PreserveSig]
     int GetDouble(ref Guid guidKey, out double pfValue);
+    [PreserveSig]
     int GetGUID(ref Guid guidKey, out Guid pguidValue);
+    [PreserveSig]
     int GetStringLength(ref Guid guidKey, out uint pcchLength);
+    [PreserveSig]
     int GetString(ref Guid guidKey, [MarshalAs(UnmanagedType.LPWStr)] StringBuilder pwszValue,
         uint cchBufSize, out uint pcchLength);
+    [PreserveSig]
     int GetAllocatedString(ref Guid guidKey, out IntPtr ppwszValue, out uint pcchLength);
+    [PreserveSig]
     int GetBlobSize(ref Guid guidKey, out uint pcbBlobSize);
+    [PreserveSig]
     int GetBlob(ref Guid guidKey, out IntPtr pBuf, uint cbBufSize, out uint pcbBlobSize);
+    [PreserveSig]
     int GetAllocatedBlob(ref Guid guidKey, out IntPtr ppBuf, out uint pcbSize);
+    [PreserveSig]
     int GetUnknown(ref Guid guidKey, ref Guid riid, out IntPtr ppv);
+    [PreserveSig]
     int SetItem(ref Guid guidKey, IntPtr value);
+    [PreserveSig]
     int DeleteItem(ref Guid guidKey);
+    [PreserveSig]
     int DeleteAllItems();
+    [PreserveSig]
     int SetUINT32(ref Guid guidKey, uint unValue);
+    [PreserveSig]
     int SetUINT64(ref Guid guidKey, ulong unValue);
+    [PreserveSig]
     int SetDouble(ref Guid guidKey, double fValue);
+    [PreserveSig]
     int SetGUID(ref Guid guidKey, ref Guid guidValue);
+    [PreserveSig]
     int SetString(ref Guid guidKey, [MarshalAs(UnmanagedType.LPWStr)] string wszValue);
+    [PreserveSig]
     int SetBlob(ref Guid guidKey, byte[] pBuf, uint cbBufSize);
+    [PreserveSig]
     int SetUnknown(ref Guid guidKey, [MarshalAs(UnmanagedType.IUnknown)] object pUnknown);
+    [PreserveSig]
     int LockStore();
+    [PreserveSig]
     int UnlockStore();
+    [PreserveSig]
     int GetCount(out uint pcItems);
+    [PreserveSig]
     int GetItemByIndex(uint unIndex, out Guid pguidKey, IntPtr pValue);
+    [PreserveSig]
     int CopyAllItems(IMFAttributes pDest);
+    [PreserveSig]
     int GetSampleFlags(out uint pdwSampleFlags);
+    [PreserveSig]
     int SetSampleFlags(uint dwSampleFlags);
+    [PreserveSig]
     int GetSampleTime(out long phnsSampleTime);
+    [PreserveSig]
     int SetSampleTime(long hnsSampleTime);
+    [PreserveSig]
     int GetSampleDuration(out long phnsSampleDuration);
+    [PreserveSig]
     int SetSampleDuration(long hnsSampleDuration);
+    [PreserveSig]
     int GetBufferCount(out uint pdwBufferCount);
+    [PreserveSig]
     int GetBufferByIndex(uint dwIndex, out IMFMediaBuffer ppBuffer);
+    [PreserveSig]
     int ConvertToContiguousBuffer(out IMFMediaBuffer ppBuffer);
+    [PreserveSig]
     int AddBuffer(IMFMediaBuffer pBuffer);
+    [PreserveSig]
     int RemoveBufferByIndex(uint dwIndex);
+    [PreserveSig]
     int RemoveAllBuffers();
+    [PreserveSig]
     int GetTotalLength(out uint pcbTotalLength);
+    [PreserveSig]
     int CopyToBuffer(IMFMediaBuffer pBuffer);
 }
 
@@ -190,18 +304,29 @@ internal interface IMFSample
  InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IMFSinkWriter
 {
+    [PreserveSig]
     int AddStream(IMFMediaType pTargetMediaType, out uint pdwStreamIndex);
+    [PreserveSig]
     int SetInputMediaType(uint dwStreamIndex, IMFMediaType pInputMediaType,
         IMFAttributes? pEncodingParameters);
+    [PreserveSig]
     int BeginWriting();
+    [PreserveSig]
     int WriteSample(uint dwStreamIndex, IMFSample pSample);
+    [PreserveSig]
     int SendStreamTick(uint dwStreamIndex, long llTimestamp);
+    [PreserveSig]
     int PlaceMarker(uint dwStreamIndex, IntPtr pvContext);
+    [PreserveSig]
     int NotifyEndOfSegment(uint dwStreamIndex);
+    [PreserveSig]
     int Flush(uint dwStreamIndex);
     // COM 里叫 Finalize；ComImport 按 vtable 顺序绑定，名字不参与，改名只为避开 object.Finalize
+    [PreserveSig]
     int FinishWriting();
+    [PreserveSig]
     int GetServiceForStream(uint dwStreamIndex, ref Guid guidService, ref Guid riid, out IntPtr ppvObject);
+    [PreserveSig]
     int GetStatistics(uint dwStreamIndex, IntPtr pStats);
 }
 

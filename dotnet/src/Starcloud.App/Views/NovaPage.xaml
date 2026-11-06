@@ -8,10 +8,10 @@
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:core="using:Starcloud.Core.Services"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <!-- Nova 设置页：账户 / 模型设置（第三方 LLM · 多模型）/ 游戏内辅助 / 游戏记录记忆 /
-     录屏许可 / 操作日志 / 能力路线。
+     录屏许可 / 电脑操控与游戏接管许可。
          对话入口在顶栏 NovaOrb 面板与游戏内浮窗（共用 NovaRuntime 同一份消息流），本页只管设置。
 
          ── 本页排版约定（全页统一，别再逐卡各写一套）─────────────────────────────
@@ -24,25 +24,42 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
             <StackPanel Spacing="16">
 
-                <!-- ═══ 账户：登录 Starcloud ID（云端模型与在线能力） ═══ -->
+                <!-- ═══ 账户：登录引导（文案 + 登录按钮 → 弹窗）；登录表单收口到 StarcloudLoginDialog ═══ -->
                 <Border Style="{StaticResource ScCard}">
                     <StackPanel Spacing="10">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Border Style="{StaticResource ScSectionSpine}" />
-                            <TextBlock loc:Loc.Text="Nova 账户" Style="{StaticResource ScSectionTitle}" />
-                        </StackPanel>
-                        <TextBlock loc:Loc.Text="登录后可用云端模型与邀请、时刻等在线能力；凭据只保存在本机。"
-                                   Style="{StaticResource ScCardHint}" />
+                        <!-- 未登录：一行引导 -->
+                        <Grid x:Name="LoginForm" ColumnSpacing="12" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="3">
+                                <TextBlock loc:Loc.Text="登录 Starcloud ID，立即使用全部功能"
+                                           FontWeight="Medium" FontSize="14" TextWrapping="Wrap" />
+                                <TextBlock loc:Loc.Text="云端模型与邀请、时刻等在线能力即刻可用；凭据只保存在本机。"
+                                           Style="{StaticResource ScCardHint}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" x:Name="LoginBtn" Style="{StaticResource ScAccentButtonStyle}"
+                                    loc:Loc.Text="登录" FontWeight="Medium" MinWidth="120"
+                                    VerticalAlignment="Center" Click="Login_Click" />
+                        </Grid>
 
-                        <!-- 已登录：账户信息 + 退出 -->
+                        <!-- 已登录：Starcloud ID 头像 + 账户信息 + 退出 -->
                         <Grid x:Name="AccountInfo" ColumnSpacing="12" Visibility="Collapsed">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <!-- Nova 图标 = 品牌标记（多色，字形画不出来） -->
-                            <ctrl:BrandMark Small="True" Width="20" Height="20" VerticalAlignment="Center" />
+                            <Border Width="36" Height="36" CornerRadius="18"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}">
+                                <Grid>
+                                    <Image x:Name="AccountAvatar" Width="36" Height="36" Visibility="Collapsed" />
+                                    <TextBlock x:Name="AccountAvatarText" FontSize="15" FontWeight="Medium"
+                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                 <TextBlock loc:Loc.Text="已登录" FontWeight="Medium" FontSize="13" />
                                 <TextBlock x:Name="UserSub" FontSize="12"
@@ -51,20 +68,6 @@
                             <ctrl:GlowButton Grid.Column="2" loc:Loc.Text="退出登录" Click="Logout_Click"
                                     VerticalAlignment="Center" />
                         </Grid>
-
-                        <!-- 未登录：登录表单 -->
-                        <StackPanel x:Name="LoginForm" Spacing="10">
-                            <TextBox x:Name="IdBox" Header="Starcloud ID" loc:Loc.Placeholder="用户名或邮箱" />
-                            <PasswordBox x:Name="PwdBox" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="LoginBtn" Style="{StaticResource ScAccentButtonStyle}" loc:Loc.Text="登录"
-                                        FontWeight="Medium" MinWidth="160" Click="Login_Click" />
-                                <ProgressRing x:Name="LoginProgress" IsActive="False" Width="24" Height="24"
-                                              VerticalAlignment="Center" />
-                                <TextBlock x:Name="LoginError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                           TextWrapping="Wrap" Visibility="Collapsed" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -225,22 +228,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ═══ 游戏内辅助：浮窗查询资料 ═══ -->
-                <Border Style="{StaticResource ScCard}">
-                    <StackPanel Spacing="10">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Border Style="{StaticResource ScSectionSpine}" />
-                            <TextBlock loc:Loc.Text="游戏内辅助浮窗" Style="{StaticResource ScSectionTitle}" />
-                        </StackPanel>
-                        <TextBlock loc:Loc.Text="启动游戏时自动弹出浮窗，游戏内随时查资料；与顶栏 Nova 共用同一份对话。"
-                                   Style="{StaticResource ScCardHint}" />
-                        <ToggleSwitch x:Name="OverlaySwitch" MinWidth="0"
-                                      OnContent="" OffContent=""
-                                      loc:Loc.Name="游戏内辅助浮窗"
-                                      Toggled="Overlay_Toggled" />
-                    </StackPanel>
-                </Border>
-
                 <!-- ═══ 游戏记录记忆：战报 / 时刻统计 ═══ -->
                 <Border Style="{StaticResource ScCard}">
                     <StackPanel Spacing="10">
@@ -281,126 +268,82 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ═══ 操作日志：谁动了、动了什么、何时 ═══ -->
-                <Border Style="{StaticResource ScCard}">
-                    <StackPanel Spacing="10">
-                        <Grid ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Border Style="{StaticResource ScSectionSpine}" />
-                                <TextBlock loc:Loc.Text="操作日志" Style="{StaticResource ScSectionTitle}" />
-                            </StackPanel>
-                            <ctrl:GlowButton Grid.Column="1" loc:Loc.Text="清空" FontSize="12" Padding="10,2" MinWidth="0"
-                                    loc:Loc.Name="清空操作日志" Click="ClearLog_Click" />
-                        </Grid>
-                        <ctrl:EmptyStateView x:Name="LogEmptyText"
-                                              HorizontalAlignment="Left"
-                                              Glyph="&#xEC68;"
-                                              loc:Loc.Title="暂无记录"
-                                              loc:Loc.Subtitle="Nova 的每次执行（含开关授权）都会记入这里" />
-                        <ListView x:Name="LogList" SelectionMode="None"
-                                  ItemContainerStyle="{StaticResource ScPlainListItem}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="core:NovaActionEntry">
-                                    <StackPanel Spacing="1" Opacity="0.9">
-                                        <TextBlock Text="{x:Bind Title}" FontSize="12" TextWrapping="Wrap" FontWeight="Medium" />
-                                        <TextBlock FontSize="11" Opacity="0.7"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
-                                            <Run Text="{x:Bind State}" /><Run Text=" · " /><Run Text="{x:Bind TimeText}" />
-                                        </TextBlock>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                    </StackPanel>
-                </Border>
-
-                <!-- ═══ 能力路线：Nova 从"只建议"到"在场"的四步（顺序本身就是信息） ═══ -->
+                <!-- ═══ 每日签到：签到领云端 token 额度 ═══ -->
                 <Border Style="{StaticResource ScCard}">
                     <StackPanel Spacing="10">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Border Style="{StaticResource ScSectionSpine}" />
-                            <TextBlock loc:Loc.Text="能力路线" Style="{StaticResource ScSectionTitle}" />
+                            <TextBlock loc:Loc.Text="每日签到" Style="{StaticResource ScSectionTitle}" />
                         </StackPanel>
-                        <TextBlock loc:Loc.Text="越往下权限越大，每一层都可以单独关闭。"
+                        <TextBlock loc:Loc.Text="每天签到一次，领取云端 token 额度；连续签到可累积。"
                                    Style="{StaticResource ScCardHint}" />
-
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="①" FontSize="14" Width="18" Opacity="0.7"
-                                       VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1">
-                                <TextBlock loc:Loc.Text="顾问 · 只给建议" FontSize="13" FontWeight="Medium" />
-                                <TextBlock loc:Loc.Text="只回答和解释，不动你的文件。"
-                                           Style="{StaticResource ScCardHint}" />
-                            </StackPanel>
-                            <Border Grid.Column="2" Style="{StaticResource ScChipAccent}">
-                                <TextBlock loc:Loc.Text="已解锁" Style="{StaticResource ScChipAccentText}" />
-                            </Border>
-                        </Grid>
-
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="②" FontSize="14" Width="18" Opacity="0.7"
-                                       VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1">
-                                <TextBlock loc:Loc.Text="动手 · 确认后执行" FontSize="13" FontWeight="Medium" />
-                                <TextBlock loc:Loc.Text="每次执行前列出清单，确认后执行，过程记入上方记录。"
-                                           Style="{StaticResource ScCardHint}" />
-                            </StackPanel>
-                            <Border Grid.Column="2" Style="{StaticResource ScChipAccent}">
-                                <TextBlock loc:Loc.Text="已解锁" Style="{StaticResource ScChipAccentText}" />
-                            </Border>
-                        </Grid>
-
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="③" FontSize="14" Width="18" Opacity="0.7"
-                                       VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1">
-                                <TextBlock loc:Loc.Text="主动 · Nova 时刻" FontSize="13" FontWeight="Medium" />
-                                <TextBlock loc:Loc.Text="退出游戏后自动汇总本局进度，形成游戏记录。"
-                                           Style="{StaticResource ScCardHint}" />
-                            </StackPanel>
-                            <Border Grid.Column="2" Style="{StaticResource ScChipAccent}">
-                                <TextBlock loc:Loc.Text="已解锁" Style="{StaticResource ScChipAccentText}" />
-                            </Border>
-                        </Grid>
-
-                        <Grid ColumnSpacing="10" Opacity="0.55">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="④" FontSize="14" Width="18" Opacity="0.7"
-                                       VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1">
-                                <TextBlock loc:Loc.Text="在场 · 游戏内浮窗" FontSize="13" FontWeight="Medium" />
-                                <TextBlock loc:Loc.Text="游戏里随时呼出，不用切回启动器。"
-                                           Style="{StaticResource ScCardHint}" />
-                            </StackPanel>
-                            <Border Grid.Column="2" Style="{StaticResource ScChip}">
-                                <TextBlock loc:Loc.Text="灰度中" Style="{StaticResource ScChipText}" />
-                            </Border>
-                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button x:Name="CheckinPageBtn" MinWidth="140"
+                                    Style="{StaticResource ScAccentButtonStyle}"
+                                    Click="CheckinPageBtn_Click" />
+                            <TextBlock x:Name="CheckinPageStatus" VerticalAlignment="Center"
+                                       FontSize="12" Opacity="0.8" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
+
+                <!-- ═══ 操控电脑 / 临时接管游戏：默认关闭，开启 = 显式授权，每步先列清单 ═══ -->
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="操控电脑" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="允许 Nova 移动/点击鼠标、模拟打字与按键、打开网址或本地文件、切换窗口。默认关闭，开启前会先向你确认。"
+                                   Style="{StaticResource ScCardHint}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <ToggleSwitch x:Name="ComputerSwitch" Tag="computer" MinWidth="0"
+                                          OnContent="允许" OffContent="不允许"
+                                          loc:Loc.Name="操控电脑许可"
+                                          Toggled="Permission_Toggled" />
+                            <ComboBox x:Name="ComputerLevelBox" Tag="computer" MinWidth="140"
+                                      VerticalAlignment="Center"
+                                      loc:Loc.Name="操控电脑权限级别"
+                                      IsEnabled="False"
+                                      SelectionChanged="PermissionLevel_Changed">
+                                <ComboBoxItem Tag="1" loc:Loc.Text="变更前确认" />
+                                <ComboBoxItem Tag="2" loc:Loc.Text="自主模式" />
+                                <ComboBoxItem Tag="3" loc:Loc.Text="完全访问" />
+                            </ComboBox>
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="不注入进程、不装钩子、不读剪贴板或密码；每次动作都会先列出清单再执行。"
+                                   Style="{StaticResource ScCardHint}" Opacity="0.8" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource ScCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Style="{StaticResource ScSectionSpine}" />
+                            <TextBlock loc:Loc.Text="临时接管游戏" Style="{StaticResource ScSectionTitle}" />
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="允许 Nova 把 Minecraft 切到前台，并在游戏窗口内点击/按键（点菜单、开背包、按 F3 看坐标）。"
+                                   Style="{StaticResource ScCardHint}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <ToggleSwitch x:Name="GameSwitch" Tag="game" MinWidth="0"
+                                          OnContent="允许" OffContent="不允许"
+                                          loc:Loc.Name="临时接管游戏许可"
+                                          Toggled="Permission_Toggled" />
+                            <ComboBox x:Name="GameLevelBox" Tag="game" MinWidth="140"
+                                      VerticalAlignment="Center"
+                                      loc:Loc.Name="临时接管游戏权限级别"
+                                      IsEnabled="False"
+                                      SelectionChanged="PermissionLevel_Changed">
+                                <ComboBoxItem Tag="1" loc:Loc.Text="变更前确认" />
+                                <ComboBoxItem Tag="2" loc:Loc.Text="自主模式" />
+                                <ComboBoxItem Tag="3" loc:Loc.Text="完全访问" />
+                            </ComboBox>
+                        </StackPanel>
+                        <TextBlock loc:Loc.Text="只做输入，不改游戏文件、不代替你保存世界；每次动作都会先列出清单再执行。"
+                                   Style="{StaticResource ScCardHint}" Opacity="0.8" />
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Grid>

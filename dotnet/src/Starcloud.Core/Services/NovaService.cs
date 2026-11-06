@@ -114,6 +114,130 @@ public sealed class NovaService
     private string? CurrentInstance(LauncherSettings settings) =>
         _currentInstance ?? settings.LastVersion;
 
+    /// <summary>游戏内浮窗的视觉问答：system 人格（看游戏画面给建议，不说废话）。</summary>
+    private const string VisionPrompt =
+        "你是 Starcloud 启动器的助手 Nova，正在看玩家 Minecraft 游戏的实时画面截图。"
+        + "回答要短、具体、可执行：先给结论再给一步操作，不要复述画面里已经明显的东西，不要客套。";
+
+    /// <summary>没有视觉模型时的纯文字形态：明确告诉模型它看不到像素，别编画面内容。</summary>
+    private const string VisionPromptTextOnly =
+        "你是 Starcloud 启动器的助手 Nova。你**看不到**玩家游戏画面的像素，只能收到文字线索。"
+        + "回答必须基于线索给通用、可执行的建议，绝不描述画面里有什么、不编造游戏内容；一句话说完。";
+
+    /// <summary>
+    /// 结合游戏画面提问。两条通道：
+    /// <list type="bullet">
+    /// <item>用户自接模型（OpenAI 兼容，如 gpt-4o / qwen-vl）→ 真·多模态，图片随消息发送；</item>
+    /// <item>Starcloud 云端中转 → 当前上游模型（deepseek-flash）没有视觉能力，退化为纯文字建议，
+    /// 并在 <c>Notice</c> 里说明「未启用画面识别」，避免假装看懂了画面。</item>
+    /// </list>
+    /// 返回 (回答, 提示/错误)。两者都为 null 表示没有任何可用通道。
+    /// </summary>
+    public async Task<(string? Text, string? Notice)> ChatWithImageAsync(
+        string question, byte[] jpeg, string sourceLabel, LauncherSettings settings,
+        int? maxTokens = 900, CancellationToken ct = default)
+    {
+        // ── 通道 1：用户自接模型（可能支持视觉） ──
+        if (settings.ReadyLlmProfile() is { } profile)
+        {
+            try
+            {
+                var url = LlmEndpoint.ChatUrl(profile.BaseUrl);
+                var dataUrl = "data:image/jpeg;base64," + Convert.ToBase64String(jpeg);
+                var messages = new List<object>
+                {
+                    new ChatMessage("system", VisionPrompt),
+                    new
+                    {
+                        role = "user",
+                        content = new object[]
+                        {
+                            new { type = "text", text = question },
+                            new { type = "image_url", image_url = new { url = dataUrl } },
+                        },
+                    },
+                };
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(60));
+                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                if (!string.IsNullOrWhiteSpace(profile.ApiKey))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", profile.ApiKey.Trim());
+                req.Content = new StringContent(
+                    OpenAiSseClient.BuildChatRequestJson(profile.Model.Trim(), messages,
+                        tools: null, maxTokens, stream: false),
+                    Encoding.UTF8, "application/json");
+                var resp = await SharedHttp.SendAsync(req, cts.Token);
+                var json = await resp.Content.ReadAsStringAsync(cts.Token);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var detail = LlmEndpoint.Summarize(json);
+                    LauncherLog.Write("nova", $"画面问答（自接模型）失败：HTTP {(int)resp.StatusCode} {detail}");
+                    return (null, $"自接模型请求失败：HTTP {(int)resp.StatusCode} {detail}");
+                }
+                using var doc = JsonDocument.Parse(json);
+                var text = doc.RootElement.GetProperty("choices")[0]
+                    .GetProperty("message").TryGetProperty("content", out var contentEl)
+                    ? contentEl.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(text)) return (text.Trim(), null);
+                return (null, $"自接模型 {profile.Model} 没返回正文（模型可能不支持图片输入）");
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return (null, "自接模型超时了，稍后再试");
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("nova", $"画面问答（自接模型）异常：{ex.Message}");
+                return (null, $"画面问答失败：{ex.Message}");
+            }
+        }
+
+        // ── 通道 2：云端中转 ──
+        // 先按标准多模态格式发（网关把 image_url 透传给上游即生效）；
+        // 网关/上游没吃图（返回空）时，再退化成纯文字建议并明确标注。
+        if (GatewayKey(settings) is { } key)
+        {
+            try
+            {
+                var dataUrl = "data:image/jpeg;base64," + Convert.ToBase64String(jpeg);
+                var vision = new List<object>
+                {
+                    new ChatMessage("system", VisionPrompt),
+                    new
+                    {
+                        role = "user",
+                        content = new object[]
+                        {
+                            new { type = "text", text = question },
+                            new { type = "image_url", image_url = new { url = dataUrl } },
+                        },
+                    },
+                };
+                // reasoning 模型会把预算先花在 reasoning_content 上，给小了 content 就是空 —— 给足
+                var text = await NovaGatewayClient.ChatAsync(
+                    key, vision, NovaGatewayClient.DefaultModel, maxTokens ?? 1400, ct);
+                if (!string.IsNullOrWhiteSpace(text)) return (text.Trim(), null);
+
+                LauncherLog.Write("nova", "云端画面问答返回空（接口未透传 image_url），退化为文字建议");
+                var fallback = await NovaGatewayClient.ChatAsync(key, new List<object>
+                {
+                    new ChatMessage("system", VisionPromptTextOnly),
+                    new ChatMessage("user", question + " / 线索：" + sourceLabel),
+                }, NovaGatewayClient.DefaultModel, maxTokens, ct);
+                if (!string.IsNullOrWhiteSpace(fallback))
+                    return (fallback.Trim(), "云端接口暂未启用画面识别，以下是文字建议");
+                return (null, "云端没返回内容，稍后再试");
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("nova", $"画面问答（云端）失败：{ex.Message}");
+                return (null, $"云端请求失败：{ex.Message}");
+            }
+        }
+
+        return (null, "需要登录 Starcloud ID，或在 Nova 设置里接入一个支持视觉的模型（如 gpt-4o / qwen-vl）");
+    }
+
     /// <summary>
     /// 发送一句话给 Nova；能力指令走本地引擎（具体不空谈），其余走 LLM 降级链。
     /// 发送前对崩溃日志做结构化裁剪（丢弃与病因无关的段落）；

@@ -2,6 +2,7 @@
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -9,6 +10,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using Starcloud.App.Localization;
 using Starcloud.App.Services;
+using Starcloud.App.Views.Controls;
 using Starcloud.App.Views.Dialogs;
 using Starcloud.App.Views.Rows;
 using Starcloud.App.Views.Shared;
@@ -26,6 +28,8 @@ public sealed partial class HomePage : Page
     private List<LocalVersionRow> _rows = [];
     private GameSession? _gameProcess;          // 当前启动页 / 收尾流程对应的那一局（多开时=最近一次启动的）
     private string? _pendingLaunchId; // 版本列表页跨页启动请求（App.PendingLaunchVersionId）
+    /// <summary>跨页启动附带的自动连接地址（联机房间的「开始游戏」），一次性。</summary>
+    private string? _pendingServer;
     private int _modeIndex;           // 账户模式分段的当前段（0 正版 / 1 外置 / 2 离线），供尺寸变化时复位指示器
 
     // ── 启动可靠性（设计：docs/designs/2026-09-11-launch-reliability-design.md） ──
@@ -65,6 +69,7 @@ public sealed partial class HomePage : Page
     private long _windowDeadline;   // 窗口检测超时时刻
     private readonly DispatcherTimer _stageTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };  // 氛围进度爬升
     private readonly DispatcherTimer _windowTimer = new() { Interval = TimeSpan.FromMilliseconds(500) }; // 游戏窗口出现轮询
+    private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };         // 悬浮提示自动收起
 
     public HomePage()
     {
@@ -72,6 +77,11 @@ public sealed partial class HomePage : Page
         _dq = DispatcherQueue.GetForCurrentThread();
         _stageTimer.Tick += (_, _) => StageTimer_Tick();
         _windowTimer.Tick += (_, _) => WindowTimer_Tick();
+        _toastTimer.Tick += (_, _) =>
+        {
+            _toastTimer.Stop();
+            HomeToast.IsOpen = false;
+        };
         _logTimer.Tick += (_, _) => FlushLogBuffer();
         Loaded += async (_, _) =>
         {
@@ -82,6 +92,9 @@ public sealed partial class HomePage : Page
             Initialize();
         };
         Unloaded += (_, _) => AvatarHelper.AvatarUpdated -= OnAvatarUpdated;
+        // 页面已缓存（NavigationCacheMode=Enabled）：版本页里切换游戏目录后本页不会重建，
+        // 必须订阅目录变更事件重扫，否则缓存页里的列表指向旧目录
+        AppServices.Instance.GameDirChanged += OnGameDirChanged;
         SizeChanged += OnPageSizeChanged;
         // 三张通知条的开关与自检卡的显隐都汇到一处（左列通知区整块收起 / 展开，版本卡才能与右栏卡上边缘齐平）。
         // 用属性回调而不是在每个赋值点插一句：通知条自己那颗关闭按钮也会改 IsOpen，这样一并覆盖到。
@@ -97,6 +110,708 @@ public sealed partial class HomePage : Page
             bar.Message = message;
             bar.IsOpen = true;
         };
+
+        ApplyVersionRowHoverFallback();
+
+        // 卡片网格：把上次保存的格位套到两张卡上；拖动/缩放提交后立即落盘
+        _homeLayout = _homeLayoutStore.Load();
+        HomeGrid.ApplyLayout(_homeLayout);
+        HomeGrid.LayoutChanged += (_, _) =>
+        {
+            _homeLayout = HomeGrid.CaptureLayout(_homeLayout);
+            _homeLayoutStore.Save(_homeLayout);
+        };
+
+        // 可选卡片的尺寸档位：占格一变就切排版
+        LaunchCardBody.CardSizeChanged = AdaptLaunchCard;
+        AccountPickerBody.CardSizeChanged = AdaptAccountPicker;
+        FavoritesBody.CardSizeChanged = (w, h) =>
+        {
+            _favoritesSpanW = w;
+            _favoritesSpanH = h;
+            RebuildMiniList(FavoritesList, _favoriteRows, w, h, "还没有收藏的版本");
+        };
+        RecentBody.CardSizeChanged = (w, h) =>
+        {
+            _recentSpanW = w;
+            _recentSpanH = h;
+            RebuildMiniList(RecentList, _recentRows, w, h, "还没有启动过的版本");
+        };
+        MostPlayedBody.CardSizeChanged = (w, h) =>
+        {
+            _mostPlayedSpanW = w;
+            _mostPlayedSpanH = h;
+            RebuildMiniList(MostPlayedList,
+                _mostPlayedRows.Select(t => t.Row).ToList(), w, h, "还没有玩过的版本",
+                row => _mostPlayedRows.FirstOrDefault(t => t.Row.Id == row.Id) is { } hit
+                    ? FormatPlaySeconds(hit.Seconds)
+                    : null);
+        };
+        // 隐藏的可选卡片不在配置里，ApplyLayout 不会回调它们：这里统一给一次初始档位
+        foreach (var host in HomeGrid.Hosts())
+        {
+            (host.CardContent as ICardSizeAware)?.ApplyCardSize(host.ColumnSpan, host.RowSpan);
+            // 卡上的尺寸按钮：选中这张卡，参数区（工具箱）随之显示它的档位
+            host.SizeRequested += (sender, _) =>
+            {
+                if (sender is CardHost h) HomeGrid.RequestSelect(h);
+            };
+        }
+        HomeGrid.SelectionChanged += (_, _) => UpdateCardParams();
+    }
+
+    private readonly HomeLayoutStore _homeLayoutStore = new();
+    private HomeLayoutConfig _homeLayout = HomeLayoutConfig.Default();
+
+    /// <summary>主页卡片网格（独立工具箱窗口跨窗口落位时要用）。</summary>
+    public CardGridPanel Grid => HomeGrid;
+
+    /// <summary>进入卡片布局编辑模式（由独立工具箱窗口驱动）。</summary>
+    public void EnterLayoutEditing()
+    {
+        HomeGrid.IsEditing = true;
+        _toolboxOffsetX = _homeLayout.ToolboxOffsetX;
+        _toolboxOffsetY = _homeLayout.ToolboxOffsetY;
+    }
+
+    /// <summary>退出卡片布局编辑模式（工具箱窗口关闭时）。</summary>
+    public void ExitLayoutEditing()
+    {
+        HomeGrid.IsEditing = false;
+        HomeGrid.ClearSelection();
+        LayoutEditBar.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>把提示交给主页显示（独立工具箱窗口在另一个进程内的窗口里，提示走主页更合适）。</summary>
+    /// <summary>成功 / 失败两态提示（工具箱跨窗口调用用）。</summary>
+    public void ShowLayoutToast(string message, bool ok = false) => ShowHomeToast(message, ok);
+
+    /// <summary>警告态提示：操作成功但有调整（例如卡片被换成更小的尺寸）。</summary>
+    public void ShowLayoutWarning(string message) => ShowHomeToast(message, severity: InfoBarSeverity.Warning);
+
+    /// <summary>
+    /// 打开布局编辑工具箱（版本卡卡头的「布局」按钮）。
+    /// <para>常态是独立顶层窗口：主页内容区本身占满窗口宽，页内浮层必然盖住账户卡。
+    /// 独立窗口起不来时降级到页内浮层（LayoutEditBar 那套）。</para>
+    /// </summary>
+    private void EditLayout_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (App.Toolbox is { } existing)
+            {
+                // 已经开着：把它唤到前面，不重复开
+                existing.Activate();
+                return;
+            }
+            if (App.MainWindow is not MainWindow main) throw new InvalidOperationException("主窗口不可用");
+            var window = new Dialogs.ToolboxWindow();
+            App.Toolbox = window;
+            // 先 Attach 再 Activate：窗口首次激活时才会摆位置，
+            // 那时要靠 _main 算「贴在主窗口右侧外面」，晚了就找不到主窗口了。
+            window.Attach(main);
+            window.Activate();
+            // 窗口显示之后再做收尾（摆位置、设图标、套主题）：
+            // 构造期间这些属性还不可用
+            window.FinishSetup();
+            return;
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Error("home", "独立工具箱窗口打开失败，降级为页内浮层", ex);
+        }
+
+        // 降级：页内浮层（原来的实现）
+        HomeGrid.IsEditing = true;
+        LayoutEditBar.Visibility = Visibility.Visible;
+        _toolboxOffsetX = _homeLayout.ToolboxOffsetX;
+        _toolboxOffsetY = _homeLayout.ToolboxOffsetY;
+        BuildPaletteChips();
+        UpdateCardParams();
+        PositionLayoutToolbox();
+    }
+
+    /// <summary>
+    /// 摆工具箱：贴在主页内容区右沿的外侧。
+    /// <para>
+    /// 为什么按内容区而不是窗口右沿：内容区有 MaxWidth=1280 并居中，
+    /// 窗口宽时右侧本就留着一块空白 —— 工具箱落在那里既不遮卡片，
+    /// 也和卡片区保持一条边。窗口窄到内容区铺满时，工具箱仍浮在上层，
+    /// 只是压在最右那张卡上；这是悬浮层的固有代价，不动主界面布局。</para>
+    /// </summary>
+    private void PositionLayoutToolbox()
+    {
+        // 内容区有 MaxWidth=1280，在根 Grid 里是居中的 —— ActualWidth 只是它自己的宽度，
+        // 不含左偏移。要拿真实右沿，得把它换算到页面坐标里。
+        var origin = HomeContent.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var contentLeft = origin.X;
+        var contentRight = contentLeft + HomeContent.ActualWidth;
+        var pageWidth = ActualWidth;
+
+        // 工具箱默认落在内容区右沿「之外」的留白里（内容区 MaxWidth=1280 居中，
+        // 窗口宽时右侧本就空着）；留白不够就贴内容区右沿内侧 —— 仍是浮在上层，
+        // 不改主页布局，用户可以按住标题条把它拖走。
+        var x = contentRight + ToolboxGap + _toolboxOffsetX;
+        if (x + ToolboxWidth > pageWidth - ToolboxGap)
+            x = contentRight - ToolboxWidth - ToolboxGap + _toolboxOffsetX;
+        if (x < ToolboxGap) x = ToolboxGap;
+        if (x > pageWidth - ToolboxWidth - ToolboxGap) x = Math.Max(ToolboxGap, pageWidth - ToolboxWidth - ToolboxGap);
+
+        var top = 14 + _toolboxOffsetY;
+        if (top < 0) top = 0;
+        var height = Math.Max(0, ActualHeight - top - 14);
+
+        LayoutEditBar.SetValue(Canvas.LeftProperty, x);
+        LayoutEditBar.SetValue(Canvas.TopProperty, top);
+        LayoutEditBar.Height = height;
+    }
+
+    /// <summary>工具箱宽度与它与内容区右沿的间隙。</summary>
+    private const double ToolboxWidth = 196;
+    private const double ToolboxGap = 14;
+
+    // ── 工具箱拖动：按住标题条可把它拖到别处（悬浮层，用户自己决定挡不挡卡片） ──
+    private bool _toolboxDragging;
+    private Point _toolboxDragStart;
+    private double _toolboxOffsetX;
+    private double _toolboxOffsetY;
+
+    /// <summary>工具箱相对默认位置（内容区右沿内侧）的偏移；随布局一起存。</summary>
+    private double ToolboxOffsetX
+    {
+        get => _toolboxOffsetX;
+        set => _toolboxOffsetX = value;
+    }
+
+    private void ToolboxHandle_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _toolboxDragging = true;
+        _toolboxDragStart = e.GetCurrentPoint(this).Position;
+        if (sender is UIElement el) el.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void ToolboxHandle_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_toolboxDragging) return;
+        var point = e.GetCurrentPoint(this);
+        if (!point.Properties.IsLeftButtonPressed) return;
+        var position = point.Position;
+        _toolboxOffsetX += position.X - _toolboxDragStart.X;
+        _toolboxOffsetY += position.Y - _toolboxDragStart.Y;
+        _toolboxDragStart = position;
+        PositionLayoutToolbox();
+        e.Handled = true;
+    }
+
+    private void ToolboxHandle_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_toolboxDragging) return;
+        _toolboxDragging = false;
+        if (sender is UIElement el) el.ReleasePointerCapture(e.Pointer);
+        // 记住位置：下次进编辑模式还在这儿
+        _homeLayout.ToolboxOffsetX = _toolboxOffsetX;
+        _homeLayout.ToolboxOffsetY = _toolboxOffsetY;
+        _homeLayoutStore.Save(_homeLayout);
+        e.Handled = true;
+    }
+
+    /// <summary>退出编辑模式；格位在每次拖动提交时就已经落盘，这里只收编辑层。</summary>
+    private void LayoutDone_Click(object sender, RoutedEventArgs e)
+    {
+        HomeGrid.IsEditing = false;
+        LayoutEditBar.Visibility = Visibility.Collapsed;
+    }
+
+    // ── 工具箱：卡片从这里拖到主页，选中后的参数也在这里改 ──
+
+    private string? _paletteDragType;
+
+    /// <summary>
+    /// 工具箱里的卡片条目：每类一张，带缩略示意图与说明，直接拖到主页格位上落卡。
+    /// <para>条目做成「缩略图 + 名称 + 一句说明」：只看名字分不清卡片长什么样，
+    /// 缩略图标出这张卡的内部结构（标题条 / 列表行 / 头像 / 主按钮）。</para>
+    /// </summary>
+    private void BuildPaletteChips()
+    {
+        PaletteChips.Children.Clear();
+        foreach (var spec in HomeCardCatalog.All)
+        {
+            var thumbnail = new CardThumbnail { CardType = spec.Type };
+            var content = new StackPanel
+            {
+                Spacing = 3,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            content.Children.Add(thumbnail);
+            content.Children.Add(new TextBlock
+            {
+                Text = spec.DisplayName,
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 160,
+            });
+
+            var chip = new Button
+            {
+                Content = content,
+                Tag = spec.Type,
+                Padding = new Thickness(4, 4, 4, 4),
+                MinWidth = 0,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            // 内容是「缩略图 + 名称」的多层元素，读屏会读成一长串；
+            // 给一个干净的名字，说明挂在帮助文本里。
+            AutomationProperties.SetName(chip, spec.DisplayName);
+            AutomationProperties.SetHelpText(chip, spec.Summary);
+            ToolTipService.SetToolTip(chip, spec.Summary);
+            // Button 基类会把按下 / 抬起标记为已处理，必须用 handledEventsToo 才能收得到
+            chip.AddHandler(PointerPressedEvent,
+                new PointerEventHandler(PaletteChip_PointerPressed), handledEventsToo: true);
+            chip.AddHandler(PointerMovedEvent,
+                new PointerEventHandler(PaletteChip_PointerMoved), handledEventsToo: true);
+            chip.AddHandler(PointerReleasedEvent,
+                new PointerEventHandler(PaletteChip_PointerReleased), handledEventsToo: true);
+            chip.AddHandler(PointerCanceledEvent,
+                new PointerEventHandler(PaletteChip_PointerCanceled), handledEventsToo: true);
+            PaletteChips.Children.Add(chip);
+        }
+    }
+
+    private void PaletteChip_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string type } chip) return;
+        _paletteDragType = type;
+        chip.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void PaletteChip_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_paletteDragType is null) return;
+        var point = e.GetCurrentPoint(HomeGrid).Position;
+        if (point.X < -60 || point.Y < -60 || point.X > HomeGrid.ActualWidth + 60) return;
+        HomeGrid.ShowDropPreview(_paletteDragType, point);
+        e.Handled = true;
+    }
+
+    private void PaletteChip_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_paletteDragType is null) return;
+        var type = _paletteDragType;
+        _paletteDragType = null;
+        if (sender is FrameworkElement chip) chip.ReleasePointerCapture(e.Pointer);
+
+        var point = e.GetCurrentPoint(HomeGrid).Position;
+        var inside = point.X >= 0 && point.Y >= 0
+            && point.X <= HomeGrid.ActualWidth && point.Y <= HomeGrid.ActualHeight;
+        if (inside && HomeGrid.CommitDrop(type))
+        {
+            // 腾位规则可能把卡片挪到别处、或换成更小的档位 —— 说清楚，别让用户以为拖错了
+            var spec = HomeCardCatalog.Resolve(type);
+            var host = HomeGrid.FindHost(type);
+            if (host is not null)
+            {
+                var (w, h) = spec.Clamp(host.ColumnSpan, host.RowSpan);
+                if (w != spec.DefaultColumnSpan || h != spec.DefaultRowSpan)
+                    ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"), severity: InfoBarSeverity.Warning);
+                else
+                    ShowHomeToast(Loc.T("已添加卡片"), ok: true);
+            }
+        }
+        else
+        {
+            HomeGrid.CancelDrop();
+            if (inside) WarnNoHomeSpace();
+        }
+        e.Handled = true;
+    }
+
+    private void PaletteChip_PointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        _paletteDragType = null;
+        HomeGrid.CancelDrop();
+    }
+
+    /// <summary>参数区：选中卡片的固定尺寸档位 + 移除。</summary>
+    private void UpdateCardParams()
+    {
+        CardParams.Children.Clear();
+        var host = HomeGrid.SelectedHost;
+        if (host is null)
+        {
+            CardParams.Children.Add(new TextBlock
+            {
+                Text = Loc.T("点选卡片后在这里改尺寸"),
+                FontSize = 12,
+                Opacity = 0.65,
+            });
+            return;
+        }
+
+        var spec = HomeCardCatalog.Resolve(host.CardType);
+
+        // 标题
+        CardParams.Children.Add(new TextBlock
+        {
+            Text = $"{spec.DisplayName} · {Loc.T("尺寸")}",
+            FontSize = 12,
+            Opacity = 0.65,
+        });
+
+        // 档位按钮横排一排
+        var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        foreach (var size in spec.Presets)
+        {
+            var width = Math.Min(size.ColumnSpan, HomeGrid.Columns);
+            var isCurrent = host.ColumnSpan == width && host.RowSpan == size.RowSpan;
+            var button = new Button
+            {
+                Content = size.Label,
+                FontSize = 11,
+                Padding = new Thickness(8, 2, 8, 2),
+                MinWidth = 0,
+            };
+            if (isCurrent) button.Style = (Style)Application.Current.Resources["ScAccentButtonStyle"];
+            button.Click += (_, _) => ApplyCardSize(host, width, size.RowSpan);
+            sizeRow.Children.Add(button);
+        }
+        CardParams.Children.Add(sizeRow);
+
+        var remove = new Button
+        {
+            Content = Loc.T("移除"),
+            FontSize = 11,
+            Padding = new Thickness(8, 2, 8, 2),
+            MinWidth = 0,
+        };
+        remove.Click += (_, _) =>
+        {
+            host.Visibility = Visibility.Collapsed;
+            HomeGrid.ClearSelection();
+            HomeGrid.InvalidateMeasure();
+            PersistCardLayout();
+            UpdateCardParams();
+        };
+        CardParams.Children.Add(remove);
+    }
+
+    // ── 可选卡片：启动 / 账户选择 / 收藏 / 最近 ──
+
+    private List<LocalVersionRow> _favoriteRows = [];
+    private List<LocalVersionRow> _recentRows = [];
+    private List<(LocalVersionRow Row, long Seconds)> _mostPlayedRows = [];
+    private int _favoritesSpanW = 3, _favoritesSpanH = 2;
+    private int _recentSpanW = 3, _recentSpanH = 2;
+    private int _mostPlayedSpanW = 3, _mostPlayedSpanH = 3;
+
+    /// <summary>启动按钮卡：1 列只显示图标，2 列以上显示标题，4 行以上再带当前版本名。</summary>
+    private void AdaptLaunchCard(int spanW, int spanH)
+    {
+        CardLaunchTitle.Visibility = spanW >= 2 ? Visibility.Visible : Visibility.Collapsed;
+        CardLaunchVersion.Visibility = spanW >= 2 && spanH >= 4 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>账户选择卡：2 列只显示头像 + 名字，3 列以上加模式，4 行以上加切换提示。</summary>
+    private void AdaptAccountPicker(int spanW, int spanH)
+    {
+        _ = spanW;
+        PickerHintText.Visibility = spanH >= 4 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// 低动效档位（极少 / 较少）时，版本行的悬停反馈交回框架默认底色。
+    /// <para>行模板把 ListViewItemBackgroundPointerOver 置空是给「均衡及以上」服务的：
+    /// 那时悬停由跟手光斑表达（透明底才不会与光斑叠出硬边灰块）。低档位光斑不接线，
+    /// 底色又空着的话整行没有任何悬停反馈 —— 这里按档位把框架底色补回来。</para>
+    /// </summary>
+    private void ApplyVersionRowHoverFallback()
+    {
+        if (_s.Motion.LightFx) return;   // 均衡及以上：光斑负责，保持透明
+        try
+        {
+            var hover = ThemedBrush("SubtleFillColorSecondaryBrush");
+            if (hover is not null) VersionList.Resources["ListViewItemBackgroundPointerOver"] = hover;
+            var pressed = ThemedBrush("SubtleFillColorTertiaryBrush") ?? hover;
+            if (pressed is not null) VersionList.Resources["ListViewItemBackgroundPressed"] = pressed;
+        }
+        catch { /* 主题画刷取不到就维持透明，不影响功能 */ }
+    }
+
+    /// <summary>沿当前主题查主题画刷（代码里取 ResourceDictionary 索引器会拿错主题，故显式查）。</summary>
+    private Brush? ThemedBrush(string key)
+    {
+        var want = ActualTheme.ToString();
+        foreach (var d in Application.Current.Resources.MergedDictionaries)
+            if (d.ThemeDictionaries.TryGetValue(want, out var v) &&
+                v is ResourceDictionary rd && rd.TryGetValue(key, out var b) && b is Brush brush)
+                return brush;
+        return Application.Current.Resources.TryGetValue(key, out var fallback) &&
+            fallback is Brush fb ? fb : null;
+    }
+
+    /// <summary>主页不滚动：固定行数里放不下时只提示，不偷偷拉高页面。</summary>
+    private void WarnNoHomeSpace()
+    {
+        ShowHomeToast(Loc.T("主页空间不足：先把其它卡片换成更小的尺寸，或移除不用的卡片"));
+    }
+
+    /// <summary>页面级悬浮提示（卡片操作结果）：默认是错误态，成功时传 ok=true 走提示态。</summary>
+    private void ShowHomeToast(string message, bool ok = false,
+        InfoBarSeverity? severity = null)
+    {
+        HomeToast.Severity = severity ?? (ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+        HomeToast.Message = message;
+        HomeToast.IsOpen = true;
+        _toastTimer.Stop();
+        _toastTimer.Start();
+    }
+
+    private void PersistCardLayout()
+    {
+        _homeLayout = HomeGrid.CaptureLayout(_homeLayout);
+        _homeLayoutStore.Save(_homeLayout);
+    }
+
+    /// <summary>套用固定尺寸档位：放不下就腾位（换小档位或挪到空位），然后落盘。</summary>
+    /// <summary>
+    /// 改卡片尺寸档位（工具箱参数区用）。落位统一走 <see cref="CardGridPanel.TryApplyCardSize"/>
+    /// —— 右键菜单与工具箱共用同一套规则，只有落盘与提示留在页面侧。
+    /// </summary>
+    private void ApplyCardSize(CardHost host, int columnSpan, int rowSpan)
+    {
+        var beforeColumn = host.Column;
+        var beforeRow = host.Row;
+        if (!HomeGrid.TryApplyCardSize(host, columnSpan, rowSpan))
+        {
+            WarnNoHomeSpace();
+            return;
+        }
+
+        PersistCardLayout();
+
+        // 用户点的是某个档位；腾位后可能被换成别的档位/挪到别处 —— 如实说明
+        var changed = host.ColumnSpan != columnSpan || host.RowSpan != rowSpan;
+        var moved = host.Column != beforeColumn || host.Row != beforeRow;
+        if (changed)
+            ShowHomeToast(Loc.T("主页空间有限，这张卡片已换成较小的尺寸"), severity: InfoBarSeverity.Warning);
+        else if (moved)
+            ShowHomeToast(Loc.T("目标位置放不下，这张卡片已挪到空位"));
+    }
+
+    private static HomeCardLayout ToCardLayout(CardHost host) => new()
+    {
+        Id = host.CardId,
+        Column = host.Column,
+        Row = host.Row,
+        ColumnSpan = host.ColumnSpan,
+        RowSpan = host.RowSpan,
+    };
+
+    /// <summary>
+    /// 收藏 / 最近 / 游玩时长三张小列表卡的数据源刷新。
+    /// <paramref name="store"/> 传后台扫描时已经读好的档案存储，省掉一次同文件读取。
+    /// </summary>
+    private void RefreshMiniCards(InstanceSettingsStore? store = null)
+    {
+        _favoriteRows = _rows.Where(r => r.Favorite).ToList();
+        List<LocalVersionRow> mostPlayed;
+        try
+        {
+            store ??= new InstanceSettingsStore(_s.Settings.DotMinecraft);
+            _recentRows = _rows
+                .Select(row => (row, at: store.Get(row.Id).LastPlayedAt))
+                .Where(t => t.at is not null)
+                .OrderByDescending(t => t.at)
+                .Select(t => t.row)
+                .ToList();
+            _mostPlayedRows = _rows
+                .Select(row => (row, seconds: store.Get(row.Id).PlaySeconds))
+                .Where(t => t.seconds > 0)
+                .OrderByDescending(t => t.seconds)
+                .ToList();
+            mostPlayed = _mostPlayedRows.Select(t => t.Row).ToList();
+        }
+        catch
+        {
+            _recentRows = [];
+            mostPlayed = [];
+        }
+
+        RebuildMiniList(FavoritesList, _favoriteRows, _favoritesSpanW, _favoritesSpanH, "还没有收藏的版本");
+        RebuildMiniList(RecentList, _recentRows, _recentSpanW, _recentSpanH, "还没有启动过的版本");
+        RebuildMiniList(MostPlayedList, mostPlayed, _mostPlayedSpanW, _mostPlayedSpanH,
+            "还没有玩过的版本",
+            row => _mostPlayedRows.FirstOrDefault(t => t.Row.Id == row.Id) is { } hit
+                ? FormatPlaySeconds(hit.Seconds)
+                : null);
+    }
+
+    /// <summary>游玩时长的展示文案。</summary>
+    private static string FormatPlaySeconds(long seconds) => seconds switch
+    {
+        >= 3600 => $"{seconds / 3600.0:F1} 小时",
+        >= 60 => $"{seconds / 60} 分钟",
+        _ => $"{seconds} 秒",
+    };
+
+    /// <summary>按卡片当前占格重建小列表：行数随高度，类型芯片 / 时长随宽度。</summary>
+    private void RebuildMiniList(StackPanel target, List<LocalVersionRow> items, int spanW, int spanH,
+        string emptyText, Func<LocalVersionRow, string?>? trailing = null)
+    {
+        target.Children.Clear();
+        if (items.Count == 0)
+        {
+            target.Children.Add(new TextBlock
+            {
+                Text = Loc.T(emptyText),
+                FontSize = 11,
+                Opacity = 0.65,
+                Margin = new Thickness(6, 6, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return;
+        }
+
+        var rows = Math.Clamp(spanH - 1, 1, 8);
+        foreach (var row in items.Take(rows))
+            target.Children.Add(BuildMiniRow(row, showKind: spanW >= 4, trailing: trailing?.Invoke(row)));
+    }
+
+    private Button BuildMiniRow(LocalVersionRow row, bool showKind, string? trailing = null)
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (row.Icon is { } icon)
+        {
+            content.Children.Add(new Image { Source = icon, Width = 20, Height = 20 });
+        }
+        else
+        {
+            content.Children.Add(new FontIcon
+            {
+                FontFamily = (FontFamily)Application.Current.Resources["ScIconFont"],
+                Glyph = "\uEA94",
+                FontSize = 14,
+            });
+        }
+        content.Children.Add(new TextBlock
+        {
+            Text = row.Id,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = showKind ? 150 : 200,
+        });
+        if (showKind && !string.IsNullOrEmpty(row.KindText))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = row.KindText,
+                FontSize = 11,
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+        if (!string.IsNullOrEmpty(trailing))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = trailing,
+                FontSize = 11,
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        var button = new Button
+        {
+            Content = content,
+            Tag = row.Id,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+        };
+        button.Click += MiniVersion_Click;
+        return button;
+    }
+
+    /// <summary>小列表里点一行 = 选中主页版本列表里的同一版本。</summary>
+    private void MiniVersion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id }) return;
+        var row = _rows.FirstOrDefault(r => r.Id == id);
+        if (row is not null) VersionList.SelectedItem = row;
+    }
+
+    /// <summary>启动按钮卡：与账户卡里那颗大按钮走同一套启动/停止逻辑。</summary>
+    private void CardLaunch_Click(object sender, RoutedEventArgs e) =>
+        LaunchBtn_Click(LaunchBtn, new RoutedEventArgs());
+
+    /// <summary>账户选择卡：头像、名字与当前模式。</summary>
+    private void RefreshAccountPicker()
+    {
+        var mode = _s.LaunchAccount.Mode;
+        PickerMsBtn.IsChecked = mode is not ("external" or "offline");
+        PickerExternalBtn.IsChecked = mode == "external";
+        PickerOfflineBtn.IsChecked = mode == "offline";
+
+        var acc = _s.Accounts.DefaultOf(mode);
+        var name = acc?.Username ?? "";
+        PickerNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
+        PickerAvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
+        PickerAvatarImage.Source = ResolveAvatar(acc, name);
+        var hasImage = PickerAvatarImage.Source is not null;
+        PickerAvatarImage.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        PickerAvatarText.Visibility = hasImage ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>账户选择卡里的模式分段：与账户卡共用 SetMode（两边状态同步）。</summary>
+    private void PickerMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string mode }) return;
+        SetMode(mode);
+        RefreshAccounts();
+    }
+
+    /// <summary>点账户选择卡：列出当前模式下的账户，可直接换首选；也提供去账户页管理的入口。</summary>
+    private void AccountPicker_Click(object sender, RoutedEventArgs e)
+    {
+        var flyout = new MenuFlyout();
+        var mode = _s.LaunchAccount.Mode;
+        var current = _s.Accounts.DefaultOf(mode);
+        var accounts = _s.Accounts.Accounts
+            .Where(a => string.Equals(a.Type, mode, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (accounts.Count == 0)
+        {
+            flyout.Items.Add(new MenuFlyoutItem { Text = Loc.T("当前模式还没有账户"), IsEnabled = false });
+        }
+        foreach (var account in accounts)
+        {
+            var item = new MenuFlyoutItem { Text = account.Username, Tag = account.Uuid };
+            if (current is not null && current.Uuid == account.Uuid)
+                item.Icon = new FontIcon { Glyph = "\uE73E", FontSize = 12 };
+            item.Click += (_, _) =>
+            {
+                _s.Accounts.SetDefault(account.Uuid);
+                RefreshAccounts();
+                RefreshAccountPicker();
+            };
+            flyout.Items.Add(item);
+        }
+
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        var manage = new MenuFlyoutItem { Text = Loc.T("管理账户…") };
+        manage.Click += (_, _) => (App.MainWindow as MainWindow)?.NavigateTo("accounts");
+        flyout.Items.Add(manage);
+
+        flyout.ShowAt(AccountPickerBtn);
     }
 
     private void OnLeftNoticeChanged(DependencyObject sender, DependencyProperty dp)
@@ -128,6 +843,8 @@ public sealed partial class HomePage : Page
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
         _expandedMetricsValid = false;
+        // 窗口尺寸变了：工具箱要跟着内容区右沿重新摆（编辑模式才摆）
+        if (LayoutEditBar.Visibility == Visibility.Visible) PositionLayoutToolbox();
     }
 
     private void Initialize()
@@ -139,12 +856,22 @@ public sealed partial class HomePage : Page
         _versionsCollapsed = _s.Settings.HomeVersionsCollapsed;
 
         SetMode(LaunchAccountService.ModeOfLastUsername(_s.Settings.LastUsername));
-        LoadVersions();
         RefreshAccounts();
         RefreshLeftNoticeArea(); // 兜底：初始无通知时把左列通知区收掉，版本卡才能与右栏卡上边缘齐平
-        ConsumePendingLaunch();
+        // 版本扫描放后台：先出界面骨架，列表数据随后到位
+        _ = LoadVersionsAsync();
         SetCardExpanded(_cardExpanded, animate: false); // 落存下来的终态（含 tooltip / 刻度朝向），不播动画
         SetVersionsCollapsed(_versionsCollapsed, animate: false); // 版本卡同理，顺带把两颗刻度的提示语对齐
+    }
+
+    /// <summary>游戏目录变更（版本页切换）：缓存页重扫版本列表</summary>
+    private void OnGameDirChanged()
+    {
+        // 目录变了收起态的「没版本就摊开」兜底要重新判定：按正常扫描路径走
+        _ = LoadVersionsAsync();
+        // 账户卡与启动卡上的版本名也引用了旧目录下的选中版本：清掉待选，等扫描结果对齐
+        if (_rows.Count > 0 && _rows.All(r => r.Id != _s.Settings.LastVersion))
+            UpdateVersionMeta();
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -152,6 +879,8 @@ public sealed partial class HomePage : Page
         base.OnNavigatedTo(e);
         _pendingLaunchId = App.PendingLaunchVersionId;
         App.PendingLaunchVersionId = null;
+        _pendingServer = App.PendingLaunchServer;
+        App.PendingLaunchServer = null;
         if (_rows.Count > 0) ConsumePendingLaunch(); // 缓存实例回到主页立即消费；新实例等 Loaded
         UpdateVersionMeta(); // 按钮态依赖实时运行集合（多开：可能在别的页启停了实例）
     }
@@ -165,12 +894,36 @@ public sealed partial class HomePage : Page
         var row = _rows.FirstOrDefault(r => r.Id == id);
         if (row is null)
         {
-            LocalErrorBar.Message = Loc.T("版本 {0} 不存在，可能已被删除", id);
-            LocalErrorBar.IsOpen = true;
+            // 刚装完整合包就跳过来时，列表可能还是装之前的快照（安装发生在下载页弹窗里）：
+            // 重扫一次再匹配，实在没有才报错（否则用户看到「版本不存在」但版本明明在磁盘上）
+            _ = RetryConsumeAfterRescanAsync(id);
             return;
         }
         VersionList.SelectedItem = row;
         _ = StartLaunchAsync(id); // 多开：不再拦截「已有游戏在运行」
+    }
+
+    /// <summary>找不到目标版本时重扫一次再消费；仍缺失才提示。</summary>
+    private async Task RetryConsumeAfterRescanAsync(string id)
+    {
+        try
+        {
+            await LoadVersionsAsync();
+            var row = _rows.FirstOrDefault(r => r.Id == id);
+            if (row is not null)
+            {
+                VersionList.SelectedItem = row;
+                _ = StartLaunchAsync(id);
+                return;
+            }
+            LauncherLog.Write("launch", $"启动请求的版本 {id} 重扫后仍不在列表中（已装 {_rows.Count} 个）");
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("launch", $"重扫版本列表失败：{ex.Message}");
+        }
+        LocalErrorBar.Message = Loc.T("版本 {0} 不存在，可能已被删除", id);
+        LocalErrorBar.IsOpen = true;
     }
 
     private void SetMode(string mode)
@@ -244,71 +997,119 @@ public sealed partial class HomePage : Page
     private void ModeOffline_Click(object s, RoutedEventArgs e) => SetMode("offline");
 
     // ── 版本列表 ──
-    private void LoadVersions()
+    /// <summary>
+    /// 版本列表：扫描（目录 + 每个版本的 JSON）放后台线程，回到 UI 线程再拼行。
+    /// 与版本页（VersionsPage.RefreshListAsync）同一套做法 —— 首页是启动后第一屏，
+    /// 这里每多一次同步磁盘 IO，窗口就要多等一次布局。
+    /// </summary>
+    private async Task LoadVersionsAsync()
     {
         var dotMc = _s.Settings.DotMinecraft;
-        var store = new InstanceSettingsStore(dotMc);
+
+        List<(InstalledVersionInfo Item, VersionProfile Profile, string Kind)> raw;
+        InstanceSettingsStore store;
         try
         {
-            // 与版本页同一口径：依赖版本（整合包的原版 / 加载器）不单列
-            var installed = VersionVisibility.Filter(dotMc, _s.Manifest.ListInstalled(dotMc)).ToList();
-            // 排序：置顶 → 收藏 → 上次使用的版本 → 版本号倒序
-            var profiles = installed.ToDictionary(
-                i => i.Id, i => store.Get(i.Id), StringComparer.OrdinalIgnoreCase);
-            installed.Sort((a, b) =>
+            (raw, store) = await Task.Run(() =>
             {
-                var pa = profiles[a.Id];
-                var pb = profiles[b.Id];
-                if (pa.Pinned != pb.Pinned) return pa.Pinned ? -1 : 1;
-                if (pa.Favorite != pb.Favorite) return pa.Favorite ? -1 : 1;
-                var aLast = string.Equals(a.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-                var bLast = string.Equals(b.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-                if (aLast != bLast) return bLast - aLast;
-                return string.Compare(b.Id, a.Id, StringComparison.OrdinalIgnoreCase);
+                var s = new InstanceSettingsStore(dotMc);
+                // 与版本页同一口径：依赖版本（整合包的原版 / 加载器）不单列
+                var installed = VersionVisibility.Filter(dotMc, _s.Manifest.ListInstalled(dotMc)).ToList();
+                var list = installed
+                    .Select(i => (Item: i, Profile: s.Get(i.Id),
+                                  Kind: VersionRowHelpers.DetectKind(dotMc, i.Id)))
+                    .ToList();
+                return (list, s);
             });
-            // 与版本页同一套行模型：图标 + 类型 + 上次启动 + 大小，主页不再是"光秃秃的名字 + 大小"
-            _rows = installed.Select(i =>
-            {
-                var profile = profiles[i.Id];
-                var kind = VersionRowHelpers.DetectKind(dotMc, i.Id);
-                return new LocalVersionRow(
-                    i.Id, kind, FormatSize(i.SizeBytes),
-                    VersionRowHelpers.DisplayIconPath(dotMc, i.Id, profile.IconPath),
-                    profile.Category ?? "",
-                    InstanceLayout.IsIsolated(profile, _s.Settings),
-                    VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
-                    (i.Id + " " + kind).ToLowerInvariant(),
-                    profile.Pinned, profile.Favorite);
-            }).ToList();
         }
         catch (Exception ex)
         {
             _rows = [];
             LocalErrorBar.Message = Loc.T("读取已安装版本失败：{0}", ex.Message);
             LocalErrorBar.IsOpen = true;
+            FinishVersionLoad(null);
+            return;
         }
+
+        // Loc.T 只在 UI 线程调用（语言切换会重建词典，后台线程读有竞态）
+        var ordered = raw.ToList();
+        ordered.Sort((a, b) =>
+        {
+            var pa = a.Profile;
+            var pb = b.Profile;
+            if (pa.Pinned != pb.Pinned) return pa.Pinned ? -1 : 1;
+            if (pa.Favorite != pb.Favorite) return pa.Favorite ? -1 : 1;
+            var aLast = string.Equals(a.Item.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            var bLast = string.Equals(b.Item.Id, _s.Settings.LastVersion, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            if (aLast != bLast) return bLast - aLast;
+            return string.Compare(b.Item.Id, a.Item.Id, StringComparison.OrdinalIgnoreCase);
+        });
+
+        // 与版本页同一套行模型：图标 + 类型 + 上次启动 + 大小，主页不再是"光秃秃的名字 + 大小"
+        _rows = ordered.Select(x =>
+        {
+            var profile = x.Profile;
+            return new LocalVersionRow(
+                x.Item.Id, x.Kind, FormatSize(x.Item.SizeBytes),
+                VersionRowHelpers.DisplayIconPath(dotMc, x.Item.Id, profile.IconPath),
+                profile.Category ?? "",
+                InstanceLayout.IsIsolated(profile, _s.Settings),
+                VersionRowHelpers.FormatLastPlayed(profile.LastPlayedAt),
+                (x.Item.Id + " " + x.Kind).ToLowerInvariant(),
+                profile.Pinned, profile.Favorite);
+        }).ToList();
+
+        // 版本卡显示哪组版本由设置决定：已安装 / 收藏 / 置顶。
+        // 收藏与置顶是版本右键菜单里的标记；空集合是合法状态（提示去标收藏/置顶）。
+        _rows = _s.Settings.HomeVersionCardMode switch
+        {
+            "favorites" => _rows.Where(r => r.Favorite).ToList(),
+            "pinned" => _rows.Where(r => r.Pinned).ToList(),
+            _ => _rows,
+        };
+
+        FinishVersionLoad(store);
+    }
+
+    /// <summary>版本数据到齐后的收尾：填列表、羽化入场、刷新小卡片。</summary>
+    /// <summary>版本卡标题、空态文案与空态动作随显示模式走。
+    /// <para>收藏 / 置顶为空时引导「去右键标记」而不是「去下载页」—— 空的原因不一样。</para></summary>
+    private (string Title, string EmptyText, string? Action) VersionCardText() => _s.Settings.HomeVersionCardMode switch
+    {
+        "favorites" => (Loc.T("收藏的版本"), Loc.T("还没有收藏的版本：右键版本即可收藏"), null),
+        "pinned" => (Loc.T("置顶的版本"), Loc.T("还没有置顶的版本：右键版本即可置顶"), null),
+        _ => (Loc.T("已安装版本"), Loc.T("暂无已安装版本"), Loc.T("前往下载页安装")),
+    };
+
+    private void FinishVersionLoad(InstanceSettingsStore? store)
+    {
+        var (title, emptyText, action) = VersionCardText();
+        VersionTitleText.Text = title;
+        EmptyVersionHint.Title = emptyText;
+        EmptyVersionHint.ActionText = action;
         VersionCountText.Text = $"({_rows.Count})";
         // 行数变了，展开态的自然高也跟着变，缓存作废。
         _expandedMetricsValid = false;
         VersionList.ItemsSource = _rows;
         MotionFx.StaggerListItems(VersionList, maxItems: 10);
         EmptyVersionHint.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshMiniCards(store);
         var preferred = _s.Settings.LastVersion is { } last && _rows.Any(r => r.Id == last) ? last
             : _rows.FirstOrDefault()?.Id;
         VersionList.SelectedItem = _rows.FirstOrDefault(r => r.Id == preferred);
         SyncCompactRow();
         RefreshVersionCollapseAvailability();
         // 容器这一拍才真正生成：先走一次布局再给选中行补标记（列表重建，竖条落点作废）
-        _barY = double.NaN;
-        _barShown = false;
+        _bar.Reset();
         VersionList.UpdateLayout();
-        HookVersionScroll();
         SyncSelectedInset(animate: false);
+        // 版本列表就绪后才消费跨页启动请求（它要选中某个版本）
+        ConsumePendingLaunch();
     }
 
     private void RefreshVersionsBtn_Click(object s, RoutedEventArgs e)
     {
-        LoadVersions();
+        _ = LoadVersionsAsync();
     }
 
     private void VersionList_SelectionChanged(object s, SelectionChangedEventArgs e)
@@ -332,37 +1133,24 @@ public sealed partial class HomePage : Page
         UpdateSelectionBar(animate);
     }
 
-    // ── 选中竖条：整块列表共用一条，按行位置真实位移（惯性滑行 + 移动中拉伸 + 过冲回弹） ──
+    // ── 选中竖条：共用条播位移动画，落定后交接给行内静态条（跟随元素而非同步坐标） ──
 
-    /// <summary>竖条当前的纵向位置（第几次落点），NaN = 还没落过</summary>
-    private double _barY = double.NaN;
-    private bool _barShown;
-
-    private ScrollViewer? _versionScroll;
+    /// <summary>竖条的落点状态（Y=NaN 表示还没落过）；动画播完会交接给行内静态条。</summary>
+    private readonly ListSelectionFx.BarState _bar = new();
 
     /// <summary>
     /// 把竖条移到当前选中行：从上一行的位置滑过去，移动中纵向拉伸，
-    /// 落点前整体越过目标再弹回（曲线细节见 ListSelectionFx.UpdateBar）。
+    /// 落点前整体越过目标再弹回；播完交接给行内静态条（见 ListSelectionFx.UpdateBar）。
     /// </summary>
     private void UpdateSelectionBar(bool animate) =>
-        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, VersionList,
-            ref _barY, ref _barShown, animate);
-
-    /// <summary>滚动时竖条跟着行一起走（不播动画，直接同步位置）。</summary>
-    private void HookVersionScroll()
-    {
-        if (_versionScroll is not null) return;
-        _versionScroll = ListSelectionFx.FindDescendant<ScrollViewer>(VersionList);
-        if (_versionScroll is not null)
-            _versionScroll.ViewChanged += (_, _) => UpdateSelectionBar(animate: false);
-    }
+        ListSelectionFx.UpdateBar(SelectionBarLayer, SelectionBar, VersionList, _bar, animate);
 
     private void VersionList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         if (args.InRecycleQueue) return;
         // 容器复用时上一行的动画状态会残留：只按这一格重刷（整表遍历在长列表里是平方级开销）
         ListSelectionFx.SyncInsetFor(sender, args.ItemIndex, args.ItemContainer, animate: false);
-        UpdateSelectionBar(animate: false);
+        ListSelectionFx.SyncRowBarFor(sender, args.ItemIndex, args.ItemContainer);
     }
 
     private void UpdateVersionMeta()
@@ -376,6 +1164,11 @@ public sealed partial class HomePage : Page
         LaunchPlayIcon.Visibility = isRunning ? Visibility.Collapsed : Visibility.Visible;
         LaunchStopIcon.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
         LaunchBtn.IsEnabled = isRunning || id is not null;
+
+        // 独立的启动按钮卡跟随同一套状态
+        CardLaunchTitle.Text = isRunning ? Loc.T("停止游戏") : Loc.T("启动游戏");
+        CardLaunchVersion.Text = id ?? Loc.T("未选择版本");
+        CardLaunchBtn.IsEnabled = LaunchBtn.IsEnabled;
     }
 
     /// <summary>
@@ -439,7 +1232,7 @@ public sealed partial class HomePage : Page
         else profile.Favorite = !profile.Favorite;
         store.Set(id, profile);
         store.Save();
-        LoadVersions();
+        _ = LoadVersionsAsync();
     }
 
     /// <summary>右键「启动」：先选中该行，再走与启动按钮完全同一条链路（含正在运行→结束）。</summary>
@@ -515,7 +1308,7 @@ public sealed partial class HomePage : Page
                 _s.Settings.LastVersion = null;
                 _s.Settings.Save();
             }
-            LoadVersions();
+            _ = LoadVersionsAsync();
         }
         catch (Exception ex)
         {
@@ -648,6 +1441,7 @@ public sealed partial class HomePage : Page
         AccountNameText.Text = string.IsNullOrWhiteSpace(name) ? Loc.T("未选择账户") : name;
         AvatarText.Text = string.IsNullOrWhiteSpace(name) ? "?" : name[..1].ToUpperInvariant();
         AvatarImage.Source = ResolveAvatar(acc, name);
+        RefreshAccountPicker();
     }
 
     /// <summary>
@@ -801,7 +1595,9 @@ public sealed partial class HomePage : Page
         _cardExpanded = expanded;
         PersistHomeLayout(); // 收起 / 展开是用户的持久选择：写回设置，换页回来照旧
         double cardTo = expanded ? ResolveExpandedHeight() : CardCompactHeight;
-        double widthTo = expanded ? ResolveExpandedWidth() : CardCompactWidth;
+        // 收起态的窄条宽 280：格子比它还窄时按格子宽度收，免得冲出卡片边界
+        var hostWidth = AccountHost.ActualWidth > 1 ? AccountHost.ActualWidth : CardCompactWidth;
+        double widthTo = expanded ? ResolveExpandedWidth() : Math.Min(CardCompactWidth, hostWidth);
         double modeTo = expanded ? CardModeBarHeight : 0;
 
         // 还没布局（初始化那一帧）拿不到可插值的起点、或起终点已经重合时没有动画可言，直接落终态。
@@ -828,6 +1624,7 @@ public sealed partial class HomePage : Page
             ModeBar.Height = expanded ? double.NaN : 0;
             CardBody.Clip = null;
             RestoreStatusText();
+            SyncCollapsedVersionBar();
             return;
         }
 
@@ -884,6 +1681,7 @@ public sealed partial class HomePage : Page
 
         // 曲线与合成层动画共用 MotionFx.CreateEnterSpline()，两条腿的节奏才一致。
         var spline = MotionFx.CreateEnterSpline();
+        double lastAppliedMs = -100;   // 60fps 上限（与版本补间同一套：逐帧全量重排是卡顿主因）
 
         void OnFrame(object? sender, object args)
         {
@@ -891,6 +1689,9 @@ public sealed partial class HomePage : Page
             if (!ReferenceEquals(_cardClock, clock)) return;
 
             double p = Math.Clamp(clock.Elapsed.TotalMilliseconds / ms, 0d, 1d);
+            var nowMs = clock.Elapsed.TotalMilliseconds;
+            if (p < 1d && nowMs - lastAppliedMs < 14) return;
+            lastAppliedMs = nowMs;
             double t = MotionFx.EaseProgress(spline, p);
             AccountCard.Height = cardFrom + (cardTo - cardFrom) * t;
             AccountCard.Width = widthFrom + (widthTo - widthFrom) * t;
@@ -946,19 +1747,20 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>
-    /// 右列这一格宽窄一变，收起态的版本窄条得跟着挪 —— 它的站位是「紧挨启动卡左边」，
-    /// 右移量正是启动卡让出来的空档 = 右列宽 − 启动卡当前宽（见 <see cref="VersionCollapsedShift"/>）。
-    /// 启动卡收起来（空档出现）或重新展开（空档消失）都要重新对位，
-    /// 否则窄条会停在按上一格宽度算出的位置上，与启动卡之间隔着一段说不清的缝。
-    /// <paramref name="cardWidth"/> 传具体值表示「按这一帧的卡宽算」（补间途中逐帧调用，两卡一起动）；
-    /// 传 <c>NaN</c> 表示按稳态卡宽算（终态收尾用）。
-    /// 只在没有版本补间进行时才动 —— 补间正跑着，它自己每帧都在算这个位置。
+    /// 右列这一格宽窄一变，收起态的版本窄条得跟着挪 —— 它的站位是「紧挨启动卡左边」。
+    /// 网格化之后窄条不再跨列搬家：它可能根本不在账户卡旁边，位置完全由所在格决定，
+    /// 因此这里不再逐帧对位（保留入口是为了两处调用点语义不变）。
+    /// </summary>
+    /// <summary>
+    /// 收起态窄条的右移：右移量 = 账号卡让出来的空档 = 账号列宽 − 启动卡当前宽。
+    /// <paramref name="cardWidth"/> 传具体值 = 按补间这一帧的卡宽算（两卡一起动）；
+    /// 传 NaN = 按稳态算（账号卡展开 → 空档 0；收起 → 空档 = 列宽 − 280）。
+    /// 版本补间进行中不动（它自己每帧都在算这个位置）。
     /// </summary>
     private void SyncCollapsedVersionBar(double cardWidth = double.NaN)
     {
         if (!_versionsCollapsed || _versionFrame is not null) return;
-        if (HomeContent.ColumnDefinitions.Count < 2) return;
-        double colW = HomeContent.ColumnDefinitions[1].ActualWidth;
+        double colW = AccountHost.ActualWidth;
         if (colW < 1) return;
 
         double card = double.IsNaN(cardWidth)
@@ -984,17 +1786,17 @@ public sealed partial class HomePage : Page
         if (!string.IsNullOrEmpty(StatusText.Text)) StatusText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>展开态卡片高度 = 右列高度（卡片与窗口同高）；布局未定时退回卡片实测值。</summary>
+    /// <summary>展开态卡片高度 = 卡片所在格的实测高（网格化后不再按整页高度算，否则会冲出格子）。</summary>
     private double ResolveExpandedHeight()
     {
-        var h = HomeContent.ActualHeight;
-        return h > 0 ? h : AccountCard.ActualHeight;
+        var h = AccountHost.ActualHeight;
+        return h > 1 ? h : AccountCard.ActualHeight;
     }
 
     /// <summary>展开态卡片宽度 = 右列那一格的宽（卡片撑满整列）；布局未定时退回卡片实测值。</summary>
     private double ResolveExpandedWidth()
     {
-        var w = HomeContent.ColumnDefinitions[1].ActualWidth;
+        var w = AccountHost.ActualWidth;
         return w > 1 ? w : AccountCard.ActualWidth;
     }
 
@@ -1242,19 +2044,14 @@ public sealed partial class HomePage : Page
             : double.NaN;
 
     /// <summary>
-    /// 收起态版本窄条的额外右移量：正好是右列（启动卡那一列）窄卡自己让出来的空档。
-    /// 版本窄条在左列里靠右站之后，两卡之间还隔着「两列间的 24 + 这道空档」；
-    /// 把这道空档整份右移补掉，窄条就紧贴到启动卡左边，间距回到与两列间距一致的 24。
-    /// 启动卡还撑着整列时返回 0 —— 否则窄条会钻到它底下（右列是先声明的，卡片要叠在上面）。
-    /// 卡宽取的是稳态该有的值，不读 <c>ActualWidth</c>：布局回调晚于补间末帧，
-    /// 末帧那一拍量到的还是补到一半的宽，会把空档算歪。
+    /// 收起态版本窄条的额外右移量 = 账号列宽 − 启动卡当前宽（展开态让出的空档）。
+    /// 账号卡展开时空档为 0；收起后 = 列宽 − 280，窄条右移贴到启动卡左边。
     /// </summary>
     private double VersionCollapsedShift
     {
         get
         {
-            if (HomeContent.ColumnDefinitions.Count < 2) return 0;
-            double colW = HomeContent.ColumnDefinitions[1].ActualWidth;
+            double colW = AccountHost.ActualWidth;
             if (colW < 1) return 0;   // 布局未就绪：宁可不挪，也别算出一个歪位置
             double slack = colW - (_cardExpanded ? colW : CardCompactWidth);
             return slack > 1 ? slack : 0;
@@ -1303,6 +2100,8 @@ public sealed partial class HomePage : Page
 
         // 曲线与合成层动画共用 MotionFx.CreateEnterSpline()，两条腿的节奏才一致。
         var spline = MotionFx.CreateEnterSpline();
+        double lastAppliedMs = -100;   // 上次实际落布局属性的帧时间（60fps 上限用）
+        int applied = 0;               // 已落帧计数（投影环带隔帧跟随用）
 
         void OnFrame(object? sender, object args)
         {
@@ -1310,7 +2109,16 @@ public sealed partial class HomePage : Page
             if (!ReferenceEquals(_versionClock, clock)) return;
 
             double p = Math.Clamp(clock.Elapsed.TotalMilliseconds / ms, 0d, 1d);
+
+            // 60fps 上限：高刷屏上 CompositionTarget 按 120/144Hz 回调，而这一帧要写 9 个
+            // 布局属性并把整页卡片网格拖进全量重排 —— 布局动画 60fps 与 144fps 视觉无差，
+            // 跳过中间帧能省下大半布局开销（卡顿的主因就是逐帧全量重排）。
+            var nowMs = clock.Elapsed.TotalMilliseconds;
+            if (p < 1d && nowMs - lastAppliedMs < 14) return;
+            lastAppliedMs = nowMs;
+            applied++;
             double t = MotionFx.EaseProgress(spline, p);
+
             VersionCard.Height = cardFrom + (cardTo - cardFrom) * t;
             VersionCard.Width = widthFrom + (widthTo - widthFrom) * t;
             // 右移量也走同一条曲线：它不在尺寸里，跟不上末帧会跳一下（与右栏 StartCardTween 同理）。
@@ -1319,9 +2127,13 @@ public sealed partial class HomePage : Page
             VersionHeader.Height = headerFrom + (headerTo - headerFrom) * t;
             VersionHeader.Margin = new Thickness(0, 0, 0, gapFrom + (gapTo - gapFrom) * t);
             VersionCompactRow.Height = compactFrom + (compactTo - compactFrom) * t;
-            VersionCardShadow.Width = VersionCard.Width;
-            VersionCardShadow.Height = VersionCard.Height;
-            VersionCardShadow.Margin = VersionCard.Margin;
+            // 投影环带是纯装饰：隔帧跟随（末帧精确落位），省下一半的环带重渲染
+            if ((applied & 1) == 0 || p >= 1d)
+            {
+                VersionCardShadow.Width = VersionCard.Width;
+                VersionCardShadow.Height = VersionCard.Height;
+                VersionCardShadow.Margin = VersionCard.Margin;
+            }
             // 裁剪框与各段高度同一帧落值，紧凑行溢出的部分当帧就被切掉（等 SizeChanged 会晚一拍）。
             if (_versionClip is not null)
                 _versionClip.Rect = new Rect(0, 0,
@@ -1533,6 +2345,12 @@ public sealed partial class HomePage : Page
                 LaunchStageStepText.Text = Loc.T("游戏运行中");
                 LaunchProgress.IsIndeterminate = false;
                 LaunchProgress.Value = 100;
+                if (App.PendingReturnToFriends)
+                {
+                    // 来自联机房间的启动：让用户看到一眼「已启动」，随后自动跳回联机页等玩家进房
+                    App.PendingReturnToFriends = false;
+                    _ = AutoReturnToFriendsAsync();
+                }
                 break;
             case LaunchStage.Exited:
                 _windowTimer.Stop();
@@ -1735,9 +2553,24 @@ public sealed partial class HomePage : Page
         }
     }
 
-    /// <summary>Nova 生成一条动态贴士入队尾（下一次启动显示；8 秒超时，失败静默，spec §3.5）。</summary>
-    private async Task FetchNovaTipAsync(string versionId)
+    /// <summary>
+    /// 联机房间启动的游戏窗口出现后：稍停一拍让用户看到「已启动」，随后收层并跳回好友页
+    /// 联机标签（玩家在那边等「已连上房主的世界」）。跳页不影响游戏进程。
+    /// </summary>
+    private async Task AutoReturnToFriendsAsync()
     {
+        try
+        {
+            await Task.Delay(1500);
+            if (_stage != LaunchStage.Running) return;   // 期间游戏退出/取消就别乱跳
+            HideOverlay(Loc.T("游戏运行中"));
+            FriendsPage.FocusMultiplayer();
+        }
+        catch { /* 跳页失败不影响游戏运行 */ }
+    }
+
+    /// <summary>Nova 生成一条动态贴士入队尾（下一次启动显示；8 秒超时，失败静默，spec §3.5）。</summary>
+    private async Task FetchNovaTipAsync(string versionId)    {
         try
         {
             using var cts = new CancellationTokenSource(8_000);
@@ -1782,6 +2615,8 @@ public sealed partial class HomePage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         base.OnNavigatedFrom(e);
+        // 离开主页：独立工具箱窗口关掉（它只对主页有意义）
+        try { App.Toolbox?.CloseToolbox(); } catch { /* 已经关了 */ }
         if (LaunchOverlay.Visibility != Visibility.Visible) return;
         _stageTimer.Stop();
         _windowTimer.Stop();
@@ -1817,7 +2652,13 @@ public sealed partial class HomePage : Page
         try
         {
             // 共享就地登录流程：会话内无凭证（token 不落盘）时弹登录框，登录后自动重试
-            var player = await AuthDialogs.EnsurePlayableAccountAsync(XamlRoot, _s);
+            var player = await AuthDialogs.EnsurePlayableAccountAsync(XamlRoot, _s,
+                onNotice: note =>
+                {
+                    // 回退到别的登录方式时明确告知，避免用户以为"用错了身份"却说不清
+                    WarnBar.Message = note;
+                    WarnBar.IsOpen = true;
+                });
             if (player is null) { HideOverlay(null); return; } // 用户取消登录
             if (_cancelRequested) { HideOverlay(null); return; }
 
@@ -1839,11 +2680,16 @@ public sealed partial class HomePage : Page
                         "authlib-injector 组件缺失，无法启动第三方账户，请重新安装启动器");
             }
 
+            // 联机房间的「开始游戏」优先：把房主地址带进 --quickPlayMultiplayer，
+            // 没有就退回版本设置里的自动连接地址。地址是一次性的，用掉即清。
+            var quickPlayServer = _pendingServer ?? eff.ServerAddress;
+            _pendingServer = null;
+
             var options = new LaunchOptions(
                 versionId, player.Name, eff.GameRoot, dotMc,
                 eff.MinMem, eff.MaxMem, eff.Java, eff.ExtraJvmArgs,
                 _s.Settings.UseBuiltinJvmArgs, player.Credentials,
-                eff.ServerAddress, eff.Language, eff.LanguageOverride,
+                quickPlayServer, eff.Language, eff.LanguageOverride,
                 eff.WindowW, eff.WindowH, eff.Fullscreen, eff.EnvVars,
                 eff.PreCmd, eff.PostCmd,
                 AgentJarPath: agentJar, AgentBase: player.ExternalBase,
@@ -1905,6 +2751,28 @@ public sealed partial class HomePage : Page
         ApplyStage(LaunchStage.CheckingFiles);
         var preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
         if (_cancelRequested) { HideOverlay(null); return; }
+
+        // 继承链上缺父版本（整合包实例最常见的"版本不存在"）：**自动装上**再继续，
+        // 不让用户自己去下载页找那个加载器/原版。父链可能不止一层，最多补 4 轮。
+        for (var round = 0; round < 4 && preflight.MissingParentVersion is { Length: > 0 } parent; round++)
+        {
+            if (_cancelRequested) { HideOverlay(null); return; }
+            ApplyStage(LaunchStage.RepairingFiles);
+            LaunchStageStepText.Text = Loc.T("正在自动安装缺失的 {0}…", parent);
+            LauncherLog.Write("launch", $"启动前置：自动安装缺失的继承版本 {parent}");
+            if (!await TryInstallVersionByIdAsync(dotMc, parent))
+            {
+                HideOverlay(null);
+                LocalErrorBar.Message = Loc.T(
+                    "这个版本继承的「{0}」没有安装，且无法自动安装（不是官方原版或可识别的加载器），请手动安装",
+                    parent);
+                LocalErrorBar.IsOpen = true;
+                return;
+            }
+            preflight = await _s.Preflight.CheckAsync(dotMc, versionId);
+            if (_cancelRequested) { HideOverlay(null); return; }
+        }
+
         if (preflight.NeedsRepair)
         {
             if (preflight.VersionJsonBroken && !preflight.CanAutoRestoreJson)
@@ -2018,6 +2886,119 @@ public sealed partial class HomePage : Page
     }
 
     /// <summary>体检项一键修复（spec §6）：写版本内存档位；返回是否修复成功。</summary>
+    /// <summary>
+    /// 从版本 id 里抠出 Cleanroom 版本号：形如 `1.12.2-cleanroom-0.4.1-alpha` 或
+    /// 只写 `cleanroom-0.4.1-alpha`。取 "cleanroom-" 之后的整段（版本号本身可能带 -alpha）。
+    /// </summary>
+    private static string? ExtractCleanroomVersion(string versionId)
+    {
+        var at = versionId.IndexOf("cleanroom-", StringComparison.OrdinalIgnoreCase);
+        if (at < 0) return null;
+        var ver = versionId[(at + "cleanroom-".Length)..].Trim('-', '_');
+        return ver.Length > 0 ? ver : null;
+    }
+
+    /// <summary>
+    /// 按版本 id 自动安装一个版本（启动前置用）：官方原版 / Fabric / Quilt / Forge / NeoForge / Cleanroom。
+    /// 无法识别的自定义 id 返回 false（由调用方提示用户手动处理）。
+    /// </summary>
+    private async Task<bool> TryInstallVersionByIdAsync(string dotMc, string versionId)
+    {
+        var progress = new Progress<BatchProgress>(p => DispatcherQueue.TryEnqueue(() =>
+        {
+            LaunchProgress.IsIndeterminate = false;
+            LaunchProgress.Value = Math.Clamp(25 + p.Percentage * 0.5, 25, 75);
+            if (!string.IsNullOrEmpty(p.Stage))
+                LaunchStageStepText.Text = Loc.T("安装 {0}：{1}", versionId, p.Stage);
+        }));
+        try
+        {
+            // ① 官方原版：清单里有就用官方 URL 装
+            try
+            {
+                var manifest = await _s.Manifest.GetManifestAsync(forceRefresh: false);
+                if (manifest.Versions.FirstOrDefault(v => v.Id == versionId) is { Url.Length: > 0 } entry)
+                {
+                    await _s.Installer.InstallVanillaAsync(versionId, entry.Url, _s.Settings, progress);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("launch", $"查询官方清单失败（继续尝试加载器）：{ex.Message}");
+            }
+
+            // ② 加载器：id 里带加载器与版本号，按同样的 id 装回去
+            var (loader, mc) = LoaderDetector.Detect(dotMc, versionId);
+            var byPrefix = ContentLibraryService.ResolveLoader(versionId, out var loaderVersion);
+            if (byPrefix != "vanilla") loader = byPrefix;
+            var mcVersion = ContentLibraryService.ResolveMc(versionId);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(mcVersion, @"^\d+(\.\d+)+$"))
+                mcVersion = mc ?? "";
+
+            if (loaderVersion is { Length: > 0 } && mcVersion.Length > 0)
+            {
+                switch (loader)
+                {
+                    case "fabric":
+                        await _s.Installer.InstallFabricAsync(mcVersion, loaderVersion, _s.Settings,
+                            progress, targetId: versionId);
+                        return true;
+                    case "quilt":
+                        await _s.Installer.InstallQuiltAsync(mcVersion, loaderVersion, _s.Settings,
+                            progress, targetId: versionId);
+                        return true;
+                }
+            }
+
+            // ③ Cleanroom（GTO 等用的 1.12.2 特殊启动链）：先补 1.12.2 原版，再跑官方 installer
+            if (versionId.Contains("cleanroom", StringComparison.OrdinalIgnoreCase))
+            {
+                var cleanroomVersion = ExtractCleanroomVersion(versionId);
+                if (cleanroomVersion is { Length: > 0 })
+                {
+                    var baseMc = mcVersion.Length > 0 ? mcVersion : "1.12.2";
+                    // Cleanroom 的安装器要求原版 JSON 在位（读 client jar 与版本信息）
+                    if (!_s.Installer.IsInstalled(dotMc, baseMc))
+                    {
+                        var manifest2 = await _s.Manifest.GetManifestAsync(forceRefresh: false);
+                        if (manifest2.Versions.FirstOrDefault(v => v.Id == baseMc) is { Url.Length: > 0 } baseEntry)
+                            await _s.Installer.InstallVanillaAsync(baseMc, baseEntry.Url, _s.Settings, progress);
+                    }
+                    var installed = await _s.Forge.InstallViaInstallerAsync(
+                        ForgeInstallerService.CleanroomInstallerUrl(cleanroomVersion), baseMc,
+                        JavaRequirement.FromVersionId(baseMc) is var j && j < 21 ? 21 : j,
+                        _s.Settings, progress);
+                    LauncherLog.Write("launch", $"Cleanroom {cleanroomVersion} 安装完成，版本目录 {installed}");
+                    return true;
+                }
+            }
+
+            // ④ Forge / NeoForge：走官方安装器（需要 Java 与网络）
+            if (loader is "forge" or "neoforge" && mcVersion.Length > 0)
+            {
+                // id 形如 1.20.1-forge-47.2.0 / 1.20.1-neoforge-21.1.0：取最后一个 '-' 之后
+                var forgeVersion = versionId.Split('-').LastOrDefault();
+                if (forgeVersion is { Length: > 0 } && forgeVersion != mcVersion)
+                {
+                    var javaMajor = JavaRequirement.FromVersionId(mcVersion);
+                    var url = loader == "forge"
+                        ? ForgeInstallerService.ForgeInstallerUrl(mcVersion, forgeVersion)
+                        : ForgeInstallerService.NeoForgeInstallerUrl(mcVersion, forgeVersion);
+                    await _s.Forge.InstallViaInstallerAsync(url, mcVersion, javaMajor, _s.Settings, progress);
+                    return true;
+                }
+            }
+            LauncherLog.Write("launch", $"无法自动安装版本 {versionId}（loader={loader} mc={mcVersion}）");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("launch", $"自动安装 {versionId} 失败：{ex.Message}");
+            return false;
+        }
+    }
+
     private Task<bool> FixEnvIssueAsync(EnvIssue issue, string versionId, LaunchOptions options)
     {
         try
@@ -2128,6 +3109,16 @@ public sealed partial class HomePage : Page
         else if (exitCode == 0)
         {
             LauncherLog.Write("launch", $"{versionId} 正常退出（运行 {uptimeMs / 1000} 秒）");
+            // 游玩时长入账：≥ 30 秒的正常游玩才累计（崩溃重试的秒启动不算）
+            if (session.Uptime.TotalSeconds >= 30)
+            {
+                try
+                {
+                    new InstanceSettingsStore(_s.Settings.DotMinecraft)
+                        .AddPlaySeconds(versionId, (long)session.Uptime.TotalSeconds);
+                }
+                catch { /* 统计失败不影响退出流程 */ }
+            }
             FinishLaunchTask(run?.Task, Loc.T("游戏已退出，{0}", SessionDurationText(uptimeMs)));
             if (overlayVisible)
                 ApplyStage(LaunchStage.Exited); // 覆盖层显示：停在启动页展示本局时长

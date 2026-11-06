@@ -31,19 +31,31 @@ public sealed class RecordingService
     {
         _permissions = permissions;
         _log = log;
-        Directory.CreateDirectory(OutputDirectory);
-        // 这台机器到底有没有硬件编码器，直接写进启动器日志：出问题时一眼能看出是软编还是硬编
         try
         {
-            var names = ProbeEncoders();
-            LauncherLog.Write("record", names.Count > 0
-                ? $"硬件编码器：{string.Join(" / ", names)}"
-                : "未检测到硬件编码器，将退回软件编码");
+            Directory.CreateDirectory(OutputDirectory);
         }
-        catch (Exception ex)
+        catch
         {
-            LauncherLog.Write("record", $"硬件编码器探测失败：{ex.Message}");
+            // 输出目录建不出来不影响启动器可用（真正开录时再报错）
         }
+        // 这台机器到底有没有硬件编码器，直接写进启动器日志：出问题时一眼能看出是软编还是硬编。
+        // 探测要走 MediaFoundation 的 COM 枚举，冷启动时在主线程上做要几十到几百毫秒 —— 挪到后台，
+        // 反正结果只进日志，没人会在启动瞬间去等它。
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var names = ProbeEncoders();
+                LauncherLog.Write("record", names.Count > 0
+                    ? $"硬件编码器：{string.Join(" / ", names)}"
+                    : "未检测到硬件编码器，将退回软件编码");
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write("record", $"硬件编码器探测失败：{ex.Message}");
+            }
+        });
     }
 
     /// <summary>状态变化（开录 / 停录 / 出错）——UI 侧据此刷新</summary>

@@ -1,4 +1,4 @@
-// SC 实验室：内置工具箱。四个分区共用一页，左侧子导航切换。
+﻿// SC 实验室：内置工具箱。四个分区共用一页，左侧子导航切换。
 //   投影工坊   —— 投影文件解析 / 元数据编辑 / 格式转换 / 方块统计（Core: ProjectionService）
 //   彩色文字   —— § 格式代码文本生成（Core: McText）
 //   世吞生成器 —— 分层 TNT 阵列投影生成（Core: WorldEater）
@@ -67,6 +67,10 @@ public sealed partial class LabPage : Page
     {
         if (_devNoticeShown || XamlRoot is null) return;
         _devNoticeShown = true;
+        // 只弹第一次：看过就写进设置，之后进实验室不再打扰
+        if (AppServices.Instance.Settings.LabWelcomeShown) return;
+        AppServices.Instance.Settings.LabWelcomeShown = true;
+        try { AppServices.Instance.Settings.Save(); } catch { /* 落盘失败下次再弹一次 */ }
         try
         {
             var dialog = new ThemedDialog
@@ -74,7 +78,7 @@ public sealed partial class LabPage : Page
                 // 定位是「功能先行区」而不是「半成品警告」：最前沿能力先在这里开放，
                 // 社区提出的功能设想也在这里做成演示。半成品风险放在末句一句带过。
                 Title = Loc.T("欢迎来到 Starcloud 实验室"),
-                Content = Loc.T("Starcloud 实验室是星云最前沿功能的先行区——新能力在这里首先开放体验，用户提出的功能设想也在这里做成演示。功能仍在持续演进，欢迎试用并反馈。"),
+                Content = Loc.T("Starcloud实验室是SCML最前沿功能的先行区——新能力在这里首先开放体验，用户提出的功能设想也在这里做成演示。功能仍在持续演进，欢迎试用并反馈（双击左上角标题反馈）。"),
                 CloseButtonText = Loc.T("知道了"),
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = XamlRoot,
@@ -219,7 +223,7 @@ public sealed partial class LabPage : Page
     private void ExitPreviewSpaceMode()
     {
         SetPreviewSpaceLayout(false);
-        try { PreviewWeb.CoreWebView2?.PostWebMessageAsJson("""{"type":"exitSpace"}"""); }
+        try { PreviewWeb?.CoreWebView2?.PostWebMessageAsJson("""{"type":"exitSpace"}"""); }
         catch { /* 网页端已销毁 */ }
     }
 
@@ -405,6 +409,10 @@ public sealed partial class LabPage : Page
         if (_previewReady) return;
         try
         {
+            // x:Load 延迟创建：真正要用预览时才实例化 WebView2（FindName 触发加载）
+            if (PreviewWeb is null && FindName("PreviewWeb") is not Microsoft.UI.Xaml.Controls.WebView2)
+                return;
+            if (PreviewWeb is null) return;
             // 空间模式要连续出帧：隐藏/被遮挡的 WebView2 会被 Chromium 节流到几乎不出帧
             //（与皮肤预览 Skin3DView 同一个坑），这里关掉后台节流
             var options = new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions
@@ -498,7 +506,7 @@ public sealed partial class LabPage : Page
     {
         try
         {
-            PreviewWeb.CoreWebView2?.PostWebMessageAsJson(
+            PreviewWeb?.CoreWebView2?.PostWebMessageAsJson(
                 System.Text.Json.JsonSerializer.Serialize(new { type = "init", firstRun = !_spaceHintShown }));
         }
         catch
@@ -1115,7 +1123,12 @@ public sealed partial class LabPage : Page
         };
         if (!string.IsNullOrEmpty(item.ImageUrl))
         {
-            try { image.Source = new BitmapImage(new Uri(item.ImageUrl)); }
+            try
+            {
+                var bmp = new BitmapImage { DecodePixelWidth = 640, DecodePixelType = DecodePixelType.Logical };
+                bmp.UriSource = new Uri(item.ImageUrl);
+                image.Source = bmp;
+            }
             catch { imageHost.Visibility = Visibility.Collapsed; }
             image.ImageFailed += (_, _) => imageHost.Visibility = Visibility.Collapsed;
         }

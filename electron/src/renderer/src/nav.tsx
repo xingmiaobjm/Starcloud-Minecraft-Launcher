@@ -138,7 +138,10 @@ export default function Nav(props: {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="nav-icon" style={{ fontFamily: 'var(--font-icon)' }}>
-          {open ? '' : ''}
+          {/* 展开 / 收起用两个不同的字形：原来两边都是同一个，
+              而且那个码位根本不在字体覆盖范围里（U+E900..U+ECB6），
+              图标一直是空白，展开与收起也看不出区别。 */}
+          {open ? String.fromCharCode(0xea86) : String.fromCharCode(0xec89)}
         </span>
         {open && <span className="nav-label">收起</span>}
       </button>

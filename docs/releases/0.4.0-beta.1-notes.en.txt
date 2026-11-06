@@ -1,0 +1,26 @@
+0.4.0-beta.1 (Public Beta)
+
+New
+- Added release channel selection: pick Release, Public Beta, Beta, Alpha or Pre-alpha in Settings. Each channel has a description, and switching to a testing channel asks for confirmation first.
+- Added chat room invites: "Invite friend" in a room sends a room card to your chat with that friend. They tap it to join (password rooms supported).
+- Added long-path support: deep Minecraft folders are no longer limited by the system 260-character path limit.
+- Added precompiled launcher binaries: new versions start faster on first launch.
+
+Changed
+- Changed page switching: all pages stay cached, so switching no longer reloads anything.
+- Changed how settings are saved: changes apply and save immediately, no save button needed.
+- Changed the default settings category to "General" and reordered the navigation.
+- Changed what happens when a game exits: rooms no longer close automatically. A dialog asks whether to close now or keep the room for 120 seconds.
+- Changed chat avatars: account avatars are shown when available, falling back to the initial block.
+- Changed the download dialog width and the dependency confirmation dialog styling.
+- Changed installer packaging: precompiled binaries make new versions start faster.
+
+Fixed
+- Fixed duplicate instances (e.g. 26.3-2) failing to install mod dependencies automatically.
+- Fixed clicking download twice on the same file reporting "all sources unavailable".
+- Fixed the version detail page opening slowly: loader lists now time out gracefully and list virtualization is restored.
+- Fixed settings cards showing incomplete rounded corners while hovered.
+- Fixed the top-bar button glow escaping the button bounds.
+- Fixed leftover blank space after dismissing an info bar.
+- Fixed garbled shader pack filenames and some shader packs missing icons.
+- Fixed the multiplayer notice bar replaying its animation repeatedly.

@@ -6,7 +6,7 @@
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     xmlns:ctrl="using:Starcloud.App.Views.Controls"
     xmlns:loc="using:Starcloud.App.Localization"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Enabled">
 
     <Page.Resources>
         <Style x:Key="LabCard" TargetType="Border" BasedOn="{StaticResource ScCard}" />
@@ -77,7 +77,7 @@
                 </ListView>
             </Border>
 
-            <Grid Grid.Column="1" RowSpacing="12">
+            <Grid Grid.Column="1" RowSpacing="12" Margin="0,12,0,0">
                 <ScrollViewer x:Name="ToolScroll">
                     <StackPanel Spacing="16">
 
@@ -152,10 +152,12 @@
                                         </StackPanel>
                                     </StackPanel>
 
-                                    <!-- 3D 预览：WebView2 里的体素渲染（可拖拽旋转 / 滚轮缩放；空间模式见 SetPreviewSpaceLayout） -->
+                                    <!-- 3D 预览：WebView2 里的体素渲染（可拖拽旋转 / 滚轮缩放；空间模式见 SetPreviewSpaceLayout）。
+                                         x:Load 延迟创建：WebView2 初始化是整页构建最重的一块（加载器进程 + 环境），
+                                         进实验室默认在投影工具页，等真正切到要预览的分区再实例化 —— 首次进页快几百毫秒。 -->
                                     <TextBlock x:Name="PreviewLabel" loc:Loc.Text="3D 预览" FontSize="12" FontWeight="Medium" Margin="0,4,0,0" />
                                     <Grid x:Name="PreviewHost" Height="380" CornerRadius="10">
-                                        <controls:WebView2 x:Name="PreviewWeb" DefaultBackgroundColor="#161616" />
+                                        <controls:WebView2 x:Name="PreviewWeb" DefaultBackgroundColor="#161616" x:Load="False" />
                                     </Grid>
 
                                     <StackPanel x:Name="ProjectionStatBlock" Spacing="8">

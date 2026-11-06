@@ -62,58 +62,24 @@ public sealed partial class AccountsPage : Page
 
         ScLoginPanel.Visibility = Visibility.Collapsed;
         ScUserPanel.Visibility = Visibility.Visible;
+        var avatar = Views.Shared.RemoteIconHelper.Resolve(session.AvatarUrl);
+        ScAvatarImage.Source = avatar;
+        ScAvatarImage.Visibility = avatar is null ? Visibility.Collapsed : Visibility.Visible;
+        ScAvatarText.Visibility = avatar is null ? Visibility.Visible : Visibility.Collapsed;
         ScAvatarText.Text = string.IsNullOrWhiteSpace(session.DisplayName)
             ? "?" : session.DisplayName[..1].ToUpperInvariant();
         ScNameText.Text = session.DisplayName;
         ScUserSubText.Text = session.UserId;
     }
 
-    private async void ScPwdBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    private async void ScLogin_Click(object sender, RoutedEventArgs e)
     {
-        if (e.Key == Windows.System.VirtualKey.Enter) await DoScLoginAsync();
-    }
-
-    private async void ScLogin_Click(object sender, RoutedEventArgs e) => await DoScLoginAsync();
-
-    private async Task DoScLoginAsync()
-    {
-        ScErrorText.Visibility = Visibility.Collapsed;
-        ScLoginBtn.IsEnabled = false;
-        ScLoginProgress.Visibility = Visibility.Visible;
-        ScLoginProgress.IsActive = true;
-        try
-        {
-            await _s.StarcloudId.LoginAsync(ScIdBox.Text.Trim(), ScPwdBox.Password);
-            ScPwdBox.Password = "";
-            RefreshStarcloudState();
-            _s.NovaRuntime.NotifyLoginChanged(); // 登录态变了：Nova 状态机/问候/Orb 面板同步
-            ShowStatus(Loc.T("已登录，在线功能已就绪"));
-        }
-        catch (Exception ex)
-        {
-            ScErrorText.Text = ex.Message;
-            ScErrorText.Visibility = Visibility.Visible;
-        }
-        finally
-        {
-            ScLoginBtn.IsEnabled = true;
-            ScLoginProgress.Visibility = Visibility.Collapsed;
-            ScLoginProgress.IsActive = false;
-        }
-    }
-
-    // ── 注册：独立小窗（邮箱验证码 + 账密），成功后回填登录框 ──
-
-    private async void ScToRegister_Click(object sender, RoutedEventArgs e)
-    {
+        // 登录收口到弹窗（与 Nova 页同款）：页内只留引导文案与按钮
         ClearBars();
-        var id = await RegisterDialog.ShowAsync(Content.XamlRoot, _s.StarcloudId);
-        if (id is null) return;
-
-        ScIdBox.Text = id;
-        ScPwdBox.Password = "";
-        ScPwdBox.Focus(FocusState.Programmatic);
-        ShowStatus(Loc.T("注册成功，请登录"));
+        if (!await Views.Dialogs.StarcloudLoginDialog.ShowAsync(Content.XamlRoot, _s.StarcloudId)) return;
+        RefreshStarcloudState();
+        _s.NovaRuntime.NotifyLoginChanged(); // 登录态变了：Nova 状态机/问候/Orb 面板同步
+        ShowStatus(Loc.T("已登录，在线功能已就绪"));
     }
 
     private async void ScLogout_Click(object sender, RoutedEventArgs e)

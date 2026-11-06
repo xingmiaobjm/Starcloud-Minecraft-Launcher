@@ -1,0 +1,493 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 联机（房间系统）：左侧导航「大厅 / 房间 / 我的」，右侧内容区 —— 与下载页同一套版式。
+     大厅 = 全服房间列表（6 位联机码、房主、人数、密码标记）；
+     房间 = 未进房时给出「我要当房主 / 我要当玩家」，进房后是成员 + 临时群聊；
+     我的 = 当前房间、我的房间历史，以及原有的联机设置与核心状态（内嵌旧联机页）。 -->
+<Page
+    x:Class="Starcloud.App.Views.RoomsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:beh="using:Starcloud.App.Views.Behaviors"
+    xmlns:ctrl="using:Starcloud.App.Views.Controls"
+    xmlns:rooms="using:Starcloud.Core.Services.Rooms"
+    xmlns:shared="using:Starcloud.App.Views.Shared"
+    xmlns:loc="using:Starcloud.App.Localization"
+    NavigationCacheMode="Enabled">
+
+    <Page.Resources>
+        <!-- 房间卡封面：本地宣传图按联机码稳定轮换（服务端暂无封面字段） -->
+        <shared:RoomCoverConverter x:Key="RoomCover" />
+    </Page.Resources>
+
+    <Grid MaxWidth="1280" HorizontalAlignment="Stretch">
+        <!-- 内容独占整页；提示条悬浮在上面，不占布局（弹出来不再把搜索框往下顶） -->
+        <Grid x:Name="ContentHost" HorizontalAlignment="Stretch" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ═══ 左导航 ═══ -->
+            <Border Grid.Column="0" VerticalAlignment="Stretch"
+                    Background="{ThemeResource GlassCardBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="8">
+                <StackPanel Spacing="4">
+                    <ListView x:Name="NavList" SelectionMode="Single" IsHitTestVisible="True"
+                              SelectionChanged="Nav_SelectionChanged">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                <Setter Property="MinHeight" Value="40" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.Resources>
+                            <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                        </ListView.Resources>
+                        <ListViewItem Tag="lobby" IsSelected="True">
+                            <!-- 图标码位是鸿蒙字体（ScIconFont）里的字形，不是 Segoe 的：
+                                 EA93 四宫格=大厅（房间广场），E96C 双气泡=房间（群聊），EB8F 单人=我的 -->
+                            <ctrl:CategoryNavItem x:Name="NavLobby" IsActive="True"
+                                                  Glyph="&#xEA93;" loc:Loc.Text="大厅" />
+                        </ListViewItem>
+                        <ListViewItem Tag="room">
+                            <ctrl:CategoryNavItem x:Name="NavRoom" Glyph="&#xE96C;" loc:Loc.Text="房间" />
+                        </ListViewItem>
+                        <ListViewItem Tag="mine">
+                            <ctrl:CategoryNavItem x:Name="NavMine" Glyph="&#xEB8F;" loc:Loc.Text="我的" />
+                        </ListViewItem>
+                    </ListView>
+
+                    <!-- 当前房间小卡：在任何页签都能看到自己在哪个房间 -->
+                    <Border x:Name="NavCurrentCard" Visibility="Collapsed" Margin="0,12,0,0"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                            CornerRadius="8" Padding="10,8">
+                        <StackPanel Spacing="2">
+                            <TextBlock loc:Loc.Text="当前房间" FontSize="11" Opacity="0.6" />
+                            <TextBlock x:Name="NavRoomName" FontSize="13" FontWeight="Medium"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="NavRoomCode" FontSize="12" FontFamily="Consolas" Opacity="0.7" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 演示数据标记：走本地 Mock 时提示，避免误以为是线上房间 -->
+                    <TextBlock x:Name="MockBadge" Visibility="Collapsed" Margin="4,12,0,0"
+                               loc:Loc.Text="演示数据（未登录 / 接口未启用）" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- ═══ 右内容 ═══ -->
+            <Grid Grid.Column="1">
+                <!-- ── 大厅 ── -->
+                <Grid x:Name="LobbyPanel">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="LobbySearchBox" Height="34" MaxLength="12"
+                                 PlaceholderText="输入 6 位联机码搜索房间"
+                                 KeyDown="LobbySearch_KeyDown" />
+                        <!-- 搜索：按码查房间，命中后大厅只显示这张卡，点卡加入 -->
+                        <Button Grid.Column="1" Height="34" loc:Loc.Text="搜索"
+                                Style="{StaticResource ScAccentButtonStyle}"
+                                Click="LobbySearchGo_Click" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" Margin="0,10,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LobbySummary" FontSize="12" Opacity="0.65"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="LobbyRefreshBtn" Grid.Column="1" Padding="10,4"
+                                loc:Loc.Text="刷新" Click="LobbyRefresh_Click" />
+                    </Grid>
+
+                    <Grid Grid.Row="2">
+                        <!-- 卡片网格：上半 = 封面图，下半 = 房间信息；点卡片加入（弹密码） -->
+                        <GridView x:Name="RoomList" SelectionMode="None"
+                                  IsItemClickEnabled="True" ItemClick="RoomCard_Click">
+                            <GridView.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <ItemsWrapGrid Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </GridView.ItemsPanel>
+                            <GridView.ItemContainerStyle>
+                                <Style TargetType="GridViewItem">
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,0,12,12" />
+                                    <Setter Property="MinWidth" Value="0" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                </Style>
+                            </GridView.ItemContainerStyle>
+                            <GridView.Resources>
+                                <SolidColorBrush x:Key="GridViewItemBackground" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
+                                <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="Transparent" />
+                            </GridView.Resources>
+                            <GridView.ItemTemplate>
+                                <DataTemplate x:DataType="rooms:RoomSummary">
+                                    <Grid Width="248" Height="236" CornerRadius="12"
+                                          Background="{ThemeResource GlassCardBrush}"
+                                          BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                          BorderThickness="1">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="138" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 封面（Border 背景铺图：圆角自动裁剪） -->
+                                        <Border CornerRadius="12,12,0,0"
+                                                Background="{Binding Code, Converter={StaticResource RoomCover}}" />
+                                        <!-- 底部渐隐，压住图与信息区的接缝 -->
+                                        <Border Grid.Row="0" CornerRadius="12,12,0,0" IsHitTestVisible="False">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0.5,0.55" EndPoint="0.5,1">
+                                                    <GradientStop Color="#00000000" Offset="0" />
+                                                    <GradientStop Color="#4D000000" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                        </Border>
+                                        <!-- 封面右上角：锁 / 人数 -->
+                                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                    Margin="0,10,10,0">
+                                            <Border Background="#66000000" CornerRadius="9" Padding="7,2"
+                                                    Visibility="{x:Bind HasPassword}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon FontFamily="{StaticResource ScIconFont}" Glyph="&#xEC9F;"
+                                                              FontSize="10" Foreground="White" />
+                                                    <TextBlock loc:Loc.Text="密码" FontSize="10" Foreground="White" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Background="#66000000" CornerRadius="9" Padding="7,2">
+                                                <TextBlock Text="{x:Bind MembersText}" FontSize="10" Foreground="White" />
+                                            </Border>
+                                        </StackPanel>
+
+                                        <!-- 信息区 -->
+                                        <StackPanel Grid.Row="1" Padding="12,10" Spacing="5">
+                                            <TextBlock Text="{x:Bind Name}" FontSize="14" FontWeight="Medium"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="{x:Bind Code}" FontFamily="Consolas" FontSize="12"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <TextBlock Text="{x:Bind VersionText}" FontSize="12" Opacity="0.7" />
+                                            </StackPanel>
+                                            <TextBlock Text="{x:Bind Owner.DisplayName}" FontSize="11" Opacity="0.6"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </GridView.ItemTemplate>
+                        </GridView>
+
+                        <ctrl:EmptyStateView x:Name="LobbyEmpty" Visibility="Collapsed"
+                                             MinHeight="200" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                             Glyph="&#xEA93;"
+                                             loc:Loc.Title="大厅里还没有房间"
+                                             loc:Loc.ActionText="我去开一个" ActionClick="GoHost_Click" />
+                    </Grid>
+                </Grid>
+
+                <!-- ── 房间 ── -->
+                <Grid x:Name="RoomPanel" Visibility="Collapsed">
+                    <!-- 未进房：两个入口 -->
+                    <Grid x:Name="NoRoomPanel">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Padding="24" CornerRadius="12"
+                                    Background="{ThemeResource GlassCardBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    beh:HoverShadowBehavior.IsEnabled="True"
+                                    beh:HoverShadowBehavior.SurfaceGlow="True"
+                                    Tapped="HostCard_Tapped">
+                                <StackPanel Spacing="8" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <!-- HarmonyOS Symbol 皇冠（SVG，运行时染品牌黄） -->
+                                    <Image ctrl:SvgIcon.Source="host" Width="28" Height="28"
+                                           HorizontalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="我要当房主" FontSize="17" FontWeight="Medium"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="上传整合包、创建房间并自动开房" FontSize="12"
+                                               Opacity="0.65" HorizontalAlignment="Center" TextAlignment="Center"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="1" Padding="24" CornerRadius="12"
+                                    Background="{ThemeResource GlassCardBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    beh:HoverShadowBehavior.IsEnabled="True"
+                                    beh:HoverShadowBehavior.SurfaceGlow="True"
+                                    Tapped="PlayerCard_Tapped">
+                                <StackPanel Spacing="8" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <!-- HarmonyOS Symbol 人+加号（SVG，运行时染品牌黄） -->
+                                    <Image ctrl:SvgIcon.Source="player" Width="28" Height="28"
+                                           HorizontalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="我要当玩家" FontSize="17" FontWeight="Medium"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock loc:Loc.Text="用联机码加入房间，或用陶瓦邀请码直连" FontSize="12"
+                                               Opacity="0.65" HorizontalAlignment="Center" TextAlignment="Center"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Grid>
+
+                    <!-- 已进房：房间头 + 成员 + 聊天 -->
+                    <Grid x:Name="InRoomPanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Background="{ThemeResource GlassCardBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="10" Padding="14,12">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="3">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <TextBlock x:Name="RoomTitle" FontSize="16" FontWeight="Medium" />
+                                        <TextBlock x:Name="RoomCodeText" FontFamily="Consolas" FontSize="13"
+                                                   VerticalAlignment="Center" Opacity="0.75" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="RoomMetaText" FontSize="12" Opacity="0.65" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                            VerticalAlignment="Center">
+                                    <!-- 开始游戏：玩家带房主地址启动（自动进服）；房主提示去游戏里开局域网 -->
+                                    <Button x:Name="StartGameBtn" Padding="14,4" loc:Loc.Text="开始游戏"
+                                            Style="{StaticResource ScAccentButtonStyle}"
+                                            Click="StartGame_Click" />
+                                    <Button x:Name="InviteFriendBtn" Padding="10,4" loc:Loc.Text="邀请好友"
+                                            Click="InviteFriend_Click" />
+                                    <Button x:Name="CopyCodeBtn" Padding="10,4" loc:Loc.Text="复制联机码"
+                                            Click="CopyCode_Click" />
+                                    <Button x:Name="DissolveBtn" Padding="10,4" Visibility="Collapsed"
+                                            loc:Loc.Text="解散房间" Click="Dissolve_Click" />
+                                    <Button x:Name="LeaveBtn" Padding="10,4" loc:Loc.Text="退出房间"
+                                            Click="Leave_Click" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="1" Margin="0,12,0,0" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="200" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 成员：右键头像可加好友 / 房主可踢人 -->
+                            <Border Background="{ThemeResource GlassCardBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="10" Padding="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock x:Name="MemberHeader" FontSize="12" Opacity="0.65"
+                                               Margin="6,2,0,6" />
+                                    <ListView x:Name="MemberList" Grid.Row="1" SelectionMode="None">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="MinHeight" Value="0" />
+                                                <Setter Property="Margin" Value="0,0,0,4" />
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
+                                        <ListView.Resources>
+                                            <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                                            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                                            <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                                            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                        </ListView.Resources>
+                                    </ListView>
+                                </Grid>
+                            </Border>
+
+                            <!-- 临时群聊 -->
+                            <Border Grid.Column="1" Background="{ThemeResource GlassCardBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="10" Padding="10">
+                                <Grid RowSpacing="8">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <ListView x:Name="RoomMessageList" SelectionMode="None">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="MinHeight" Value="0" />
+                                                <Setter Property="Margin" Value="0,0,0,6" />
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
+                                        <ListView.Resources>
+                                            <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                                            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                                            <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                                            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                        </ListView.Resources>
+                                    </ListView>
+                                    <Grid Grid.Row="1" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="RoomInput" Height="36" AcceptsReturn="False"
+                                                 TextWrapping="Wrap" MaxHeight="80"
+                                                 PlaceholderText="说点什么…（Enter 发送，Ctrl+Enter 换行）" />
+                                        <Button Grid.Column="1" Height="36" loc:Loc.Text="发送"
+                                                Style="{StaticResource ScAccentButtonStyle}"
+                                                Click="RoomSend_Click" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Grid>
+
+                <!-- ── 我的 ── -->
+                <ScrollViewer x:Name="MinePanel" Visibility="Collapsed"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="12">
+                        <Border Background="{ThemeResource GlassCardBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="10" Padding="14">
+                            <StackPanel Spacing="8">
+                                <TextBlock loc:Loc.Text="我的房间" FontWeight="Medium" FontSize="13" />
+                                <ListView x:Name="MineList" SelectionMode="None" MaxHeight="220">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="MinHeight" Value="0" />
+                                            <Setter Property="Margin" Value="0,0,0,6" />
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListView.Resources>
+                                        <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+                                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                    </ListView.Resources>
+                                </ListView>
+                                <TextBlock x:Name="MineEmptyText" loc:Loc.Text="还没有开过或加入过房间"
+                                           FontSize="12" Opacity="0.6" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 联机状态面板（仿运行状态页）：核心 / 会话 / 状态 三格实时刷新 + 急停 -->
+                        <Border Background="{ThemeResource GlassCardBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="10" Padding="18,16">
+                            <StackPanel Spacing="14">
+                                <Grid ColumnSpacing="24">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="3">
+                                        <TextBlock loc:Loc.Text="联机核心" FontSize="12" Opacity="0.55" />
+                                        <TextBlock x:Name="MineCoreText" FontSize="17" FontWeight="Medium"
+                                                   loc:Loc.Text="未安装" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                        <TextBlock loc:Loc.Text="核心会话" FontSize="12" Opacity="0.55" />
+                                        <TextBlock x:Name="MineSessionText" FontSize="17" FontWeight="Medium"
+                                                   loc:Loc.Text="未运行" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Spacing="3">
+                                        <TextBlock loc:Loc.Text="当前状态" FontSize="12" Opacity="0.55" />
+                                        <TextBlock x:Name="MinePhaseText" FontSize="17" FontWeight="Medium"
+                                                   loc:Loc.Text="空闲" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock x:Name="MineErrorText" FontSize="12" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                           TextWrapping="Wrap" Visibility="Collapsed" />
+
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="MineKillBtn" Style="{StaticResource ScAccentButtonStyle}"
+                                            Background="{StaticResource DangerBrush}" BorderThickness="0"
+                                            loc:Loc.Text="急停" Padding="22,6" Click="MineKill_Click" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                                               loc:Loc.Text="立即结束联机核心进程并退出当前房间"
+                                               FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
+                                </Grid>
+
+                                <!-- 核心安装：首次进入未安装时提示；重装随时可用（包损坏 / 升级兜底） -->
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="InstallCoreBtn" Style="{StaticResource ScAccentButtonStyle}"
+                                            loc:Loc.Text="安装联机核心" Padding="18,6" Visibility="Collapsed"
+                                            Click="InstallCore_Click" />
+                                    <ctrl:GlowButton Grid.Column="1" x:Name="ReinstallCoreBtn"
+                                                     loc:Loc.Text="重装联机核心" Click="InstallCore_Click" />
+                                    <TextBlock Grid.Column="2" x:Name="CoreHintText" VerticalAlignment="Center"
+                                               FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- 悬浮提示：Z 序在所有控件之上，ShowNotice 5 秒后自动收起 -->
+        <!-- 提示条贴在底部（输入框上方）：原来贴顶会盖住房间卡头部的房间名与状态行，
+             两条文案叠在一起，看起来就是"一直在闪"。 -->
+        <InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True"
+                 HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                 Margin="0,0,0,96" loc:Loc.Title="联机" />
+    </Grid>
+</Page>

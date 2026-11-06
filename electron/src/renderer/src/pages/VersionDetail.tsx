@@ -466,7 +466,7 @@ function UpdatesDialog(props: {
         </>
       }
     >
-      <div style={{ maxHeight: 380, overflowY: 'auto', minWidth: 520 }}>
+      <div style={{ maxHeight: 380, overflowY: 'auto', minWidth: 0 }}>
         {props.updates.map((u) => {
           const isDone = done.includes(u.fileName)
           return (
@@ -551,7 +551,7 @@ function DepsDialog(props: {
         </>
       }
     >
-      <div style={{ maxHeight: 380, overflowY: 'auto', minWidth: 520 }}>
+      <div style={{ maxHeight: 380, overflowY: 'auto', minWidth: 0 }}>
         {clean && (
           <div className="info info-success">
             <IconCheck size={14} />
@@ -692,7 +692,7 @@ function InstanceSettingsDialog(props: {
         </>
       }
     >
-      <div style={{ maxHeight: 460, overflowY: 'auto', minWidth: 520 }}>
+      <div style={{ maxHeight: 460, overflowY: 'auto', minWidth: 0 }}>
         <LabeledSelect
           label="版本隔离"
           value={isolation}
@@ -889,7 +889,7 @@ function SearchInstallDialog(props: {
         </button>
       }
     >
-      <div style={{ minWidth: 640 }}>
+      <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
           <input
             className="input"

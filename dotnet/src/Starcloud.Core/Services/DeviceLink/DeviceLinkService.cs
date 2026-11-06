@@ -18,6 +18,13 @@ public interface IPeerFileSource
 
     /// <summary>尝试从对端获取文件并落到 destFile；失败 / 未命中返回 false（静默回退公网）</summary>
     bool TryProvide(string destFile, string sha1, long size, out string viaPeer);
+
+    /// <summary>
+    /// 异步版的 <see cref="TryProvide"/>。下载管线走这一条：
+    /// 同步版会在调用线程上阻塞等待（建链最坏 9 秒、局域网最坏 22 秒），
+    /// 而下载管线跑在 UI 线程上 —— 阻塞就是界面冻结。
+    /// </summary>
+    Task<bool> TryProvideAsync(string destFile, string sha1, long size, CancellationToken ct = default);
 }
 
 public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPeerFileSource
@@ -183,8 +190,14 @@ public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPee
         Directory.CreateDirectory(Path.GetDirectoryName(tempZip)!);
         await Task.Run(() => ZipFile.CreateFromDirectory(worldDir, tempZip,
             CompressionLevel.Optimal, includeBaseDirectory: false), ct);
-        var sha256 = await Task.Run(() =>
-            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(tempZip))).ToLowerInvariant(), ct);
+        // 流式算哈希：存档 zip 可能有几百 MB，File.ReadAllBytes 会把整份读进内存
+        var sha256 = await Task.Run(async () =>
+        {
+            await using var fs = new FileStream(tempZip, FileMode.Open, FileAccess.Read,
+                FileShare.Read, 1 << 16, useAsync: true);
+            var hash = await SHA256.HashDataAsync(fs, ct).ConfigureAwait(false);
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }, ct).ConfigureAwait(false);
         return new PeerReply(true, new
         {
             size = new FileInfo(tempZip).Length,
@@ -239,7 +252,14 @@ public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPee
 
         // 校验请求体 zip → 冲突改名 → 解压落地
         var tempZip = req.BodyFile;
-        var actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(tempZip))).ToLowerInvariant();
+        // 流式算哈希：存档 zip 可能有几百 MB，File.ReadAllBytes 会把整份读进内存
+        string actual;
+        await using (var fs = new FileStream(tempZip, FileMode.Open, FileAccess.Read,
+                     FileShare.Read, 1 << 16, useAsync: true))
+        {
+            var hash = await SHA256.HashDataAsync(fs).ConfigureAwait(false);
+            actual = Convert.ToHexString(hash).ToLowerInvariant();
+        }
         if (!actual.Equals(req.Str("sha256"), StringComparison.OrdinalIgnoreCase))
             return PeerReply.Fail("zip 校验失败（传输不完整）");
 
@@ -367,17 +387,48 @@ public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPee
     public bool TryProvide(string destFile, string sha1, long size, out string viaPeer)
     {
         viaPeer = "";
+        // 同步外壳：把异步实现搬到一个后台线程上等，调用方（老接口）不受影响
+        var winner = "";
+        var done = new ManualResetEventSlim(false);
+        _ = Task.Run(async () =>
+        {
+            try { winner = await TryProvideCoreAsync(destFile, sha1, size).ConfigureAwait(false); }
+            finally { done.Set(); }
+        });
+        done.Wait(TimeSpan.FromSeconds(24));
+        viaPeer = winner;
+        return winner.Length > 0;
+    }
+
+    /// <summary>异步版（下载管线用这一条：不阻塞调用线程）。</summary>
+    public async Task<bool> TryProvideAsync(string destFile, string sha1, long size,
+        CancellationToken ct = default)
+    {
+        var via = await TryProvideCoreAsync(destFile, sha1, size, ct).ConfigureAwait(false);
+        if (via.Length == 0) return false;
+        Log?.Invoke($"P2P 复用 {Path.GetFileName(destFile)} ← {via}");
+        return true;
+    }
+
+    /// <summary>实际的对端取文件流程（同步与异步两条路共用）。</summary>
+    private async Task<string> TryProvideCoreAsync(string destFile, string sha1, long size,
+        CancellationToken ct = default)
+    {
         var me = _identity.Current;
-        if (me is null || PeerCount == 0) return false;
+        if (me is null || PeerCount == 0) return "";
         var peers = _beacon!.Snapshot();
-        if (peers.Count == 0) return false;
+        if (peers.Count == 0) return "";
 
         var destName = Path.GetFileName(destFile);
         var destDir = Path.GetDirectoryName(destFile)!;
+        // 目标目录可能还不存在（libraries/ 下的库文件就是这种情况）：
+        // 目录不存在时创建临时文件会直接失败，P2P 永远命中不了。
+        try { Directory.CreateDirectory(destDir); } catch { }
         var uid = LinkAuth.UidHash(me.UserId);
         var winner = "";
         var gate = new object();
-        var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        stop.CancelAfter(TimeSpan.FromSeconds(20));
 
         var tasks = peers.Select(peer => Task.Run(async () =>
         {
@@ -422,16 +473,12 @@ public sealed class DeviceLinkService : IAsyncDisposable, IPeerLinkHandler, IPee
             }
         })).ToArray();
 
-        try { Task.WaitAll(tasks, TimeSpan.FromSeconds(22)); } catch { }
+        try { await Task.WhenAll(tasks).ConfigureAwait(false); }
+        catch { /* 单个对端失败不影响整体 */ }
         stop.Cancel();
+        stop.Dispose();
 
-        if (winner.Length > 0)
-        {
-            viaPeer = winner;
-            Log?.Invoke($"P2P 复用 {destName} ← {winner}");
-            return true;
-        }
-        return false;
+        return winner;
     }
 
     public ValueTask DisposeAsync()

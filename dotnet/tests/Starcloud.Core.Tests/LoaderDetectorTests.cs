@@ -80,4 +80,28 @@ public class LoaderDetectorTests
         }
         finally { Directory.Delete(dotMc, true); }
     }
+
+    /// <summary>
+    /// 副本实例（版本名 26.3-2）：JSON 里 id 仍是原版号、没有 inheritsFrom ——
+    /// 这条链一断，下载弹窗的 MC 筛选就是 null，自动补前置会被整段跳过且不报错。
+    /// </summary>
+    [Fact]
+    public void 副本实例_从JSON的id取MC版本()
+    {
+        var dotMc = MakeDotMc();
+        try
+        {
+            WriteVersion(dotMc, "26.3-2", new
+            {
+                id = "26.3",
+                mainClass = "net.fabricmc.loader.impl.launch.knot.KnotClient",
+                libraries = new[] { new { name = "net.fabricmc:fabric-loader:0.16.9" } },
+            });
+
+            var (loader, mc) = LoaderDetector.Detect(dotMc, "26.3-2");
+            Assert.Equal("fabric", loader);
+            Assert.Equal("26.3", mc);
+        }
+        finally { Directory.Delete(dotMc, true); }
+    }
 }

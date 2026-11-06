@@ -7,11 +7,28 @@ import 'package:starcloud_launcher/kernel/paths.dart';
 
 void main() {
   group('三根（§11.1）', () {
+    // 这组用例描述的是 Linux 端的 XDG 语义，但 KernelPaths.linux 是按**宿主平台**
+    // 的分隔符拼路径的（Windows 上是反斜杠）。直接比字符串会在 Windows 上必然对不上，
+    // 所以这里比的是「归一化后是否落在预期的目录结构下」，与平台无关。
+    bool under(String actual, List<String> segments) {
+      final normalized = p.normalize(actual).replaceAll(r'\', '/');
+      return segments.every(
+        (seg) => normalized == '/${segments.join('/')}' ||
+            normalized.endsWith('/${segments.join('/')}'),
+      );
+    }
+
     test('默认落到 XDG 位置（HOME 下）', () {
       final paths = KernelPaths.linux(env: {'HOME': '/home/dev'});
-      expect(paths.configRoot, p.join('/home/dev', '.config', 'starcloud-launcher'));
-      expect(paths.dataRoot, p.join('/home/dev', '.local/share', 'starcloud-launcher'));
-      expect(paths.cacheRoot, p.join('/home/dev', '.cache', 'starcloud-launcher'));
+      expect(under(paths.configRoot, ['home', 'dev', '.config', 'starcloud-launcher']),
+          isTrue,
+          reason: 'configRoot=${paths.configRoot}');
+      expect(under(paths.dataRoot, ['home', 'dev', '.local/share', 'starcloud-launcher']),
+          isTrue,
+          reason: 'dataRoot=${paths.dataRoot}');
+      expect(under(paths.cacheRoot, ['home', 'dev', '.cache', 'starcloud-launcher']),
+          isTrue,
+          reason: 'cacheRoot=${paths.cacheRoot}');
     });
 
     test('XDG_* 环境变量被尊重', () {
@@ -21,9 +38,15 @@ void main() {
         'XDG_DATA_HOME': '/xdg/data',
         'XDG_CACHE_HOME': '/xdg/cache',
       });
-      expect(paths.configRoot, p.join('/xdg/config', 'starcloud-launcher'));
-      expect(paths.dataRoot, p.join('/xdg/data', 'starcloud-launcher'));
-      expect(paths.cacheRoot, p.join('/xdg/cache', 'starcloud-launcher'));
+      expect(under(paths.configRoot, ['xdg', 'config', 'starcloud-launcher']),
+          isTrue,
+          reason: 'configRoot=${paths.configRoot}');
+      expect(under(paths.dataRoot, ['xdg', 'data', 'starcloud-launcher']),
+          isTrue,
+          reason: 'dataRoot=${paths.dataRoot}');
+      expect(under(paths.cacheRoot, ['xdg', 'cache', 'starcloud-launcher']),
+          isTrue,
+          reason: 'cacheRoot=${paths.cacheRoot}');
     });
 
     test('STARCLOUD_* 覆盖优先于 XDG', () {

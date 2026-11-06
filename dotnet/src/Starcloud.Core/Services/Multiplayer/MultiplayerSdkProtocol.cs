@@ -159,10 +159,14 @@ public sealed class MultiplayerSdkProtocol
         VendorUrl = "https://github.com/burningtnt/Terracotta",
         Description = "基于 EasyTier 的 P2P 联机，无需公网 IP 或端口映射，为 Minecraft 优化。",
         Version = "0.4.2",
-        // 国内镜像优先，官方 Releases 兜底（与旧版 Tauri 实现一致）
+        // 国内可达性优先：Gitee → GitHub 镜像代理 → 官方 Releases 兜底。
+        // 单源失败很常见（Gitee 匿名下载偶发要求登录返回 HTML、GitHub 在部分网络不可达），
+        // 多源逐个试 + 下载后校验包魔数，才不会把一个 HTML 登录页当核心包解压。
         DownloadUrls =
         [
             "https://gitee.com/burningtnt/Terracotta/releases/download/v{version}/terracotta-{version}-{platform}-pkg.tar.gz",
+            "https://ghfast.top/https://github.com/burningtnt/Terracotta/releases/download/v{version}/terracotta-{version}-{platform}-pkg.tar.gz",
+            "https://gh-proxy.com/https://github.com/burningtnt/Terracotta/releases/download/v{version}/terracotta-{version}-{platform}-pkg.tar.gz",
             "https://github.com/burningtnt/Terracotta/releases/download/v{version}/terracotta-{version}-{platform}-pkg.tar.gz",
         ],
         ArchiveKind = "tar.gz",

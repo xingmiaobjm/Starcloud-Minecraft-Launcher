@@ -175,10 +175,12 @@ public sealed class EnvironmentCheckService
             }
 
             var required = 8;
+            string? mainClass = null;
             try
             {
                 var version = await _installer.LoadVersionAsync(dotMc, versionId, ct).ConfigureAwait(false);
                 required = JavaRequirement.Resolve(versionId, version.JavaVersion);
+                mainClass = version.MainClass;   // LaunchWrapper 系实例的 Java 上限要靠它判断
             }
             catch { /* 读不到版本 JSON 就按 8 处理 */ }
 
@@ -189,8 +191,40 @@ public sealed class EnvironmentCheckService
                     "未找到匹配的 Java",
                     $"该版本需要 Java {required}，未检测到匹配运行时，将在启动时尝试自动下载", false, null));
             }
+
+            // 上限检查：老版本（尤其配 OptiFine）用新 Java 会直接崩在启动阶段，
+            // 报错是 "Unsupported class file major version" 这种对用户毫无指向性的内容。
+            // 只看下限发现不了，所以这里按实际要用的 Java 再核一次上限。
+            int? actualMajor = null;
+            if (!string.IsNullOrWhiteSpace(options.JavaExecutable) && File.Exists(options.JavaExecutable))
+                actualMajor = (await JavaService.ProbeAsync(options.JavaExecutable, ct).ConfigureAwait(false))?.MajorVersion;
+            actualMajor ??= runtimes.Where(r => r.MajorVersion >= required)
+                .OrderByDescending(r => r.MajorVersion).FirstOrDefault()?.MajorVersion;
+
+            if (actualMajor is { } actual &&
+                JavaRequirement.TooNewWarning(versionId, HasOptiFine(dotMc, versionId), actual, mainClass)
+                    is { } tooNew)
+            {
+                issues.Add(new EnvIssue("java_too_new", EnvLevel.Warn, "Java 版本过高", tooNew, false, null));
+            }
         }
         catch { }
+    }
+
+    /// <summary>实例里是否装了 OptiFine（决定 Java 上限：1.8–1.12 + OptiFine 必须 Java 8）。</summary>
+    private static bool HasOptiFine(string dotMc, string versionId)
+    {
+        try
+        {
+            var dir = Path.Combine(dotMc, "versions", versionId, "mods");
+            if (!Directory.Exists(dir)) return false;
+            return Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly)
+                .Any(f => Path.GetFileName(f).Contains("optifine", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>是否含 CJK/空格以外的非 ASCII 字符</summary>

@@ -1,4 +1,4 @@
-// Nova 动手许可层（设计文档第 4 节）：手动开关默认关闭，
+﻿// Nova 动手许可层（设计文档第 4 节）：手动开关默认关闭，
 // 开启 = 显式授权（开启命令进确认清单）；越界即停的边界写入每档开关描述。
 // 可审计流水（nova_actions）：谁动了、动了什么、何时，全部记录，保证「能动手且每次都能被看到干了啥」。
 
@@ -7,11 +7,31 @@ using System.Text.Json.Serialization;
 
 namespace Starcloud.Core.Services;
 
-/// <summary>单档许可开关（Key: recording）</summary>
+/// <summary>
+/// 许可级别：从关到完全放开四档。
+/// <para>Off = 关；Confirm = 变更前确认（每次动手都先列清单）；Auto = 自主模式（直接执行，
+/// 但仍守代码里的硬边界）；Full = 完全访问（连路径白名单也放开）。</para>
+/// </summary>
+public enum NovaPermissionLevel
+{
+    Off = 0,
+    Confirm = 1,
+    Auto = 2,
+    Full = 3,
+}
+
+/// <summary>单档许可（Key: recording / computer / game），带级别</summary>
 public sealed record NovaPermission(
     [property: JsonPropertyName("key")] string Key,
     [property: JsonPropertyName("on")] bool Enabled,
-    [property: JsonPropertyName("granted_at")] DateTime? GrantedAt = null);
+    [property: JsonPropertyName("granted_at")] DateTime? GrantedAt = null,
+    /// <summary>0=关 1=确认 2=自主 3=完全；旧文件没有这个字段 → 用 on 推断</summary>
+    [property: JsonPropertyName("level")] int Level = -1)
+{
+    public NovaPermissionLevel Resolve() => Level >= 0
+        ? (NovaPermissionLevel)Math.Clamp(Level, 0, 3)
+        : Enabled ? NovaPermissionLevel.Confirm : NovaPermissionLevel.Off;
+}
 
 /// <summary>许可层持久化（%APPDATA%/starcloud-launcher/nova.permissions.json）</summary>
 public sealed class NovaPermissionStore
@@ -19,19 +39,53 @@ public sealed class NovaPermissionStore
     /// <summary>录屏：游戏运行时从显卡缓冲区采集画面并硬件编码落盘，不碰非游戏窗口</summary>
     public const string Recording = "recording";
 
+    /// <summary>操控电脑：移动/点击鼠标、打字、按键、打开网址或本地路径、切窗口</summary>
+    public const string Computer = "computer";
+
+    /// <summary>临时接管游戏：聚焦 Minecraft 窗口后在它的客户区里点击/按键</summary>
+    public const string GameControl = "game";
+
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     private Dictionary<string, NovaPermission> _state = [];
 
     public NovaPermissionStore() => Load();
 
-    /// <summary>查询某档开关状态（默认关闭）</summary>
-    public bool IsOn(string key) => _state.TryGetValue(key, out var p) && p.Enabled;
+    /// <summary>查询某档级别（默认关）</summary>
+    public NovaPermissionLevel Level(string key) =>
+        _state.TryGetValue(key, out var p) ? p.Resolve() : NovaPermissionLevel.Off;
+
+    /// <summary>是否已授权（确认及以上）</summary>
+    public bool IsOn(string key) => Level(key) >= NovaPermissionLevel.Confirm;
+
+    /// <summary>该档是否允许不经确认直接执行（自主及以上）</summary>
+    public bool AllowsAutoRun(string key) => Level(key) >= NovaPermissionLevel.Auto;
+
+    /// <summary>该档是否完全访问（放开路径等硬边界）</summary>
+    public bool IsFullAccess(string key) => Level(key) == NovaPermissionLevel.Full;
+
+    public static string LevelText(NovaPermissionLevel level) => level switch
+    {
+        NovaPermissionLevel.Off => "关闭",
+        NovaPermissionLevel.Confirm => "变更前确认",
+        NovaPermissionLevel.Auto => "自主模式",
+        NovaPermissionLevel.Full => "完全访问",
+        _ => "关闭",
+    };
+
+    /// <summary>设置档位（UI 侧必须先弹确认清单再调用）；写一条许可记录。</summary>
+    public Task SetLevelAsync(string key, NovaPermissionLevel level, NovaActionLog log,
+        CancellationToken ct = default) =>
+        SaveAsync(key, level >= NovaPermissionLevel.Confirm, level, log, ct);
 
     /// <summary>设置开关状态（UI 侧必须先弹确认清单再调用）；写一条许可记录</summary>
-    public async Task SetAsync(string key, bool on, NovaActionLog log, CancellationToken ct = default)
+    public Task SetAsync(string key, bool on, NovaActionLog log, CancellationToken ct = default) =>
+        SaveAsync(key, on, on ? NovaPermissionLevel.Confirm : NovaPermissionLevel.Off, log, ct);
+
+    private async Task SaveAsync(string key, bool on, NovaPermissionLevel level, NovaActionLog log,
+        CancellationToken ct)
     {
-        _state[key] = new NovaPermission(key, on, on ? DateTime.Now : null);
+        _state[key] = new NovaPermission(key, on, on ? DateTime.Now : null, (int)level);
         await Task.Run(() =>
         {
             LauncherPaths.EnsureDataDir();
@@ -41,7 +95,7 @@ public sealed class NovaPermissionStore
         var (title, _) = Describe(key);
         log.Append(new NovaActionEntry(
             Guid.NewGuid().ToString("N")[..12], DateTime.Now, "permission",
-            $"{title} 开关「{(on ? "开启" : "关闭")}」",
+            $"{title}「{LevelText(level)}」",
             on ? "已授权" : "已撤销", "许可层状态变更"));
     }
 
@@ -49,6 +103,12 @@ public sealed class NovaPermissionStore
     public static (string Title, string Boundary) Describe(string key) => key switch
     {
         Recording => ("录屏", "只在游戏运行时从显卡缓冲区采集画面并硬件编码，录到本地磁盘；不碰非游戏窗口"),
+        Computer => ("操控电脑",
+            "会移动鼠标并点击、模拟键盘打字与按键、打开 http/https 网址或本机已存在的文件/目录、切换/最小化/关闭窗口；"
+            + "不注入进程、不装钩子、不读剪贴板或密码；每一步都会先列清单再执行"),
+        GameControl => ("临时接管游戏",
+            "会先把 Minecraft 窗口切到前台，然后在它的窗口内点击与按键（例如点菜单、开背包、按 F3 看坐标）；"
+            + "不会修改游戏文件、不会代替你保存世界；每一步都会先列清单再执行"),
         _ => (key, ""),
     };
 
