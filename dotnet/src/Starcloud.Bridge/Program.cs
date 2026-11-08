@@ -1922,6 +1922,22 @@ public static class Program
                     _settings.DeviceP2PCrossAccount = p2px.GetBoolean();
                 if (p.TryGetProperty("microsoftTokenPersist", out var mtp) && IsBool(mtp))
                     _settings.MicrosoftTokenPersist = mtp.GetBoolean();
+                if (p.TryGetProperty("homeVersionCardMode", out var hvcm) &&
+                    hvcm.ValueKind == JsonValueKind.String)
+                {
+                    var hvcmv = hvcm.GetString() ?? "installed";
+                    if (hvcmv is "installed" or "favorites" or "pinned")
+                        _settings.HomeVersionCardMode = hvcmv;
+                }
+                if (p.TryGetProperty("releaseChannel", out var rch) &&
+                    rch.ValueKind == JsonValueKind.String)
+                {
+                    var chv = rch.GetString() ?? "release";
+                    // 渠道口径与 Win 端一致：正式版 / 公测版 / beta / alpha
+                    // （Linux 设置页只放前两档，但已有 alpha 等旧值不能被 apply 吞掉）
+                    if (chv is "release" or "public-beta" or "beta" or "alpha")
+                        _settings.ReleaseChannel = chv;
+                }
                 if (p.TryGetProperty("autoUpdateEnabled", out var aue) && IsBool(aue))
                     _settings.AutoUpdateEnabled = aue.GetBoolean();
                 if (p.TryGetProperty("updateManifestUrl", out var umu))
@@ -3306,6 +3322,8 @@ public static class Program
         p2pInternetUploadMbps = _settings.P2pInternetUploadMbps,
         deviceP2pCrossAccount = _settings.DeviceP2PCrossAccount,
         microsoftTokenPersist = _settings.MicrosoftTokenPersist,
+        homeVersionCardMode = _settings.HomeVersionCardMode ?? "installed",
+        releaseChannel = _settings.ReleaseChannel ?? "release",
         autoUpdateEnabled = _settings.AutoUpdateEnabled,
         updateManifestUrl = _settings.UpdateManifestUrl ?? "",
     };
@@ -4107,6 +4125,7 @@ public static class Program
             isolated = _settings.VersionIsolated,
             favorite = instances.Get(info.Id).Favorite,
             pinned = instances.Get(info.Id).Pinned,
+            playSeconds = instances.Get(info.Id).PlaySeconds,
             iconPath = instances.Get(info.Id).IconPath ?? "",
         };
     }
