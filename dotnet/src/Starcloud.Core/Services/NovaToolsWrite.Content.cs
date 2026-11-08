@@ -84,10 +84,13 @@ public sealed partial class NovaToolRegistry
             ? await _c.CurseForgePacks!.InstallAsync(path, s, installRoot, null, null, ct)
             : await _c.MrPack!.InstallAsync(path, s, installRoot, null, null, ct);
 
-        var ensured = await EnsureGameAndLoaderAsync(result, gameVersion, ct);
+        var (ensured, installedLoaderId) = await EnsureGameAndLoaderAsync(result, gameVersion, ct);
 
-        // 版本骨架：父版本优先指向刚装好的加载器，否则退回首层原版
-        var parent = LoaderVersionId(gameVersion, result.Dependencies) ?? gameVersion;
+        // 版本骨架：父版本优先指向刚装好的加载器（**实际装出的目录名**，旧版 Forge 安装器
+        // 是 <mc>-Forge<build>-<mc>，拼不出来 —— issue #11），否则模糊匹配，最后退回首层原版
+        var parent = installedLoaderId
+            ?? LoaderVersionId(gameVersion, result.Dependencies)
+            ?? gameVersion;
         var jsonPath = Path.Combine(installRoot, $"{targetId}.json");
         if (!File.Exists(jsonPath) && parent.Length > 0)
             File.WriteAllText(jsonPath,
@@ -102,13 +105,14 @@ public sealed partial class NovaToolRegistry
              + $"，共 {result.DownloadedFiles} 个文件。";
     }
 
-    /// <summary>整合包依赖联动：缺原版就装原版，缺加载器就装加载器</summary>
-    private async Task<string> EnsureGameAndLoaderAsync(
+    /// <summary>整合包依赖联动：缺原版就装原版，缺加载器就装加载器；返回 (摘要, 实际装出的加载器 id)</summary>
+    private async Task<(string Summary, string? LoaderVersionId)> EnsureGameAndLoaderAsync(
         MrPackInstallResult result, string gameVersion, CancellationToken ct)
     {
-        if (gameVersion.Length == 0) return "";
+        if (gameVersion.Length == 0) return ("", null);
         var s = S;
         var parts = new List<string>();
+        string? installedLoaderId = null;
 
         if (!_c.Installer.IsInstalled(s.DotMinecraft, gameVersion))
         {
@@ -139,17 +143,19 @@ public sealed partial class NovaToolRegistry
         }
         if (result.Dependencies.TryGetValue("forge", out var forge) && _c.Forge is not null)
         {
-            await _c.Forge.InstallViaInstallerAsync(
+            var installed = await _c.Forge.InstallViaInstallerAsync(
                 ForgeInstallerService.ForgeInstallerUrl(gameVersion, forge), gameVersion, javaMajor, s, null, ct);
+            installedLoaderId ??= installed;
             parts.Add($"Forge {forge}");
         }
         if (result.Dependencies.TryGetValue("neoforge", out var neo) && _c.Forge is not null)
         {
-            await _c.Forge.InstallViaInstallerAsync(
+            var installed = await _c.Forge.InstallViaInstallerAsync(
                 ForgeInstallerService.NeoForgeInstallerUrl(gameVersion, neo), gameVersion, javaMajor, s, null, ct);
+            installedLoaderId ??= installed;
             parts.Add($"NeoForge {neo}");
         }
-        return string.Join(" + ", parts);
+        return (string.Join(" + ", parts), installedLoaderId);
     }
 
     /// <summary>整合包实例的父版本：找到刚装好的加载器版本 ID</summary>

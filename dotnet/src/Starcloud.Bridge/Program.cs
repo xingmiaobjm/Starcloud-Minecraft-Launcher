@@ -2838,10 +2838,14 @@ public static class Program
                 ModPackFormat.Raw => await InstallPackRawAsync(effective, contentRoot ?? "", installRoot, mcVersion ?? "", progress),
                 _ => await _mrPack.InstallAsync(effective, _settings, installRoot, null, progress),
             };
-            var summary = await EnsurePackGameAndLoaderAsync(result, progress);
+            var (summary, installedLoaderId) = await EnsurePackGameAndLoaderAsync(result, progress);
             if (isolated)
             {
-                var parent = PackLoaderVersionId(_settings.DotMinecraft, result.GameVersion, result.Dependencies)
+                // 骨架父版本用**实际装出的加载器目录名**：旧版 Forge 安装器装出的是
+                // <mc>-Forge<build>-<mc>（如 1.7.10-Forge10.13.4.1614-1.7.10），
+                // 按依赖拼出来的名字对不上（issue #11）
+                var parent = installedLoaderId
+                    ?? PackLoaderVersionId(_settings.DotMinecraft, result.GameVersion, result.Dependencies)
                     ?? result.GameVersion;
                 var jsonPath = Path.Combine(installRoot, $"{targetId}.json");
                 if (!File.Exists(jsonPath) && parent.Length > 0)
@@ -3116,11 +3120,12 @@ public static class Program
     }
 
     /// <summary>按整合包依赖联动安装原版与加载器；返回中文摘要（Win MrPackFlow 同款）。</summary>
-    private static async Task<string> EnsurePackGameAndLoaderAsync(
+    private static async Task<(string Summary, string? LoaderVersionId)> EnsurePackGameAndLoaderAsync(
         MrPackInstallResult result, IProgress<BatchProgress>? progress)
     {
         var game = result.GameVersion;
         var parts = new List<string>();
+        string? installedLoaderId = null;
         if (!string.IsNullOrEmpty(game))
         {
             if (!_installer.IsInstalled(_settings.DotMinecraft, game))
@@ -3151,21 +3156,24 @@ public static class Program
             }
             if (result.Dependencies.TryGetValue("forge", out var forge))
             {
-                await _forge.InstallViaInstallerAsync(
+                // 安装出的真实目录名以返回值为准：旧版 Forge 安装器是 <mc>-Forge<build>-<mc>（issue #11）
+                var installed = await _forge.InstallViaInstallerAsync(
                     ForgeInstallerService.ForgeInstallerUrl(game, forge), game, javaMajor, _settings, progress);
+                installedLoaderId ??= installed;
                 parts.Add($"Forge {forge}");
             }
             if (result.Dependencies.TryGetValue("neoforge", out var neo))
             {
-                await _forge.InstallViaInstallerAsync(
+                var installed = await _forge.InstallViaInstallerAsync(
                     ForgeInstallerService.NeoForgeInstallerUrl(game, neo), game, javaMajor, _settings, progress);
+                installedLoaderId ??= installed;
                 parts.Add($"NeoForge {neo}");
             }
         }
 
-        return parts.Count > 0
+        return (parts.Count > 0
             ? "已联动安装 " + string.Join(" + ", parts)
-            : $"共下载 {result.DownloadedFiles} 个文件";
+            : $"共下载 {result.DownloadedFiles} 个文件", installedLoaderId);
     }
 
     /// <summary>名称冲突时递增 " (n)"。</summary>

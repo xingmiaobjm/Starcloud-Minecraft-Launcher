@@ -856,14 +856,18 @@ public static class ModPackDialogs
                     typedMc, progress),
                 _ => await s.MrPack.InstallAsync(packPath, s.Settings, installRoot, progress: progress),
             };
-            summary = await MrPackFlow.EnsureGameAndLoaderAsync(result, s, progress);
+            (summary, var installedLoaderId) =
+                await MrPackFlow.EnsureGameAndLoaderAsync(result, s, progress);
             if (isolated)
             {
                 // 版本骨架：父版本优先指向联动装好的加载器，否则退回首层原版。
                 // **必须写**：ListInstalled 只认 versions/<id>/<id>.json，缺了文件这个实例
                 // 就"装了但列表里没有"，启动时还会报「版本不存在」（实测踩过）。
                 // 包没声明 MC 版本时（部分 MultiMC/HMCL 包），用预览里嗅出来的版本兜底。
-                var parent = LoaderVersionId(dotMc, result.GameVersion, result.Dependencies)
+                // 加载器 id 用**实际装出的目录名**：旧版 Forge 安装器是
+                // <mc>-Forge<build>-<mc>，按依赖拼的名字对不上（issue #11）
+                var parent = installedLoaderId
+                    ?? LoaderVersionId(dotMc, result.GameVersion, result.Dependencies)
                     ?? (string.IsNullOrEmpty(result.GameVersion) ? preview.GameVersion : result.GameVersion);
                 var jsonPath = Path.Combine(installRoot, $"{targetId}.json");
                 if (!File.Exists(jsonPath))
