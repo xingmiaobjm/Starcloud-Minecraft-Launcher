@@ -1,7 +1,12 @@
-﻿// Forge / NeoForge 支持：构建列表查询 + 官方安装器静默运行（java -jar installer --installClient）
+﻿// Forge / NeoForge 支持：构建列表查询 + 官方安装器静默运行。
+// 安装器分两代：新版（1.12.2 新构建 / 1.13+）跑 --installClient；
+// 旧版（1.7.10 等老构建，GTNH 整合包全部命中）不认识 CLI 参数（issue #11），
+// 读 install_profile.json 判格式后解包手工安装（InstallLegacyForge）。
 
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Starcloud.Core.Services;
 
@@ -250,8 +255,6 @@ public sealed class ForgeInstallerService
         // 安装前的版本目录快照：装完对比出新增的那个，就能拿到真实 id
         var versionsDir = Path.Combine(settings.DotMinecraft, "versions");
         var before = SnapshotVersions(versionsDir);
-        // 1. 确定可用的 Java（不满足则自动下载 Adoptium 运行时）
-        var javaExe = await EnsureJavaAsync(requiredJavaMajor, progress, ct);
 
         // 2. 下载安装器。旧版 Forge 的 maven 坐标有两种写法（两段 / 三段且末尾重复 MC 版本），
         // 具体用哪种取决于该构建发布时的命名，没有可靠规律可循（实测 1.8.9 要三段、1.8 要两段），
@@ -288,6 +291,17 @@ public sealed class ForgeInstallerService
             throw new InvalidOperationException(
                 $"下载 Forge 安装器失败：{lastDownloadError?.Message ?? "所有候选地址都不可用"}"
                 + $"（已尝试 {candidates.Count} 种坐标）", lastDownloadError);
+
+        // 2.5 分格式：新版安装器（1.12.2 新构建 / 1.13+）认识 --installClient；
+        // 旧版安装器（1.7.10 这类 2016 年产物，GTNH 整合包全部命中）只有 install+versionInfo
+        // 两个字段，跑 --installClient 直接抛 joptsimple.UnrecognizedOptionException
+        //（issue #11）。旧版走解包手工安装，HMCL 的 LegacyForgeInstallTask 同思路。
+        var legacy = TryReadLegacyForgeProfile(installerPath);
+        if (legacy is { } profile)
+            return InstallLegacyForge(installerPath, profile, settings, progress);
+
+        // 1. 确定可用的 Java（不满足则自动下载 Adoptium 运行时）——旧版手工安装不需要 Java
+        var javaExe = await EnsureJavaAsync(requiredJavaMajor, progress, ct);
 
         // Forge 官方安装器会先读游戏目录里的 launcher_profiles.json，缺了就直接报
         // “There is no minecraft launcher profile...” 并退出码 1。PCL/HMCL 都在跑安装器前
@@ -383,6 +397,143 @@ public sealed class ForgeInstallerService
         {
             return [];
         }
+    }
+
+    // ── 旧版安装器（issue #11：1.7.10 等老构建不认识 --installClient） ──
+
+    /// <summary>旧版 install_profile.json 的关键字段（top keys 只有 install + versionInfo）。</summary>
+    internal sealed record LegacyForgeProfile(
+        string FilePath,      // 内嵌 universal jar 在安装器里的名字（install.filePath）
+        string MavenCoord,    // maven 坐标（install.path，决定 universal 落到 libraries 的哪一格）
+        string Minecraft,     // install.minecraft（父版本）
+        string VersionId);    // versionInfo.id（版本目录名）
+
+    /// <summary>
+    /// 读取安装器里的 install_profile.json，判断是不是旧版格式。
+    /// <para>新版（1.12.2 新构建 / 1.13+）带 <c>processors</c>，versionInfo 是 jar 内的 json 路径；
+    /// 旧版的 versionInfo 是**内嵌对象**，且没有 processors —— 这是两种格式最稳的分界。
+    /// 读不出来（文件损坏 / 不是 forge 安装器）返回 null，按新版走。</para>
+    /// </summary>
+    internal static LegacyForgeProfile? TryReadLegacyForgeProfile(string installerPath)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(installerPath);
+            var entry = zip.Entries.FirstOrDefault(e =>
+                e.FullName.Replace('\\', '/').Equals("install_profile.json", StringComparison.OrdinalIgnoreCase));
+            if (entry is null) return null;
+            using var stream = entry.Open();
+            using var doc = JsonDocument.Parse(stream);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("versionInfo", out var versionInfo) ||
+                versionInfo.ValueKind != JsonValueKind.Object) return null;   // 新版是字符串路径
+            if (root.TryGetProperty("processors", out _)) return null;        // 新版有处理器清单
+
+            var install = root.GetProperty("install");
+            var versionId = versionInfo.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            var filePath = install.TryGetProperty("filePath", out var fpEl) ? fpEl.GetString() : null;
+            var coord = install.TryGetProperty("path", out var pathEl) ? pathEl.GetString() : null;
+            if (string.IsNullOrEmpty(versionId) || string.IsNullOrEmpty(filePath) || string.IsNullOrEmpty(coord))
+            {
+                LauncherLog.Write("forge", "install_profile.json 缺少 install.filePath / install.path / versionInfo.id，按新版安装器处理");
+                return null;
+            }
+            var mc = install.TryGetProperty("minecraft", out var mcEl) ? mcEl.GetString() : null;
+            return new LegacyForgeProfile(filePath!, coord!, mc ?? "", versionId!);
+        }
+        catch (Exception ex)
+        {
+            // 读不出 profile：不拦，按新版安装器走（跑一次 --installClient 自然给出真实错误）
+            LauncherLog.Write("forge", $"读取 install_profile.json 失败（按新版安装器处理）：{ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 旧版安装器手工安装（HMCL LegacyForgeInstallTask 同思路）：
+    /// ① 内嵌 universal jar 按 maven 坐标落进 libraries；
+    /// ② versionInfo 原样写成 versions/&lt;id&gt;/&lt;id&gt;.json（缺 inheritsFrom 时补上，
+    ///    本启动器的多层合并靠它指向原版）。
+    /// 不需要 Java、不需要 launcher_profiles.json；库文件的补齐交给启动前置（LaunchPreflightService）。
+    /// </summary>
+    private string InstallLegacyForge(
+        string installerPath, LegacyForgeProfile profile,
+        LauncherSettings settings, IProgress<BatchProgress>? progress)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var versionId = profile.VersionId;
+        var versionDir = Path.Combine(settings.DotMinecraft, "versions", versionId);
+        Report(progress, "旧版 Forge 安装器：解包安装（无需运行安装程序）…");
+        LauncherLog.Write("forge",
+            $"旧版安装器（install_profile 无 processors）：解包安装 {versionId}"
+            + $"（universal {profile.FilePath} → {profile.MavenCoord}）");
+
+        try
+        {
+            Directory.CreateDirectory(versionDir);
+
+            // ① universal jar → libraries/&lt;group 路径&gt;/&lt;artifact&gt;/&lt;version&gt;/&lt;filePath&gt;
+            var libPath = MavenArtifactPath(settings.DotMinecraft, profile.MavenCoord, profile.FilePath);
+            using (var zip = ZipFile.OpenRead(installerPath))
+            {
+                var entry = zip.Entries.FirstOrDefault(e =>
+                                e.FullName.Replace('\\', '/').Equals(profile.FilePath, StringComparison.OrdinalIgnoreCase))
+                            ?? zip.Entries.FirstOrDefault(e =>
+                                e.FullName.Replace('\\', '/').EndsWith("/" + profile.FilePath, StringComparison.OrdinalIgnoreCase))
+                            ?? throw new InvalidOperationException($"旧版安装器里找不到 {profile.FilePath}");
+                Directory.CreateDirectory(Path.GetDirectoryName(libPath)!);
+                entry.ExtractToFile(libPath, overwrite: true);
+            }
+            LauncherLog.Write("forge", $"universal jar 已落库：{libPath}");
+
+            // ② versionInfo → 版本 JSON。原样保留字段（minecraftArguments / libraries 都在里面），
+            //    只在缺 inheritsFrom 时补一层（1.6 以前的 profile 没有这个字段）。
+            using (var zip = ZipFile.OpenRead(installerPath))
+            {
+                var entry = zip.Entries.FirstOrDefault(e =>
+                    e.FullName.Replace('\\', '/').Equals("install_profile.json", StringComparison.OrdinalIgnoreCase))!;
+                using var stream = entry.Open();
+                using var rawDoc = JsonDocument.Parse(stream);
+                var node = System.Text.Json.Nodes.JsonNode.Parse(rawDoc.RootElement.GetRawText())!;
+                var versionInfo = node["versionInfo"]!;
+                if (versionInfo["inheritsFrom"] is null && profile.Minecraft.Length > 0)
+                    versionInfo["inheritsFrom"] = profile.Minecraft;
+                if (versionInfo["id"] is null)
+                    versionInfo["id"] = versionId;
+                var jsonPath = Path.Combine(versionDir, $"{versionId}.json");
+                File.WriteAllText(jsonPath, versionInfo.ToJsonString(
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }));
+                LauncherLog.Write("forge", $"版本 JSON 已写入：{jsonPath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // 半成品清理：版本目录里有 json 有 jar 才会被列表扫到，残缺的留着就是坏版本
+            try { if (Directory.Exists(versionDir)) Directory.Delete(versionDir, recursive: true); } catch { }
+            throw new InvalidOperationException($"旧版 Forge 安装器解包安装失败：{ex.Message}", ex);
+        }
+
+        sw.Stop();
+        Report(null, $"Forge {versionId} 安装完成");
+        LauncherLog.Write("forge", $"旧版 Forge 安装完成：{versionId}，共 {sw.Elapsed.TotalSeconds:F1}s");
+        // 原版只在列表里隐藏、不删文件（同新版路径的收尾）
+        if (profile.Minecraft.Length > 0)
+            VersionVisibility.MarkDependency(settings.DotMinecraft, profile.Minecraft);
+        return versionId;
+    }
+
+    /// <summary>maven 坐标 → 游戏目录 libraries 下的实际路径（group 点分层级）。</summary>
+    internal static string MavenArtifactPath(string dotMinecraft, string coord, string fileName)
+    {
+        var parts = coord.Split(':');
+        if (parts.Length < 3)
+            throw new InvalidOperationException($"maven 坐标不合法：{coord}");
+        var group = parts[0].Replace('.', Path.DirectorySeparatorChar);
+        return Path.Combine(dotMinecraft, "libraries", group, parts[1], parts[2], fileName);
     }
 
     /// <summary>
