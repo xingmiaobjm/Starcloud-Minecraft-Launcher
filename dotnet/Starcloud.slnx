@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Starcloud.App/Starcloud.App.csproj" />
+    <Project Path="src/Starcloud.Bridge/Starcloud.Bridge.csproj" />
     <Project Path="src/Starcloud.Core/Starcloud.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
